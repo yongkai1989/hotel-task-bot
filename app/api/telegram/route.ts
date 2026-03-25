@@ -144,7 +144,7 @@ async function updateTaskStatus(params: {
   if (!params.replyToMessageId) {
     await telegram('sendMessage', {
       chat_id: params.chatId,
-      text: 'Reply directly to the task card when using /doing, /pending, or /done.'
+      text: 'Reply directly to the task card.'
     });
     return;
   }
@@ -156,15 +156,9 @@ async function updateTaskStatus(params: {
     .eq('telegram_message_id', params.replyToMessageId)
     .maybeSingle();
 
-  if (!mapping?.task_id) {
-    await telegram('sendMessage', {
-      chat_id: params.chatId,
-      text: 'Task not found. Please reply directly to the correct task message.'
-    });
-    return;
-  }
+  if (!mapping?.task_id) return;
 
-  const updateData: Record<string, any> = {
+  const updateData: any = {
     status: params.command,
     updated_at: new Date().toISOString(),
     last_updated_by_name: params.userName,
@@ -173,38 +167,20 @@ async function updateTaskStatus(params: {
 
   if (params.command === 'DONE') {
     updateData.done_at = new Date().toISOString();
-    updateData.done_by_name = params.userName;
+    updateData.done_by_name = params.userName;   // 🔥 THIS IS THE KEY
     updateData.done_by_telegram_user_id = params.userId;
-  } else {
-    updateData.done_at = null;
-    updateData.done_by_name = null;
-    updateData.done_by_telegram_user_id = null;
   }
 
-  const { data: task, error } = await supabase
+  const { data: task } = await supabase
     .from('tasks')
     .update(updateData)
     .eq('id', mapping.task_id)
     .select()
     .single();
 
-  if (error) throw error;
-
-  await supabase.from('task_events').insert({
-    task_id: task.id,
-    event_type: params.command,
-    event_text: `Status changed to ${params.command} by ${params.userName}`,
-    telegram_update_id: params.updateId,
-    actor_user_id: params.userId,
-    actor_name: params.userName
-  });
-
   await telegram('sendMessage', {
     chat_id: params.chatId,
-    text:
-      params.command === 'DONE'
-        ? `Task ${task.task_code} DONE by ${params.userName}`
-        : `Task ${task.task_code} ${params.command} by ${params.userName}`
+    text: `Task ${task.task_code} DONE by ${params.userName}`
   });
 }
 
