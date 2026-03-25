@@ -185,6 +185,17 @@ export default function DashboardPage() {
               <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
                 {new Date(task.created_at).toLocaleString()}
               </div>
+              {task.status === 'DONE' && task.done_by_name ? (
+  <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>
+    Done by: {task.done_by_name}
+  </div>
+) : null}
+
+{task.last_updated_by_name ? (
+  <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+    Last updated by: {task.last_updated_by_name}
+  </div>
+) : null}
 
               <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                 <button
