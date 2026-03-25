@@ -10,6 +10,7 @@ type Task = {
   task_text: string;
   status: 'OPEN' | 'IN_PROGRESS' | 'PENDING' | 'DONE';
   created_at: string;
+
   done_by_name?: string | null;
   last_updated_by_name?: string | null;
   done_at?: string | null;
