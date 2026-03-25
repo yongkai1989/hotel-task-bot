@@ -25,7 +25,7 @@ export default function DashboardPage() {
 
   async function loadTasks() {
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await fetch(`/api/tasks?t=${Date.now()}`, {
         method: 'GET',
         cache: 'no-store'
       });
@@ -46,9 +46,18 @@ export default function DashboardPage() {
   }
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
+    const oldTasks = tasks;
+
     try {
       setBusyTaskId(taskId);
       setErrorMsg('');
+
+      // Optimistic update
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, status: nextStatus } : task
+        )
+      );
 
       const res = await fetch('/api/task-status', {
         method: 'POST',
@@ -63,20 +72,12 @@ export default function DashboardPage() {
         throw new Error(json?.error || 'Failed to update task');
       }
 
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                status: json.task.status,
-                created_at: json.task.created_at ?? task.created_at
-              }
-            : task
-        )
-      );
-
-      await loadTasks();
+      // Refresh from DB after success, bypassing cache
+      setTimeout(() => {
+        loadTasks();
+      }, 300);
     } catch (err: any) {
+      setTasks(oldTasks);
       setErrorMsg(err?.message || 'Failed to update task');
       alert(err?.message || 'Failed to update task');
     } finally {
