@@ -223,7 +223,9 @@ export async function POST(req: NextRequest) {
     const chatId = Number(msg.chat?.id);
     const userId = msg.from?.id ? Number(msg.from.id) : null;
     const userName =
-      [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
+  msg.from?.username
+    ? `@${msg.from.username}`
+    : [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
     const messageId = Number(msg.message_id);
     const text = String(msg.text || '').trim();
 
