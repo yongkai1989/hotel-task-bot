@@ -13,18 +13,7 @@ type Task = {
   done_by_name?: string | null;
   last_updated_by_name?: string | null;
   done_at?: string | null;
-  {task.status === 'DONE' && task.done_by_name ? (
-  <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>
-    Done by: {task.done_by_name}
-  </div>
-) : null}
-{task.last_updated_by_name ? (
-  <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-    Last updated by: {task.last_updated_by_name}
-  </div>
-) : null}
 };
-
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const statuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'PENDING', 'DONE'] as const;
 
