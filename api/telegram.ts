@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
+type Dept = 'HK' | 'MT' | 'FO';
+type ParsedInput =
+  | { ok: false }
+  | { ok: true; room: string; dept: ''; task: string }
+  | { ok: true; room: string; dept: Dept; task: string };
+
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -15,10 +21,11 @@ async function telegram(method: string, body: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+
   return res.json();
 }
 
-function normalizeDept(value: string): '' | 'HK' | 'MT' | 'FO' {
+function normalizeDept(value: string): '' | Dept {
   const v = String(value || '').trim().toUpperCase();
   if (v === 'HK' || v === 'H') return 'HK';
   if (v === 'MT' || v === 'M') return 'MT';
@@ -26,18 +33,17 @@ function normalizeDept(value: string): '' | 'HK' | 'MT' | 'FO' {
   return '';
 }
 
-function isDeptOnly(text: string) {
-  return ['HK', 'MT', 'FO', 'H', 'M', 'F'].includes(String(text || '').trim().toUpperCase());
+function isDeptOnly(text: string): boolean {
+  return ['HK', 'MT', 'FO', 'H', 'M', 'F'].includes(
+    String(text || '').trim().toUpperCase()
+  );
 }
 
-function isValidRoom(room: string) {
+function isValidRoom(room: string): boolean {
   return /^\d{3,5}$/.test(String(room || '').trim());
 }
 
-function parseInput(text: string):
-  | { ok: false }
-  | { ok: true; room: string; dept: ''; task: string }
-  | { ok: true; room: string; dept: 'HK' | 'MT' | 'FO'; task: string } {
+function parseInput(text: string): ParsedInput {
   const cleaned = String(text || '').trim().replace(/\s+/g, ' ');
   const tokens = cleaned.split(' ').filter(Boolean);
 
@@ -65,7 +71,7 @@ async function createTask(params: {
   userId: number | null;
   userName: string;
   room: string;
-  department: 'HK' | 'MT' | 'FO';
+  department: Dept;
   taskText: string;
   updateId: number;
 }) {
@@ -157,7 +163,7 @@ async function updateTaskStatus(params: {
     return;
   }
 
-  const updateData: any = {
+  const updateData: Record<string, any> = {
     status: params.command,
     updated_at: new Date().toISOString()
   };
@@ -190,13 +196,23 @@ async function updateTaskStatus(params: {
   });
 }
 
+function getSecretPathFromReq(req: any): string | null {
+  try {
+    const url = new URL(req.url, 'https://dummy.local');
+    return url.searchParams.get('path');
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(req: any, res: any) {
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ ok: false });
     }
 
-    if (!req.url.includes(SECRET_PATH)) {
+    const secretPath = getSecretPathFromReq(req);
+    if (secretPath !== SECRET_PATH) {
       return res.status(403).json({ ok: false });
     }
 
@@ -210,7 +226,8 @@ export default async function handler(req: any, res: any) {
 
     const chatId = Number(msg.chat?.id);
     const userId = msg.from?.id ? Number(msg.from.id) : null;
-    const userName = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
+    const userName =
+      [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
     const messageId = Number(msg.message_id);
     const text = String(msg.text || '').trim();
 
@@ -218,7 +235,6 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, ignored: 'OTHER_CHAT' });
     }
 
-    // idempotent insert
     const { error: insertUpdateError } = await supabase
       .from('telegram_updates')
       .insert({
@@ -231,9 +247,8 @@ export default async function handler(req: any, res: any) {
       });
 
     if (insertUpdateError) {
-      // duplicate update_id = already processed or already received
-      if (String(insertUpdateError.message).toLowerCase().includes('duplicate') ||
-          String(insertUpdateError.message).toLowerCase().includes('unique')) {
+      const msgText = String(insertUpdateError.message || '').toLowerCase();
+      if (msgText.includes('duplicate') || msgText.includes('unique')) {
         return res.status(200).json({ ok: true, duplicate: true });
       }
       throw insertUpdateError;
@@ -242,7 +257,7 @@ export default async function handler(req: any, res: any) {
     const lower = text.toLowerCase();
 
     if (lower === '/doing' || lower === '/pending' || lower === '/done') {
-      const command =
+      const command: 'IN_PROGRESS' | 'PENDING' | 'DONE' =
         lower === '/doing' ? 'IN_PROGRESS' :
         lower === '/pending' ? 'PENDING' :
         'DONE';
@@ -272,7 +287,7 @@ export default async function handler(req: any, res: any) {
         userId,
         userName,
         room: parsed.room,
-        department: parsed.dept,
+        department: parsed.dept as Dept,
         taskText: parsed.task,
         updateId
       });
@@ -300,21 +315,29 @@ export default async function handler(req: any, res: any) {
         .maybeSingle();
 
       if (pending) {
-        await createTask({
-          chatId,
-          userId,
-          userName,
-          room: pending.room,
-          department: normalizeDept(text) as 'HK' | 'MT' | 'FO',
-          taskText: pending.task_text,
-          updateId
-        });
+        const pendingDept = normalizeDept(text);
+        if (!pendingDept) {
+          await telegram('sendMessage', {
+            chat_id: chatId,
+            text: 'Invalid department. Reply only: hk, mt, or fo'
+          });
+        } else {
+          await createTask({
+            chatId,
+            userId,
+            userName,
+            room: pending.room,
+            department: pendingDept,
+            taskText: pending.task_text,
+            updateId
+          });
 
-        await supabase
-          .from('pending_inputs')
-          .delete()
-          .eq('chat_id', chatId)
-          .eq('user_id', userId);
+          await supabase
+            .from('pending_inputs')
+            .delete()
+            .eq('chat_id', chatId)
+            .eq('user_id', userId);
+        }
       } else {
         await telegram('sendMessage', {
           chat_id: chatId,
@@ -333,12 +356,15 @@ export default async function handler(req: any, res: any) {
     if (parsed.ok && !parsed.dept) {
       await supabase
         .from('pending_inputs')
-        .upsert({
-          chat_id: chatId,
-          user_id: userId!,
-          room: parsed.room,
-          task_text: parsed.task
-        }, { onConflict: 'chat_id,user_id' });
+        .upsert(
+          {
+            chat_id: chatId,
+            user_id: userId!,
+            room: parsed.room,
+            task_text: parsed.task
+          },
+          { onConflict: 'chat_id,user_id' }
+        );
 
       await telegram('sendMessage', {
         chat_id: chatId,
@@ -367,7 +393,6 @@ export default async function handler(req: any, res: any) {
       .eq('update_id', updateId);
 
     return res.status(200).json({ ok: true });
-
   } catch (error: any) {
     console.error(error);
     return res.status(500).json({ ok: false, error: error?.message || 'Unknown error' });
