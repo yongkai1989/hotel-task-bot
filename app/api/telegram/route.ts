@@ -166,11 +166,19 @@ async function updateTaskStatus(params: {
 
   const updateData: Record<string, any> = {
     status: params.command,
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
+    last_updated_by_telegram_user_id: params.userId,
+    last_updated_by_name: params.userName
   };
 
   if (params.command === 'DONE') {
     updateData.done_at = new Date().toISOString();
+    updateData.done_by_telegram_user_id = params.userId;
+    updateData.done_by_name = params.userName;
+  } else {
+    updateData.done_at = null;
+    updateData.done_by_telegram_user_id = null;
+    updateData.done_by_name = null;
   }
 
   const { data: task, error } = await supabase
@@ -185,7 +193,7 @@ async function updateTaskStatus(params: {
   await supabase.from('task_events').insert({
     task_id: task.id,
     event_type: params.command,
-    event_text: `Status changed to ${params.command}`,
+    event_text: `Status changed to ${params.command} by ${params.userName}`,
     telegram_update_id: params.updateId,
     actor_user_id: params.userId,
     actor_name: params.userName
@@ -193,7 +201,7 @@ async function updateTaskStatus(params: {
 
   await telegram('sendMessage', {
     chat_id: params.chatId,
-    text: `Task ${task.task_code} ${params.command === 'DONE' ? 'DONE' : params.command}`
+    text: `Task ${task.task_code} ${params.command === 'DONE' ? `DONE by ${params.userName}` : `${params.command} by ${params.userName}`}`
   });
 }
 
