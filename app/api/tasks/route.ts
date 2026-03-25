@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('tasks')
@@ -14,5 +16,5 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ ok: true, tasks: data });
+  return NextResponse.json({ ok: true, tasks: data || [] });
 }
