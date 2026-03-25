@@ -1,14 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
+export const dynamic = 'force-dynamic';
+
+const ALLOWED_STATUSES = ['OPEN', 'IN_PROGRESS', 'PENDING', 'DONE'] as const;
+type AllowedStatus = (typeof ALLOWED_STATUSES)[number];
+
+function isAllowedStatus(value: string): value is AllowedStatus {
+  return ALLOWED_STATUSES.includes(value as AllowedStatus);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { taskId, status } = body;
+    const taskId = String(body?.taskId || '').trim();
+    const status = String(body?.status || '').trim().toUpperCase();
 
     if (!taskId || !status) {
       return NextResponse.json(
         { ok: false, error: 'Missing taskId or status' },
+        { status: 400 }
+      );
+    }
+
+    if (!isAllowedStatus(status)) {
+      return NextResponse.json(
+        { ok: false, error: `Invalid status: ${status}` },
         { status: 400 }
       );
     }
@@ -20,6 +37,8 @@ export async function POST(req: NextRequest) {
 
     if (status === 'DONE') {
       updateData.done_at = new Date().toISOString();
+    } else {
+      updateData.done_at = null;
     }
 
     const { data, error } = await supabaseAdmin
@@ -46,7 +65,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, task: data });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e.message || 'Unknown error' },
+      { ok: false, error: e?.message || 'Unknown error' },
       { status: 500 }
     );
   }
