@@ -34,15 +34,20 @@ function isValidRoom(room: string) {
   return /^\d{3,5}$/.test(String(room || '').trim());
 }
 
-function parseInput(text: string) {
+function parseInput(text: string):
+  | { ok: false }
+  | { ok: true; room: string; dept: ''; task: string }
+  | { ok: true; room: string; dept: 'HK' | 'MT' | 'FO'; task: string } {
   const cleaned = String(text || '').trim().replace(/\s+/g, ' ');
   const tokens = cleaned.split(' ').filter(Boolean);
+
   if (tokens.length < 2) return { ok: false };
 
   const room = tokens[0];
   if (!isValidRoom(room)) return { ok: false };
 
   const dept = normalizeDept(tokens[1]);
+
   if (dept) {
     const task = tokens.slice(2).join(' ').trim();
     if (!task) return { ok: false };
@@ -51,6 +56,7 @@ function parseInput(text: string) {
 
   const task = tokens.slice(1).join(' ').trim();
   if (!task) return { ok: false };
+
   return { ok: true, room, dept: '', task };
 }
 
