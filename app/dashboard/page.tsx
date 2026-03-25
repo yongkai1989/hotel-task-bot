@@ -14,6 +14,7 @@ type Task = {
   done_by_name?: string | null;
   last_updated_by_name?: string | null;
 };
+
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const statuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'PENDING', 'DONE'] as const;
 
@@ -54,7 +55,6 @@ export default function DashboardPage() {
       setBusyTaskId(taskId);
       setErrorMsg('');
 
-      // Optimistic update
       setTasks((prev) =>
         prev.map((task) =>
           task.id === taskId ? { ...task, status: nextStatus } : task
@@ -74,7 +74,6 @@ export default function DashboardPage() {
         throw new Error(json?.error || 'Failed to update task');
       }
 
-      // Refresh from DB after success, bypassing cache
       setTimeout(() => {
         loadTasks();
       }, 300);
@@ -130,14 +129,29 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: 10,
+          marginBottom: 16
+        }}
+      >
         <Card title="Open" value={summary.open} />
         <Card title="Doing" value={summary.doing} />
         <Card title="Pending" value={summary.pending} />
         <Card title="Done" value={summary.done} />
       </div>
 
-      <div style={{ marginBottom: 12, display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
+      <div
+        style={{
+          marginBottom: 12,
+          display: 'flex',
+          gap: 8,
+          overflowX: 'auto',
+          paddingBottom: 6
+        }}
+      >
         {departments.map((d) => (
           <button key={d} onClick={() => setDept(d)} style={pillStyle(dept === d)}>
             {d}
@@ -145,7 +159,15 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div style={{ marginBottom: 16, display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          gap: 8,
+          overflowX: 'auto',
+          paddingBottom: 6
+        }}
+      >
         {statuses.map((s) => (
           <button key={s} onClick={() => setStatus(s)} style={pillStyle(status === s)}>
             {s}
@@ -182,20 +204,26 @@ export default function DashboardPage() {
               <div style={{ marginTop: 8, fontSize: 15 }}>{task.task_text}</div>
 
               <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-  Created: {new Date(task.created_at).toLocaleString()}
-</div>
+                Created: {new Date(task.created_at).toLocaleString()}
+              </div>
 
-{task.status === 'DONE' && task.done_at ? (
-  <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-    Completed: {new Date(task.done_at).toLocaleString()}
-  </div>
-) : null}
+              {task.status === 'DONE' && task.done_at ? (
+                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                  Completed: {new Date(task.done_at).toLocaleString()}
+                </div>
+              ) : null}
 
-{task.status === 'DONE' && task.done_by_name ? (
-  <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-    Done by: {task.done_by_name}
-  </div>
-) : null}
+              {task.status === 'DONE' && task.done_by_name ? (
+                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                  Done by: {task.done_by_name}
+                </div>
+              ) : null}
+
+              {task.status !== 'DONE' && task.last_updated_by_name ? (
+                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                  Last updated by: {task.last_updated_by_name}
+                </div>
+              ) : null}
 
               <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                 <button
@@ -229,7 +257,9 @@ export default function DashboardPage() {
               </div>
 
               {busyTaskId === task.id ? (
-                <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>Updating...</div>
+                <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
+                  Updating...
+                </div>
               ) : null}
             </div>
           ))}
