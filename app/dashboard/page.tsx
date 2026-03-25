@@ -182,17 +182,18 @@ export default function DashboardPage() {
               <div style={{ marginTop: 8, fontSize: 15 }}>{task.task_text}</div>
 
               <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                {new Date(task.created_at).toLocaleString()}
-              </div>
-              {task.status === 'DONE' && task.done_by_name ? (
-  <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>
-    Done by: {task.done_by_name}
+  Created: {new Date(task.created_at).toLocaleString()}
+</div>
+
+{task.status === 'DONE' && task.done_at ? (
+  <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+    Completed: {new Date(task.done_at).toLocaleString()}
   </div>
 ) : null}
 
-{task.last_updated_by_name ? (
+{task.status === 'DONE' && task.done_by_name ? (
   <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-    Last updated by: {task.last_updated_by_name}
+    Done by: {task.done_by_name}
   </div>
 ) : null}
 
