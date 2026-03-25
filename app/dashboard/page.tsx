@@ -20,21 +20,68 @@ export default function DashboardPage() {
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
   const [status, setStatus] = useState<(typeof statuses)[number]>('ALL');
   const [loading, setLoading] = useState(true);
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
   async function loadTasks() {
-    const res = await fetch('/api/tasks', { cache: 'no-store' });
-    const json = await res.json();
-    if (json.ok) setTasks(json.tasks || []);
-    setLoading(false);
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'GET',
+        cache: 'no-store'
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || 'Failed to load tasks');
+      }
+
+      setTasks(json.tasks || []);
+      setErrorMsg('');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to load tasks');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
-    await fetch('/api/task-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, status: nextStatus })
-    });
-    await loadTasks();
+    try {
+      setBusyTaskId(taskId);
+      setErrorMsg('');
+
+      const res = await fetch('/api/task-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ taskId, status: nextStatus })
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || 'Failed to update task');
+      }
+
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                status: json.task.status,
+                created_at: json.task.created_at ?? task.created_at
+              }
+            : task
+        )
+      );
+
+      await loadTasks();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update task');
+      alert(err?.message || 'Failed to update task');
+    } finally {
+      setBusyTaskId(null);
+    }
   }
 
   useEffect(() => {
@@ -64,6 +111,21 @@ export default function DashboardPage() {
     <main style={{ padding: 16, maxWidth: 720, margin: '0 auto' }}>
       <h1 style={{ fontSize: 28, marginBottom: 8 }}>Hotel Task Dashboard</h1>
       <p style={{ color: '#666', marginTop: 0 }}>Mobile-friendly live task board</p>
+
+      {errorMsg ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 12,
+            border: '1px solid #f0b3b3',
+            background: '#fff5f5',
+            color: '#a33'
+          }}
+        >
+          {errorMsg}
+        </div>
+      ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
         <Card title="Open" value={summary.open} />
@@ -121,11 +183,39 @@ export default function DashboardPage() {
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                <button style={actionBtn} onClick={() => setTaskStatus(task.id, 'OPEN')}>Open</button>
-                <button style={actionBtn} onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}>Doing</button>
-                <button style={actionBtn} onClick={() => setTaskStatus(task.id, 'PENDING')}>Pending</button>
-                <button style={actionBtn} onClick={() => setTaskStatus(task.id, 'DONE')}>Done</button>
+                <button
+                  style={actionBtn(task.status === 'OPEN')}
+                  disabled={busyTaskId === task.id}
+                  onClick={() => setTaskStatus(task.id, 'OPEN')}
+                >
+                  Open
+                </button>
+                <button
+                  style={actionBtn(task.status === 'IN_PROGRESS')}
+                  disabled={busyTaskId === task.id}
+                  onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                >
+                  Doing
+                </button>
+                <button
+                  style={actionBtn(task.status === 'PENDING')}
+                  disabled={busyTaskId === task.id}
+                  onClick={() => setTaskStatus(task.id, 'PENDING')}
+                >
+                  Pending
+                </button>
+                <button
+                  style={actionBtn(task.status === 'DONE')}
+                  disabled={busyTaskId === task.id}
+                  onClick={() => setTaskStatus(task.id, 'DONE')}
+                >
+                  Done
+                </button>
               </div>
+
+              {busyTaskId === task.id ? (
+                <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>Updating...</div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -163,10 +253,14 @@ function pillStyle(active: boolean): React.CSSProperties {
   };
 }
 
-const actionBtn: React.CSSProperties = {
-  border: '1px solid #ccc',
-  borderRadius: 10,
-  padding: '8px 12px',
-  background: '#fff',
-  cursor: 'pointer'
-};
+function actionBtn(active: boolean): React.CSSProperties {
+  return {
+    border: '1px solid #ccc',
+    borderRadius: 10,
+    padding: '8px 12px',
+    background: active ? '#111' : '#fff',
+    color: active ? '#fff' : '#111',
+    cursor: 'pointer',
+    opacity: 1
+  };
+}
