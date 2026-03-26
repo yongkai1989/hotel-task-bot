@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 
 type Task = {
   id: string;
@@ -110,13 +111,25 @@ export default function DashboardPage() {
 
   return (
     <main style={styles.page}>
-      <div style={styles.headerWrap}>
-        <div>
-          <div style={styles.eyebrow}>Hallmark Task System</div>
-          <h1 style={styles.title}>Operations Dashboard</h1>
-          <p style={styles.subtitle}>
-            Live mobile task board for housekeeping, maintenance, and front office
-          </p>
+      <div style={styles.headerCard}>
+        <div style={styles.headerTop}>
+          <div style={styles.logoWrap}>
+            <Image
+              src="/logo.png"
+              alt="Hallmark Crown Hotel logo"
+              width={56}
+              height={56}
+              style={styles.logo as React.CSSProperties}
+            />
+          </div>
+
+          <div style={styles.headerTextWrap}>
+            <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
+            <h1 style={styles.title}>Operations Dashboard</h1>
+            <p style={styles.subtitle}>
+              Mobile-friendly live task board for housekeeping, maintenance, and front office
+            </p>
+          </div>
         </div>
       </div>
 
@@ -140,7 +153,7 @@ export default function DashboardPage() {
               <button
                 key={d}
                 onClick={() => setDept(d)}
-                style={pillStyle(dept === d)}
+                style={departmentFilterStyle(d, dept === d)}
               >
                 {d}
               </button>
@@ -148,14 +161,14 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div style={styles.filterGroup}>
+        <div style={styles.filterGroupLast}>
           <div style={styles.filterLabel}>Status</div>
           <div style={styles.pillRow}>
             {statuses.map((s) => (
               <button
                 key={s}
                 onClick={() => setStatus(s)}
-                style={pillStyle(status === s)}
+                style={statusFilterStyle(status === s)}
               >
                 {labelForStatus(s)}
               </button>
@@ -179,7 +192,7 @@ export default function DashboardPage() {
           {filtered.map((task) => (
             <article key={task.id} style={styles.taskCard}>
               <div style={styles.cardTopRow}>
-                <div>
+                <div style={styles.cardTopLeft}>
                   <div style={styles.taskCode}>{task.task_code}</div>
                   <div style={styles.roomLine}>
                     Room <span style={styles.roomNo}>{task.room}</span>
@@ -282,7 +295,66 @@ function labelForStatus(status: string) {
   return status;
 }
 
-function pillStyle(active: boolean): React.CSSProperties {
+function departmentFilterStyle(
+  dept: 'ALL' | 'HK' | 'MT' | 'FO',
+  active: boolean
+): React.CSSProperties {
+  const base: React.CSSProperties = {
+    borderRadius: 999,
+    padding: '10px 14px',
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#374151',
+  };
+
+  if (!active) {
+    return base;
+  }
+
+  if (dept === 'HK') {
+    return {
+      ...base,
+      background: '#16a34a',
+      color: '#ffffff',
+      border: '1px solid #16a34a',
+      boxShadow: '0 8px 18px rgba(22,163,74,0.22)',
+    };
+  }
+
+  if (dept === 'MT') {
+    return {
+      ...base,
+      background: '#2563eb',
+      color: '#ffffff',
+      border: '1px solid #2563eb',
+      boxShadow: '0 8px 18px rgba(37,99,235,0.22)',
+    };
+  }
+
+  if (dept === 'FO') {
+    return {
+      ...base,
+      background: '#facc15',
+      color: '#111827',
+      border: '1px solid #facc15',
+      boxShadow: '0 8px 18px rgba(250,204,21,0.28)',
+    };
+  }
+
+  return {
+    ...base,
+    background: '#111827',
+    color: '#ffffff',
+    border: '1px solid #111827',
+    boxShadow: '0 8px 18px rgba(17,24,39,0.18)',
+  };
+}
+
+function statusFilterStyle(active: boolean): React.CSSProperties {
   return {
     border: active ? '1px solid #111827' : '1px solid #d1d5db',
     background: active ? '#111827' : '#ffffff',
@@ -290,10 +362,10 @@ function pillStyle(active: boolean): React.CSSProperties {
     borderRadius: 999,
     padding: '10px 14px',
     fontSize: 13,
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
-    boxShadow: active ? '0 8px 20px rgba(17,24,39,0.18)' : 'none'
+    boxShadow: active ? '0 8px 18px rgba(17,24,39,0.18)' : 'none'
   };
 }
 
@@ -305,15 +377,15 @@ function actionBtn(
     tone === 'open'
       ? { background: '#111827', color: '#fff', border: '1px solid #111827' }
       : tone === 'doing'
-      ? { background: '#1d4ed8', color: '#fff', border: '1px solid #1d4ed8' }
-      : { background: '#059669', color: '#fff', border: '1px solid #059669' };
+      ? { background: '#2563eb', color: '#fff', border: '1px solid #2563eb' }
+      : { background: '#16a34a', color: '#fff', border: '1px solid #16a34a' };
 
   return {
     minWidth: 84,
     borderRadius: 12,
     padding: '10px 14px',
     fontSize: 14,
-    fontWeight: 600,
+    fontWeight: 700,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     ...(active
@@ -339,9 +411,9 @@ function statusBadgeStyle(status: Task['status']): React.CSSProperties {
       border: '1px solid #bfdbfe',
     },
     DONE: {
-      background: '#d1fae5',
-      color: '#047857',
-      border: '1px solid #a7f3d0',
+      background: '#dcfce7',
+      color: '#15803d',
+      border: '1px solid #bbf7d0',
     },
   };
 
@@ -349,7 +421,7 @@ function statusBadgeStyle(status: Task['status']): React.CSSProperties {
     borderRadius: 999,
     padding: '7px 12px',
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: 0.2,
     whiteSpace: 'nowrap',
     ...map[status],
@@ -359,19 +431,19 @@ function statusBadgeStyle(status: Task['status']): React.CSSProperties {
 function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
   const map: Record<Task['department'], React.CSSProperties> = {
     HK: {
-      background: '#fef3c7',
-      color: '#92400e',
-      border: '1px solid #fde68a',
+      background: '#dcfce7',
+      color: '#15803d',
+      border: '1px solid #bbf7d0',
     },
     MT: {
-      background: '#e0e7ff',
-      color: '#4338ca',
-      border: '1px solid #c7d2fe',
+      background: '#dbeafe',
+      color: '#1d4ed8',
+      border: '1px solid #bfdbfe',
     },
     FO: {
-      background: '#fce7f3',
-      color: '#be185d',
-      border: '1px solid #fbcfe8',
+      background: '#fef9c3',
+      color: '#a16207',
+      border: '1px solid #fde68a',
     },
   };
 
@@ -379,7 +451,7 @@ function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
     borderRadius: 999,
     padding: '4px 10px',
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     ...map[dept],
   };
 }
@@ -395,8 +467,8 @@ function summaryCardStyle(tone: 'open' | 'doing' | 'done'): React.CSSProperties 
       border: '1px solid #bfdbfe',
     },
     done: {
-      background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-      border: '1px solid #a7f3d0',
+      background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+      border: '1px solid #bbf7d0',
     },
   };
 
@@ -414,18 +486,46 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 16,
     maxWidth: 860,
     margin: '0 auto',
-    background:
-      'linear-gradient(180deg, #f8fafc 0%, #f3f4f6 100%)',
+    background: 'linear-gradient(180deg, #f8fafc 0%, #f3f4f6 100%)',
   },
-  headerWrap: {
+  headerCard: {
     marginBottom: 18,
-    paddingTop: 4,
+    padding: 18,
+    borderRadius: 24,
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+    border: '1px solid #e5e7eb',
+    boxShadow: '0 14px 30px rgba(15,23,42,0.06)',
+  },
+  headerTop: {
+    display: 'flex',
+    gap: 14,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  logoWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    background: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid #ede9e3',
+    boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
+    flexShrink: 0,
+  },
+  logo: {
+    objectFit: 'contain',
+  },
+  headerTextWrap: {
+    minWidth: 0,
+    flex: 1,
   },
   eyebrow: {
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: 1,
-    color: '#6b7280',
+    color: '#8b5e34',
     textTransform: 'uppercase',
     marginBottom: 6,
   },
@@ -453,14 +553,14 @@ const styles: Record<string, React.CSSProperties> = {
   },
   summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     gap: 12,
     marginBottom: 16,
   },
   summaryTitle: {
     fontSize: 13,
     color: '#6b7280',
-    fontWeight: 600,
+    fontWeight: 700,
   },
   summaryValue: {
     fontSize: 32,
@@ -483,9 +583,12 @@ const styles: Record<string, React.CSSProperties> = {
   filterGroup: {
     marginBottom: 10,
   },
+  filterGroupLast: {
+    marginBottom: 0,
+  },
   filterLabel: {
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     color: '#6b7280',
     marginBottom: 8,
     textTransform: 'uppercase',
@@ -504,7 +607,7 @@ const styles: Record<string, React.CSSProperties> = {
   resultText: {
     fontSize: 13,
     color: '#6b7280',
-    fontWeight: 600,
+    fontWeight: 700,
   },
   cardList: {
     display: 'grid',
@@ -522,6 +625,11 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: 12,
     alignItems: 'flex-start',
+    flexWrap: 'wrap',
+  },
+  cardTopLeft: {
+    minWidth: 0,
+    flex: 1,
   },
   taskCode: {
     fontSize: 28,
@@ -551,6 +659,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.35,
     color: '#111827',
     fontWeight: 500,
+    wordBreak: 'break-word',
   },
   metaWrap: {
     marginTop: 16,
@@ -566,6 +675,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: 12,
     alignItems: 'flex-start',
+    flexWrap: 'wrap',
   },
   metaLabel: {
     fontSize: 13,
@@ -577,12 +687,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     color: '#374151',
     textAlign: 'right',
+    wordBreak: 'break-word',
   },
   metaValueStrong: {
     fontSize: 13,
     color: '#111827',
     textAlign: 'right',
-    fontWeight: 700,
+    fontWeight: 800,
+    wordBreak: 'break-word',
   },
   buttonRow: {
     display: 'flex',
@@ -594,7 +706,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 10,
     fontSize: 12,
     color: '#6b7280',
-    fontWeight: 600,
+    fontWeight: 700,
   },
   emptyState: {
     marginTop: 20,
