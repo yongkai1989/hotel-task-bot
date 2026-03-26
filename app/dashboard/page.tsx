@@ -8,15 +8,14 @@ type Task = {
   room: string;
   department: 'HK' | 'MT' | 'FO';
   task_text: string;
-  status: 'OPEN' | 'IN_PROGRESS' | 'PENDING' | 'DONE';
+  status: 'OPEN' | 'IN_PROGRESS' | 'DONE';
   created_at: string;
   done_at?: string | null;
   done_by_name?: string | null;
-  last_updated_by_name?: string | null;
 };
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
-const statuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'PENDING', 'DONE'] as const;
+const statuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -24,66 +23,25 @@ export default function DashboardPage() {
   const [status, setStatus] = useState<(typeof statuses)[number]>('ALL');
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
 
   async function loadTasks() {
-    try {
-      const res = await fetch(`/api/tasks?t=${Date.now()}`, {
-        method: 'GET',
-        cache: 'no-store'
-      });
-
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to load tasks');
-      }
-
-      setTasks(json.tasks || []);
-      setErrorMsg('');
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to load tasks');
-    } finally {
-      setLoading(false);
-    }
+    const res = await fetch(`/api/tasks?t=${Date.now()}`, { cache: 'no-store' });
+    const json = await res.json();
+    setTasks(json.tasks || []);
+    setLoading(false);
   }
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
-    const oldTasks = tasks;
+    setBusyTaskId(taskId);
 
-    try {
-      setBusyTaskId(taskId);
-      setErrorMsg('');
+    await fetch('/api/task-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, status: nextStatus })
+    });
 
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === taskId ? { ...task, status: nextStatus } : task
-        )
-      );
-
-      const res = await fetch('/api/task-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ taskId, status: nextStatus })
-      });
-
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to update task');
-      }
-
-      setTimeout(() => {
-        loadTasks();
-      }, 300);
-    } catch (err: any) {
-      setTasks(oldTasks);
-      setErrorMsg(err?.message || 'Failed to update task');
-      alert(err?.message || 'Failed to update task');
-    } finally {
-      setBusyTaskId(null);
-    }
+    await loadTasks();
+    setBusyTaskId(null);
   }
 
   useEffect(() => {
@@ -104,166 +62,81 @@ export default function DashboardPage() {
     return {
       open: tasks.filter((t) => t.status === 'OPEN').length,
       doing: tasks.filter((t) => t.status === 'IN_PROGRESS').length,
-      pending: tasks.filter((t) => t.status === 'PENDING').length,
       done: tasks.filter((t) => t.status === 'DONE').length
     };
   }, [tasks]);
 
   return (
     <main style={{ padding: 16, maxWidth: 720, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 28, marginBottom: 8 }}>Hotel Task Dashboard</h1>
-      <p style={{ color: '#666', marginTop: 0 }}>Mobile-friendly live task board</p>
+      <h1>Hotel Task Dashboard</h1>
 
-      {errorMsg ? (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: 10,
-            borderRadius: 12,
-            border: '1px solid #f0b3b3',
-            background: '#fff5f5',
-            color: '#a33'
-          }}
-        >
-          {errorMsg}
-        </div>
-      ) : null}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: 10,
-          marginBottom: 16
-        }}
-      >
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
         <Card title="Open" value={summary.open} />
         <Card title="Doing" value={summary.doing} />
-        <Card title="Pending" value={summary.pending} />
         <Card title="Done" value={summary.done} />
       </div>
 
-      <div
-        style={{
-          marginBottom: 12,
-          display: 'flex',
-          gap: 8,
-          overflowX: 'auto',
-          paddingBottom: 6
-        }}
-      >
-        {departments.map((d) => (
-          <button key={d} onClick={() => setDept(d)} style={pillStyle(dept === d)}>
-            {d}
+      <div style={{ marginTop: 12 }}>
+        {statuses.map((s) => (
+          <button key={s} onClick={() => setStatus(s)} style={pill(status === s)}>
+            {s}
           </button>
         ))}
       </div>
 
-      <div
-        style={{
-          marginBottom: 16,
-          display: 'flex',
-          gap: 8,
-          overflowX: 'auto',
-          paddingBottom: 6
-        }}
-      >
-        {statuses.map((s) => (
-          <button key={s} onClick={() => setStatus(s)} style={pillStyle(status === s)}>
-            {s}
+      <div style={{ marginTop: 12 }}>
+        {departments.map((d) => (
+          <button key={d} onClick={() => setDept(d)} style={pill(dept === d)}>
+            {d}
           </button>
         ))}
       </div>
 
       {loading ? (
         <p>Loading...</p>
-      ) : filtered.length === 0 ? (
-        <p>No tasks found.</p>
       ) : (
-        <div style={{ display: 'grid', gap: 12 }}>
-          {filtered.map((task) => (
-            <div
-              key={task.id}
-              style={{
-                border: '1px solid #ddd',
-                borderRadius: 16,
-                padding: 14,
-                background: '#fff',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <strong>{task.task_code}</strong>
-                <span style={{ fontSize: 12, color: '#666' }}>{task.status}</span>
-              </div>
-
-              <div style={{ marginTop: 8, fontSize: 16 }}>
-                Room <strong>{task.room}</strong> · {task.department}
-              </div>
-
-              <div style={{ marginTop: 8, fontSize: 15 }}>{task.task_text}</div>
-
-              <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                Created: {new Date(task.created_at).toLocaleString()}
-              </div>
-
-              {task.status === 'DONE' && task.done_at ? (
-                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-                  Completed: {new Date(task.done_at).toLocaleString()}
-                </div>
-              ) : null}
-
-              {task.status === 'DONE' && task.done_by_name ? (
-                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-                  Done by: {task.done_by_name}
-                </div>
-              ) : null}
-
-              {task.status !== 'DONE' && task.last_updated_by_name ? (
-                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-                  Last updated by: {task.last_updated_by_name}
-                </div>
-              ) : null}
-
-              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                <button
-                  style={actionBtn(task.status === 'OPEN')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'OPEN')}
-                >
-                  Open
-                </button>
-                <button
-                  style={actionBtn(task.status === 'IN_PROGRESS')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                >
-                  Doing
-                </button>
-                <button
-                  style={actionBtn(task.status === 'PENDING')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'PENDING')}
-                >
-                  Pending
-                </button>
-                <button
-                  style={actionBtn(task.status === 'DONE')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'DONE')}
-                >
-                  Done
-                </button>
-              </div>
-
-              {busyTaskId === task.id ? (
-                <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
-                  Updating...
-                </div>
-              ) : null}
+        filtered.map((task) => (
+          <div key={task.id} style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <strong>{task.task_code}</strong>
+              <span>{task.status}</span>
             </div>
-          ))}
-        </div>
+
+            <div>
+              Room <b>{task.room}</b> · {task.department}
+            </div>
+
+            <div>{task.task_text}</div>
+
+            <div style={{ fontSize: 12 }}>
+              Created: {new Date(task.created_at).toLocaleString()}
+            </div>
+
+            {task.status === 'DONE' && task.done_at && (
+              <div style={{ fontSize: 12 }}>
+                Completed: {new Date(task.done_at).toLocaleString()}
+              </div>
+            )}
+
+            {task.status === 'DONE' && task.done_by_name && (
+              <div style={{ fontSize: 12 }}>
+                Done by: {task.done_by_name}
+              </div>
+            )}
+
+            <div style={{ marginTop: 10 }}>
+              <button onClick={() => setTaskStatus(task.id, 'OPEN')}>
+                Open
+              </button>
+              <button onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}>
+                Doing
+              </button>
+              <button onClick={() => setTaskStatus(task.id, 'DONE')}>
+                Done
+              </button>
+            </div>
+          </div>
+        ))
       )}
     </main>
   );
@@ -271,41 +144,23 @@ export default function DashboardPage() {
 
 function Card({ title, value }: { title: string; value: number }) {
   return (
-    <div
-      style={{
-        border: '1px solid #ddd',
-        borderRadius: 16,
-        padding: 14,
-        background: '#fff',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
-      }}
-    >
-      <div style={{ fontSize: 13, color: '#666' }}>{title}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{value}</div>
+    <div style={{ border: '1px solid #ddd', padding: 10 }}>
+      {title}: {value}
     </div>
   );
 }
 
-function pillStyle(active: boolean): React.CSSProperties {
+function pill(active: boolean): React.CSSProperties {
   return {
-    border: '1px solid #ccc',
-    borderRadius: 999,
-    padding: '8px 14px',
-    background: active ? '#111' : '#fff',
-    color: active ? '#fff' : '#111',
-    whiteSpace: 'nowrap',
-    cursor: 'pointer'
+    marginRight: 6,
+    padding: 6,
+    background: active ? 'black' : 'white',
+    color: active ? 'white' : 'black'
   };
 }
 
-function actionBtn(active: boolean): React.CSSProperties {
-  return {
-    border: '1px solid #ccc',
-    borderRadius: 10,
-    padding: '8px 12px',
-    background: active ? '#111' : '#fff',
-    color: active ? '#fff' : '#111',
-    cursor: 'pointer',
-    opacity: 1
-  };
-}
+const card: React.CSSProperties = {
+  border: '1px solid #ddd',
+  marginTop: 10,
+  padding: 10
+};
