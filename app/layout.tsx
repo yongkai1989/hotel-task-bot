@@ -1,5 +1,5 @@
 export const metadata = {
-  title: 'Hotel Task Dashboard',
+  title: 'Hallmark Crown Hotel Dashboard',
   description: 'Mobile-friendly hotel task dashboard'
 };
 
@@ -10,7 +10,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, background: '#f7f7f7', fontFamily: 'Arial, sans-serif' }}>
+      <body
+        style={{
+          margin: 0,
+          background: '#f3f4f6',
+          fontFamily:
+            'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+        }}
+      >
         {children}
       </body>
     </html>
