@@ -22,7 +22,6 @@ async function telegram(method: string, body: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-
   return res.json();
 }
 
@@ -93,15 +92,6 @@ async function createTask(params: {
 
   if (error) throw error;
 
-  await supabase.from('task_events').insert({
-    task_id: task.id,
-    event_type: 'CREATED',
-    event_text: params.taskText,
-    telegram_update_id: params.updateId,
-    actor_user_id: params.userId,
-    actor_name: params.userName
-  });
-
   const sent = await telegram('sendMessage', {
     chat_id: params.chatId,
     text:
@@ -111,7 +101,7 @@ async function createTask(params: {
       `Department: ${task.department}\n` +
       `Task: ${task.task_text}\n` +
       `Created by: ${params.userName}\n\n` +
-      `Reply to this message with:\n/doing\n/done\n/pending`
+      `Reply to this message with:\n/doing\n/done`
   });
 
   const telegramMessageId = sent?.result?.message_id ?? null;
@@ -129,8 +119,6 @@ async function createTask(params: {
       message_type: 'TASK_CARD'
     });
   }
-
-  return task;
 }
 
 async function updateTaskStatus(params: {
@@ -139,15 +127,9 @@ async function updateTaskStatus(params: {
   userName: string;
   updateId: number;
   replyToMessageId: number | null;
-  command: 'IN_PROGRESS' | 'PENDING' | 'DONE';
+  command: 'IN_PROGRESS' | 'DONE';
 }) {
-  if (!params.replyToMessageId) {
-    await telegram('sendMessage', {
-      chat_id: params.chatId,
-      text: 'Reply directly to the task card.'
-    });
-    return;
-  }
+  if (!params.replyToMessageId) return;
 
   const { data: mapping } = await supabase
     .from('telegram_messages')
@@ -161,14 +143,12 @@ async function updateTaskStatus(params: {
   const updateData: any = {
     status: params.command,
     updated_at: new Date().toISOString(),
-    last_updated_by_name: params.userName,
-    last_updated_by_telegram_user_id: params.userId
+    last_updated_by_name: params.userName
   };
 
   if (params.command === 'DONE') {
     updateData.done_at = new Date().toISOString();
-    updateData.done_by_name = params.userName;   // 🔥 THIS IS THE KEY
-    updateData.done_by_telegram_user_id = params.userId;
+    updateData.done_by_name = params.userName;
   }
 
   const { data: task } = await supabase
@@ -180,7 +160,7 @@ async function updateTaskStatus(params: {
 
   await telegram('sendMessage', {
     chat_id: params.chatId,
-    text: `Task ${task.task_code} DONE by ${params.userName}`
+    text: `Task ${task.task_code} ${params.command === 'DONE' ? 'DONE' : 'IN PROGRESS'} by ${params.userName}`
   });
 }
 
@@ -192,66 +172,32 @@ export async function POST(req: NextRequest) {
     }
 
     const update = await req.json();
-    const updateId = Number(update?.update_id);
     const msg = update?.message;
-
-    if (!msg) {
-      return NextResponse.json({ ok: true, ignored: 'NO_MESSAGE' });
-    }
+    if (!msg) return NextResponse.json({ ok: true });
 
     const chatId = Number(msg.chat?.id);
     const userId = msg.from?.id ? Number(msg.from.id) : null;
+
     const userName =
-  msg.from?.username
-    ? `@${msg.from.username}`
-    : [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
-    const messageId = Number(msg.message_id);
-    const text = String(msg.text || '').trim();
+      msg.from?.username
+        ? `@${msg.from.username}`
+        : [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
+
+    const text = String(msg.text || '').trim().toLowerCase();
 
     if (String(chatId) !== String(ALLOWED_CHAT_ID)) {
-      return NextResponse.json({ ok: true, ignored: 'OTHER_CHAT' });
+      return NextResponse.json({ ok: true });
     }
 
-    const { error: insertUpdateError } = await supabase
-      .from('telegram_updates')
-      .insert({
-        update_id: updateId,
-        chat_id: chatId,
-        user_id: userId,
-        message_id: messageId,
-        raw_json: update,
-        message_text: text
-      });
-
-    if (insertUpdateError) {
-      const msgText = String(insertUpdateError.message || '').toLowerCase();
-      if (msgText.includes('duplicate') || msgText.includes('unique')) {
-        return NextResponse.json({ ok: true, duplicate: true });
-      }
-      throw insertUpdateError;
-    }
-
-    const lower = text.toLowerCase();
-
-    if (lower === '/doing' || lower === '/pending' || lower === '/done') {
-      const command: 'IN_PROGRESS' | 'PENDING' | 'DONE' =
-        lower === '/doing' ? 'IN_PROGRESS' :
-        lower === '/pending' ? 'PENDING' :
-        'DONE';
-
+    if (text === '/doing' || text === '/done') {
       await updateTaskStatus({
         chatId,
         userId,
         userName,
-        updateId,
+        updateId: update.update_id,
         replyToMessageId: msg.reply_to_message?.message_id ?? null,
-        command
+        command: text === '/doing' ? 'IN_PROGRESS' : 'DONE'
       });
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
 
       return NextResponse.json({ ok: true });
     }
@@ -266,116 +212,24 @@ export async function POST(req: NextRequest) {
         room: parsed.room,
         department: parsed.dept,
         taskText: parsed.task,
-        updateId
+        updateId: update.update_id
       });
-
-      await supabase
-        .from('pending_inputs')
-        .delete()
-        .eq('chat_id', chatId)
-        .eq('user_id', userId);
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (isDeptOnly(text)) {
-      const { data: pending } = await supabase
-        .from('pending_inputs')
-        .select('*')
-        .eq('chat_id', chatId)
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (pending) {
-        const pendingDept = normalizeDept(text);
-        if (!pendingDept) {
-          await telegram('sendMessage', {
-            chat_id: chatId,
-            text: 'Invalid department. Reply only: hk, mt, or fo'
-          });
-        } else {
-          await createTask({
-            chatId,
-            userId,
-            userName,
-            room: pending.room,
-            department: pendingDept,
-            taskText: pending.task_text,
-            updateId
-          });
-
-          await supabase
-            .from('pending_inputs')
-            .delete()
-            .eq('chat_id', chatId)
-            .eq('user_id', userId);
-        }
-      } else {
-        await telegram('sendMessage', {
-          chat_id: chatId,
-          text: 'No pending task found. Please send full format like:\n1234 hk extra towel'
-        });
-      }
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (parsed.ok && !parsed.dept) {
-      await supabase
-        .from('pending_inputs')
-        .upsert(
-          {
-            chat_id: chatId,
-            user_id: userId!,
-            room: parsed.room,
-            task_text: parsed.task
-          },
-          { onConflict: 'chat_id,user_id' }
-        );
-
-      await telegram('sendMessage', {
-        chat_id: chatId,
-        text: `Which department for room ${parsed.room}?\nReply only: hk, mt, or fo`
-      });
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
 
       return NextResponse.json({ ok: true });
     }
 
     await telegram('sendMessage', {
       chat_id: chatId,
-      text:
-        `Invalid format.\n\n` +
-        `Use:\n1234 hk extra towel\n1309 mt tv problem\n1301 fo call guest\n\n` +
-        `Or without department:\n1234 extra towel`
+      text: 'Invalid format. Example:\n1234 hk extra towel'
     });
 
-    await supabase
-      .from('telegram_updates')
-      .update({ processed: true, processed_at: new Date().toISOString() })
-      .eq('update_id', updateId);
-
     return NextResponse.json({ ok: true });
+
   } catch (error: any) {
-    console.error(error);
-    return NextResponse.json({ ok: false, error: error?.message || 'Unknown error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, message: 'Telegram route is alive' });
+  return NextResponse.json({ ok: true });
 }
