@@ -27,6 +27,12 @@ type Task = {
 
 type SidebarView = 'DASHBOARD' | 'PAST_TASK';
 
+type CreatePhotoItem = {
+  id: string;
+  name: string;
+  dataUrl: string;
+};
+
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
@@ -51,8 +57,7 @@ export default function DashboardPage() {
   const [createRoom, setCreateRoom] = useState('');
   const [createDept, setCreateDept] = useState<'HK' | 'MT' | 'FO' | ''>('');
   const [createTaskText, setCreateTaskText] = useState('');
-  const [createPhotoDataUrl, setCreatePhotoDataUrl] = useState<string | null>(null);
-  const [createPhotoName, setCreatePhotoName] = useState('');
+  const [createPhotos, setCreatePhotos] = useState<CreatePhotoItem[]>([]);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
 
@@ -180,29 +185,42 @@ export default function DashboardPage() {
     setCreateRoom('');
     setCreateDept('');
     setCreateTaskText('');
-    setCreatePhotoDataUrl(null);
-    setCreatePhotoName('');
+    setCreatePhotos([]);
     setCreateError('');
   }
 
   async function handleCreatePhotoChange(
     e: React.ChangeEvent<HTMLInputElement>
   ) {
-    const file = e.target.files?.[0];
-    if (!file) {
-      setCreatePhotoDataUrl(null);
-      setCreatePhotoName('');
+    const files = Array.from(e.target.files || []);
+
+    if (!files.length) {
       return;
     }
 
     try {
       setCreateError('');
-      const compressed = await compressImageToDataUrl(file, 1600, 0.82);
-      setCreatePhotoDataUrl(compressed);
-      setCreatePhotoName(file.name);
+
+      const processed = await Promise.all(
+        files.map(async (file, index) => {
+          const compressed = await compressImageToDataUrl(file, 1600, 0.82);
+          return {
+            id: `${Date.now()}-${index}-${file.name}`,
+            name: file.name,
+            dataUrl: compressed,
+          } as CreatePhotoItem;
+        })
+      );
+
+      setCreatePhotos((prev) => [...prev, ...processed]);
+      e.target.value = '';
     } catch (err: any) {
-      setCreateError(err?.message || 'Failed to process photo');
+      setCreateError(err?.message || 'Failed to process photo(s)');
     }
+  }
+
+  function removeCreatePhoto(id: string) {
+    setCreatePhotos((prev) => prev.filter((item) => item.id !== id));
   }
 
   async function submitCreateTask() {
@@ -239,8 +257,8 @@ export default function DashboardPage() {
           department: createDept,
           task_text: taskText,
           created_by_name: 'Dashboard',
-          image_url: createPhotoDataUrl || null,
-          image_caption: createPhotoName || null,
+          image_urls: createPhotos.map((photo) => photo.dataUrl),
+          image_captions: createPhotos.map((photo) => photo.name),
         }),
       });
 
@@ -843,35 +861,51 @@ export default function DashboardPage() {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Add Photo</label>
+              <label style={styles.formLabel}>Add Photos</label>
 
               <label style={styles.uploadBox}>
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   onChange={handleCreatePhotoChange}
                   style={{ display: 'none' }}
                   disabled={createSubmitting}
                 />
                 <span style={styles.uploadBoxTitle}>
-                  {createPhotoName ? 'Change Photo' : 'Choose Photo'}
+                  {createPhotos.length > 0 ? 'Add More Photos' : 'Choose Photos'}
                 </span>
                 <span style={styles.uploadBoxSub}>
-                  JPG, PNG, HEIC supported
+                  You can upload multiple images
                 </span>
               </label>
 
-              {createPhotoName ? (
-                <div style={styles.photoNameText}>{createPhotoName}</div>
+              {createPhotos.length > 0 ? (
+                <div style={styles.photoCounterText}>
+                  {createPhotos.length} photo{createPhotos.length === 1 ? '' : 's'} selected
+                </div>
               ) : null}
 
-              {createPhotoDataUrl ? (
-                <div style={styles.createPreviewWrap}>
-                  <img
-                    src={createPhotoDataUrl}
-                    alt="Selected task photo"
-                    style={styles.createPreviewImage}
-                  />
+              {createPhotos.length > 0 ? (
+                <div style={styles.previewGrid}>
+                  {createPhotos.map((photo) => (
+                    <div key={photo.id} style={styles.previewCard}>
+                      <img
+                        src={photo.dataUrl}
+                        alt={photo.name}
+                        style={styles.previewThumb}
+                      />
+                      <div style={styles.previewName}>{photo.name}</div>
+                      <button
+                        type="button"
+                        onClick={() => removeCreatePhoto(photo.id)}
+                        style={styles.previewRemoveBtn}
+                        disabled={createSubmitting}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
                 </div>
               ) : null}
             </div>
@@ -1825,7 +1859,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   createModalCard: {
     width: '100%',
-    maxWidth: 560,
+    maxWidth: 640,
     borderRadius: 24,
     background: '#ffffff',
     border: '1px solid #e7edf5',
@@ -1934,23 +1968,46 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     fontWeight: 600,
   },
-  photoNameText: {
+  photoCounterText: {
     fontSize: 13,
     color: '#334155',
     fontWeight: 700,
   },
-  createPreviewWrap: {
-    width: '100%',
+  previewGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+    gap: 12,
+  },
+  previewCard: {
     borderRadius: 16,
-    overflow: 'hidden',
     border: '1px solid #e5e7eb',
     background: '#f8fafc',
+    overflow: 'hidden',
+    display: 'grid',
   },
-  createPreviewImage: {
+  previewThumb: {
     width: '100%',
-    maxHeight: 260,
+    height: 110,
     objectFit: 'cover',
     display: 'block',
+  },
+  previewName: {
+    fontSize: 11,
+    color: '#334155',
+    fontWeight: 700,
+    padding: '8px 10px 0 10px',
+    wordBreak: 'break-word',
+  },
+  previewRemoveBtn: {
+    margin: 10,
+    borderRadius: 10,
+    border: '1px solid #fecaca',
+    background: '#fff1f2',
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: 800,
+    padding: '8px 10px',
+    cursor: 'pointer',
   },
   createActionRow: {
     display: 'flex',
