@@ -95,6 +95,34 @@ async function getTelegramFileUrl(fileId: string): Promise<string | null> {
   }
 }
 
+async function addTaskImage(params: {
+  taskId: number;
+  imageUrl: string;
+  caption?: string | null;
+  telegramFileId?: string | null;
+  telegramMessageId?: number | null;
+  userId?: number | null;
+  userName?: string | null;
+}) {
+  const { error } = await supabase.from('task_images').insert({
+    task_id: params.taskId,
+    image_url: params.imageUrl,
+    caption: params.caption || null,
+    telegram_file_id: params.telegramFileId || null,
+    telegram_message_id: params.telegramMessageId || null,
+    created_by_name: params.userName || null,
+    created_by_telegram_user_id: params.userId || null
+  });
+
+  if (error) throw error;
+
+  // Optional: keep tasks.image_url synced for easy thumbnail display
+  await supabase
+    .from('tasks')
+    .update({ image_url: params.imageUrl, updated_at: new Date().toISOString() })
+    .eq('id', params.taskId);
+}
+
 async function createTask(params: {
   chatId: number;
   userId: number | null;
@@ -104,6 +132,9 @@ async function createTask(params: {
   taskText: string;
   updateId: number;
   imageUrl?: string | null;
+  imageCaption?: string | null;
+  telegramFileId?: string | null;
+  telegramMessageId?: number | null;
 }) {
   const { data: task, error } = await supabase
     .from('tasks')
@@ -133,6 +164,18 @@ async function createTask(params: {
     actor_name: params.userName
   });
 
+  if (params.imageUrl) {
+    await addTaskImage({
+      taskId: task.id,
+      imageUrl: params.imageUrl,
+      caption: params.imageCaption || null,
+      telegramFileId: params.telegramFileId || null,
+      telegramMessageId: params.telegramMessageId || null,
+      userId: params.userId,
+      userName: params.userName
+    });
+  }
+
   const sent = await telegram('sendMessage', {
     chat_id: params.chatId,
     text:
@@ -142,8 +185,8 @@ async function createTask(params: {
       `Department: ${task.department}\n` +
       `Task: ${task.task_text}\n` +
       `Created by: ${params.userName}\n` +
-      `${params.imageUrl ? `Photo attached: Yes\n` : ''}\n` +
-      `Reply to this message with:\n/doing\n/done`
+      `${params.imageUrl ? `Photo attached: Yes\n` : ''}` +
+      `Reply to this message with:\n/doing\n/done\nor send photo(s) to attach`
   });
 
   const telegramMessageId = sent?.result?.message_id ?? null;
@@ -237,6 +280,73 @@ async function updateTaskStatus(params: {
   });
 }
 
+async function attachPhotoToExistingTask(params: {
+  chatId: number;
+  userId: number | null;
+  userName: string;
+  updateId: number;
+  replyToMessageId: number | null;
+  imageUrl: string | null;
+  caption?: string | null;
+  telegramFileId?: string | null;
+  telegramMessageId?: number | null;
+}) {
+  if (!params.replyToMessageId) {
+    await telegram('sendMessage', {
+      chat_id: params.chatId,
+      text: 'Please reply directly to the task card when sending photos.'
+    });
+    return;
+  }
+
+  if (!params.imageUrl) {
+    await telegram('sendMessage', {
+      chat_id: params.chatId,
+      text: 'Image could not be processed.'
+    });
+    return;
+  }
+
+  const { data: mapping } = await supabase
+    .from('telegram_messages')
+    .select('task_id')
+    .eq('chat_id', params.chatId)
+    .eq('telegram_message_id', params.replyToMessageId)
+    .maybeSingle();
+
+  if (!mapping?.task_id) {
+    await telegram('sendMessage', {
+      chat_id: params.chatId,
+      text: 'Task not found. Please reply directly to the correct task message.'
+    });
+    return;
+  }
+
+  await addTaskImage({
+    taskId: mapping.task_id,
+    imageUrl: params.imageUrl,
+    caption: params.caption || null,
+    telegramFileId: params.telegramFileId || null,
+    telegramMessageId: params.telegramMessageId || null,
+    userId: params.userId,
+    userName: params.userName
+  });
+
+  await supabase.from('task_events').insert({
+    task_id: mapping.task_id,
+    event_type: 'IMAGE_ATTACHED',
+    event_text: `Image attached by ${params.userName}`,
+    telegram_update_id: params.updateId,
+    actor_user_id: params.userId,
+    actor_name: params.userName
+  });
+
+  await telegram('sendMessage', {
+    chat_id: params.chatId,
+    text: `Photo attached to task by ${params.userName}`
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const secretPath = req.nextUrl.searchParams.get('path');
@@ -306,15 +416,46 @@ export async function POST(req: NextRequest) {
     }
 
     let imageUrl: string | null = null;
+    let telegramFileId: string | null = null;
+
     if (Array.isArray(msg.photo) && msg.photo.length > 0) {
       const largestPhoto = msg.photo[msg.photo.length - 1];
       if (largestPhoto?.file_id) {
+        telegramFileId = largestPhoto.file_id;
         imageUrl = await getTelegramFileUrl(largestPhoto.file_id);
+      }
+    }
+
+    // CASE 1: user replies to a task card with photo only (or photo + caption)
+    if (imageUrl && msg.reply_to_message?.message_id) {
+      const parsedCaption = textOrCaption ? parseInput(textOrCaption) : { ok: false as const };
+
+      // If caption itself is a new task format, create a new task instead of attaching
+      if (!(parsedCaption.ok && parsedCaption.dept)) {
+        await attachPhotoToExistingTask({
+          chatId,
+          userId,
+          userName,
+          updateId,
+          replyToMessageId: msg.reply_to_message?.message_id ?? null,
+          imageUrl,
+          caption: textOrCaption || null,
+          telegramFileId,
+          telegramMessageId: messageId
+        });
+
+        await supabase
+          .from('telegram_updates')
+          .update({ processed: true, processed_at: new Date().toISOString() })
+          .eq('update_id', updateId);
+
+        return NextResponse.json({ ok: true });
       }
     }
 
     const parsed = parseInput(textOrCaption);
 
+    // CASE 2: normal task creation, including photo + caption
     if (parsed.ok && parsed.dept) {
       await createTask({
         chatId,
@@ -324,7 +465,10 @@ export async function POST(req: NextRequest) {
         department: parsed.dept,
         taskText: parsed.task,
         updateId,
-        imageUrl
+        imageUrl,
+        imageCaption: textOrCaption || null,
+        telegramFileId,
+        telegramMessageId: messageId
       });
 
       await supabase
@@ -341,6 +485,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // CASE 3: department-only reply for pending input
     if (isDeptOnly(textOrCaption)) {
       const { data: pending } = await supabase
         .from('pending_inputs')
@@ -360,7 +505,10 @@ export async function POST(req: NextRequest) {
           department: pendingDept as Dept,
           taskText: pending.task_text,
           updateId,
-          imageUrl
+          imageUrl,
+          imageCaption: textOrCaption || null,
+          telegramFileId,
+          telegramMessageId: messageId
         });
 
         await supabase
@@ -386,6 +534,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // CASE 4: missing department flow
     if (parsed.ok && !parsed.dept) {
       await supabase
         .from('pending_inputs')
@@ -407,6 +556,27 @@ export async function POST(req: NextRequest) {
           `HK / HSK / HOUSEKEEPING\n` +
           `MT / MAINTENANCE\n` +
           `FO / FRONT OFFICE`
+      });
+
+      await supabase
+        .from('telegram_updates')
+        .update({ processed: true, processed_at: new Date().toISOString() })
+        .eq('update_id', updateId);
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // CASE 5: photo sent without task format and not replying to task card
+    if (imageUrl) {
+      await telegram('sendMessage', {
+        chat_id: chatId,
+        text:
+          'Photo received, but I could not match it to a task.\n\n' +
+          'Either:\n' +
+          '1. send photo with caption like:\n' +
+          '1234 hk extra towel\n\n' +
+          'or\n\n' +
+          '2. reply directly to the task card with the photo.'
       });
 
       await supabase
