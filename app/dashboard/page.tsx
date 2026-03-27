@@ -955,8 +955,8 @@ function SummaryCard({
 
 async function compressImageToDataUrl(
   file: File,
-  maxSize = 1600,
-  quality = 0.82
+  maxSize = 1200,
+  quality = 0.72
 ): Promise<string> {
   const imageDataUrl = await readFileAsDataURL(file);
   const img = await loadImage(imageDataUrl);
@@ -976,9 +976,18 @@ async function compressImageToDataUrl(
 
   ctx.drawImage(img, 0, 0, width, height);
 
-  return canvas.toDataURL('image/jpeg', quality);
-}
+  // 🔥 SMART compression loop
+  let currentQuality = quality;
+  let result = canvas.toDataURL('image/jpeg', currentQuality);
 
+  // target max ~500KB
+  while (result.length > 500_000 && currentQuality > 0.5) {
+    currentQuality -= 0.05;
+    result = canvas.toDataURL('image/jpeg', currentQuality);
+  }
+
+  return result;
+}
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
