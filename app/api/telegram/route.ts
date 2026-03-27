@@ -16,6 +16,12 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID!;
 const SECRET_PATH = process.env.TELEGRAM_SECRET_PATH!;
 
+const DEPT_ALIASES: Record<Dept, string[]> = {
+  HK: ['hk', 'hsk', 'housekeeping'],
+  MT: ['mt', 'maintenance'],
+  FO: ['fo', 'front office', 'frontoffice', 'front-office']
+};
+
 async function telegram(method: string, body: any) {
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
     method: 'POST',
@@ -25,18 +31,22 @@ async function telegram(method: string, body: any) {
   return res.json();
 }
 
+function cleanText(value: string): string {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function normalizeDept(value: string): '' | Dept {
-  const v = String(value || '').trim().toUpperCase();
-  if (v === 'HK' || v === 'H') return 'HK';
-  if (v === 'MT' || v === 'M') return 'MT';
-  if (v === 'FO' || v === 'F') return 'FO';
+  const v = cleanText(value);
+
+  for (const [dept, aliases] of Object.entries(DEPT_ALIASES) as [Dept, string[]][]) {
+    if (aliases.includes(v)) return dept;
+  }
+
   return '';
 }
 
 function isDeptOnly(text: string): boolean {
-  return ['HK', 'MT', 'FO', 'H', 'M', 'F'].includes(
-    String(text || '').trim().toUpperCase()
-  );
+  return normalizeDept(text) !== '';
 }
 
 function isValidRoom(room: string): boolean {
@@ -44,26 +54,33 @@ function isValidRoom(room: string): boolean {
 }
 
 function parseInput(text: string): ParsedInput {
-  const cleaned = String(text || '').trim().replace(/\s+/g, ' ');
-  const tokens = cleaned.split(' ').filter(Boolean);
+  const cleaned = cleanText(text);
+  const firstSpace = cleaned.indexOf(' ');
 
-  if (tokens.length < 2) return { ok: false };
+  if (firstSpace === -1) return { ok: false };
 
-  const room = tokens[0];
-  if (!isValidRoom(room)) return { ok: false };
+  const room = cleaned.slice(0, firstSpace).trim();
+  const remainder = cleaned.slice(firstSpace + 1).trim();
 
-  const dept = normalizeDept(tokens[1]);
+  if (!isValidRoom(room) || !remainder) return { ok: false };
 
-  if (dept) {
-    const task = tokens.slice(2).join(' ').trim();
-    if (!task) return { ok: false };
-    return { ok: true, room, dept, task };
+  const aliasEntries = (Object.entries(DEPT_ALIASES) as [Dept, string[]][])
+    .flatMap(([dept, aliases]) => aliases.map((alias) => ({ dept, alias })))
+    .sort((a, b) => b.alias.length - a.alias.length);
+
+  for (const entry of aliasEntries) {
+    if (remainder === entry.alias) {
+      return { ok: false };
+    }
+
+    if (remainder.startsWith(entry.alias + ' ')) {
+      const task = remainder.slice(entry.alias.length).trim();
+      if (!task) return { ok: false };
+      return { ok: true, room, dept: entry.dept, task };
+    }
   }
 
-  const task = tokens.slice(1).join(' ').trim();
-  if (!task) return { ok: false };
-
-  return { ok: true, room, dept: '', task };
+  return { ok: true, room, dept: '', task: remainder };
 }
 
 async function getTelegramFileUrl(fileId: string): Promise<string | null> {
@@ -159,7 +176,7 @@ async function updateTaskStatus(params: {
   if (!params.replyToMessageId) {
     await telegram('sendMessage', {
       chat_id: params.chatId,
-      text: 'Reply directly to the task card.'
+      text: 'Reply directly to the task card with /doing or /done.'
     });
     return;
   }
@@ -171,7 +188,13 @@ async function updateTaskStatus(params: {
     .eq('telegram_message_id', params.replyToMessageId)
     .maybeSingle();
 
-  if (!mapping?.task_id) return;
+  if (!mapping?.task_id) {
+    await telegram('sendMessage', {
+      chat_id: params.chatId,
+      text: 'Task not found. Please reply directly to the correct task message.'
+    });
+    return;
+  }
 
   const updateData: any = {
     status: params.command,
@@ -262,7 +285,7 @@ export async function POST(req: NextRequest) {
       throw insertUpdateError;
     }
 
-    const lower = textOrCaption.toLowerCase();
+    const lower = cleanText(textOrCaption);
 
     if (lower === '/doing' || lower === '/done') {
       await updateTaskStatus({
@@ -328,33 +351,30 @@ export async function POST(req: NextRequest) {
 
       if (pending) {
         const pendingDept = normalizeDept(textOrCaption);
-        if (!pendingDept) {
-          await telegram('sendMessage', {
-            chat_id: chatId,
-            text: 'Invalid department. Reply only: hk, mt, or fo'
-          });
-        } else {
-          await createTask({
-            chatId,
-            userId,
-            userName,
-            room: pending.room,
-            department: pendingDept,
-            taskText: pending.task_text,
-            updateId,
-            imageUrl
-          });
 
-          await supabase
-            .from('pending_inputs')
-            .delete()
-            .eq('chat_id', chatId)
-            .eq('user_id', userId);
-        }
+        await createTask({
+          chatId,
+          userId,
+          userName,
+          room: pending.room,
+          department: pendingDept as Dept,
+          taskText: pending.task_text,
+          updateId,
+          imageUrl
+        });
+
+        await supabase
+          .from('pending_inputs')
+          .delete()
+          .eq('chat_id', chatId)
+          .eq('user_id', userId);
       } else {
         await telegram('sendMessage', {
           chat_id: chatId,
-          text: 'No pending task found. Please send full format like:\n1234 hk extra towel'
+          text:
+            'No pending task found.\n\n' +
+            'Send full format like:\n' +
+            '1234 hk extra towel'
         });
       }
 
@@ -381,7 +401,12 @@ export async function POST(req: NextRequest) {
 
       await telegram('sendMessage', {
         chat_id: chatId,
-        text: `Which department for room ${parsed.room}?\nReply only: hk, mt, or fo`
+        text:
+          `Which department for room ${parsed.room}?\n` +
+          `Reply with:\n` +
+          `HK / HSK / HOUSEKEEPING\n` +
+          `MT / MAINTENANCE\n` +
+          `FO / FRONT OFFICE`
       });
 
       await supabase
@@ -396,8 +421,12 @@ export async function POST(req: NextRequest) {
       chat_id: chatId,
       text:
         `Invalid format.\n\n` +
-        `Use:\n1234 hk extra towel\n1309 mt tv problem\n1301 fo call guest\n\n` +
-        `Or with photo caption:\n1206 mt aircon leaking`
+        `Examples:\n` +
+        `1234 hk extra towel\n` +
+        `1309 mt tv problem\n` +
+        `1301 fo call guest\n\n` +
+        `If department is missing:\n` +
+        `1308 extra towel`
     });
 
     await supabase
