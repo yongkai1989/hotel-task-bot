@@ -201,9 +201,14 @@ export default function DashboardPage() {
     try {
       setCreateError('');
 
+      if (createPhotos.length + files.length > 5) {
+        throw new Error('Maximum 5 photos per task');
+      }
+
       const processed = await Promise.all(
         files.map(async (file, index) => {
-          const compressed = await compressImageToDataUrl(file, 1600, 0.82);
+          const compressed = await compressImageToDataUrl(file, 1200, 0.72);
+
           return {
             id: `${Date.now()}-${index}-${file.name}`,
             name: file.name,
@@ -230,42 +235,50 @@ export default function DashboardPage() {
       const room = createRoom.trim();
       const taskText = createTaskText.trim();
 
-      if (!room) {
-        throw new Error('Room Number is required');
-      }
-
-      if (!/^\d{3,5}$/.test(room)) {
-        throw new Error('Room Number must be 3 to 5 digits');
-      }
-
-      if (!createDept) {
-        throw new Error('Please choose a department');
-      }
-
-      if (!taskText) {
-        throw new Error('Task Description is required');
-      }
+      if (!room) throw new Error('Room Number is required');
+      if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
+      if (!createDept) throw new Error('Select department');
+      if (!taskText) throw new Error('Task description required');
 
       setCreateSubmitting(true);
+
+      let uploadedUrls: string[] = [];
+
+      if (createPhotos.length > 0) {
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            images: createPhotos.map((p) => p.dataUrl),
+          }),
+        });
+
+        const uploadJson = await uploadRes.json();
+
+        if (!uploadRes.ok || !uploadJson.ok) {
+          throw new Error(uploadJson.error || 'Upload failed');
+        }
+
+        uploadedUrls = uploadJson.urls || [];
+      }
 
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
         body: JSON.stringify({
           room,
           department: createDept,
           task_text: taskText,
           created_by_name: 'Dashboard',
-          image_urls: createPhotos.map((photo) => photo.dataUrl),
-          image_captions: createPhotos.map((photo) => photo.name),
+          image_urls: uploadedUrls,
+          image_captions: createPhotos.map((p) => p.name),
         }),
       });
 
       const json = await res.json();
 
       if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to create task');
+        throw new Error(json.error || 'Failed to create task');
       }
 
       closeCreateModal();
@@ -976,11 +989,9 @@ async function compressImageToDataUrl(
 
   ctx.drawImage(img, 0, 0, width, height);
 
-  // 🔥 SMART compression loop
   let currentQuality = quality;
   let result = canvas.toDataURL('image/jpeg', currentQuality);
 
-  // target max ~500KB
   while (result.length > 500_000 && currentQuality > 0.5) {
     currentQuality -= 0.05;
     result = canvas.toDataURL('image/jpeg', currentQuality);
@@ -988,6 +999,7 @@ async function compressImageToDataUrl(
 
   return result;
 }
+
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
