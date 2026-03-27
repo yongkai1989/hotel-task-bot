@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 
 type Dept = 'HK' | 'MT' | 'FO';
+type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
+
 type ParsedInput =
   | { ok: false }
   | { ok: true; room: string; dept: ''; task: string }
@@ -83,6 +85,69 @@ function parseInput(text: string): ParsedInput {
   return { ok: true, room, dept: '', task: remainder };
 }
 
+function labelForStatus(status: TaskStatus) {
+  if (status === 'IN_PROGRESS') return 'DOING';
+  return status;
+}
+
+function buildTaskMessageText(task: {
+  task_code: string;
+  room: string;
+  department: Dept;
+  task_text: string;
+  created_by_name?: string | null;
+  image_url?: string | null;
+  status: TaskStatus;
+  done_by_name?: string | null;
+  done_at?: string | null;
+  last_updated_by_name?: string | null;
+}) {
+  const lines = [
+    '📌 TASK',
+    `Task ID: ${task.task_code}`,
+    `Room: ${task.room}`,
+    `Department: ${task.department}`,
+    `Task: ${task.task_text}`,
+    `Status: ${labelForStatus(task.status)}`,
+    `Created by: ${task.created_by_name || '-'}`,
+  ];
+
+  if (task.image_url) {
+    lines.push('Photo attached: Yes');
+  }
+
+  if (task.status === 'DONE') {
+    lines.push(`Done by: ${task.done_by_name || '-'}`);
+    if (task.done_at) {
+      lines.push(`Done at: ${new Date(task.done_at).toLocaleString()}`);
+    }
+  } else if (task.last_updated_by_name) {
+    lines.push(`Last updated by: ${task.last_updated_by_name}`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildTaskInlineKeyboard(taskId: string, status: TaskStatus) {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: status === 'IN_PROGRESS' ? '🔵 DOING ✓' : '🔵 DOING',
+          callback_data: `doing:${taskId}`
+        },
+        {
+          text: status === 'DONE' ? '✅ DONE ✓' : '✅ DONE',
+          callback_data: `done:${taskId}`
+        }
+      ],
+      [
+        { text: '📷 ADD PHOTO', callback_data: `photo:${taskId}` }
+      ]
+    ]
+  };
+}
+
 async function getTelegramFileUrl(fileId: string): Promise<string | null> {
   try {
     const fileRes = await telegram('getFile', { file_id: fileId });
@@ -96,7 +161,7 @@ async function getTelegramFileUrl(fileId: string): Promise<string | null> {
 }
 
 async function addTaskImage(params: {
-  taskId: number;
+  taskId: string;
   imageUrl: string;
   caption?: string | null;
   telegramFileId?: string | null;
@@ -116,11 +181,41 @@ async function addTaskImage(params: {
 
   if (error) throw error;
 
-  // Optional: keep tasks.image_url synced for easy thumbnail display
   await supabase
     .from('tasks')
     .update({ image_url: params.imageUrl, updated_at: new Date().toISOString() })
     .eq('id', params.taskId);
+}
+
+async function refreshTelegramTaskCard(taskId: string) {
+  const { data: task, error } = await supabase
+    .from('tasks')
+    .select(`
+      id,
+      task_code,
+      room,
+      department,
+      task_text,
+      status,
+      created_by_name,
+      image_url,
+      done_by_name,
+      done_at,
+      last_updated_by_name,
+      telegram_task_message_id,
+      chat_id
+    `)
+    .eq('id', taskId)
+    .single();
+
+  if (error || !task?.telegram_task_message_id || !task?.chat_id) return;
+
+  await telegram('editMessageText', {
+    chat_id: task.chat_id,
+    message_id: task.telegram_task_message_id,
+    text: buildTaskMessageText(task as any),
+    reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus)
+  });
 }
 
 async function createTask(params: {
@@ -178,15 +273,16 @@ async function createTask(params: {
 
   const sent = await telegram('sendMessage', {
     chat_id: params.chatId,
-    text:
-      `📌 NEW TASK\n` +
-      `Task ID: ${task.task_code}\n` +
-      `Room: ${task.room}\n` +
-      `Department: ${task.department}\n` +
-      `Task: ${task.task_text}\n` +
-      `Created by: ${params.userName}\n` +
-      `${params.imageUrl ? `Photo attached: Yes\n` : ''}` +
-      `Reply to this message with:\n/doing\n/done\nor send photo(s) to attach`
+    text: buildTaskMessageText({
+      task_code: task.task_code,
+      room: task.room,
+      department: task.department,
+      task_text: task.task_text,
+      created_by_name: params.userName,
+      image_url: params.imageUrl || null,
+      status: 'OPEN'
+    }),
+    reply_markup: buildTaskInlineKeyboard(task.id, 'OPEN')
   });
 
   const telegramMessageId = sent?.result?.message_id ?? null;
@@ -202,6 +298,62 @@ async function createTask(params: {
       chat_id: params.chatId,
       task_id: task.id,
       message_type: 'TASK_CARD'
+    });
+  }
+
+  return task;
+}
+
+async function updateTaskStatusByTaskId(params: {
+  taskId: string;
+  chatId: number;
+  userId: number | null;
+  userName: string;
+  updateId: number;
+  command: 'IN_PROGRESS' | 'DONE';
+  sendConfirmation?: boolean;
+}) {
+  const updateData: any = {
+    status: params.command,
+    updated_at: new Date().toISOString(),
+    last_updated_by_name: params.userName,
+    last_updated_by_telegram_user_id: params.userId
+  };
+
+  if (params.command === 'DONE') {
+    updateData.done_at = new Date().toISOString();
+    updateData.done_by_name = params.userName;
+    updateData.done_by_telegram_user_id = params.userId;
+  } else {
+    updateData.done_at = null;
+    updateData.done_by_name = null;
+    updateData.done_by_telegram_user_id = null;
+  }
+
+  const { data: task, error } = await supabase
+    .from('tasks')
+    .update(updateData)
+    .eq('id', params.taskId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  await supabase.from('task_events').insert({
+    task_id: task.id,
+    event_type: params.command,
+    event_text: `Status changed to ${params.command} by ${params.userName}`,
+    telegram_update_id: params.updateId,
+    actor_user_id: params.userId,
+    actor_name: params.userName
+  });
+
+  await refreshTelegramTaskCard(task.id);
+
+  if (params.sendConfirmation !== false) {
+    await telegram('sendMessage', {
+      chat_id: params.chatId,
+      text: `Task ${task.task_code} ${params.command === 'DONE' ? 'DONE' : 'DOING'} by ${params.userName}`
     });
   }
 
@@ -239,44 +391,13 @@ async function updateTaskStatus(params: {
     return;
   }
 
-  const updateData: any = {
-    status: params.command,
-    updated_at: new Date().toISOString(),
-    last_updated_by_name: params.userName,
-    last_updated_by_telegram_user_id: params.userId
-  };
-
-  if (params.command === 'DONE') {
-    updateData.done_at = new Date().toISOString();
-    updateData.done_by_name = params.userName;
-    updateData.done_by_telegram_user_id = params.userId;
-  } else {
-    updateData.done_at = null;
-    updateData.done_by_name = null;
-    updateData.done_by_telegram_user_id = null;
-  }
-
-  const { data: task, error } = await supabase
-    .from('tasks')
-    .update(updateData)
-    .eq('id', mapping.task_id)
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await supabase.from('task_events').insert({
-    task_id: task.id,
-    event_type: params.command,
-    event_text: `Status changed to ${params.command} by ${params.userName}`,
-    telegram_update_id: params.updateId,
-    actor_user_id: params.userId,
-    actor_name: params.userName
-  });
-
-  await telegram('sendMessage', {
-    chat_id: params.chatId,
-    text: `Task ${task.task_code} ${params.command === 'DONE' ? 'DONE' : 'IN PROGRESS'} by ${params.userName}`
+  await updateTaskStatusByTaskId({
+    taskId: mapping.task_id,
+    chatId: params.chatId,
+    userId: params.userId,
+    userName: params.userName,
+    updateId: params.updateId,
+    command: params.command
   });
 }
 
@@ -341,10 +462,103 @@ async function attachPhotoToExistingTask(params: {
     actor_name: params.userName
   });
 
+  await refreshTelegramTaskCard(mapping.task_id);
+
   await telegram('sendMessage', {
     chat_id: params.chatId,
     text: `Photo attached to task by ${params.userName}`
   });
+}
+
+async function handleCallbackQuery(update: any, updateId: number) {
+  const callback = update?.callback_query;
+  if (!callback) return false;
+
+  const chatId = Number(callback.message?.chat?.id);
+  const userId = callback.from?.id ? Number(callback.from.id) : null;
+  const userName =
+    callback.from?.username
+      ? `@${callback.from.username}`
+      : [callback.from?.first_name, callback.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
+
+  if (String(chatId) !== String(ALLOWED_CHAT_ID)) {
+    await telegram('answerCallbackQuery', {
+      callback_query_id: callback.id,
+      text: 'Unauthorized chat'
+    });
+    return true;
+  }
+
+  const data = String(callback.data || '');
+  const [action, rawTaskId] = data.split(':');
+  const taskId = String(rawTaskId || '').trim();
+
+  if (!taskId) {
+    await telegram('answerCallbackQuery', {
+      callback_query_id: callback.id,
+      text: 'Invalid action'
+    });
+    return true;
+  }
+
+  if (action === 'doing') {
+    await updateTaskStatusByTaskId({
+      taskId,
+      chatId,
+      userId,
+      userName,
+      updateId,
+      command: 'IN_PROGRESS',
+      sendConfirmation: false
+    });
+
+    await telegram('answerCallbackQuery', {
+      callback_query_id: callback.id,
+      text: `Marked DOING by ${userName}`
+    });
+
+    return true;
+  }
+
+  if (action === 'done') {
+    await updateTaskStatusByTaskId({
+      taskId,
+      chatId,
+      userId,
+      userName,
+      updateId,
+      command: 'DONE',
+      sendConfirmation: false
+    });
+
+    await telegram('answerCallbackQuery', {
+      callback_query_id: callback.id,
+      text: `Marked DONE by ${userName}`
+    });
+
+    return true;
+  }
+
+  if (action === 'photo') {
+    await telegram('answerCallbackQuery', {
+      callback_query_id: callback.id,
+      text: 'Reply to this task with photo(s)'
+    });
+
+    await telegram('sendMessage', {
+      chat_id: chatId,
+      text: 'Please reply directly to the task card with photo(s) to attach.'
+    });
+
+    return true;
+  }
+
+  await telegram('answerCallbackQuery', {
+    callback_query_id: callback.id,
+    text: 'Unknown action'
+  });
+
+  return true;
 }
 
 export async function POST(req: NextRequest) {
@@ -356,6 +570,12 @@ export async function POST(req: NextRequest) {
 
     const update = await req.json();
     const updateId = Number(update?.update_id);
+
+    const callbackHandled = await handleCallbackQuery(update, updateId);
+    if (callbackHandled) {
+      return NextResponse.json({ ok: true });
+    }
+
     const msg = update?.message;
 
     if (!msg) {
@@ -426,11 +646,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // CASE 1: user replies to a task card with photo only (or photo + caption)
     if (imageUrl && msg.reply_to_message?.message_id) {
       const parsedCaption = textOrCaption ? parseInput(textOrCaption) : { ok: false as const };
 
-      // If caption itself is a new task format, create a new task instead of attaching
       if (!(parsedCaption.ok && parsedCaption.dept)) {
         await attachPhotoToExistingTask({
           chatId,
@@ -455,7 +673,6 @@ export async function POST(req: NextRequest) {
 
     const parsed = parseInput(textOrCaption);
 
-    // CASE 2: normal task creation, including photo + caption
     if (parsed.ok && parsed.dept) {
       await createTask({
         chatId,
@@ -485,7 +702,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // CASE 3: department-only reply for pending input
     if (isDeptOnly(textOrCaption)) {
       const { data: pending } = await supabase
         .from('pending_inputs')
@@ -534,7 +750,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // CASE 4: missing department flow
     if (parsed.ok && !parsed.dept) {
       await supabase
         .from('pending_inputs')
@@ -566,7 +781,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // CASE 5: photo sent without task format and not replying to task card
     if (imageUrl) {
       await telegram('sendMessage', {
         chat_id: chatId,
