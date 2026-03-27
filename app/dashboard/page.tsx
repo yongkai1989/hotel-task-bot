@@ -25,25 +25,39 @@ type Task = {
   task_images?: TaskImage[];
 };
 
-type MainTab = 'LIVE TASK' | 'PAST TASK';
+type SidebarView = 'DASHBOARD' | 'PAST_TASK';
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
-const statuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
+const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
-  const [status, setStatus] = useState<(typeof statuses)[number]>('ALL');
-  const [mainTab, setMainTab] = useState<MainTab>('LIVE TASK');
-  const [pastTaskDate, setPastTaskDate] = useState(getTodayLocalDateString());
+  const [status, setStatus] = useState<(typeof liveStatuses)[number]>('ALL');
+  const [sidebarView, setSidebarView] = useState<SidebarView>('DASHBOARD');
+  const [pastTaskDate, setPastTaskDate] = useState(getYesterdayLocalDateString());
 
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 920;
+      setIsMobile(mobile);
+      if (!mobile) setSidebarOpen(false);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   async function loadTasks() {
     try {
@@ -188,7 +202,7 @@ export default function DashboardPage() {
     });
   }, [tasks, dept, pastTaskDate, todayLocal]);
 
-  const filtered = mainTab === 'LIVE TASK' ? liveTasks : pastTasks;
+  const filtered = sidebarView === 'DASHBOARD' ? liveTasks : pastTasks;
 
   const summary = useMemo(() => {
     return {
@@ -209,253 +223,389 @@ export default function DashboardPage() {
     };
   }, [tasks, todayLocal]);
 
+  const pageTitle =
+    sidebarView === 'DASHBOARD' ? 'Operations Dashboard' : 'Past Task Archive';
+
+  const pageSubtitle =
+    sidebarView === 'DASHBOARD'
+      ? 'Live task board for housekeeping, maintenance, and front office'
+      : 'Browse previously completed tasks by completed date';
+
+  const sidebarStyle: React.CSSProperties = isMobile
+    ? {
+        ...styles.sidebar,
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        bottom: 0,
+        zIndex: 1002,
+        transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform 0.24s ease',
+        width: 270,
+        minWidth: 270,
+      }
+    : {
+        ...styles.sidebar,
+        position: 'sticky',
+        top: 0,
+        height: '100vh',
+      };
+
+  const contentStyle: React.CSSProperties = isMobile
+    ? { ...styles.content, marginLeft: 0 }
+    : { ...styles.content, marginLeft: 0 };
+
   return (
     <main style={styles.page}>
-      <div style={styles.headerCard}>
-        <div style={styles.headerTop}>
-          <div style={styles.logoWrap}>
-            <Image
-              src="/logo.png"
-              alt="Hallmark Crown Hotel logo"
-              width={56}
-              height={56}
-              style={styles.logo as React.CSSProperties}
-            />
-          </div>
+      {isMobile && sidebarOpen ? (
+        <div style={styles.mobileOverlay} onClick={() => setSidebarOpen(false)} />
+      ) : null}
 
-          <div style={styles.headerTextWrap}>
-            <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
-            <h1 style={styles.title}>Operations Dashboard</h1>
-            <p style={styles.subtitle}>
-              Mobile-friendly live task board for housekeeping, maintenance, and front office
-            </p>
-          </div>
-        </div>
-      </div>
+      <div style={styles.layout}>
+        <aside style={sidebarStyle}>
+          <div style={styles.sidebarTop}>
+            <div style={styles.sidebarBrand}>
+              <div style={styles.sidebarLogoWrap}>
+                <Image
+                  src="/logo.png"
+                  alt="Hallmark Crown Hotel logo"
+                  width={42}
+                  height={42}
+                  style={styles.logo as React.CSSProperties}
+                />
+              </div>
 
-      {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+              <div style={styles.sidebarBrandText}>
+                <div style={styles.sidebarHotel}>Hallmark Crown Hotel</div>
+                <div style={styles.sidebarHotelSub}>Operations PMS</div>
+              </div>
+            </div>
 
-      <section style={styles.summaryGrid}>
-        <SummaryCard title="Open" value={summary.open} tone="open" />
-        <SummaryCard title="DOING" value={summary.doing} tone="doing" />
-        <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
-      </section>
-
-      <section style={styles.mainTabWrap}>
-        <button
-          onClick={() => setMainTab('LIVE TASK')}
-          style={mainTabStyle(mainTab === 'LIVE TASK')}
-        >
-          LIVE TASK
-        </button>
-
-        <button
-          onClick={() => setMainTab('PAST TASK')}
-          style={mainTabStyle(mainTab === 'PAST TASK')}
-        >
-          PAST TASK
-          {summary.pastDone > 0 ? (
-            <span style={styles.mainTabCount}>{summary.pastDone}</span>
-          ) : null}
-        </button>
-      </section>
-
-      <section style={styles.filterPanel}>
-        <div style={styles.filterGroup}>
-          <div style={styles.filterLabel}>Department</div>
-          <div style={styles.pillRow}>
-            {departments.map((d) => (
+            {isMobile ? (
               <button
-                key={d}
-                onClick={() => setDept(d)}
-                style={departmentFilterStyle(d, dept === d)}
+                onClick={() => setSidebarOpen(false)}
+                style={styles.sidebarCloseBtn}
+                aria-label="Close sidebar"
               >
-                {d}
+                ×
               </button>
-            ))}
+            ) : null}
           </div>
-        </div>
 
-        {mainTab === 'LIVE TASK' ? (
-          <div style={styles.filterGroup}>
-            <div style={styles.filterLabel}>Status</div>
-            <div style={styles.pillRow}>
-              {statuses.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatus(s)}
-                  style={statusFilterStyle(status === s)}
-                >
-                  {labelForStatus(s)}
-                </button>
-              ))}
+          <div style={styles.sidebarSectionTitle}>Navigation</div>
+
+          <div style={styles.sidebarMenu}>
+            <button
+              onClick={() => {
+                setSidebarView('DASHBOARD');
+                setSidebarOpen(false);
+              }}
+              style={sidebarItemStyle(sidebarView === 'DASHBOARD')}
+            >
+              <span>Dashboard</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setSidebarView('PAST_TASK');
+                setSidebarOpen(false);
+              }}
+              style={sidebarItemStyle(sidebarView === 'PAST_TASK')}
+            >
+              <span>Past Task</span>
+              {summary.pastDone > 0 ? (
+                <span style={sidebarView === 'PAST_TASK' ? styles.sidebarCountActive : styles.sidebarCount}>
+                  {summary.pastDone}
+                </span>
+              ) : null}
+            </button>
+          </div>
+
+          <div style={styles.sidebarDivider} />
+
+          <div style={styles.sidebarMiniStats}>
+            <div style={styles.sidebarMiniCard}>
+              <div style={styles.sidebarMiniLabel}>Open</div>
+              <div style={styles.sidebarMiniValue}>{summary.open}</div>
+            </div>
+
+            <div style={styles.sidebarMiniCard}>
+              <div style={styles.sidebarMiniLabel}>DOING</div>
+              <div style={styles.sidebarMiniValue}>{summary.doing}</div>
+            </div>
+
+            <div style={styles.sidebarMiniCard}>
+              <div style={styles.sidebarMiniLabel}>Done Today</div>
+              <div style={styles.sidebarMiniValue}>{summary.doneToday}</div>
             </div>
           </div>
-        ) : (
-          <div style={styles.filterGroupLast}>
-            <div style={styles.filterLabel}>Completed Date</div>
-            <div style={styles.dateFilterRow}>
-              <input
-                type="date"
-                value={pastTaskDate}
-                max={todayLocal}
-                onChange={(e) => setPastTaskDate(e.target.value)}
-                style={styles.dateInput}
-              />
-              <div style={styles.dateHint}>
-                Shows completed tasks based on done date
+        </aside>
+
+        <section style={contentStyle}>
+          {isMobile ? (
+            <div style={styles.mobileTopBar}>
+              <button
+                onClick={() => setSidebarOpen(true)}
+                style={styles.menuButton}
+                aria-label="Open sidebar"
+              >
+                ☰
+              </button>
+
+              <div style={styles.mobileTopBarTitle}>Hallmark PMS</div>
+            </div>
+          ) : null}
+
+          <div style={styles.headerCard}>
+            <div style={styles.headerTop}>
+              <div style={styles.logoWrap}>
+                <Image
+                  src="/logo.png"
+                  alt="Hallmark Crown Hotel logo"
+                  width={56}
+                  height={56}
+                  style={styles.logo as React.CSSProperties}
+                />
+              </div>
+
+              <div style={styles.headerTextWrap}>
+                <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
+                <h1 style={styles.title}>{pageTitle}</h1>
+                <p style={styles.subtitle}>{pageSubtitle}</p>
               </div>
             </div>
           </div>
-        )}
-      </section>
 
-      <section style={styles.resultBar}>
-        <div style={styles.resultText}>
-          {loading
-            ? 'Loading tasks…'
-            : mainTab === 'LIVE TASK'
-            ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
-            : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
-                pastTaskDate
-              )}`}
-        </div>
-      </section>
+          {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
-      {loading ? (
-        <div style={styles.emptyState}>Loading...</div>
-      ) : filtered.length === 0 ? (
-        <div style={styles.emptyState}>
-          {mainTab === 'LIVE TASK'
-            ? 'No tasks found for this filter.'
-            : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
-        </div>
-      ) : (
-        <div style={styles.cardList}>
-          {filtered.map((task) => {
-            const images = Array.isArray(task.task_images) ? task.task_images : [];
-            const thumb =
-              images.length > 0
-                ? images[images.length - 1].image_url
-                : task.image_url || null;
+          {sidebarView === 'DASHBOARD' ? (
+            <section style={styles.summaryGrid}>
+              <SummaryCard title="Open" value={summary.open} tone="open" />
+              <SummaryCard title="DOING" value={summary.doing} tone="doing" />
+              <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
+            </section>
+          ) : null}
 
-            return (
-              <article key={task.id} style={styles.taskCard}>
-                <div style={styles.taskMainRow}>
-                  <div style={styles.taskMainContent}>
-                    <div style={styles.cardTopRow}>
-                      <div style={styles.cardTopLeft}>
-                        <div style={styles.taskCode}>{task.task_code}</div>
-                        <div style={styles.roomLine}>
-                          Room <span style={styles.roomNo}>{task.room}</span>
-                          <span style={styles.dot}>•</span>
-                          <span style={deptBadgeStyle(task.department)}>{task.department}</span>
-                        </div>
-                      </div>
-
-                      <div style={statusBadgeStyle(task.status)}>
-                        {labelForStatus(task.status)}
-                      </div>
-                    </div>
-
-                    <div style={styles.taskText}>{task.task_text}</div>
-
-                    <div style={styles.metaWrap}>
-                      <div style={styles.metaRow}>
-                        <span style={styles.metaLabel}>Created</span>
-                        <span style={styles.metaValue}>
-                          {new Date(task.created_at).toLocaleString()}
-                        </span>
-                      </div>
-
-                      {task.status === 'DONE' && task.done_at ? (
-                        <div style={styles.metaRow}>
-                          <span style={styles.metaLabel}>Completed</span>
-                          <span style={styles.metaValue}>
-                            {new Date(task.done_at).toLocaleString()}
-                          </span>
-                        </div>
-                      ) : null}
-
-                      {task.status === 'DONE' && task.done_by_name ? (
-                        <div style={styles.metaRow}>
-                          <span style={styles.metaLabel}>Done by</span>
-                          <span style={styles.metaValueStrong}>{task.done_by_name}</span>
-                        </div>
-                      ) : null}
-
-                      {task.status !== 'DONE' && task.last_updated_by_name ? (
-                        <div style={styles.metaRow}>
-                          <span style={styles.metaLabel}>Last updated by</span>
-                          <span style={styles.metaValue}>{task.last_updated_by_name}</span>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {mainTab === 'LIVE TASK' ? (
-                      <>
-                        <div style={styles.buttonRow}>
-                          <button
-                            style={actionBtn(task.status === 'OPEN', 'open')}
-                            disabled={busyTaskId === task.id}
-                            onClick={() => setTaskStatus(task.id, 'OPEN')}
-                          >
-                            Open
-                          </button>
-
-                          <button
-                            style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
-                            disabled={busyTaskId === task.id}
-                            onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                          >
-                            DOING
-                          </button>
-
-                          <button
-                            style={actionBtn(task.status === 'DONE', 'done')}
-                            disabled={busyTaskId === task.id}
-                            onClick={() => setTaskStatus(task.id, 'DONE')}
-                          >
-                            Done
-                          </button>
-                        </div>
-
-                        {busyTaskId === task.id ? (
-                          <div style={styles.updatingText}>Updating…</div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div style={styles.pastTaskNote}>
-                        Archived under past task by completed date
-                      </div>
-                    )}
-                  </div>
-
-                  {thumb ? (
-                    <div style={styles.thumbWrap}>
-                      <button
-                        onClick={() => openImageModal(task)}
-                        style={styles.thumbButton}
-                        title="Open task images"
-                      >
-                        <img
-                          src={thumb}
-                          alt="Task thumbnail"
-                          style={styles.thumbImage}
-                        />
-                      </button>
-
-                      <div style={styles.imageCountBadge}>
-                        {images.length > 0 ? `${images.length} img` : '1 img'}
-                      </div>
-                    </div>
-                  ) : null}
+          <section style={styles.filterPanel}>
+            <div style={styles.filterHeader}>
+              <div>
+                <div style={styles.filterPanelTitle}>
+                  {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
                 </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+                <div style={styles.filterPanelSubtitle}>
+                  {sidebarView === 'DASHBOARD'
+                    ? 'Filter active and today-completed tasks'
+                    : 'Search older completed tasks by department and date'}
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.filterBlock}>
+              <div style={styles.filterLabel}>Department</div>
+              <div style={styles.pillRow}>
+                {departments.map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDept(d)}
+                    style={departmentFilterStyle(d, dept === d)}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {sidebarView === 'DASHBOARD' ? (
+              <div style={styles.filterBlock}>
+                <div style={styles.filterLabel}>Status</div>
+                <div style={styles.pillRow}>
+                  {liveStatuses.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStatus(s)}
+                      style={statusFilterStyle(status === s)}
+                    >
+                      {labelForStatus(s)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={styles.filterBlock}>
+                <div style={styles.filterLabel}>Completed Date</div>
+                <div style={styles.dateFilterRow}>
+                  <input
+                    type="date"
+                    value={pastTaskDate}
+                    max={getYesterdayLocalDateString()}
+                    onChange={(e) => setPastTaskDate(e.target.value)}
+                    style={styles.dateInput}
+                  />
+                  <div style={styles.dateHint}>
+                    Tasks here are filtered using completion date
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section style={styles.resultBar}>
+            <div style={styles.resultText}>
+              {loading
+                ? 'Loading tasks…'
+                : sidebarView === 'DASHBOARD'
+                ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
+                : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
+                    pastTaskDate
+                  )}`}
+            </div>
+          </section>
+
+          {loading ? (
+            <div style={styles.emptyState}>Loading...</div>
+          ) : filtered.length === 0 ? (
+            <div style={styles.emptyState}>
+              {sidebarView === 'DASHBOARD'
+                ? 'No tasks found for this filter.'
+                : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
+            </div>
+          ) : (
+            <div style={styles.cardList}>
+              {filtered.map((task) => {
+                const images = Array.isArray(task.task_images) ? task.task_images : [];
+                const thumb =
+                  images.length > 0
+                    ? images[images.length - 1].image_url
+                    : task.image_url || null;
+
+                return (
+                  <article key={task.id} style={styles.taskCard}>
+                    <div style={styles.taskMainRow}>
+                      <div style={styles.taskMainContent}>
+                        <div style={styles.cardTopRow}>
+                          <div style={styles.cardTopLeft}>
+                            <div style={styles.taskCodeRow}>
+                              <div style={styles.taskCode}>{task.task_code}</div>
+                              <div style={statusBadgeStyle(task.status)}>
+                                {labelForStatus(task.status)}
+                              </div>
+                            </div>
+
+                            <div style={styles.roomLine}>
+                              <span style={styles.roomText}>Room</span>
+                              <span style={styles.roomNo}>{task.room}</span>
+                              <span style={styles.dot}>•</span>
+                              <span style={deptBadgeStyle(task.department)}>
+                                {task.department}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={styles.taskText}>{task.task_text}</div>
+
+                        <div style={styles.metaGrid}>
+                          <div style={styles.metaCard}>
+                            <div style={styles.metaCardLabel}>Created</div>
+                            <div style={styles.metaCardValue}>
+                              {new Date(task.created_at).toLocaleString()}
+                            </div>
+                          </div>
+
+                          {task.status === 'DONE' && task.done_at ? (
+                            <div style={styles.metaCard}>
+                              <div style={styles.metaCardLabel}>Completed</div>
+                              <div style={styles.metaCardValue}>
+                                {new Date(task.done_at).toLocaleString()}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {task.status === 'DONE' && task.done_by_name ? (
+                            <div style={styles.metaCard}>
+                              <div style={styles.metaCardLabel}>Done by</div>
+                              <div style={styles.metaCardValueStrong}>
+                                {task.done_by_name}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {task.status !== 'DONE' && task.last_updated_by_name ? (
+                            <div style={styles.metaCard}>
+                              <div style={styles.metaCardLabel}>Last updated by</div>
+                              <div style={styles.metaCardValue}>
+                                {task.last_updated_by_name}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {sidebarView === 'DASHBOARD' ? (
+                          <>
+                            <div style={styles.buttonRow}>
+                              <button
+                                style={actionBtn(task.status === 'OPEN', 'open')}
+                                disabled={busyTaskId === task.id}
+                                onClick={() => setTaskStatus(task.id, 'OPEN')}
+                              >
+                                Open
+                              </button>
+
+                              <button
+                                style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
+                                disabled={busyTaskId === task.id}
+                                onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                              >
+                                DOING
+                              </button>
+
+                              <button
+                                style={actionBtn(task.status === 'DONE', 'done')}
+                                disabled={busyTaskId === task.id}
+                                onClick={() => setTaskStatus(task.id, 'DONE')}
+                              >
+                                Done
+                              </button>
+                            </div>
+
+                            {busyTaskId === task.id ? (
+                              <div style={styles.updatingText}>Updating…</div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <div style={styles.pastTaskNote}>
+                            Archived record based on completion date
+                          </div>
+                        )}
+                      </div>
+
+                      {thumb ? (
+                        <div style={styles.thumbWrap}>
+                          <button
+                            onClick={() => openImageModal(task)}
+                            style={styles.thumbButton}
+                            title="Open task images"
+                          >
+                            <img
+                              src={thumb}
+                              alt="Task thumbnail"
+                              style={styles.thumbImage}
+                            />
+                          </button>
+
+                          <div style={styles.imageCountBadge}>
+                            {images.length > 0 ? `${images.length} img` : '1 img'}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
 
       {imageModalOpen && selectedTaskImages.length > 0 ? (
         <div style={styles.modalOverlay} onClick={closeImageModal}>
@@ -539,6 +689,15 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function getYesterdayLocalDateString() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const year = d.getFullYear();
+  const month = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function getLocalDateStringFromISO(iso?: string | null) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -561,21 +720,23 @@ function labelForStatus(status: string) {
   return status;
 }
 
-function mainTabStyle(active: boolean): React.CSSProperties {
+function sidebarItemStyle(active: boolean): React.CSSProperties {
   return {
-    borderRadius: 999,
-    padding: '12px 16px',
-    fontSize: 13,
+    width: '100%',
+    textAlign: 'left',
+    borderRadius: 16,
+    padding: '14px 16px',
+    fontSize: 14,
     fontWeight: 800,
     cursor: 'pointer',
-    border: active ? '1px solid #111827' : '1px solid #d1d5db',
+    border: active ? '1px solid #111827' : '1px solid #e5e7eb',
     background: active ? '#111827' : '#ffffff',
     color: active ? '#ffffff' : '#374151',
-    boxShadow: active ? '0 10px 22px rgba(17,24,39,0.18)' : 'none',
-    display: 'inline-flex',
+    boxShadow: active ? '0 12px 22px rgba(17,24,39,0.16)' : 'none',
+    display: 'flex',
     alignItems: 'center',
-    gap: 8,
-    whiteSpace: 'nowrap',
+    justifyContent: 'space-between',
+    gap: 10,
   };
 }
 
@@ -595,9 +756,7 @@ function departmentFilterStyle(
     color: '#374151',
   };
 
-  if (!active) {
-    return base;
-  }
+  if (!active) return base;
 
   if (dept === 'HK') {
     return {
@@ -665,7 +824,7 @@ function actionBtn(
       : { background: '#16a34a', color: '#fff', border: '1px solid #16a34a' };
 
   return {
-    minWidth: 84,
+    minWidth: 92,
     borderRadius: 12,
     padding: '10px 14px',
     fontSize: 14,
@@ -743,15 +902,15 @@ function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
 function summaryCardStyle(tone: 'open' | 'doing' | 'done'): React.CSSProperties {
   const map = {
     open: {
-      background: 'linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)',
+      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
       border: '1px solid #e5e7eb',
     },
     doing: {
-      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+      background: 'linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%)',
       border: '1px solid #bfdbfe',
     },
     done: {
-      background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)',
+      background: 'linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%)',
       border: '1px solid #bbf7d0',
     },
   };
@@ -767,18 +926,174 @@ function summaryCardStyle(tone: 'open' | 'doing' | 'done'): React.CSSProperties 
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    padding: 16,
-    maxWidth: 860,
-    margin: '0 auto',
-    background: 'linear-gradient(180deg, #f8fafc 0%, #f3f4f6 100%)',
+    background: '#f3f6fb',
+  },
+  layout: {
+    display: 'flex',
+    minHeight: '100vh',
+  },
+  sidebar: {
+    width: 280,
+    minWidth: 280,
+    background: '#ffffff',
+    borderRight: '1px solid #e7edf5',
+    padding: 18,
+    boxShadow: '0 10px 30px rgba(15,23,42,0.05)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 18,
+  },
+  sidebarTop: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sidebarBrand: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    minWidth: 0,
+    flex: 1,
+  },
+  sidebarLogoWrap: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    background: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid #ede9e3',
+    boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
+    flexShrink: 0,
+  },
+  sidebarBrandText: {
+    minWidth: 0,
+    flex: 1,
+  },
+  sidebarHotel: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#111827',
+    lineHeight: 1.2,
+  },
+  sidebarHotelSub: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: 700,
+  },
+  sidebarCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    border: '1px solid #e5e7eb',
+    background: '#ffffff',
+    color: '#111827',
+    fontSize: 22,
+    lineHeight: 1,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  sidebarSectionTitle: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: '#94a3b8',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  sidebarMenu: {
+    display: 'grid',
+    gap: 10,
+  },
+  sidebarDivider: {
+    height: 1,
+    background: '#edf2f7',
+    margin: '4px 0',
+  },
+  sidebarMiniStats: {
+    display: 'grid',
+    gap: 10,
+  },
+  sidebarMiniCard: {
+    borderRadius: 16,
+    border: '1px solid #e7edf5',
+    background: '#f8fafc',
+    padding: 14,
+  },
+  sidebarMiniLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: 700,
+  },
+  sidebarMiniValue: {
+    marginTop: 6,
+    fontSize: 22,
+    color: '#111827',
+    fontWeight: 800,
+  },
+  sidebarCount: {
+    fontSize: 11,
+    fontWeight: 800,
+    padding: '4px 8px',
+    borderRadius: 999,
+    background: '#f3f4f6',
+    color: '#374151',
+    whiteSpace: 'nowrap',
+  },
+  sidebarCountActive: {
+    fontSize: 11,
+    fontWeight: 800,
+    padding: '4px 8px',
+    borderRadius: 999,
+    background: 'rgba(255,255,255,0.14)',
+    color: '#ffffff',
+    whiteSpace: 'nowrap',
+  },
+  content: {
+    flex: 1,
+    minWidth: 0,
+    padding: 20,
+    maxWidth: 1200,
+    width: '100%',
+  },
+  mobileTopBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  mobileTopBarTitle: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: '#111827',
+  },
+  menuButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
+    color: '#111827',
+    fontSize: 20,
+    fontWeight: 800,
+    cursor: 'pointer',
+    boxShadow: '0 6px 16px rgba(15,23,42,0.06)',
+  },
+  mobileOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15,23,42,0.38)',
+    zIndex: 1001,
   },
   headerCard: {
     marginBottom: 18,
-    padding: 18,
+    padding: 20,
     borderRadius: 24,
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 14px 30px rgba(15,23,42,0.06)',
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    border: '1px solid #e7edf5',
+    boxShadow: '0 16px 34px rgba(15,23,42,0.06)',
   },
   headerTop: {
     display: 'flex',
@@ -787,8 +1102,8 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
   },
   logoWrap: {
-    width: 64,
-    height: 64,
+    width: 66,
+    height: 66,
     borderRadius: 18,
     background: '#fff',
     display: 'flex',
@@ -815,16 +1130,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     margin: 0,
-    fontSize: 30,
-    lineHeight: 1.1,
+    fontSize: 32,
+    lineHeight: 1.08,
     color: '#111827',
+    fontWeight: 800,
   },
   subtitle: {
     marginTop: 8,
     marginBottom: 0,
     color: '#6b7280',
     fontSize: 14,
-    lineHeight: 1.5,
+    lineHeight: 1.55,
   },
   errorBox: {
     marginBottom: 14,
@@ -852,38 +1168,34 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#111827',
     marginTop: 8,
   },
-  mainTabWrap: {
+  filterPanel: {
+    marginBottom: 16,
+    border: '1px solid #e7edf5',
+    borderRadius: 22,
+    padding: 16,
+    background: '#ffffff',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
+  },
+  filterHeader: {
     display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 10,
     marginBottom: 14,
-    overflowX: 'auto',
-    paddingBottom: 2,
   },
-  mainTabCount: {
-    fontSize: 11,
+  filterPanelTitle: {
+    fontSize: 16,
     fontWeight: 800,
-    padding: '3px 7px',
-    borderRadius: 999,
-    background: 'rgba(255,255,255,0.18)',
-    color: 'inherit',
+    color: '#111827',
   },
-  filterPanel: {
-    position: 'sticky',
-    top: 0,
-    zIndex: 5,
-    background: 'rgba(248,250,252,0.92)',
-    backdropFilter: 'blur(12px)',
-    border: '1px solid #e5e7eb',
-    borderRadius: 20,
-    padding: 14,
-    marginBottom: 14,
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+  filterPanelSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: 600,
   },
-  filterGroup: {
-    marginBottom: 10,
-  },
-  filterGroupLast: {
-    marginBottom: 0,
+  filterBlock: {
+    marginTop: 14,
   },
   filterLabel: {
     fontSize: 12,
@@ -905,7 +1217,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dateInput: {
     width: '100%',
-    maxWidth: 220,
+    maxWidth: 240,
     borderRadius: 12,
     border: '1px solid #d1d5db',
     background: '#ffffff',
@@ -921,12 +1233,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
   },
   resultBar: {
-    marginBottom: 10,
-    paddingLeft: 4,
+    marginBottom: 12,
+    paddingLeft: 2,
   },
   resultText: {
     fontSize: 13,
-    color: '#6b7280',
+    color: '#64748b',
     fontWeight: 700,
   },
   cardList: {
@@ -934,15 +1246,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 14,
   },
   taskCard: {
-    border: '1px solid #e5e7eb',
-    borderRadius: 22,
+    border: '1px solid #e7edf5',
+    borderRadius: 24,
     padding: 18,
     background: '#ffffff',
-    boxShadow: '0 14px 30px rgba(15,23,42,0.06)',
+    boxShadow: '0 14px 28px rgba(15,23,42,0.05)',
   },
   taskMainRow: {
     display: 'flex',
-    gap: 14,
+    gap: 16,
     alignItems: 'flex-start',
   },
   taskMainContent: {
@@ -960,20 +1272,30 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     flex: 1,
   },
+  taskCodeRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
   taskCode: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: 800,
     color: '#111827',
     letterSpacing: -0.4,
   },
   roomLine: {
-    marginTop: 8,
+    marginTop: 10,
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     flexWrap: 'wrap',
     color: '#4b5563',
-    fontSize: 16,
+    fontSize: 15,
+  },
+  roomText: {
+    color: '#64748b',
+    fontWeight: 700,
   },
   roomNo: {
     fontWeight: 800,
@@ -983,45 +1305,44 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#9ca3af',
   },
   taskText: {
-    marginTop: 14,
-    fontSize: 21,
-    lineHeight: 1.35,
-    color: '#111827',
-    fontWeight: 500,
+    marginTop: 16,
+    fontSize: 20,
+    lineHeight: 1.4,
+    color: '#0f172a',
+    fontWeight: 600,
     wordBreak: 'break-word',
   },
-  metaWrap: {
+  metaGrid: {
     marginTop: 16,
     display: 'grid',
-    gap: 6,
-    padding: 12,
+    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+    gap: 10,
+  },
+  metaCard: {
     borderRadius: 16,
-    background: '#f9fafb',
-    border: '1px solid #f3f4f6',
+    border: '1px solid #edf2f7',
+    background: '#f8fafc',
+    padding: 12,
+    minWidth: 0,
   },
-  metaRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 12,
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
+  metaCardLabel: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
   },
-  metaLabel: {
+  metaCardValue: {
     fontSize: 13,
-    color: '#6b7280',
-    fontWeight: 700,
-    minWidth: 88,
-  },
-  metaValue: {
-    fontSize: 13,
-    color: '#374151',
-    textAlign: 'right',
+    color: '#334155',
+    lineHeight: 1.45,
     wordBreak: 'break-word',
   },
-  metaValueStrong: {
+  metaCardValueStrong: {
     fontSize: 13,
-    color: '#111827',
-    textAlign: 'right',
+    color: '#0f172a',
+    lineHeight: 1.45,
     fontWeight: 800,
     wordBreak: 'break-word',
   },
@@ -1034,31 +1355,32 @@ const styles: Record<string, React.CSSProperties> = {
   updatingText: {
     marginTop: 10,
     fontSize: 12,
-    color: '#6b7280',
+    color: '#64748b',
     fontWeight: 700,
   },
   pastTaskNote: {
     marginTop: 16,
     fontSize: 12,
-    color: '#6b7280',
+    color: '#64748b',
     fontWeight: 700,
     padding: '10px 12px',
     borderRadius: 12,
-    background: '#f9fafb',
-    border: '1px solid #f3f4f6',
+    background: '#f8fafc',
+    border: '1px solid #edf2f7',
   },
   emptyState: {
     marginTop: 20,
-    padding: 24,
-    borderRadius: 18,
+    padding: 26,
+    borderRadius: 20,
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
+    border: '1px solid #e7edf5',
     textAlign: 'center',
-    color: '#6b7280',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+    color: '#64748b',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
+    fontWeight: 600,
   },
   thumbWrap: {
-    width: 82,
+    width: 86,
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
@@ -1066,12 +1388,12 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
   },
   thumbButton: {
-    width: 82,
-    height: 82,
-    borderRadius: 16,
+    width: 86,
+    height: 86,
+    borderRadius: 18,
     overflow: 'hidden',
-    border: '1px solid #e5e7eb',
-    background: '#f9fafb',
+    border: '1px solid #e7edf5',
+    background: '#f8fafc',
     padding: 0,
     cursor: 'pointer',
     boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
@@ -1095,7 +1417,7 @@ const styles: Record<string, React.CSSProperties> = {
   modalOverlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 1000,
+    zIndex: 1100,
     background: 'rgba(0,0,0,0.82)',
     display: 'flex',
     alignItems: 'center',
