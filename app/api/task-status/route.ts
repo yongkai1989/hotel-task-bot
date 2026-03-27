@@ -1,13 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
+import { buildTaskInlineKeyboard, buildTaskMessageText } from '../../../lib/telegram';
 
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
 type Dept = 'HK' | 'MT' | 'FO';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -30,92 +28,15 @@ function normalizeStatus(value: string): TaskStatus | null {
   return null;
 }
 
-function labelForStatus(status: TaskStatus) {
-  if (status === 'IN_PROGRESS') return 'DOING';
-  return status;
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
-}
-
-function buildTaskMessageText(task: {
-  task_code: string;
-  room: string;
-  department: Dept;
-  task_text: string;
-  created_by_name?: string | null;
-  image_url?: string | null;
-  status: TaskStatus;
-  done_by_name?: string | null;
-  done_at?: string | null;
-  reopened_at?: string | null;
-  last_updated_by_name?: string | null;
-}) {
-  const lines = [
-    '📌 TASK',
-    `Task ID: ${task.task_code}`,
-    `Room: ${task.room}`,
-    `Department: ${task.department}`,
-    `Task: ${task.task_text}`,
-    `Status: ${labelForStatus(task.status)}`,
-    `Created by: ${task.created_by_name || '-'}`
-  ];
-
-  if (task.image_url) {
-    lines.push('Photo attached: Yes');
-  }
-
-  if (task.status === 'DONE') {
-    lines.push(`Done by: ${task.done_by_name || '-'}`);
-    if (task.done_at) {
-      lines.push(`Done at: ${formatDateTime(task.done_at)}`);
-    }
-  } else {
-    if (task.last_updated_by_name) {
-      lines.push(`Last updated by: ${task.last_updated_by_name}`);
-    }
-    if (task.reopened_at) {
-      lines.push(`Reopened at: ${formatDateTime(task.reopened_at)}`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
-function buildTaskInlineKeyboard(taskId: string, status: TaskStatus) {
-  return {
-    inline_keyboard: [
-      [
-        {
-          text: status === 'IN_PROGRESS' ? '🔵 DOING ✓' : '🔵 DOING',
-          callback_data: `doing:${taskId}`
-        },
-        {
-          text: status === 'DONE' ? '✅ DONE ✓' : '✅ DONE',
-          callback_data: `done:${taskId}`
-        }
-      ],
-      [
-        {
-          text: status === 'OPEN' ? '♻️ REOPEN ✓' : '♻️ REOPEN',
-          callback_data: `reopen:${taskId}`
-        }
-      ],
-      [
-        { text: '📷 ADD PHOTO', callback_data: `photo:${taskId}` }
-      ]
-    ]
-  };
+function canEditTask(role: string, dept: Dept) {
+  if (role === 'MANAGER') return true;
+  if (role === 'HK') return dept === 'HK';
+  if (role === 'MT') return dept === 'MT';
+  return false;
 }
 
 async function refreshTelegramTaskCard(taskId: string) {
-  const { data: task, error } = await supabase
+  const { data: task, error } = await supabaseAdmin
     .from('tasks')
     .select(`
       id,
@@ -148,17 +69,19 @@ async function refreshTelegramTaskCard(taskId: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: authError || 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
 
     const taskId = String(body.taskId || body.id || '').trim();
     const requestedStatus = normalizeStatus(body.status || body.command || body.action);
-    const userName = String(
-      body.userName ||
-        body.actorName ||
-        body.updatedByName ||
-        body.doneByName ||
-        'Dashboard'
-    ).trim();
 
     if (!taskId) {
       return NextResponse.json(
@@ -174,19 +97,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { data: existingTask, error: existingTaskError } = await supabaseAdmin
+      .from('tasks')
+      .select('id, department')
+      .eq('id', taskId)
+      .single();
+
+    if (existingTaskError || !existingTask) {
+      return NextResponse.json(
+        { ok: false, error: 'Task not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!canEditTask(user.role, existingTask.department as Dept)) {
+      return NextResponse.json(
+        { ok: false, error: 'You do not have permission to update this task' },
+        { status: 403 }
+      );
+    }
+
     const now = new Date().toISOString();
 
     const updateData: any = {
       status: requestedStatus,
       updated_at: now,
-      last_updated_by_name: userName
+      last_updated_by_name: user.name
     };
 
     let eventType: string = requestedStatus;
 
     if (requestedStatus === 'DONE') {
       updateData.done_at = now;
-      updateData.done_by_name = userName;
+      updateData.done_by_name = user.name;
     } else if (requestedStatus === 'IN_PROGRESS') {
       updateData.done_at = null;
       updateData.done_by_name = null;
@@ -197,7 +140,7 @@ export async function POST(req: NextRequest) {
       eventType = 'REOPENED';
     }
 
-    const { data: task, error } = await supabase
+    const { data: task, error } = await supabaseAdmin
       .from('tasks')
       .update(updateData)
       .eq('id', taskId)
@@ -211,14 +154,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await supabase.from('task_events').insert({
+    await supabaseAdmin.from('task_events').insert({
       task_id: task.id,
       event_type: eventType,
       event_text:
         requestedStatus === 'OPEN'
-          ? `Task reopened by ${userName} from dashboard`
-          : `Status changed to ${requestedStatus} by ${userName} from dashboard`,
-      actor_name: userName
+          ? `Task reopened by ${user.name} from dashboard`
+          : `Status changed to ${requestedStatus} by ${user.name} from dashboard`,
+      actor_name: user.name
     });
 
     await refreshTelegramTaskCard(task.id);
@@ -228,7 +171,6 @@ export async function POST(req: NextRequest) {
       task
     });
   } catch (error: any) {
-    console.error(error);
     return NextResponse.json(
       { ok: false, error: error?.message || 'Unknown error' },
       { status: 500 }
