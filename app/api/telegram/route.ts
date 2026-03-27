@@ -90,6 +90,15 @@ function labelForStatus(status: TaskStatus) {
   return status;
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return '-';
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
 function buildTaskMessageText(task: {
   task_code: string;
   room: string;
@@ -100,6 +109,7 @@ function buildTaskMessageText(task: {
   status: TaskStatus;
   done_by_name?: string | null;
   done_at?: string | null;
+  reopened_at?: string | null;
   last_updated_by_name?: string | null;
 }) {
   const lines = [
@@ -109,7 +119,7 @@ function buildTaskMessageText(task: {
     `Department: ${task.department}`,
     `Task: ${task.task_text}`,
     `Status: ${labelForStatus(task.status)}`,
-    `Created by: ${task.created_by_name || '-'}`,
+    `Created by: ${task.created_by_name || '-'}`
   ];
 
   if (task.image_url) {
@@ -119,10 +129,16 @@ function buildTaskMessageText(task: {
   if (task.status === 'DONE') {
     lines.push(`Done by: ${task.done_by_name || '-'}`);
     if (task.done_at) {
-      lines.push(`Done at: ${new Date(task.done_at).toLocaleString()}`);
+      lines.push(`Done at: ${formatDateTime(task.done_at)}`);
     }
-  } else if (task.last_updated_by_name) {
-    lines.push(`Last updated by: ${task.last_updated_by_name}`);
+  } else {
+    if (task.last_updated_by_name) {
+      lines.push(`Last updated by: ${task.last_updated_by_name}`);
+    }
+
+    if (task.reopened_at) {
+      lines.push(`Reopened at: ${formatDateTime(task.reopened_at)}`);
+    }
   }
 
   return lines.join('\n');
@@ -139,6 +155,12 @@ function buildTaskInlineKeyboard(taskId: string, status: TaskStatus) {
         {
           text: status === 'DONE' ? '✅ DONE ✓' : '✅ DONE',
           callback_data: `done:${taskId}`
+        }
+      ],
+      [
+        {
+          text: status === 'OPEN' ? '♻️ REOPEN ✓' : '♻️ REOPEN',
+          callback_data: `reopen:${taskId}`
         }
       ],
       [
@@ -201,6 +223,7 @@ async function refreshTelegramTaskCard(taskId: string) {
       image_url,
       done_by_name,
       done_at,
+      reopened_at,
       last_updated_by_name,
       telegram_task_message_id,
       chat_id
@@ -238,6 +261,7 @@ async function createTask(params: {
       department: params.department,
       task_text: params.taskText,
       status: 'OPEN',
+      reopened_at: null,
       source_update_id: params.updateId,
       created_by_user_id: params.userId,
       created_by_name: params.userName,
@@ -280,7 +304,8 @@ async function createTask(params: {
       task_text: task.task_text,
       created_by_name: params.userName,
       image_url: params.imageUrl || null,
-      status: 'OPEN'
+      status: 'OPEN',
+      reopened_at: null
     }),
     reply_markup: buildTaskInlineKeyboard(task.id, 'OPEN')
   });
@@ -310,24 +335,38 @@ async function updateTaskStatusByTaskId(params: {
   userId: number | null;
   userName: string;
   updateId: number;
-  command: 'IN_PROGRESS' | 'DONE';
+  command: 'OPEN' | 'IN_PROGRESS' | 'DONE';
   sendConfirmation?: boolean;
 }) {
+  const now = new Date().toISOString();
+
   const updateData: any = {
     status: params.command,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
     last_updated_by_name: params.userName,
     last_updated_by_telegram_user_id: params.userId
   };
 
+  let eventType = params.command;
+  let confirmationText = '';
+
   if (params.command === 'DONE') {
-    updateData.done_at = new Date().toISOString();
+    updateData.done_at = now;
     updateData.done_by_name = params.userName;
     updateData.done_by_telegram_user_id = params.userId;
+    confirmationText = `Task marked DONE by ${params.userName}`;
+  } else if (params.command === 'IN_PROGRESS') {
+    updateData.done_at = null;
+    updateData.done_by_name = null;
+    updateData.done_by_telegram_user_id = null;
+    confirmationText = `Task marked DOING by ${params.userName}`;
   } else {
     updateData.done_at = null;
     updateData.done_by_name = null;
     updateData.done_by_telegram_user_id = null;
+    updateData.reopened_at = now;
+    eventType = 'REOPENED';
+    confirmationText = `Task REOPENED by ${params.userName}`;
   }
 
   const { data: task, error } = await supabase
@@ -341,8 +380,11 @@ async function updateTaskStatusByTaskId(params: {
 
   await supabase.from('task_events').insert({
     task_id: task.id,
-    event_type: params.command,
-    event_text: `Status changed to ${params.command} by ${params.userName}`,
+    event_type: eventType,
+    event_text:
+      params.command === 'OPEN'
+        ? `Task reopened by ${params.userName}`
+        : `Status changed to ${params.command} by ${params.userName}`,
     telegram_update_id: params.updateId,
     actor_user_id: params.userId,
     actor_name: params.userName
@@ -353,7 +395,7 @@ async function updateTaskStatusByTaskId(params: {
   if (params.sendConfirmation !== false) {
     await telegram('sendMessage', {
       chat_id: params.chatId,
-      text: `Task ${task.task_code} ${params.command === 'DONE' ? 'DONE' : 'DOING'} by ${params.userName}`
+      text: confirmationText
     });
   }
 
@@ -366,12 +408,12 @@ async function updateTaskStatus(params: {
   userName: string;
   updateId: number;
   replyToMessageId: number | null;
-  command: 'IN_PROGRESS' | 'DONE';
+  command: 'OPEN' | 'IN_PROGRESS' | 'DONE';
 }) {
   if (!params.replyToMessageId) {
     await telegram('sendMessage', {
       chat_id: params.chatId,
-      text: 'Reply directly to the task card with /doing or /done.'
+      text: 'Reply directly to the task card with /doing, /done, or /reopen.'
     });
     return;
   }
@@ -539,6 +581,25 @@ async function handleCallbackQuery(update: any, updateId: number) {
     return true;
   }
 
+  if (action === 'reopen') {
+    await updateTaskStatusByTaskId({
+      taskId,
+      chatId,
+      userId,
+      userName,
+      updateId,
+      command: 'OPEN',
+      sendConfirmation: false
+    });
+
+    await telegram('answerCallbackQuery', {
+      callback_query_id: callback.id,
+      text: `Reopened by ${userName}`
+    });
+
+    return true;
+  }
+
   if (action === 'photo') {
     await telegram('answerCallbackQuery', {
       callback_query_id: callback.id,
@@ -617,14 +678,19 @@ export async function POST(req: NextRequest) {
 
     const lower = cleanText(textOrCaption);
 
-    if (lower === '/doing' || lower === '/done') {
+    if (lower === '/doing' || lower === '/done' || lower === '/reopen') {
       await updateTaskStatus({
         chatId,
         userId,
         userName,
         updateId,
         replyToMessageId: msg.reply_to_message?.message_id ?? null,
-        command: lower === '/doing' ? 'IN_PROGRESS' : 'DONE'
+        command:
+          lower === '/doing'
+            ? 'IN_PROGRESS'
+            : lower === '/done'
+              ? 'DONE'
+              : 'OPEN'
       });
 
       await supabase
