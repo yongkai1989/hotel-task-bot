@@ -25,6 +25,8 @@ type Task = {
   task_images?: TaskImage[];
 };
 
+type MainTab = 'LIVE TASK' | 'PAST TASK';
+
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const statuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
@@ -32,6 +34,9 @@ export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
   const [status, setStatus] = useState<(typeof statuses)[number]>('ALL');
+  const [mainTab, setMainTab] = useState<MainTab>('LIVE TASK');
+  const [pastTaskDate, setPastTaskDate] = useState(getTodayLocalDateString());
+
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -44,7 +49,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/tasks?t=${Date.now()}`, {
         method: 'GET',
-        cache: 'no-store'
+        cache: 'no-store',
       });
 
       const json = await res.json();
@@ -79,7 +84,7 @@ export default function DashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify({ taskId, status: nextStatus })
+        body: JSON.stringify({ taskId, status: nextStatus }),
       });
 
       const json = await res.json();
@@ -147,21 +152,62 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const filtered = useMemo(() => {
-    return tasks.filter((t) => {
-      const deptOk = dept === 'ALL' || t.department === dept;
-      const statusOk = status === 'ALL' || t.status === status;
-      return deptOk && statusOk;
+  const todayLocal = getTodayLocalDateString();
+
+  const liveTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const deptOk = dept === 'ALL' || task.department === dept;
+      const statusOk = status === 'ALL' || task.status === status;
+
+      const doneToday =
+        task.status === 'DONE' && task.done_at
+          ? getLocalDateStringFromISO(task.done_at) === todayLocal
+          : false;
+
+      const keepInLive =
+        task.status === 'OPEN' ||
+        task.status === 'IN_PROGRESS' ||
+        doneToday;
+
+      return deptOk && statusOk && keepInLive;
     });
-  }, [tasks, dept, status]);
+  }, [tasks, dept, status, todayLocal]);
+
+  const pastTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (task.status !== 'DONE' || !task.done_at) return false;
+
+      const doneDate = getLocalDateStringFromISO(task.done_at);
+      if (!doneDate) return false;
+
+      const isPastTask = doneDate < todayLocal;
+      const matchesSelectedDate = doneDate === pastTaskDate;
+      const deptOk = dept === 'ALL' || task.department === dept;
+
+      return isPastTask && matchesSelectedDate && deptOk;
+    });
+  }, [tasks, dept, pastTaskDate, todayLocal]);
+
+  const filtered = mainTab === 'LIVE TASK' ? liveTasks : pastTasks;
 
   const summary = useMemo(() => {
     return {
       open: tasks.filter((t) => t.status === 'OPEN').length,
       doing: tasks.filter((t) => t.status === 'IN_PROGRESS').length,
-      done: tasks.filter((t) => t.status === 'DONE').length
+      doneToday: tasks.filter(
+        (t) =>
+          t.status === 'DONE' &&
+          !!t.done_at &&
+          getLocalDateStringFromISO(t.done_at) === todayLocal
+      ).length,
+      pastDone: tasks.filter(
+        (t) =>
+          t.status === 'DONE' &&
+          !!t.done_at &&
+          getLocalDateStringFromISO(t.done_at) < todayLocal
+      ).length,
     };
-  }, [tasks]);
+  }, [tasks, todayLocal]);
 
   return (
     <main style={styles.page}>
@@ -187,16 +233,31 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {errorMsg ? (
-        <div style={styles.errorBox}>
-          {errorMsg}
-        </div>
-      ) : null}
+      {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
       <section style={styles.summaryGrid}>
         <SummaryCard title="Open" value={summary.open} tone="open" />
-        <SummaryCard title="Doing" value={summary.doing} tone="doing" />
-        <SummaryCard title="Done" value={summary.done} tone="done" />
+        <SummaryCard title="DOING" value={summary.doing} tone="doing" />
+        <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
+      </section>
+
+      <section style={styles.mainTabWrap}>
+        <button
+          onClick={() => setMainTab('LIVE TASK')}
+          style={mainTabStyle(mainTab === 'LIVE TASK')}
+        >
+          LIVE TASK
+        </button>
+
+        <button
+          onClick={() => setMainTab('PAST TASK')}
+          style={mainTabStyle(mainTab === 'PAST TASK')}
+        >
+          PAST TASK
+          {summary.pastDone > 0 ? (
+            <span style={styles.mainTabCount}>{summary.pastDone}</span>
+          ) : null}
+        </button>
       </section>
 
       <section style={styles.filterPanel}>
@@ -215,32 +276,60 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div style={styles.filterGroupLast}>
-          <div style={styles.filterLabel}>Status</div>
-          <div style={styles.pillRow}>
-            {statuses.map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatus(s)}
-                style={statusFilterStyle(status === s)}
-              >
-                {labelForStatus(s)}
-              </button>
-            ))}
+        {mainTab === 'LIVE TASK' ? (
+          <div style={styles.filterGroup}>
+            <div style={styles.filterLabel}>Status</div>
+            <div style={styles.pillRow}>
+              {statuses.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatus(s)}
+                  style={statusFilterStyle(status === s)}
+                >
+                  {labelForStatus(s)}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div style={styles.filterGroupLast}>
+            <div style={styles.filterLabel}>Completed Date</div>
+            <div style={styles.dateFilterRow}>
+              <input
+                type="date"
+                value={pastTaskDate}
+                max={todayLocal}
+                onChange={(e) => setPastTaskDate(e.target.value)}
+                style={styles.dateInput}
+              />
+              <div style={styles.dateHint}>
+                Shows completed tasks based on done date
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section style={styles.resultBar}>
         <div style={styles.resultText}>
-          {loading ? 'Loading tasks…' : `${filtered.length} task${filtered.length === 1 ? '' : 's'} shown`}
+          {loading
+            ? 'Loading tasks…'
+            : mainTab === 'LIVE TASK'
+            ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
+            : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
+                pastTaskDate
+              )}`}
         </div>
       </section>
 
       {loading ? (
         <div style={styles.emptyState}>Loading...</div>
       ) : filtered.length === 0 ? (
-        <div style={styles.emptyState}>No tasks found for this filter.</div>
+        <div style={styles.emptyState}>
+          {mainTab === 'LIVE TASK'
+            ? 'No tasks found for this filter.'
+            : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
+        </div>
       ) : (
         <div style={styles.cardList}>
           {filtered.map((task) => {
@@ -274,13 +363,17 @@ export default function DashboardPage() {
                     <div style={styles.metaWrap}>
                       <div style={styles.metaRow}>
                         <span style={styles.metaLabel}>Created</span>
-                        <span style={styles.metaValue}>{new Date(task.created_at).toLocaleString()}</span>
+                        <span style={styles.metaValue}>
+                          {new Date(task.created_at).toLocaleString()}
+                        </span>
                       </div>
 
                       {task.status === 'DONE' && task.done_at ? (
                         <div style={styles.metaRow}>
                           <span style={styles.metaLabel}>Completed</span>
-                          <span style={styles.metaValue}>{new Date(task.done_at).toLocaleString()}</span>
+                          <span style={styles.metaValue}>
+                            {new Date(task.done_at).toLocaleString()}
+                          </span>
                         </div>
                       ) : null}
 
@@ -299,35 +392,43 @@ export default function DashboardPage() {
                       ) : null}
                     </div>
 
-                    <div style={styles.buttonRow}>
-                      <button
-                        style={actionBtn(task.status === 'OPEN', 'open')}
-                        disabled={busyTaskId === task.id}
-                        onClick={() => setTaskStatus(task.id, 'OPEN')}
-                      >
-                        Open
-                      </button>
+                    {mainTab === 'LIVE TASK' ? (
+                      <>
+                        <div style={styles.buttonRow}>
+                          <button
+                            style={actionBtn(task.status === 'OPEN', 'open')}
+                            disabled={busyTaskId === task.id}
+                            onClick={() => setTaskStatus(task.id, 'OPEN')}
+                          >
+                            Open
+                          </button>
 
-                      <button
-                        style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
-                        disabled={busyTaskId === task.id}
-                        onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                      >
-                        Doing
-                      </button>
+                          <button
+                            style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
+                            disabled={busyTaskId === task.id}
+                            onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                          >
+                            DOING
+                          </button>
 
-                      <button
-                        style={actionBtn(task.status === 'DONE', 'done')}
-                        disabled={busyTaskId === task.id}
-                        onClick={() => setTaskStatus(task.id, 'DONE')}
-                      >
-                        Done
-                      </button>
-                    </div>
+                          <button
+                            style={actionBtn(task.status === 'DONE', 'done')}
+                            disabled={busyTaskId === task.id}
+                            onClick={() => setTaskStatus(task.id, 'DONE')}
+                          >
+                            Done
+                          </button>
+                        </div>
 
-                    {busyTaskId === task.id ? (
-                      <div style={styles.updatingText}>Updating…</div>
-                    ) : null}
+                        {busyTaskId === task.id ? (
+                          <div style={styles.updatingText}>Updating…</div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div style={styles.pastTaskNote}>
+                        Archived under past task by completed date
+                      </div>
+                    )}
                   </div>
 
                   {thumb ? (
@@ -430,9 +531,52 @@ function SummaryCard({
   );
 }
 
+function getTodayLocalDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, '0');
+  const day = `${now.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalDateStringFromISO(iso?: string | null) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateLabel(dateString: string) {
+  if (!dateString) return '';
+  const d = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateString;
+  return d.toLocaleDateString();
+}
+
 function labelForStatus(status: string) {
-  if (status === 'IN_PROGRESS') return 'Doing';
+  if (status === 'IN_PROGRESS') return 'DOING';
   return status;
+}
+
+function mainTabStyle(active: boolean): React.CSSProperties {
+  return {
+    borderRadius: 999,
+    padding: '12px 16px',
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: 'pointer',
+    border: active ? '1px solid #111827' : '1px solid #d1d5db',
+    background: active ? '#111827' : '#ffffff',
+    color: active ? '#ffffff' : '#374151',
+    boxShadow: active ? '0 10px 22px rgba(17,24,39,0.18)' : 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    whiteSpace: 'nowrap',
+  };
 }
 
 function departmentFilterStyle(
@@ -505,7 +649,7 @@ function statusFilterStyle(active: boolean): React.CSSProperties {
     fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
-    boxShadow: active ? '0 8px 18px rgba(17,24,39,0.18)' : 'none'
+    boxShadow: active ? '0 8px 18px rgba(17,24,39,0.18)' : 'none',
   };
 }
 
@@ -708,6 +852,21 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#111827',
     marginTop: 8,
   },
+  mainTabWrap: {
+    display: 'flex',
+    gap: 10,
+    marginBottom: 14,
+    overflowX: 'auto',
+    paddingBottom: 2,
+  },
+  mainTabCount: {
+    fontSize: 11,
+    fontWeight: 800,
+    padding: '3px 7px',
+    borderRadius: 999,
+    background: 'rgba(255,255,255,0.18)',
+    color: 'inherit',
+  },
   filterPanel: {
     position: 'sticky',
     top: 0,
@@ -739,6 +898,27 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     overflowX: 'auto',
     paddingBottom: 4,
+  },
+  dateFilterRow: {
+    display: 'grid',
+    gap: 8,
+  },
+  dateInput: {
+    width: '100%',
+    maxWidth: 220,
+    borderRadius: 12,
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#111827',
+    padding: '12px 14px',
+    fontSize: 14,
+    fontWeight: 600,
+    outline: 'none',
+  },
+  dateHint: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: 600,
   },
   resultBar: {
     marginBottom: 10,
@@ -856,6 +1036,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: '#6b7280',
     fontWeight: 700,
+  },
+  pastTaskNote: {
+    marginTop: 16,
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: 700,
+    padding: '10px 12px',
+    borderRadius: 12,
+    background: '#f9fafb',
+    border: '1px solid #f3f4f6',
   },
   emptyState: {
     marginTop: 20,
