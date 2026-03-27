@@ -4,6 +4,11 @@ import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 
+type AuthUser = {
+  id: string;
+  email?: string | null;
+};
+
 export async function POST(req: NextRequest) {
   try {
     const { user, error } = await getDashboardUserFromRequest(req);
@@ -40,16 +45,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: authUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    // 🔥 FIX: explicitly type users
+    const { data, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
-    if (listError) {
+    if (listError || !data?.users) {
       return NextResponse.json(
-        { ok: false, error: listError.message },
+        { ok: false, error: listError?.message || 'Failed to list users' },
         { status: 500 }
       );
     }
 
-    const targetUser = authUsers.users.find(
+    const users = data.users as AuthUser[];
+
+    const targetUser = users.find(
       (u) => (u.email || '').toLowerCase() === targetEmail
     );
 
@@ -60,10 +68,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-      targetUser.id,
-      { password: newPassword }
-    );
+    const { error: updateError } =
+      await supabaseAdmin.auth.admin.updateUserById(targetUser.id, {
+        password: newPassword,
+      });
 
     if (updateError) {
       return NextResponse.json(
