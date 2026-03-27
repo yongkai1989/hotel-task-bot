@@ -7,7 +7,15 @@ export const revalidate = 0;
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('tasks')
-    .select('*')
+    .select(`
+      *,
+      task_images (
+        id,
+        image_url,
+        caption,
+        created_at
+      )
+    `)
     .order('created_at', { ascending: false });
 
   if (error) {
