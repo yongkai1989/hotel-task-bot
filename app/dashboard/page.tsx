@@ -47,6 +47,15 @@ export default function DashboardPage() {
   const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createRoom, setCreateRoom] = useState('');
+  const [createDept, setCreateDept] = useState<'HK' | 'MT' | 'FO' | ''>('');
+  const [createTaskText, setCreateTaskText] = useState('');
+  const [createPhotoDataUrl, setCreatePhotoDataUrl] = useState<string | null>(null);
+  const [createPhotoName, setCreatePhotoName] = useState('');
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createError, setCreateError] = useState('');
+
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
@@ -158,6 +167,97 @@ export default function DashboardPage() {
     setSelectedImageIndex((prev) =>
       prev === selectedTaskImages.length - 1 ? 0 : prev + 1
     );
+  }
+
+  function openCreateModal() {
+    setCreateModalOpen(true);
+    setCreateError('');
+  }
+
+  function closeCreateModal() {
+    if (createSubmitting) return;
+    setCreateModalOpen(false);
+    setCreateRoom('');
+    setCreateDept('');
+    setCreateTaskText('');
+    setCreatePhotoDataUrl(null);
+    setCreatePhotoName('');
+    setCreateError('');
+  }
+
+  async function handleCreatePhotoChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setCreatePhotoDataUrl(null);
+      setCreatePhotoName('');
+      return;
+    }
+
+    try {
+      setCreateError('');
+      const compressed = await compressImageToDataUrl(file, 1600, 0.82);
+      setCreatePhotoDataUrl(compressed);
+      setCreatePhotoName(file.name);
+    } catch (err: any) {
+      setCreateError(err?.message || 'Failed to process photo');
+    }
+  }
+
+  async function submitCreateTask() {
+    try {
+      setCreateError('');
+
+      const room = createRoom.trim();
+      const taskText = createTaskText.trim();
+
+      if (!room) {
+        throw new Error('Room Number is required');
+      }
+
+      if (!/^\d{3,5}$/.test(room)) {
+        throw new Error('Room Number must be 3 to 5 digits');
+      }
+
+      if (!createDept) {
+        throw new Error('Please choose a department');
+      }
+
+      if (!taskText) {
+        throw new Error('Task Description is required');
+      }
+
+      setCreateSubmitting(true);
+
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          room,
+          department: createDept,
+          task_text: taskText,
+          created_by_name: 'Dashboard',
+          image_url: createPhotoDataUrl || null,
+          image_caption: createPhotoName || null,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || 'Failed to create task');
+      }
+
+      closeCreateModal();
+      setLoading(true);
+      await loadTasks();
+    } catch (err: any) {
+      setCreateError(err?.message || 'Failed to create task');
+    } finally {
+      setCreateSubmitting(false);
+    }
   }
 
   useEffect(() => {
@@ -314,7 +414,13 @@ export default function DashboardPage() {
             >
               <span>Past Task</span>
               {summary.pastDone > 0 ? (
-                <span style={sidebarView === 'PAST_TASK' ? styles.sidebarCountActive : styles.sidebarCount}>
+                <span
+                  style={
+                    sidebarView === 'PAST_TASK'
+                      ? styles.sidebarCountActive
+                      : styles.sidebarCount
+                  }
+                >
                   {summary.pastDone}
                 </span>
               ) : null}
@@ -398,6 +504,17 @@ export default function DashboardPage() {
                     : 'Search older completed tasks by department and date'}
                 </div>
               </div>
+
+              {sidebarView === 'DASHBOARD' ? (
+                <button
+                  onClick={openCreateModal}
+                  style={styles.addTaskBtn}
+                  aria-label="Add task"
+                  title="Add new task"
+                >
+                  +
+                </button>
+              ) : null}
             </div>
 
             <div style={styles.filterBlock}>
@@ -660,6 +777,127 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : null}
+
+      {createModalOpen ? (
+        <div style={styles.createModalOverlay} onClick={closeCreateModal}>
+          <div style={styles.createModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.createModalTop}>
+              <div>
+                <div style={styles.createModalTitle}>Create New Task</div>
+                <div style={styles.createModalSubtitle}>
+                  Add a task from dashboard and push it to Telegram
+                </div>
+              </div>
+
+              <button
+                onClick={closeCreateModal}
+                style={styles.createModalCloseBtn}
+                aria-label="Close create task modal"
+                disabled={createSubmitting}
+              >
+                ×
+              </button>
+            </div>
+
+            {createError ? <div style={styles.createErrorBox}>{createError}</div> : null}
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Room Number</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="e.g. 1308"
+                value={createRoom}
+                onChange={(e) => setCreateRoom(e.target.value.replace(/[^\d]/g, ''))}
+                style={styles.formInput}
+                disabled={createSubmitting}
+              />
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Department</label>
+              <div style={styles.createDeptRow}>
+                {(['HK', 'MT', 'FO'] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setCreateDept(d)}
+                    style={createDeptButtonStyle(d, createDept === d)}
+                    disabled={createSubmitting}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Task Description</label>
+              <textarea
+                placeholder="e.g. extra towel / TV no signal / guest requested callback"
+                value={createTaskText}
+                onChange={(e) => setCreateTaskText(e.target.value)}
+                style={styles.formTextarea}
+                disabled={createSubmitting}
+              />
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Add Photo</label>
+
+              <label style={styles.uploadBox}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleCreatePhotoChange}
+                  style={{ display: 'none' }}
+                  disabled={createSubmitting}
+                />
+                <span style={styles.uploadBoxTitle}>
+                  {createPhotoName ? 'Change Photo' : 'Choose Photo'}
+                </span>
+                <span style={styles.uploadBoxSub}>
+                  JPG, PNG, HEIC supported
+                </span>
+              </label>
+
+              {createPhotoName ? (
+                <div style={styles.photoNameText}>{createPhotoName}</div>
+              ) : null}
+
+              {createPhotoDataUrl ? (
+                <div style={styles.createPreviewWrap}>
+                  <img
+                    src={createPhotoDataUrl}
+                    alt="Selected task photo"
+                    style={styles.createPreviewImage}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div style={styles.createActionRow}>
+              <button
+                type="button"
+                onClick={closeCreateModal}
+                style={styles.cancelBtn}
+                disabled={createSubmitting}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={submitCreateTask}
+                style={styles.submitBtn}
+                disabled={createSubmitting}
+              >
+                {createSubmitting ? 'Submitting…' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -679,6 +917,50 @@ function SummaryCard({
       <div style={styles.summaryValue}>{value}</div>
     </div>
   );
+}
+
+async function compressImageToDataUrl(
+  file: File,
+  maxSize = 1600,
+  quality = 0.82
+): Promise<string> {
+  const imageDataUrl = await readFileAsDataURL(file);
+  const img = await loadImage(imageDataUrl);
+
+  const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
+  const width = Math.round(img.width * ratio);
+  const height = Math.round(img.height * ratio);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Unable to process image');
+  }
+
+  ctx.drawImage(img, 0, 0, width, height);
+
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read photo'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load photo'));
+    img.src = src;
+  });
 }
 
 function getTodayLocalDateString() {
@@ -920,6 +1202,17 @@ function summaryCardStyle(tone: 'open' | 'doing' | 'done'): React.CSSProperties 
     padding: 18,
     boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
     ...map[tone],
+  };
+}
+
+function createDeptButtonStyle(
+  dept: 'HK' | 'MT' | 'FO',
+  active: boolean
+): React.CSSProperties {
+  return {
+    ...departmentFilterStyle(dept, active),
+    minWidth: 88,
+    justifyContent: 'center',
   };
 }
 
@@ -1193,6 +1486,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     color: '#6b7280',
     fontWeight: 600,
+  },
+  addTaskBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    border: '1px solid #111827',
+    background: '#111827',
+    color: '#ffffff',
+    fontSize: 26,
+    lineHeight: 1,
+    fontWeight: 700,
+    cursor: 'pointer',
+    boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
+    flexShrink: 0,
   },
   filterBlock: {
     marginTop: 14,
@@ -1505,5 +1812,174 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     maxWidth: 780,
     wordBreak: 'break-word',
+  },
+  createModalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1200,
+    background: 'rgba(15,23,42,0.55)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  createModalCard: {
+    width: '100%',
+    maxWidth: 560,
+    borderRadius: 24,
+    background: '#ffffff',
+    border: '1px solid #e7edf5',
+    boxShadow: '0 24px 48px rgba(15,23,42,0.18)',
+    padding: 18,
+    display: 'grid',
+    gap: 16,
+    maxHeight: '90vh',
+    overflowY: 'auto',
+  },
+  createModalTop: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  createModalTitle: {
+    fontSize: 22,
+    fontWeight: 800,
+    color: '#111827',
+  },
+  createModalSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: 600,
+    lineHeight: 1.45,
+  },
+  createModalCloseBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    border: '1px solid #e5e7eb',
+    background: '#ffffff',
+    color: '#111827',
+    fontSize: 24,
+    lineHeight: 1,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  createErrorBox: {
+    padding: 12,
+    borderRadius: 14,
+    border: '1px solid #fecaca',
+    background: '#fff1f2',
+    color: '#b91c1c',
+    fontSize: 14,
+  },
+  formBlock: {
+    display: 'grid',
+    gap: 8,
+  },
+  formLabel: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  formInput: {
+    width: '100%',
+    borderRadius: 14,
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#111827',
+    padding: '14px 16px',
+    fontSize: 15,
+    fontWeight: 600,
+    outline: 'none',
+  },
+  formTextarea: {
+    width: '100%',
+    minHeight: 110,
+    borderRadius: 14,
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#111827',
+    padding: '14px 16px',
+    fontSize: 15,
+    fontWeight: 600,
+    outline: 'none',
+    resize: 'vertical',
+    fontFamily: 'inherit',
+  },
+  createDeptRow: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  uploadBox: {
+    display: 'grid',
+    gap: 4,
+    border: '1px dashed #cbd5e1',
+    borderRadius: 16,
+    padding: 16,
+    background: '#f8fafc',
+    cursor: 'pointer',
+  },
+  uploadBoxTitle: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: '#111827',
+  },
+  uploadBoxSub: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: 600,
+  },
+  photoNameText: {
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: 700,
+  },
+  createPreviewWrap: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    border: '1px solid #e5e7eb',
+    background: '#f8fafc',
+  },
+  createPreviewImage: {
+    width: '100%',
+    maxHeight: 260,
+    objectFit: 'cover',
+    display: 'block',
+  },
+  createActionRow: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginTop: 4,
+  },
+  cancelBtn: {
+    minWidth: 110,
+    borderRadius: 14,
+    padding: '12px 16px',
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#374151',
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  submitBtn: {
+    minWidth: 130,
+    borderRadius: 14,
+    padding: '12px 18px',
+    border: '1px solid #111827',
+    background: '#111827',
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: 'pointer',
+    boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
   },
 };
