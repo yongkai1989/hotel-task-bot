@@ -49,9 +49,18 @@ type AdminUser = {
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
-export default function DashboardPage() {
-  const supabase = createBrowserSupabaseClient();
+function getSupabaseSafe() {
+  if (typeof window === 'undefined') return null;
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anon) return null;
+
+  return createBrowserSupabaseClient();
+}
+
+export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
   const [status, setStatus] = useState<(typeof liveStatuses)[number]>('ALL');
@@ -93,6 +102,8 @@ export default function DashboardPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
+  const [envError, setEnvError] = useState('');
+
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
@@ -109,6 +120,19 @@ export default function DashboardPage() {
     let mounted = true;
 
     async function bootstrapAuth() {
+      const supabase = getSupabaseSafe();
+
+      if (!supabase) {
+        if (mounted) {
+          setEnvError(
+            'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables.'
+          );
+          setAuthLoading(false);
+        }
+        return;
+      }
+
+      setEnvError('');
       setAuthLoading(true);
 
       const {
@@ -124,24 +148,30 @@ export default function DashboardPage() {
       if (mounted) {
         setAuthLoading(false);
       }
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (_event, sessionNow) => {
+        if (sessionNow?.access_token) {
+          await loadProfile(sessionNow.access_token);
+        } else {
+          setProfile(null);
+        }
+        setAuthLoading(false);
+      });
+
+      return () => subscription.unsubscribe();
     }
 
-    bootstrapAuth();
+    let cleanup: (() => void) | undefined;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.access_token) {
-        await loadProfile(session.access_token);
-      } else {
-        setProfile(null);
-      }
-      setAuthLoading(false);
+    bootstrapAuth().then((fn) => {
+      cleanup = fn;
     });
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      if (cleanup) cleanup();
     };
   }, []);
 
@@ -158,6 +188,9 @@ export default function DashboardPage() {
   }, [profile]);
 
   async function getAccessToken() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return '';
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -210,6 +243,14 @@ export default function DashboardPage() {
 
   async function handleLogin() {
     try {
+      const supabase = getSupabaseSafe();
+
+      if (!supabase) {
+        throw new Error(
+          'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.'
+        );
+      }
+
       setLoginBusy(true);
       setLoginError('');
 
@@ -238,6 +279,9 @@ export default function DashboardPage() {
   }
 
   async function handleLogout() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+
     await supabase.auth.signOut();
     setProfile(null);
     setTasks([]);
@@ -816,6 +860,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {envError ? <div style={styles.errorBox}>{envError}</div> : null}
+
           {authLoading ? (
             <div style={styles.emptyState}>Checking login...</div>
           ) : !profile ? (
@@ -1389,6 +1435,23 @@ export default function DashboardPage() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+function SummaryCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: number;
+  tone: 'open' | 'doing' | 'done';
+}) {
+  return (
+    <div style={summaryCardStyle(tone)}>
+      <div style={styles.summaryTitle}>{title}</div>
+      <div style={styles.summaryValue}>{value}</div>
+    </div>
   );
 }
 
@@ -2577,59 +2640,3 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
   },
 };
-function SummaryCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: number;
-  tone: 'open' | 'doing' | 'done';
-}) {
-  const styleMap = {
-    open: {
-      background: '#ffffff',
-      border: '1px solid #e5e7eb',
-    },
-    doing: {
-      background: '#eff6ff',
-      border: '1px solid #bfdbfe',
-    },
-    done: {
-      background: '#f0fdf4',
-      border: '1px solid #bbf7d0',
-    },
-  };
-
-  return (
-    <div
-      style={{
-        ...styleMap[tone],
-        borderRadius: 20,
-        padding: 18,
-        boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
-      }}
-    >
-      <div
-        style={{
-          fontSize: 13,
-          color: '#6b7280',
-          fontWeight: 700,
-        }}
-      >
-        {title}
-      </div>
-
-      <div
-        style={{
-          fontSize: 32,
-          fontWeight: 800,
-          color: '#111827',
-          marginTop: 8,
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
