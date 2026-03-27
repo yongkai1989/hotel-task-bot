@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { sendTelegramTaskCard, Dept } from '../../../lib/telegram';
+import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -90,15 +91,20 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: authError || 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
 
     const room = String(body.room || '').trim();
     const department = normalizeDept(body.department);
     const taskText = String(body.task_text || body.taskText || '').trim();
-    const createdByName = String(
-      body.created_by_name || body.createdByName || 'Dashboard'
-    ).trim();
-
     const imageUrls = normalizeImageUrls(body);
     const imageCaptions = normalizeImageCaptions(body, imageUrls.length);
 
@@ -142,7 +148,7 @@ export async function POST(req: NextRequest) {
         department,
         task_text: taskText,
         status: 'OPEN',
-        created_by_name: createdByName,
+        created_by_name: user.name,
         chat_id: telegramChatId,
         image_url: firstImageUrl,
         reopened_at: null,
@@ -161,7 +167,7 @@ export async function POST(req: NextRequest) {
       task_id: task.id,
       event_type: 'CREATED',
       event_text: `${taskText} (created from dashboard)`,
-      actor_name: createdByName,
+      actor_name: user.name,
     });
 
     if (imageUrls.length > 0) {
@@ -169,7 +175,7 @@ export async function POST(req: NextRequest) {
         task_id: task.id,
         image_url: url,
         caption: imageCaptions[index] || null,
-        created_by_name: createdByName,
+        created_by_name: user.name,
       }));
 
       const { error: imageInsertError } = await supabaseAdmin
