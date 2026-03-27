@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 
+type TaskImage = {
+  id: string | number;
+  image_url: string;
+  caption?: string | null;
+  created_at?: string;
+};
+
 type Task = {
   id: string;
   task_code: string;
@@ -14,6 +21,8 @@ type Task = {
   done_at?: string | null;
   done_by_name?: string | null;
   last_updated_by_name?: string | null;
+  image_url?: string | null;
+  task_images?: TaskImage[];
 };
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
@@ -26,6 +35,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   async function loadTasks() {
     try {
@@ -85,6 +98,47 @@ export default function DashboardPage() {
     } finally {
       setBusyTaskId(null);
     }
+  }
+
+  function openImageModal(task: Task) {
+    const images = Array.isArray(task.task_images) ? task.task_images : [];
+    const fallbackImages =
+      !images.length && task.image_url
+        ? [
+            {
+              id: `fallback-${task.id}`,
+              image_url: task.image_url,
+              caption: null,
+              created_at: task.created_at,
+            },
+          ]
+        : [];
+
+    const finalImages = images.length ? images : fallbackImages;
+
+    if (!finalImages.length) return;
+
+    setSelectedTaskImages(finalImages);
+    setSelectedImageIndex(0);
+    setImageModalOpen(true);
+  }
+
+  function closeImageModal() {
+    setImageModalOpen(false);
+    setSelectedTaskImages([]);
+    setSelectedImageIndex(0);
+  }
+
+  function showPrevImage() {
+    setSelectedImageIndex((prev) =>
+      prev === 0 ? selectedTaskImages.length - 1 : prev - 1
+    );
+  }
+
+  function showNextImage() {
+    setSelectedImageIndex((prev) =>
+      prev === selectedTaskImages.length - 1 ? 0 : prev + 1
+    );
   }
 
   useEffect(() => {
@@ -189,86 +243,172 @@ export default function DashboardPage() {
         <div style={styles.emptyState}>No tasks found for this filter.</div>
       ) : (
         <div style={styles.cardList}>
-          {filtered.map((task) => (
-            <article key={task.id} style={styles.taskCard}>
-              <div style={styles.cardTopRow}>
-                <div style={styles.cardTopLeft}>
-                  <div style={styles.taskCode}>{task.task_code}</div>
-                  <div style={styles.roomLine}>
-                    Room <span style={styles.roomNo}>{task.room}</span>
-                    <span style={styles.dot}>•</span>
-                    <span style={deptBadgeStyle(task.department)}>{task.department}</span>
+          {filtered.map((task) => {
+            const images = Array.isArray(task.task_images) ? task.task_images : [];
+            const thumb =
+              images.length > 0
+                ? images[images.length - 1].image_url
+                : task.image_url || null;
+
+            return (
+              <article key={task.id} style={styles.taskCard}>
+                <div style={styles.taskMainRow}>
+                  <div style={styles.taskMainContent}>
+                    <div style={styles.cardTopRow}>
+                      <div style={styles.cardTopLeft}>
+                        <div style={styles.taskCode}>{task.task_code}</div>
+                        <div style={styles.roomLine}>
+                          Room <span style={styles.roomNo}>{task.room}</span>
+                          <span style={styles.dot}>•</span>
+                          <span style={deptBadgeStyle(task.department)}>{task.department}</span>
+                        </div>
+                      </div>
+
+                      <div style={statusBadgeStyle(task.status)}>
+                        {labelForStatus(task.status)}
+                      </div>
+                    </div>
+
+                    <div style={styles.taskText}>{task.task_text}</div>
+
+                    <div style={styles.metaWrap}>
+                      <div style={styles.metaRow}>
+                        <span style={styles.metaLabel}>Created</span>
+                        <span style={styles.metaValue}>{new Date(task.created_at).toLocaleString()}</span>
+                      </div>
+
+                      {task.status === 'DONE' && task.done_at ? (
+                        <div style={styles.metaRow}>
+                          <span style={styles.metaLabel}>Completed</span>
+                          <span style={styles.metaValue}>{new Date(task.done_at).toLocaleString()}</span>
+                        </div>
+                      ) : null}
+
+                      {task.status === 'DONE' && task.done_by_name ? (
+                        <div style={styles.metaRow}>
+                          <span style={styles.metaLabel}>Done by</span>
+                          <span style={styles.metaValueStrong}>{task.done_by_name}</span>
+                        </div>
+                      ) : null}
+
+                      {task.status !== 'DONE' && task.last_updated_by_name ? (
+                        <div style={styles.metaRow}>
+                          <span style={styles.metaLabel}>Last updated by</span>
+                          <span style={styles.metaValue}>{task.last_updated_by_name}</span>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div style={styles.buttonRow}>
+                      <button
+                        style={actionBtn(task.status === 'OPEN', 'open')}
+                        disabled={busyTaskId === task.id}
+                        onClick={() => setTaskStatus(task.id, 'OPEN')}
+                      >
+                        Open
+                      </button>
+
+                      <button
+                        style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
+                        disabled={busyTaskId === task.id}
+                        onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                      >
+                        Doing
+                      </button>
+
+                      <button
+                        style={actionBtn(task.status === 'DONE', 'done')}
+                        disabled={busyTaskId === task.id}
+                        onClick={() => setTaskStatus(task.id, 'DONE')}
+                      >
+                        Done
+                      </button>
+                    </div>
+
+                    {busyTaskId === task.id ? (
+                      <div style={styles.updatingText}>Updating…</div>
+                    ) : null}
                   </div>
+
+                  {thumb ? (
+                    <div style={styles.thumbWrap}>
+                      <button
+                        onClick={() => openImageModal(task)}
+                        style={styles.thumbButton}
+                        title="Open task images"
+                      >
+                        <img
+                          src={thumb}
+                          alt="Task thumbnail"
+                          style={styles.thumbImage}
+                        />
+                      </button>
+
+                      <div style={styles.imageCountBadge}>
+                        {images.length > 0 ? `${images.length} img` : '1 img'}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-
-                <div style={statusBadgeStyle(task.status)}>
-                  {labelForStatus(task.status)}
-                </div>
-              </div>
-
-              <div style={styles.taskText}>{task.task_text}</div>
-
-              <div style={styles.metaWrap}>
-                <div style={styles.metaRow}>
-                  <span style={styles.metaLabel}>Created</span>
-                  <span style={styles.metaValue}>{new Date(task.created_at).toLocaleString()}</span>
-                </div>
-
-                {task.status === 'DONE' && task.done_at ? (
-                  <div style={styles.metaRow}>
-                    <span style={styles.metaLabel}>Completed</span>
-                    <span style={styles.metaValue}>{new Date(task.done_at).toLocaleString()}</span>
-                  </div>
-                ) : null}
-
-                {task.status === 'DONE' && task.done_by_name ? (
-                  <div style={styles.metaRow}>
-                    <span style={styles.metaLabel}>Done by</span>
-                    <span style={styles.metaValueStrong}>{task.done_by_name}</span>
-                  </div>
-                ) : null}
-
-                {task.status !== 'DONE' && task.last_updated_by_name ? (
-                  <div style={styles.metaRow}>
-                    <span style={styles.metaLabel}>Last updated by</span>
-                    <span style={styles.metaValue}>{task.last_updated_by_name}</span>
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={styles.buttonRow}>
-                <button
-                  style={actionBtn(task.status === 'OPEN', 'open')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'OPEN')}
-                >
-                  Open
-                </button>
-
-                <button
-                  style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                >
-                  Doing
-                </button>
-
-                <button
-                  style={actionBtn(task.status === 'DONE', 'done')}
-                  disabled={busyTaskId === task.id}
-                  onClick={() => setTaskStatus(task.id, 'DONE')}
-                >
-                  Done
-                </button>
-              </div>
-
-              {busyTaskId === task.id ? (
-                <div style={styles.updatingText}>Updating…</div>
-              ) : null}
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
+
+      {imageModalOpen && selectedTaskImages.length > 0 ? (
+        <div style={styles.modalOverlay} onClick={closeImageModal}>
+          <div style={styles.modalInner} onClick={(e) => e.stopPropagation()}>
+            <button
+              style={styles.modalCloseBtn}
+              onClick={closeImageModal}
+              aria-label="Close image viewer"
+            >
+              ×
+            </button>
+
+            {selectedTaskImages.length > 1 ? (
+              <button
+                style={styles.modalNavLeft}
+                onClick={showPrevImage}
+                aria-label="Previous image"
+              >
+                ‹
+              </button>
+            ) : null}
+
+            <div style={styles.modalImageWrap}>
+              <img
+                src={selectedTaskImages[selectedImageIndex].image_url}
+                alt={`Task image ${selectedImageIndex + 1}`}
+                style={styles.modalImage}
+              />
+
+              <div style={styles.modalFooter}>
+                <div style={styles.modalCounter}>
+                  {selectedImageIndex + 1} / {selectedTaskImages.length}
+                </div>
+
+                {selectedTaskImages[selectedImageIndex].caption ? (
+                  <div style={styles.modalCaption}>
+                    {selectedTaskImages[selectedImageIndex].caption}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {selectedTaskImages.length > 1 ? (
+              <button
+                style={styles.modalNavRight}
+                onClick={showNextImage}
+                aria-label="Next image"
+              >
+                ›
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -620,6 +760,15 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#ffffff',
     boxShadow: '0 14px 30px rgba(15,23,42,0.06)',
   },
+  taskMainRow: {
+    display: 'flex',
+    gap: 14,
+    alignItems: 'flex-start',
+  },
+  taskMainContent: {
+    minWidth: 0,
+    flex: 1,
+  },
   cardTopRow: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -717,5 +866,132 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     color: '#6b7280',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+  },
+  thumbWrap: {
+    width: 82,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 8,
+  },
+  thumbButton: {
+    width: 82,
+    height: 82,
+    borderRadius: 16,
+    overflow: 'hidden',
+    border: '1px solid #e5e7eb',
+    background: '#f9fafb',
+    padding: 0,
+    cursor: 'pointer',
+    boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block',
+  },
+  imageCountBadge: {
+    fontSize: 11,
+    fontWeight: 800,
+    color: '#374151',
+    background: '#f3f4f6',
+    border: '1px solid #e5e7eb',
+    borderRadius: 999,
+    padding: '4px 8px',
+    whiteSpace: 'nowrap',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1000,
+    background: 'rgba(0,0,0,0.82)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalInner: {
+    position: 'relative',
+    width: '100%',
+    maxWidth: 1100,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  modalCloseBtn: {
+    position: 'absolute',
+    top: -8,
+    right: 0,
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.12)',
+    color: '#ffffff',
+    fontSize: 26,
+    lineHeight: 1,
+    cursor: 'pointer',
+    zIndex: 2,
+  },
+  modalNavLeft: {
+    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.12)',
+    color: '#ffffff',
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    fontSize: 34,
+    lineHeight: 1,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  modalNavRight: {
+    border: '1px solid rgba(255,255,255,0.18)',
+    background: 'rgba(255,255,255,0.12)',
+    color: '#ffffff',
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    fontSize: 34,
+    lineHeight: 1,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  modalImageWrap: {
+    width: '100%',
+    maxWidth: 920,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalImage: {
+    width: '100%',
+    maxHeight: '80vh',
+    objectFit: 'contain',
+    borderRadius: 18,
+    background: '#111827',
+  },
+  modalFooter: {
+    width: '100%',
+    display: 'grid',
+    gap: 8,
+    justifyItems: 'center',
+  },
+  modalCounter: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 800,
+  },
+  modalCaption: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 14,
+    lineHeight: 1.5,
+    textAlign: 'center',
+    maxWidth: 780,
+    wordBreak: 'break-word',
   },
 };
