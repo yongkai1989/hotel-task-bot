@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
 type TaskImage = {
   id: string | number;
@@ -33,10 +34,24 @@ type CreatePhotoItem = {
   dataUrl: string;
 };
 
+type DashboardUser = {
+  email: string;
+  name: string;
+  role: 'MANAGER' | 'FO' | 'HK' | 'MT';
+};
+
+type AdminUser = {
+  email: string;
+  name: string;
+  role: 'MANAGER' | 'FO' | 'HK' | 'MT';
+};
+
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
 export default function DashboardPage() {
+  const supabase = createBrowserSupabaseClient();
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
   const [status, setStatus] = useState<(typeof liveStatuses)[number]>('ALL');
@@ -44,6 +59,7 @@ export default function DashboardPage() {
   const [pastTaskDate, setPastTaskDate] = useState(getYesterdayLocalDateString());
 
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -61,6 +77,22 @@ export default function DashboardPage() {
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
 
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  const [profile, setProfile] = useState<DashboardUser | null>(null);
+
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [passwordTargetEmail, setPasswordTargetEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
@@ -73,8 +105,89 @@ export default function DashboardPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function bootstrapAuth() {
+      setAuthLoading(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.access_token) {
+        await loadProfile(session.access_token);
+      } else if (mounted) {
+        setProfile(null);
+      }
+
+      if (mounted) {
+        setAuthLoading(false);
+      }
+    }
+
+    bootstrapAuth();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.access_token) {
+        await loadProfile(session.access_token);
+      } else {
+        setProfile(null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!profile) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+
+    loadTasks();
+    const timer = setInterval(loadTasks, 5000);
+    return () => clearInterval(timer);
+  }, [profile]);
+
+  async function getAccessToken() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    return session?.access_token || '';
+  }
+
+  async function loadProfile(token: string) {
+    const res = await fetch('/api/session-profile', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: 'no-store',
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.ok) {
+      setProfile(null);
+      return;
+    }
+
+    setProfile(json.user);
+  }
+
   async function loadTasks() {
     try {
+      setLoading(true);
+
       const res = await fetch(`/api/tasks?t=${Date.now()}`, {
         method: 'GET',
         cache: 'no-store',
@@ -95,7 +208,59 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleLogin() {
+    try {
+      setLoginBusy(true);
+      setLoginError('');
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const token = await getAccessToken();
+      if (token) {
+        await loadProfile(token);
+      }
+
+      setLoginOpen(false);
+      setLoginEmail('');
+      setLoginPassword('');
+    } catch (err: any) {
+      setLoginError(err?.message || 'Login failed');
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setProfile(null);
+    setTasks([]);
+  }
+
+  function canCreateTask() {
+    return !!profile;
+  }
+
+  function canEditTask(task: Task) {
+    if (!profile) return false;
+    if (profile.role === 'MANAGER') return true;
+    if (profile.role === 'HK') return task.department === 'HK';
+    if (profile.role === 'MT') return task.department === 'MT';
+    return false;
+  }
+
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
+    if (!profile) {
+      setLoginOpen(true);
+      return;
+    }
+
     const oldTasks = tasks;
 
     try {
@@ -108,9 +273,14 @@ export default function DashboardPage() {
         )
       );
 
+      const token = await getAccessToken();
+
       const res = await fetch('/api/task-status', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         cache: 'no-store',
         body: JSON.stringify({ taskId, status: nextStatus }),
       });
@@ -175,6 +345,11 @@ export default function DashboardPage() {
   }
 
   function openCreateModal() {
+    if (!canCreateTask()) {
+      setLoginOpen(true);
+      return;
+    }
+
     setCreateModalOpen(true);
     setCreateError('');
   }
@@ -205,6 +380,12 @@ export default function DashboardPage() {
         throw new Error('Maximum 5 photos per task');
       }
 
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Only image files are allowed');
+        }
+      }
+
       const processed = await Promise.all(
         files.map(async (file, index) => {
           const compressed = await compressImageToDataUrl(file, 1200, 0.72);
@@ -230,6 +411,11 @@ export default function DashboardPage() {
 
   async function submitCreateTask() {
     try {
+      if (!profile) {
+        setLoginOpen(true);
+        return;
+      }
+
       setCreateError('');
 
       const room = createRoom.trim();
@@ -262,14 +448,18 @@ export default function DashboardPage() {
         uploadedUrls = uploadJson.urls || [];
       }
 
+      const token = await getAccessToken();
+
       const res = await fetch('/api/tasks', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           room,
           department: createDept,
           task_text: taskText,
-          created_by_name: 'Dashboard',
           image_urls: uploadedUrls,
           image_captions: createPhotos.map((p) => p.name),
         }),
@@ -282,7 +472,6 @@ export default function DashboardPage() {
       }
 
       closeCreateModal();
-      setLoading(true);
       await loadTasks();
     } catch (err: any) {
       setCreateError(err?.message || 'Failed to create task');
@@ -291,11 +480,88 @@ export default function DashboardPage() {
     }
   }
 
-  useEffect(() => {
-    loadTasks();
-    const timer = setInterval(loadTasks, 5000);
-    return () => clearInterval(timer);
-  }, []);
+  async function openPasswordModal() {
+    if (!profile || profile.role !== 'MANAGER') return;
+
+    try {
+      setPasswordModalOpen(true);
+      setPasswordError('');
+      setPasswordSuccess('');
+
+      const token = await getAccessToken();
+
+      const res = await fetch('/api/admin/users', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: 'no-store',
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || 'Failed to load users');
+      }
+
+      setAdminUsers(json.users || []);
+      setPasswordTargetEmail((json.users || [])[0]?.email || '');
+    } catch (err: any) {
+      setPasswordError(err?.message || 'Failed to load users');
+    }
+  }
+
+  function closePasswordModal() {
+    if (passwordBusy) return;
+    setPasswordModalOpen(false);
+    setPasswordTargetEmail('');
+    setNewPassword('');
+    setPasswordError('');
+    setPasswordSuccess('');
+  }
+
+  async function handleChangePassword() {
+    try {
+      setPasswordBusy(true);
+      setPasswordError('');
+      setPasswordSuccess('');
+
+      if (!passwordTargetEmail) {
+        throw new Error('Please select a user');
+      }
+
+      if (newPassword.trim().length < 6) {
+        throw new Error('Password must be at least 6 characters');
+      }
+
+      const token = await getAccessToken();
+
+      const res = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          targetEmail: passwordTargetEmail,
+          newPassword,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || 'Failed to change password');
+      }
+
+      setPasswordSuccess('Password updated successfully');
+      setNewPassword('');
+    } catch (err: any) {
+      setPasswordError(err?.message || 'Failed to change password');
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
 
   const todayLocal = getTodayLocalDateString();
 
@@ -460,6 +726,43 @@ export default function DashboardPage() {
 
           <div style={styles.sidebarDivider} />
 
+          <div style={styles.userPanel}>
+            {!profile ? (
+              <button
+                onClick={() => setLoginOpen(true)}
+                style={styles.loginSidebarBtn}
+              >
+                Log In
+              </button>
+            ) : (
+              <>
+                <div style={styles.userCard}>
+                  <div style={styles.userName}>{profile.name}</div>
+                  <div style={styles.userRole}>{profile.role}</div>
+                  <div style={styles.userEmail}>{profile.email}</div>
+                </div>
+
+                {profile.role === 'MANAGER' ? (
+                  <button
+                    onClick={openPasswordModal}
+                    style={styles.managerBtn}
+                  >
+                    Change User Password
+                  </button>
+                ) : null}
+
+                <button
+                  onClick={handleLogout}
+                  style={styles.logoutSidebarBtn}
+                >
+                  Log Out
+                </button>
+              </>
+            )}
+          </div>
+
+          <div style={styles.sidebarDivider} />
+
           <div style={styles.sidebarMiniStats}>
             <div style={styles.sidebarMiniCard}>
               <div style={styles.sidebarMiniLabel}>Open</div>
@@ -513,244 +816,260 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
-
-          {sidebarView === 'DASHBOARD' ? (
-            <section style={styles.summaryGrid}>
-              <SummaryCard title="Open" value={summary.open} tone="open" />
-              <SummaryCard title="DOING" value={summary.doing} tone="doing" />
-              <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
-            </section>
-          ) : null}
-
-          <section style={styles.filterPanel}>
-            <div style={styles.filterHeader}>
-              <div>
-                <div style={styles.filterPanelTitle}>
-                  {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
-                </div>
-                <div style={styles.filterPanelSubtitle}>
-                  {sidebarView === 'DASHBOARD'
-                    ? 'Filter active and today-completed tasks'
-                    : 'Search older completed tasks by department and date'}
-                </div>
-              </div>
-
-              {sidebarView === 'DASHBOARD' ? (
-                <button
-                  onClick={openCreateModal}
-                  style={styles.addTaskBtn}
-                  aria-label="Add task"
-                  title="Add new task"
-                >
-                  +
-                </button>
-              ) : null}
-            </div>
-
-            <div style={styles.filterBlock}>
-              <div style={styles.filterLabel}>Department</div>
-              <div style={styles.pillRow}>
-                {departments.map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setDept(d)}
-                    style={departmentFilterStyle(d, dept === d)}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {sidebarView === 'DASHBOARD' ? (
-              <div style={styles.filterBlock}>
-                <div style={styles.filterLabel}>Status</div>
-                <div style={styles.pillRow}>
-                  {liveStatuses.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setStatus(s)}
-                      style={statusFilterStyle(status === s)}
-                    >
-                      {labelForStatus(s)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div style={styles.filterBlock}>
-                <div style={styles.filterLabel}>Completed Date</div>
-                <div style={styles.dateFilterRow}>
-                  <input
-                    type="date"
-                    value={pastTaskDate}
-                    max={getYesterdayLocalDateString()}
-                    onChange={(e) => setPastTaskDate(e.target.value)}
-                    style={styles.dateInput}
-                  />
-                  <div style={styles.dateHint}>
-                    Tasks here are filtered using completion date
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <section style={styles.resultBar}>
-            <div style={styles.resultText}>
-              {loading
-                ? 'Loading tasks…'
-                : sidebarView === 'DASHBOARD'
-                ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
-                : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
-                    pastTaskDate
-                  )}`}
-            </div>
-          </section>
-
-          {loading ? (
-            <div style={styles.emptyState}>Loading...</div>
-          ) : filtered.length === 0 ? (
+          {authLoading ? (
+            <div style={styles.emptyState}>Checking login...</div>
+          ) : !profile ? (
             <div style={styles.emptyState}>
-              {sidebarView === 'DASHBOARD'
-                ? 'No tasks found for this filter.'
-                : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
+              Please log in from the sidebar to use the dashboard.
             </div>
           ) : (
-            <div style={styles.cardList}>
-              {filtered.map((task) => {
-                const images = Array.isArray(task.task_images) ? task.task_images : [];
-                const thumb =
-                  images.length > 0
-                    ? images[images.length - 1].image_url
-                    : task.image_url || null;
+            <>
+              {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
-                return (
-                  <article key={task.id} style={styles.taskCard}>
-                    <div style={styles.taskMainRow}>
-                      <div style={styles.taskMainContent}>
-                        <div style={styles.cardTopRow}>
-                          <div style={styles.cardTopLeft}>
-                            <div style={styles.taskCodeRow}>
-                              <div style={styles.taskCode}>{task.task_code}</div>
-                              <div style={statusBadgeStyle(task.status)}>
-                                {labelForStatus(task.status)}
-                              </div>
-                            </div>
+              {sidebarView === 'DASHBOARD' ? (
+                <section style={styles.summaryGrid}>
+                  <SummaryCard title="Open" value={summary.open} tone="open" />
+                  <SummaryCard title="DOING" value={summary.doing} tone="doing" />
+                  <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
+                </section>
+              ) : null}
 
-                            <div style={styles.roomLine}>
-                              <span style={styles.roomText}>Room</span>
-                              <span style={styles.roomNo}>{task.room}</span>
-                              <span style={styles.dot}>•</span>
-                              <span style={deptBadgeStyle(task.department)}>
-                                {task.department}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={styles.taskText}>{task.task_text}</div>
-
-                        <div style={styles.metaGrid}>
-                          <div style={styles.metaCard}>
-                            <div style={styles.metaCardLabel}>Created</div>
-                            <div style={styles.metaCardValue}>
-                              {new Date(task.created_at).toLocaleString()}
-                            </div>
-                          </div>
-
-                          {task.status === 'DONE' && task.done_at ? (
-                            <div style={styles.metaCard}>
-                              <div style={styles.metaCardLabel}>Completed</div>
-                              <div style={styles.metaCardValue}>
-                                {new Date(task.done_at).toLocaleString()}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {task.status === 'DONE' && task.done_by_name ? (
-                            <div style={styles.metaCard}>
-                              <div style={styles.metaCardLabel}>Done by</div>
-                              <div style={styles.metaCardValueStrong}>
-                                {task.done_by_name}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {task.status !== 'DONE' && task.last_updated_by_name ? (
-                            <div style={styles.metaCard}>
-                              <div style={styles.metaCardLabel}>Last updated by</div>
-                              <div style={styles.metaCardValue}>
-                                {task.last_updated_by_name}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {sidebarView === 'DASHBOARD' ? (
-                          <>
-                            <div style={styles.buttonRow}>
-                              <button
-                                style={actionBtn(task.status === 'OPEN', 'open')}
-                                disabled={busyTaskId === task.id}
-                                onClick={() => setTaskStatus(task.id, 'OPEN')}
-                              >
-                                Open
-                              </button>
-
-                              <button
-                                style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
-                                disabled={busyTaskId === task.id}
-                                onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                              >
-                                DOING
-                              </button>
-
-                              <button
-                                style={actionBtn(task.status === 'DONE', 'done')}
-                                disabled={busyTaskId === task.id}
-                                onClick={() => setTaskStatus(task.id, 'DONE')}
-                              >
-                                Done
-                              </button>
-                            </div>
-
-                            {busyTaskId === task.id ? (
-                              <div style={styles.updatingText}>Updating…</div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <div style={styles.pastTaskNote}>
-                            Archived record based on completion date
-                          </div>
-                        )}
-                      </div>
-
-                      {thumb ? (
-                        <div style={styles.thumbWrap}>
-                          <button
-                            onClick={() => openImageModal(task)}
-                            style={styles.thumbButton}
-                            title="Open task images"
-                          >
-                            <img
-                              src={thumb}
-                              alt="Task thumbnail"
-                              style={styles.thumbImage}
-                            />
-                          </button>
-
-                          <div style={styles.imageCountBadge}>
-                            {images.length > 0 ? `${images.length} img` : '1 img'}
-                          </div>
-                        </div>
-                      ) : null}
+              <section style={styles.filterPanel}>
+                <div style={styles.filterHeader}>
+                  <div>
+                    <div style={styles.filterPanelTitle}>
+                      {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
                     </div>
-                  </article>
-                );
-              })}
-            </div>
+                    <div style={styles.filterPanelSubtitle}>
+                      {sidebarView === 'DASHBOARD'
+                        ? 'Filter active and today-completed tasks'
+                        : 'Search older completed tasks by department and date'}
+                    </div>
+                  </div>
+
+                  {sidebarView === 'DASHBOARD' ? (
+                    <button
+                      onClick={openCreateModal}
+                      style={styles.addTaskBtn}
+                      aria-label="Add task"
+                      title="Add new task"
+                    >
+                      +
+                    </button>
+                  ) : null}
+                </div>
+
+                <div style={styles.filterBlock}>
+                  <div style={styles.filterLabel}>Department</div>
+                  <div style={styles.pillRow}>
+                    {departments.map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setDept(d)}
+                        style={departmentFilterStyle(d, dept === d)}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {sidebarView === 'DASHBOARD' ? (
+                  <div style={styles.filterBlock}>
+                    <div style={styles.filterLabel}>Status</div>
+                    <div style={styles.pillRow}>
+                      {liveStatuses.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => setStatus(s)}
+                          style={statusFilterStyle(status === s)}
+                        >
+                          {labelForStatus(s)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={styles.filterBlock}>
+                    <div style={styles.filterLabel}>Completed Date</div>
+                    <div style={styles.dateFilterRow}>
+                      <input
+                        type="date"
+                        value={pastTaskDate}
+                        max={getYesterdayLocalDateString()}
+                        onChange={(e) => setPastTaskDate(e.target.value)}
+                        style={styles.dateInput}
+                      />
+                      <div style={styles.dateHint}>
+                        Tasks here are filtered using completion date
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section style={styles.resultBar}>
+                <div style={styles.resultText}>
+                  {loading
+                    ? 'Loading tasks…'
+                    : sidebarView === 'DASHBOARD'
+                    ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
+                    : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
+                        pastTaskDate
+                      )}`}
+                </div>
+              </section>
+
+              {loading ? (
+                <div style={styles.emptyState}>Loading...</div>
+              ) : filtered.length === 0 ? (
+                <div style={styles.emptyState}>
+                  {sidebarView === 'DASHBOARD'
+                    ? 'No tasks found for this filter.'
+                    : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
+                </div>
+              ) : (
+                <div style={styles.cardList}>
+                  {filtered.map((task) => {
+                    const images = Array.isArray(task.task_images) ? task.task_images : [];
+                    const thumb =
+                      images.length > 0
+                        ? images[images.length - 1].image_url
+                        : task.image_url || null;
+
+                    return (
+                      <article key={task.id} style={styles.taskCard}>
+                        <div style={styles.taskMainRow}>
+                          <div style={styles.taskMainContent}>
+                            <div style={styles.cardTopRow}>
+                              <div style={styles.cardTopLeft}>
+                                <div style={styles.taskCodeRow}>
+                                  <div style={styles.taskCode}>{task.task_code}</div>
+                                  <div style={statusBadgeStyle(task.status)}>
+                                    {labelForStatus(task.status)}
+                                  </div>
+                                </div>
+
+                                <div style={styles.roomLine}>
+                                  <span style={styles.roomText}>Room</span>
+                                  <span style={styles.roomNo}>{task.room}</span>
+                                  <span style={styles.dot}>•</span>
+                                  <span style={deptBadgeStyle(task.department)}>
+                                    {task.department}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={styles.taskText}>{task.task_text}</div>
+
+                            <div style={styles.metaGrid}>
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Created</div>
+                                <div style={styles.metaCardValue}>
+                                  {new Date(task.created_at).toLocaleString()}
+                                </div>
+                              </div>
+
+                              {task.status === 'DONE' && task.done_at ? (
+                                <div style={styles.metaCard}>
+                                  <div style={styles.metaCardLabel}>Completed</div>
+                                  <div style={styles.metaCardValue}>
+                                    {new Date(task.done_at).toLocaleString()}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {task.status === 'DONE' && task.done_by_name ? (
+                                <div style={styles.metaCard}>
+                                  <div style={styles.metaCardLabel}>Done by</div>
+                                  <div style={styles.metaCardValueStrong}>
+                                    {task.done_by_name}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {task.status !== 'DONE' && task.last_updated_by_name ? (
+                                <div style={styles.metaCard}>
+                                  <div style={styles.metaCardLabel}>Last updated by</div>
+                                  <div style={styles.metaCardValue}>
+                                    {task.last_updated_by_name}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {sidebarView === 'DASHBOARD' ? (
+                              <>
+                                <div style={styles.buttonRow}>
+                                  <button
+                                    style={actionBtn(task.status === 'OPEN', 'open')}
+                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    onClick={() => setTaskStatus(task.id, 'OPEN')}
+                                  >
+                                    Open
+                                  </button>
+
+                                  <button
+                                    style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
+                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                                  >
+                                    DOING
+                                  </button>
+
+                                  <button
+                                    style={actionBtn(task.status === 'DONE', 'done')}
+                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    onClick={() => setTaskStatus(task.id, 'DONE')}
+                                  >
+                                    Done
+                                  </button>
+                                </div>
+
+                                {!canEditTask(task) ? (
+                                  <div style={styles.permissionText}>
+                                    You do not have permission to edit this department’s task
+                                  </div>
+                                ) : null}
+
+                                {busyTaskId === task.id ? (
+                                  <div style={styles.updatingText}>Updating…</div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <div style={styles.pastTaskNote}>
+                                Archived record based on completion date
+                              </div>
+                            )}
+                          </div>
+
+                          {thumb ? (
+                            <div style={styles.thumbWrap}>
+                              <button
+                                onClick={() => openImageModal(task)}
+                                style={styles.thumbButton}
+                                title="Open task images"
+                              >
+                                <img
+                                  src={thumb}
+                                  alt="Task thumbnail"
+                                  style={styles.thumbImage}
+                                />
+                              </button>
+
+                              <div style={styles.imageCountBadge}>
+                                {images.length > 0 ? `${images.length} img` : '1 img'}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </section>
       </div>
@@ -945,24 +1264,131 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : null}
-    </main>
-  );
-}
 
-function SummaryCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: number;
-  tone: 'open' | 'doing' | 'done';
-}) {
-  return (
-    <div style={summaryCardStyle(tone)}>
-      <div style={styles.summaryTitle}>{title}</div>
-      <div style={styles.summaryValue}>{value}</div>
-    </div>
+      {loginOpen ? (
+        <div style={styles.createModalOverlay} onClick={() => setLoginOpen(false)}>
+          <div style={styles.loginModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.createModalTop}>
+              <div>
+                <div style={styles.createModalTitle}>Dashboard Login</div>
+                <div style={styles.createModalSubtitle}>
+                  Log in to create tasks and update task status
+                </div>
+              </div>
+
+              <button
+                onClick={() => setLoginOpen(false)}
+                style={styles.createModalCloseBtn}
+                aria-label="Close login modal"
+                disabled={loginBusy}
+              >
+                ×
+              </button>
+            </div>
+
+            {loginError ? <div style={styles.createErrorBox}>{loginError}</div> : null}
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Email</label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                style={styles.formInput}
+                disabled={loginBusy}
+              />
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Password</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                style={styles.formInput}
+                disabled={loginBusy}
+              />
+            </div>
+
+            <div style={styles.createActionRow}>
+              <button
+                type="button"
+                onClick={handleLogin}
+                style={styles.submitBtn}
+                disabled={loginBusy}
+              >
+                {loginBusy ? 'Logging in…' : 'Log In'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {passwordModalOpen ? (
+        <div style={styles.createModalOverlay} onClick={closePasswordModal}>
+          <div style={styles.loginModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.createModalTop}>
+              <div>
+                <div style={styles.createModalTitle}>Change User Password</div>
+                <div style={styles.createModalSubtitle}>
+                  Manager access only
+                </div>
+              </div>
+
+              <button
+                onClick={closePasswordModal}
+                style={styles.createModalCloseBtn}
+                aria-label="Close password modal"
+                disabled={passwordBusy}
+              >
+                ×
+              </button>
+            </div>
+
+            {passwordError ? <div style={styles.createErrorBox}>{passwordError}</div> : null}
+            {passwordSuccess ? <div style={styles.successBox}>{passwordSuccess}</div> : null}
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Select User</label>
+              <select
+                value={passwordTargetEmail}
+                onChange={(e) => setPasswordTargetEmail(e.target.value)}
+                style={styles.formInput}
+                disabled={passwordBusy}
+              >
+                {adminUsers.map((u) => (
+                  <option key={u.email} value={u.email}>
+                    {u.name} ({u.role}) - {u.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={styles.formInput}
+                disabled={passwordBusy}
+              />
+            </div>
+
+            <div style={styles.createActionRow}>
+              <button
+                type="button"
+                onClick={handleChangePassword}
+                style={styles.submitBtn}
+                disabled={passwordBusy}
+              >
+                {passwordBusy ? 'Updating…' : 'Update Password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </main>
   );
 }
 
@@ -1360,6 +1786,63 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#edf2f7',
     margin: '4px 0',
   },
+  userPanel: {
+    display: 'grid',
+    gap: 10,
+  },
+  loginSidebarBtn: {
+    borderRadius: 14,
+    padding: '12px 14px',
+    border: '1px solid #111827',
+    background: '#111827',
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  logoutSidebarBtn: {
+    borderRadius: 14,
+    padding: '12px 14px',
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#374151',
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  managerBtn: {
+    borderRadius: 14,
+    padding: '12px 14px',
+    border: '1px solid #2563eb',
+    background: '#2563eb',
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  userCard: {
+    borderRadius: 16,
+    border: '1px solid #e7edf5',
+    background: '#f8fafc',
+    padding: 14,
+    display: 'grid',
+    gap: 4,
+  },
+  userName: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#111827',
+  },
+  userRole: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: '#2563eb',
+  },
+  userEmail: {
+    fontSize: 12,
+    color: '#64748b',
+    wordBreak: 'break-word',
+  },
   sidebarMiniStats: {
     display: 'grid',
     gap: 10,
@@ -1407,10 +1890,15 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
   },
   mobileTopBar: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 900,
     display: 'flex',
     alignItems: 'center',
     gap: 12,
     marginBottom: 14,
+    paddingBottom: 10,
+    background: '#f3f6fb',
   },
   mobileTopBarTitle: {
     fontSize: 16,
@@ -1497,6 +1985,15 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #fecaca',
     background: '#fff1f2',
     color: '#b91c1c',
+    fontSize: 14,
+  },
+  successBox: {
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 14,
+    border: '1px solid #bbf7d0',
+    background: '#f0fdf4',
+    color: '#15803d',
     fontSize: 14,
   },
   summaryGrid: {
@@ -1714,6 +2211,12 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 16,
     flexWrap: 'wrap',
   },
+  permissionText: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#b45309',
+    fontWeight: 700,
+  },
   updatingText: {
     marginTop: 10,
     fontSize: 12,
@@ -1881,6 +2384,19 @@ const styles: Record<string, React.CSSProperties> = {
   createModalCard: {
     width: '100%',
     maxWidth: 640,
+    borderRadius: 24,
+    background: '#ffffff',
+    border: '1px solid #e7edf5',
+    boxShadow: '0 24px 48px rgba(15,23,42,0.18)',
+    padding: 18,
+    display: 'grid',
+    gap: 16,
+    maxHeight: '90vh',
+    overflowY: 'auto',
+  },
+  loginModalCard: {
+    width: '100%',
+    maxWidth: 520,
     borderRadius: 24,
     background: '#ffffff',
     border: '1px solid #e7edf5',
