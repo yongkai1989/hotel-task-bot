@@ -2577,3 +2577,59 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
   },
 };
+function SummaryCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: number;
+  tone: 'open' | 'doing' | 'done';
+}) {
+  const styleMap = {
+    open: {
+      background: '#ffffff',
+      border: '1px solid #e5e7eb',
+    },
+    doing: {
+      background: '#eff6ff',
+      border: '1px solid #bfdbfe',
+    },
+    done: {
+      background: '#f0fdf4',
+      border: '1px solid #bbf7d0',
+    },
+  };
+
+  return (
+    <div
+      style={{
+        ...styleMap[tone],
+        borderRadius: 20,
+        padding: 18,
+        boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          color: '#6b7280',
+          fontWeight: 700,
+        }}
+      >
+        {title}
+      </div>
+
+      <div
+        style={{
+          fontSize: 32,
+          fontWeight: 800,
+          color: '#111827',
+          marginTop: 8,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
