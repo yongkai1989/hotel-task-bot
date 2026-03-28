@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
@@ -60,6 +60,51 @@ function getSupabaseSafe() {
   return createBrowserSupabaseClient();
 }
 
+async function fetchJson(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = 15000
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(input, {
+      ...init,
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+
+    if (!isJson) {
+      const text = await res.text();
+      const shortText = text.slice(0, 300);
+      throw new Error(
+        shortText.includes('<!DOCTYPE')
+          ? `Server returned HTML instead of JSON (${res.status})`
+          : shortText || `Request failed (${res.status})`
+      );
+    }
+
+    const json = await res.json();
+
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error || `Request failed (${res.status})`);
+    }
+
+    return json;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
@@ -105,20 +150,6 @@ export default function DashboardPage() {
 
   const [envError, setEnvError] = useState('');
 
-  const realtimeCooldownRef = useRef(false);
-  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (realtimeTimerRef.current) {
-        clearTimeout(realtimeTimerRef.current);
-      }
-    };
-  }, []);
-
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
@@ -144,21 +175,29 @@ export default function DashboardPage() {
     }
 
     async function bootstrapAuth() {
-      setEnvError('');
-      setAuthLoading(true);
+      try {
+        setEnvError('');
+        setAuthLoading(true);
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (session?.access_token) {
-        await loadProfile(session.access_token);
-      } else if (mounted) {
-        setProfile(null);
-      }
+        if (!mounted) return;
 
-      if (mounted) {
-        setAuthLoading(false);
+        if (session?.access_token) {
+          await loadProfile(session.access_token);
+        } else {
+          setProfile(null);
+        }
+      } catch {
+        if (mounted) {
+          setProfile(null);
+        }
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
       }
     }
 
@@ -167,12 +206,20 @@ export default function DashboardPage() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, sessionNow) => {
-      if (sessionNow?.access_token) {
-        await loadProfile(sessionNow.access_token);
-      } else {
-        setProfile(null);
+      if (!mounted) return;
+
+      try {
+        if (sessionNow?.access_token) {
+          await loadProfile(sessionNow.access_token);
+        } else {
+          setProfile(null);
+          setTasks([]);
+        }
+      } finally {
+        if (mounted) {
+          setAuthLoading(false);
+        }
       }
-      setAuthLoading(false);
     });
 
     return () => {
@@ -191,48 +238,6 @@ export default function DashboardPage() {
     loadTasks(true);
   }, [profile]);
 
-  useEffect(() => {
-    if (!profile) return;
-
-    const supabase = getSupabaseSafe();
-    if (!supabase) return;
-
-    const safeRefresh = () => {
-      if (realtimeCooldownRef.current) return;
-
-      realtimeCooldownRef.current = true;
-
-      loadTasks(false).finally(() => {
-        if (realtimeTimerRef.current) {
-          clearTimeout(realtimeTimerRef.current);
-        }
-
-        realtimeTimerRef.current = setTimeout(() => {
-          realtimeCooldownRef.current = false;
-        }, 1500);
-      });
-    };
-
-    const channel = supabase
-      .channel('dashboard-realtime-tasks-only')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        () => {
-          safeRefresh();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      if (realtimeTimerRef.current) {
-        clearTimeout(realtimeTimerRef.current);
-      }
-      realtimeCooldownRef.current = false;
-      supabase.removeChannel(channel);
-    };
-  }, [profile]);
-
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
     if (!supabase) return '';
@@ -245,54 +250,33 @@ export default function DashboardPage() {
   }
 
   async function loadProfile(token: string) {
-    const res = await fetch('/api/session-profile', {
+    const json = await fetchJson('/api/session-profile', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
       },
-      cache: 'no-store',
     });
-
-    const json = await res.json();
-
-    if (!res.ok || !json.ok) {
-      setProfile(null);
-      return;
-    }
 
     setProfile(json.user);
   }
 
   async function loadTasks(showLoader = false) {
     try {
-      if (!mountedRef.current) return;
-
       if (showLoader) {
         setLoading(true);
       } else {
         setRefreshing(true);
       }
 
-      const res = await fetch(`/api/tasks?t=${Date.now()}`, {
+      const json = await fetchJson(`/api/tasks?t=${Date.now()}`, {
         method: 'GET',
-        cache: 'no-store',
       });
-
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to load tasks');
-      }
-
-      if (!mountedRef.current) return;
 
       setTasks(json.tasks || []);
       setErrorMsg('');
     } catch (err: any) {
-      if (!mountedRef.current) return;
       setErrorMsg(err?.message || 'Failed to load tasks');
     } finally {
-      if (!mountedRef.current) return;
       setLoading(false);
       setRefreshing(false);
     }
@@ -328,6 +312,7 @@ export default function DashboardPage() {
       setLoginOpen(false);
       setLoginEmail('');
       setLoginPassword('');
+      await loadTasks(true);
     } catch (err: any) {
       setLoginError(err?.message || 'Login failed');
     } finally {
@@ -336,12 +321,22 @@ export default function DashboardPage() {
   }
 
   async function handleLogout() {
-    const supabase = getSupabaseSafe();
-    if (!supabase) return;
+    try {
+      const supabase = getSupabaseSafe();
+      if (!supabase) return;
 
-    await supabase.auth.signOut();
-    setProfile(null);
-    setTasks([]);
+      await supabase.auth.signOut();
+
+      setProfile(null);
+      setTasks([]);
+      setSidebarOpen(false);
+      setLoginOpen(false);
+      setPasswordModalOpen(false);
+
+      window.location.replace('/dashboard');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Logout failed');
+    }
   }
 
   function canCreateTask() {
@@ -376,25 +371,20 @@ export default function DashboardPage() {
 
       const token = await getAccessToken();
 
-      const res = await fetch('/api/task-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+      await fetchJson(
+        '/api/task-status',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ taskId, status: nextStatus }),
         },
-        cache: 'no-store',
-        body: JSON.stringify({ taskId, status: nextStatus }),
-      });
+        15000
+      );
 
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to update task');
-      }
-
-      setTimeout(() => {
-        loadTasks(false);
-      }, 250);
+      await loadTasks(false);
     } catch (err: any) {
       setTasks(oldTasks);
       setErrorMsg(err?.message || 'Failed to update task');
@@ -532,45 +522,41 @@ export default function DashboardPage() {
       let uploadedUrls: string[] = [];
 
       if (createPhotos.length > 0) {
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            images: createPhotos.map((p) => p.dataUrl),
-          }),
-        });
-
-        const uploadJson = await uploadRes.json();
-
-        if (!uploadRes.ok || !uploadJson.ok) {
-          throw new Error(uploadJson.error || 'Upload failed');
-        }
+        const uploadJson = await fetchJson(
+          '/api/upload',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              images: createPhotos.map((p) => p.dataUrl),
+            }),
+          },
+          30000
+        );
 
         uploadedUrls = uploadJson.urls || [];
       }
 
       const token = await getAccessToken();
 
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+      await fetchJson(
+        '/api/tasks',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            room,
+            department: createDept,
+            task_text: taskText,
+            image_urls: uploadedUrls,
+            image_captions: createPhotos.map((p) => p.name),
+          }),
         },
-        body: JSON.stringify({
-          room,
-          department: createDept,
-          task_text: taskText,
-          image_urls: uploadedUrls,
-          image_captions: createPhotos.map((p) => p.name),
-        }),
-      });
-
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || 'Failed to create task');
-      }
+        30000
+      );
 
       closeCreateModal();
       await loadTasks(false);
@@ -591,19 +577,12 @@ export default function DashboardPage() {
 
       const token = await getAccessToken();
 
-      const res = await fetch('/api/admin/users', {
+      const json = await fetchJson('/api/admin/users', {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
         },
-        cache: 'no-store',
       });
-
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to load users');
-      }
 
       setAdminUsers(json.users || []);
       setPasswordTargetEmail((json.users || [])[0]?.email || '');
@@ -637,7 +616,7 @@ export default function DashboardPage() {
 
       const token = await getAccessToken();
 
-      const res = await fetch('/api/admin/change-password', {
+      await fetchJson('/api/admin/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -648,12 +627,6 @@ export default function DashboardPage() {
           newPassword,
         }),
       });
-
-      const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || 'Failed to change password');
-      }
 
       setPasswordSuccess('Password updated successfully');
       setNewPassword('');
@@ -844,18 +817,12 @@ export default function DashboardPage() {
                 </div>
 
                 {profile.role === 'MANAGER' ? (
-                  <button
-                    onClick={openPasswordModal}
-                    style={styles.managerBtn}
-                  >
+                  <button onClick={openPasswordModal} style={styles.managerBtn}>
                     Change User Password
                   </button>
                 ) : null}
 
-                <button
-                  onClick={handleLogout}
-                  style={styles.logoutSidebarBtn}
-                >
+                <button onClick={handleLogout} style={styles.logoutSidebarBtn}>
                   Log Out
                 </button>
               </>
@@ -918,6 +885,7 @@ export default function DashboardPage() {
           </div>
 
           {envError ? <div style={styles.errorBox}>{envError}</div> : null}
+          {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
           {authLoading ? (
             <div style={styles.emptyState}>Checking login...</div>
@@ -927,8 +895,6 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
-
               {sidebarView === 'DASHBOARD' ? (
                 <section style={styles.summaryGrid}>
                   <SummaryCard title="Open" value={summary.open} tone="open" />
@@ -950,16 +916,27 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  {sidebarView === 'DASHBOARD' ? (
+                  <div style={{ display: 'flex', gap: 10 }}>
                     <button
-                      onClick={openCreateModal}
-                      style={styles.addTaskBtn}
-                      aria-label="Add task"
-                      title="Add new task"
+                      onClick={() => loadTasks(false)}
+                      style={styles.refreshBtn}
+                      disabled={refreshing || loading}
+                      title="Refresh tasks"
                     >
-                      +
+                      ↻
                     </button>
-                  ) : null}
+
+                    {sidebarView === 'DASHBOARD' ? (
+                      <button
+                        onClick={openCreateModal}
+                        style={styles.addTaskBtn}
+                        aria-label="Add task"
+                        title="Add new task"
+                      >
+                        +
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div style={styles.filterBlock}>
@@ -2107,6 +2084,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fff1f2',
     color: '#b91c1c',
     fontSize: 14,
+    wordBreak: 'break-word',
   },
   successBox: {
     marginBottom: 14,
@@ -2172,6 +2150,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
     boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
+    flexShrink: 0,
+  },
+  refreshBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    border: '1px solid #d1d5db',
+    background: '#ffffff',
+    color: '#111827',
+    fontSize: 22,
+    lineHeight: 1,
+    fontWeight: 700,
+    cursor: 'pointer',
     flexShrink: 0,
   },
   filterBlock: {
