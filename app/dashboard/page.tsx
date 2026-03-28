@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
@@ -69,6 +69,7 @@ export default function DashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -104,6 +105,8 @@ export default function DashboardPage() {
 
   const [envError, setEnvError] = useState('');
 
+  const realtimeReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
@@ -118,20 +121,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let mounted = true;
+    const supabase = getSupabaseSafe();
+
+    if (!supabase) {
+      setEnvError(
+        'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables.'
+      );
+      setAuthLoading(false);
+      return;
+    }
 
     async function bootstrapAuth() {
-      const supabase = getSupabaseSafe();
-
-      if (!supabase) {
-        if (mounted) {
-          setEnvError(
-            'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables.'
-          );
-          setAuthLoading(false);
-        }
-        return;
-      }
-
       setEnvError('');
       setAuthLoading(true);
 
@@ -148,30 +148,24 @@ export default function DashboardPage() {
       if (mounted) {
         setAuthLoading(false);
       }
-
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (_event, sessionNow) => {
-        if (sessionNow?.access_token) {
-          await loadProfile(sessionNow.access_token);
-        } else {
-          setProfile(null);
-        }
-        setAuthLoading(false);
-      });
-
-      return () => subscription.unsubscribe();
     }
 
-    let cleanup: (() => void) | undefined;
+    bootstrapAuth();
 
-    bootstrapAuth().then((fn) => {
-      cleanup = fn;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, sessionNow) => {
+      if (sessionNow?.access_token) {
+        await loadProfile(sessionNow.access_token);
+      } else {
+        setProfile(null);
+      }
+      setAuthLoading(false);
     });
 
     return () => {
       mounted = false;
-      if (cleanup) cleanup();
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -182,9 +176,49 @@ export default function DashboardPage() {
       return;
     }
 
-    loadTasks();
-    const timer = setInterval(loadTasks, 5000);
-    return () => clearInterval(timer);
+    loadTasks(true);
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+
+    const scheduleReload = () => {
+      if (realtimeReloadTimer.current) {
+        clearTimeout(realtimeReloadTimer.current);
+      }
+
+      realtimeReloadTimer.current = setTimeout(() => {
+        loadTasks(false);
+      }, 250);
+    };
+
+    const channel = supabase
+      .channel('dashboard-realtime-tasks')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        () => {
+          scheduleReload();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_images' },
+        () => {
+          scheduleReload();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (realtimeReloadTimer.current) {
+        clearTimeout(realtimeReloadTimer.current);
+      }
+      supabase.removeChannel(channel);
+    };
   }, [profile]);
 
   async function getAccessToken() {
@@ -217,9 +251,13 @@ export default function DashboardPage() {
     setProfile(json.user);
   }
 
-  async function loadTasks() {
+  async function loadTasks(showLoader = false) {
     try {
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
 
       const res = await fetch(`/api/tasks?t=${Date.now()}`, {
         method: 'GET',
@@ -238,6 +276,7 @@ export default function DashboardPage() {
       setErrorMsg(err?.message || 'Failed to load tasks');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -336,7 +375,7 @@ export default function DashboardPage() {
       }
 
       setTimeout(() => {
-        loadTasks();
+        loadTasks(false);
       }, 250);
     } catch (err: any) {
       setTasks(oldTasks);
@@ -516,7 +555,7 @@ export default function DashboardPage() {
       }
 
       closeCreateModal();
-      await loadTasks();
+      await loadTasks(false);
     } catch (err: any) {
       setCreateError(err?.message || 'Failed to create task');
     } finally {
@@ -964,6 +1003,7 @@ export default function DashboardPage() {
                         pastTaskDate
                       )}`}
                 </div>
+                {refreshing ? <div style={styles.updatingText}>Refreshing…</div> : null}
               </section>
 
               {loading ? (
