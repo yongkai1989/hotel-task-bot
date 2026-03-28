@@ -105,7 +105,19 @@ export default function DashboardPage() {
 
   const [envError, setEnvError] = useState('');
 
-  const realtimeReloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeCooldownRef = useRef(false);
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (realtimeTimerRef.current) {
+        clearTimeout(realtimeTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -185,38 +197,38 @@ export default function DashboardPage() {
     const supabase = getSupabaseSafe();
     if (!supabase) return;
 
-    const scheduleReload = () => {
-      if (realtimeReloadTimer.current) {
-        clearTimeout(realtimeReloadTimer.current);
-      }
+    const safeRefresh = () => {
+      if (realtimeCooldownRef.current) return;
 
-      realtimeReloadTimer.current = setTimeout(() => {
-        loadTasks(false);
-      }, 250);
+      realtimeCooldownRef.current = true;
+
+      loadTasks(false).finally(() => {
+        if (realtimeTimerRef.current) {
+          clearTimeout(realtimeTimerRef.current);
+        }
+
+        realtimeTimerRef.current = setTimeout(() => {
+          realtimeCooldownRef.current = false;
+        }, 1500);
+      });
     };
 
     const channel = supabase
-      .channel('dashboard-realtime-tasks')
+      .channel('dashboard-realtime-tasks-only')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
         () => {
-          scheduleReload();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'task_images' },
-        () => {
-          scheduleReload();
+          safeRefresh();
         }
       )
       .subscribe();
 
     return () => {
-      if (realtimeReloadTimer.current) {
-        clearTimeout(realtimeReloadTimer.current);
+      if (realtimeTimerRef.current) {
+        clearTimeout(realtimeTimerRef.current);
       }
+      realtimeCooldownRef.current = false;
       supabase.removeChannel(channel);
     };
   }, [profile]);
@@ -253,6 +265,8 @@ export default function DashboardPage() {
 
   async function loadTasks(showLoader = false) {
     try {
+      if (!mountedRef.current) return;
+
       if (showLoader) {
         setLoading(true);
       } else {
@@ -270,11 +284,15 @@ export default function DashboardPage() {
         throw new Error(json?.error || 'Failed to load tasks');
       }
 
+      if (!mountedRef.current) return;
+
       setTasks(json.tasks || []);
       setErrorMsg('');
     } catch (err: any) {
+      if (!mountedRef.current) return;
       setErrorMsg(err?.message || 'Failed to load tasks');
     } finally {
+      if (!mountedRef.current) return;
       setLoading(false);
       setRefreshing(false);
     }
