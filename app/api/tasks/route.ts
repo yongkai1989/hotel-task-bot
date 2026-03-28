@@ -6,6 +6,8 @@ import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+const GET_TASK_LIMIT = 300;
+
 function normalizeDept(value: string): Dept | null {
   const v = String(value || '').trim().toUpperCase();
 
@@ -53,40 +55,85 @@ function normalizeImageCaptions(body: any, imageCount: number): (string | null)[
   return Array.from({ length: imageCount }, () => null);
 }
 
-export async function GET() {
-  const { data, error } = await supabaseAdmin
-    .from('tasks')
-    .select(`
-      *,
-      task_images (
-        id,
-        image_url,
-        caption,
-        created_at
-      )
-    `)
-    .order('created_at', { ascending: false });
+function jsonNoCache(body: any, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    },
+  });
+}
 
-  if (error) {
-    return NextResponse.json(
-      { ok: false, error: error.message },
-      {
-        status: 500,
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        },
+export async function GET() {
+  try {
+    const { data: tasks, error: tasksError } = await supabaseAdmin
+      .from('tasks')
+      .select(`
+        id,
+        task_code,
+        room,
+        department,
+        task_text,
+        status,
+        created_at,
+        done_at,
+        done_by_name,
+        last_updated_by_name,
+        image_url
+      `)
+      .order('created_at', { ascending: false })
+      .limit(GET_TASK_LIMIT);
+
+    if (tasksError) {
+      return jsonNoCache({ ok: false, error: tasksError.message }, 500);
+    }
+
+    const taskIds = (tasks || []).map((t) => t.id);
+
+    let imageMap = new Map<string, any[]>();
+
+    if (taskIds.length > 0) {
+      const { data: taskImages, error: imagesError } = await supabaseAdmin
+        .from('task_images')
+        .select(`
+          id,
+          task_id,
+          image_url,
+          caption,
+          created_at
+        `)
+        .in('task_id', taskIds)
+        .order('created_at', { ascending: true });
+
+      if (imagesError) {
+        return jsonNoCache({ ok: false, error: imagesError.message }, 500);
       }
+
+      for (const img of taskImages || []) {
+        const key = String(img.task_id);
+        const existing = imageMap.get(key) || [];
+        existing.push({
+          id: img.id,
+          image_url: img.image_url,
+          caption: img.caption,
+          created_at: img.created_at,
+        });
+        imageMap.set(key, existing);
+      }
+    }
+
+    const finalTasks = (tasks || []).map((task) => ({
+      ...task,
+      task_images: imageMap.get(String(task.id)) || [],
+    }));
+
+    return jsonNoCache({ ok: true, tasks: finalTasks });
+  } catch (error: any) {
+    return jsonNoCache(
+      { ok: false, error: error?.message || 'Unknown error' },
+      500
     );
   }
-
-  return NextResponse.json(
-    { ok: true, tasks: data || [] },
-    {
-      headers: {
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      },
-    }
-  );
 }
 
 export async function POST(req: NextRequest) {
@@ -94,9 +141,9 @@ export async function POST(req: NextRequest) {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
 
     if (!user) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: authError || 'Unauthorized' },
-        { status: 401 }
+        401
       );
     }
 
@@ -109,33 +156,27 @@ export async function POST(req: NextRequest) {
     const imageCaptions = normalizeImageCaptions(body, imageUrls.length);
 
     if (!room) {
-      return NextResponse.json(
-        { ok: false, error: 'Room is required' },
-        { status: 400 }
-      );
+      return jsonNoCache({ ok: false, error: 'Room is required' }, 400);
     }
 
     if (!department) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: 'Department must be HK, MT, or FO' },
-        { status: 400 }
+        400
       );
     }
 
     if (!taskText) {
-      return NextResponse.json(
-        { ok: false, error: 'Task text is required' },
-        { status: 400 }
-      );
+      return jsonNoCache({ ok: false, error: 'Task text is required' }, 400);
     }
 
     const chatIdRaw = process.env.ALLOWED_CHAT_ID;
     const telegramChatId = Number(chatIdRaw);
 
     if (!chatIdRaw || Number.isNaN(telegramChatId)) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: 'ALLOWED_CHAT_ID is missing or invalid' },
-        { status: 500 }
+        500
       );
     }
 
@@ -153,13 +194,28 @@ export async function POST(req: NextRequest) {
         image_url: firstImageUrl,
         reopened_at: null,
       })
-      .select()
+      .select(`
+        id,
+        task_code,
+        room,
+        department,
+        task_text,
+        status,
+        created_by_name,
+        chat_id,
+        image_url,
+        done_by_name,
+        done_at,
+        reopened_at,
+        last_updated_by_name,
+        created_at
+      `)
       .single();
 
     if (insertError || !task) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: insertError?.message || 'Failed to create task' },
-        { status: 500 }
+        500
       );
     }
 
@@ -183,9 +239,9 @@ export async function POST(req: NextRequest) {
         .insert(imageRows);
 
       if (imageInsertError) {
-        return NextResponse.json(
+        return jsonNoCache(
           { ok: false, error: imageInsertError.message },
-          { status: 500 }
+          500
         );
       }
     }
@@ -222,43 +278,32 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { data: finalTask, error: finalTaskError } = await supabaseAdmin
-      .from('tasks')
+    const { data: taskImages, error: finalImagesError } = await supabaseAdmin
+      .from('task_images')
       .select(`
-        *,
-        task_images (
-          id,
-          image_url,
-          caption,
-          created_at
-        )
+        id,
+        image_url,
+        caption,
+        created_at
       `)
-      .eq('id', task.id)
-      .single();
+      .eq('task_id', task.id)
+      .order('created_at', { ascending: true });
 
-    if (finalTaskError) {
-      return NextResponse.json(
-        { ok: true, task },
-        {
-          headers: {
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-          },
-        }
-      );
+    if (finalImagesError) {
+      return jsonNoCache({ ok: true, task });
     }
 
-    return NextResponse.json(
-      { ok: true, task: finalTask },
-      {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        },
-      }
-    );
+    return jsonNoCache({
+      ok: true,
+      task: {
+        ...task,
+        task_images: taskImages || [],
+      },
+    });
   } catch (error: any) {
-    return NextResponse.json(
+    return jsonNoCache(
       { ok: false, error: error?.message || 'Unknown error' },
-      { status: 500 }
+      500
     );
   }
 }
