@@ -229,6 +229,40 @@ export default function DashboardPage() {
 
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const html = document.documentElement;
+    const body = document.body;
+
+    const prevHtmlOverflowX = html.style.overflowX;
+    const prevHtmlWidth = html.style.width;
+    const prevHtmlMaxWidth = html.style.maxWidth;
+    const prevBodyOverflowX = body.style.overflowX;
+    const prevBodyWidth = body.style.width;
+    const prevBodyMaxWidth = body.style.maxWidth;
+    const prevBodyPosition = body.style.position;
+
+    html.style.overflowX = 'hidden';
+    html.style.width = '100%';
+    html.style.maxWidth = '100vw';
+
+    body.style.overflowX = 'hidden';
+    body.style.width = '100%';
+    body.style.maxWidth = '100vw';
+    body.style.position = 'relative';
+
+    return () => {
+      html.style.overflowX = prevHtmlOverflowX;
+      html.style.width = prevHtmlWidth;
+      html.style.maxWidth = prevHtmlMaxWidth;
+      body.style.overflowX = prevBodyOverflowX;
+      body.style.width = prevBodyWidth;
+      body.style.maxWidth = prevBodyMaxWidth;
+      body.style.position = prevBodyPosition;
+    };
+  }, []);
+
+  useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
       setIsMobile(mobile);
@@ -2340,12 +2374,19 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f3f6fb',
     overflowX: 'hidden',
     width: '100%',
+    maxWidth: '100vw',
+    position: 'relative',
+    boxSizing: 'border-box',
+    touchAction: 'pan-y',
   },
   layout: {
     display: 'flex',
     minHeight: '100vh',
     width: '100%',
+    maxWidth: '100vw',
     overflowX: 'hidden',
+    position: 'relative',
+    boxSizing: 'border-box',
   },
   sidebar: {
     width: 280,
@@ -2523,6 +2564,7 @@ content: {
   minWidth: 0,
   width: '100%',
   maxWidth: '100%',
+  margin: '0 auto',
   padding: 20,
   paddingTop: 76,
   boxSizing: 'border-box',
