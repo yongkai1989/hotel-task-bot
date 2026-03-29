@@ -344,12 +344,17 @@ export default function DashboardPage() {
   }
 
   function canEditTask(task: Task) {
-    if (!profile) return false;
-    if (profile.role === 'MANAGER') return true;
-    if (profile.role === 'HK') return task.department === 'HK';
-    if (profile.role === 'MT') return task.department === 'MT';
-    return false;
-  }
+  if (!profile) return false;
+
+  if (profile.role === 'MANAGER') return true;
+
+  // Each role can only edit its own department
+  if (profile.role === 'HK') return task.department === 'HK';
+  if (profile.role === 'MT') return task.department === 'MT';
+  if (profile.role === 'FO') return task.department === 'FO';
+
+  return false;
+}
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
