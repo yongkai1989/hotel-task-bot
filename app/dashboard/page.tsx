@@ -173,7 +173,33 @@ export default function DashboardPage() {
       setAuthLoading(false);
       return;
     }
+    
+useEffect(() => {
+  if (!profile) return;
 
+  const supabase = getSupabaseSafe();
+  if (!supabase) return;
+
+  const channel = supabase
+    .channel('tasks-realtime')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'tasks',
+      },
+      () => {
+        // Only refresh when actual DB change happens
+        loadTasks(false);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, [profile]);
     async function bootstrapAuth() {
       try {
         setEnvError('');
