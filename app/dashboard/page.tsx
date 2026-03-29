@@ -722,10 +722,6 @@ export default function DashboardPage() {
         height: '100vh',
       };
 
-  const contentStyle: React.CSSProperties = isMobile
-    ? { ...styles.content, marginLeft: 0 }
-    : { ...styles.content, marginLeft: 0 };
-
   return (
     <main style={styles.page}>
       {isMobile && sidebarOpen ? (
@@ -828,28 +824,9 @@ export default function DashboardPage() {
               </>
             )}
           </div>
-
-          <div style={styles.sidebarDivider} />
-
-          <div style={styles.sidebarMiniStats}>
-            <div style={styles.sidebarMiniCard}>
-              <div style={styles.sidebarMiniLabel}>Open</div>
-              <div style={styles.sidebarMiniValue}>{summary.open}</div>
-            </div>
-
-            <div style={styles.sidebarMiniCard}>
-              <div style={styles.sidebarMiniLabel}>DOING</div>
-              <div style={styles.sidebarMiniValue}>{summary.doing}</div>
-            </div>
-
-            <div style={styles.sidebarMiniCard}>
-              <div style={styles.sidebarMiniLabel}>Done Today</div>
-              <div style={styles.sidebarMiniValue}>{summary.doneToday}</div>
-            </div>
-          </div>
         </aside>
 
-        <section style={contentStyle}>
+        <section style={styles.content}>
           {isMobile ? (
             <div style={styles.mobileTopBar}>
               <button
@@ -905,7 +882,7 @@ export default function DashboardPage() {
 
               <section style={styles.filterPanel}>
                 <div style={styles.filterHeader}>
-                  <div>
+                  <div style={styles.filterHeaderText}>
                     <div style={styles.filterPanelTitle}>
                       {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
                     </div>
@@ -916,7 +893,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={styles.filterHeaderButtons}>
                     <button
                       onClick={() => loadTasks(false)}
                       style={styles.refreshBtn}
@@ -1598,6 +1575,7 @@ function sidebarItemStyle(active: boolean): React.CSSProperties {
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
+    boxSizing: 'border-box',
   };
 }
 
@@ -1615,6 +1593,7 @@ function departmentFilterStyle(
     border: '1px solid #d1d5db',
     background: '#ffffff',
     color: '#374151',
+    boxSizing: 'border-box',
   };
 
   if (!active) return base;
@@ -1670,6 +1649,7 @@ function statusFilterStyle(active: boolean): React.CSSProperties {
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     boxShadow: active ? '0 8px 18px rgba(17,24,39,0.18)' : 'none',
+    boxSizing: 'border-box',
   };
 }
 
@@ -1692,6 +1672,7 @@ function actionBtn(
     fontWeight: 700,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
+    boxSizing: 'border-box',
     ...(active
       ? activeStyles
       : {
@@ -1728,6 +1709,7 @@ function statusBadgeStyle(status: Task['status']): React.CSSProperties {
     fontWeight: 800,
     letterSpacing: 0.2,
     whiteSpace: 'nowrap',
+    boxSizing: 'border-box',
     ...map[status],
   };
 }
@@ -1756,6 +1738,7 @@ function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
     padding: '4px 10px',
     fontSize: 12,
     fontWeight: 800,
+    boxSizing: 'border-box',
     ...map[dept],
   };
 }
@@ -1780,6 +1763,8 @@ function summaryCardStyle(tone: 'open' | 'doing' | 'done'): React.CSSProperties 
     borderRadius: 20,
     padding: 18,
     boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
+    boxSizing: 'border-box',
+    minWidth: 0,
     ...map[tone],
   };
 }
@@ -1799,10 +1784,14 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
     background: '#f3f6fb',
+    overflowX: 'hidden',
+    width: '100%',
   },
   layout: {
     display: 'flex',
     minHeight: '100vh',
+    width: '100%',
+    overflowX: 'hidden',
   },
   sidebar: {
     width: 280,
@@ -1814,6 +1803,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 18,
+    boxSizing: 'border-box',
+    overflowX: 'hidden',
   },
   sidebarTop: {
     display: 'flex',
@@ -1839,6 +1830,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #ede9e3',
     boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   sidebarBrandText: {
     minWidth: 0,
@@ -1849,6 +1841,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#111827',
     lineHeight: 1.2,
+    wordBreak: 'break-word',
   },
   sidebarHotelSub: {
     marginTop: 4,
@@ -1867,6 +1860,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   sidebarSectionTitle: {
     fontSize: 11,
@@ -1897,6 +1891,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 800,
     cursor: 'pointer',
+    boxSizing: 'border-box',
+    width: '100%',
   },
   logoutSidebarBtn: {
     borderRadius: 14,
@@ -1907,6 +1903,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 800,
     cursor: 'pointer',
+    boxSizing: 'border-box',
+    width: '100%',
   },
   managerBtn: {
     borderRadius: 14,
@@ -1917,6 +1915,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     fontWeight: 800,
     cursor: 'pointer',
+    boxSizing: 'border-box',
+    width: '100%',
   },
   userCard: {
     borderRadius: 16,
@@ -1925,11 +1925,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 14,
     display: 'grid',
     gap: 4,
+    boxSizing: 'border-box',
+    minWidth: 0,
   },
   userName: {
     fontSize: 15,
     fontWeight: 800,
     color: '#111827',
+    wordBreak: 'break-word',
   },
   userRole: {
     fontSize: 12,
@@ -1941,27 +1944,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     wordBreak: 'break-word',
   },
-  sidebarMiniStats: {
-    display: 'grid',
-    gap: 10,
-  },
-  sidebarMiniCard: {
-    borderRadius: 16,
-    border: '1px solid #e7edf5',
-    background: '#f8fafc',
-    padding: 14,
-  },
-  sidebarMiniLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: 700,
-  },
-  sidebarMiniValue: {
-    marginTop: 6,
-    fontSize: 22,
-    color: '#111827',
-    fontWeight: 800,
-  },
   sidebarCount: {
     fontSize: 11,
     fontWeight: 800,
@@ -1970,6 +1952,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f3f4f6',
     color: '#374151',
     whiteSpace: 'nowrap',
+    boxSizing: 'border-box',
   },
   sidebarCountActive: {
     fontSize: 11,
@@ -1979,13 +1962,16 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(255,255,255,0.14)',
     color: '#ffffff',
     whiteSpace: 'nowrap',
+    boxSizing: 'border-box',
   },
   content: {
     flex: 1,
     minWidth: 0,
-    padding: 20,
-    maxWidth: 1200,
     width: '100%',
+    maxWidth: '100%',
+    padding: 20,
+    boxSizing: 'border-box',
+    overflowX: 'hidden',
   },
   mobileTopBar: {
     position: 'sticky',
@@ -2002,6 +1988,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 16,
     fontWeight: 800,
     color: '#111827',
+    minWidth: 0,
   },
   menuButton: {
     width: 42,
@@ -2014,6 +2001,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: 'pointer',
     boxShadow: '0 6px 16px rgba(15,23,42,0.06)',
+    boxSizing: 'border-box',
+    flexShrink: 0,
   },
   mobileOverlay: {
     position: 'fixed',
@@ -2028,12 +2017,16 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
     border: '1px solid #e7edf5',
     boxShadow: '0 16px 34px rgba(15,23,42,0.06)',
+    boxSizing: 'border-box',
+    width: '100%',
+    overflow: 'hidden',
   },
   headerTop: {
     display: 'flex',
     gap: 14,
     alignItems: 'center',
     flexWrap: 'wrap',
+    minWidth: 0,
   },
   logoWrap: {
     width: 66,
@@ -2046,6 +2039,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #ede9e3',
     boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   logo: {
     objectFit: 'contain',
@@ -2061,6 +2055,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#8b5e34',
     textTransform: 'uppercase',
     marginBottom: 6,
+    wordBreak: 'break-word',
   },
   title: {
     margin: 0,
@@ -2068,6 +2063,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.08,
     color: '#111827',
     fontWeight: 800,
+    wordBreak: 'break-word',
   },
   subtitle: {
     marginTop: 8,
@@ -2075,6 +2071,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#6b7280',
     fontSize: 14,
     lineHeight: 1.55,
+    wordBreak: 'break-word',
   },
   errorBox: {
     marginBottom: 14,
@@ -2085,6 +2082,8 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#b91c1c',
     fontSize: 14,
     wordBreak: 'break-word',
+    boxSizing: 'border-box',
+    width: '100%',
   },
   successBox: {
     marginBottom: 14,
@@ -2094,12 +2093,14 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f0fdf4',
     color: '#15803d',
     fontSize: 14,
+    boxSizing: 'border-box',
   },
   summaryGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     gap: 12,
     marginBottom: 16,
+    width: '100%',
   },
   summaryTitle: {
     fontSize: 13,
@@ -2111,6 +2112,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#111827',
     marginTop: 8,
+    wordBreak: 'break-word',
   },
   filterPanel: {
     marginBottom: 16,
@@ -2119,6 +2121,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 16,
     background: '#ffffff',
     boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
+    boxSizing: 'border-box',
+    width: '100%',
+    overflow: 'hidden',
   },
   filterHeader: {
     display: 'flex',
@@ -2126,17 +2131,29 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: 10,
     marginBottom: 14,
+    flexWrap: 'wrap',
+  },
+  filterHeaderText: {
+    minWidth: 0,
+    flex: 1,
+  },
+  filterHeaderButtons: {
+    display: 'flex',
+    gap: 10,
+    flexShrink: 0,
   },
   filterPanelTitle: {
     fontSize: 16,
     fontWeight: 800,
     color: '#111827',
+    wordBreak: 'break-word',
   },
   filterPanelSubtitle: {
     marginTop: 4,
     fontSize: 13,
     color: '#6b7280',
     fontWeight: 600,
+    wordBreak: 'break-word',
   },
   addTaskBtn: {
     width: 42,
@@ -2151,6 +2168,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   refreshBtn: {
     width: 42,
@@ -2164,6 +2182,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   filterBlock: {
     marginTop: 14,
@@ -2181,10 +2200,12 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     overflowX: 'auto',
     paddingBottom: 4,
+    width: '100%',
   },
   dateFilterRow: {
     display: 'grid',
     gap: 8,
+    width: '100%',
   },
   dateInput: {
     width: '100%',
@@ -2197,24 +2218,30 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 600,
     outline: 'none',
+    boxSizing: 'border-box',
   },
   dateHint: {
     fontSize: 12,
     color: '#6b7280',
     fontWeight: 600,
+    wordBreak: 'break-word',
   },
   resultBar: {
     marginBottom: 12,
     paddingLeft: 2,
+    width: '100%',
+    boxSizing: 'border-box',
   },
   resultText: {
     fontSize: 13,
     color: '#64748b',
     fontWeight: 700,
+    wordBreak: 'break-word',
   },
   cardList: {
     display: 'grid',
     gap: 14,
+    width: '100%',
   },
   taskCard: {
     border: '1px solid #e7edf5',
@@ -2222,11 +2249,16 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 18,
     background: '#ffffff',
     boxShadow: '0 14px 28px rgba(15,23,42,0.05)',
+    boxSizing: 'border-box',
+    width: '100%',
+    overflow: 'hidden',
   },
   taskMainRow: {
     display: 'flex',
     gap: 16,
     alignItems: 'flex-start',
+    minWidth: 0,
+    width: '100%',
   },
   taskMainContent: {
     minWidth: 0,
@@ -2248,12 +2280,14 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
+    minWidth: 0,
   },
   taskCode: {
     fontSize: 26,
     fontWeight: 800,
     color: '#111827',
     letterSpacing: -0.4,
+    wordBreak: 'break-word',
   },
   roomLine: {
     marginTop: 10,
@@ -2263,6 +2297,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
     color: '#4b5563',
     fontSize: 15,
+    minWidth: 0,
   },
   roomText: {
     color: '#64748b',
@@ -2288,6 +2323,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
     gap: 10,
+    width: '100%',
   },
   metaCard: {
     borderRadius: 16,
@@ -2295,6 +2331,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f8fafc',
     padding: 12,
     minWidth: 0,
+    boxSizing: 'border-box',
   },
   metaCardLabel: {
     fontSize: 11,
@@ -2328,6 +2365,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: '#b45309',
     fontWeight: 700,
+    wordBreak: 'break-word',
   },
   updatingText: {
     marginTop: 10,
@@ -2344,6 +2382,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     background: '#f8fafc',
     border: '1px solid #edf2f7',
+    boxSizing: 'border-box',
+    wordBreak: 'break-word',
   },
   emptyState: {
     marginTop: 20,
@@ -2355,6 +2395,8 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
     fontWeight: 600,
+    boxSizing: 'border-box',
+    width: '100%',
   },
   thumbWrap: {
     width: 86,
@@ -2374,6 +2416,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 0,
     cursor: 'pointer',
     boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
+    boxSizing: 'border-box',
   },
   thumbImage: {
     width: '100%',
@@ -2390,6 +2433,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 999,
     padding: '4px 8px',
     whiteSpace: 'nowrap',
+    boxSizing: 'border-box',
   },
   modalOverlay: {
     position: 'fixed',
@@ -2400,6 +2444,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
+    boxSizing: 'border-box',
   },
   modalInner: {
     position: 'relative',
@@ -2424,6 +2469,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     cursor: 'pointer',
     zIndex: 2,
+    boxSizing: 'border-box',
   },
   modalNavLeft: {
     border: '1px solid rgba(255,255,255,0.18)',
@@ -2436,6 +2482,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   modalNavRight: {
     border: '1px solid rgba(255,255,255,0.18)',
@@ -2448,6 +2495,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   modalImageWrap: {
     width: '100%',
@@ -2492,6 +2540,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
+    boxSizing: 'border-box',
   },
   createModalCard: {
     width: '100%',
@@ -2505,6 +2554,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 16,
     maxHeight: '90vh',
     overflowY: 'auto',
+    boxSizing: 'border-box',
   },
   loginModalCard: {
     width: '100%',
@@ -2518,6 +2568,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 16,
     maxHeight: '90vh',
     overflowY: 'auto',
+    boxSizing: 'border-box',
   },
   createModalTop: {
     display: 'flex',
@@ -2529,6 +2580,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 22,
     fontWeight: 800,
     color: '#111827',
+    wordBreak: 'break-word',
   },
   createModalSubtitle: {
     marginTop: 6,
@@ -2536,6 +2588,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#6b7280',
     fontWeight: 600,
     lineHeight: 1.45,
+    wordBreak: 'break-word',
   },
   createModalCloseBtn: {
     width: 38,
@@ -2548,6 +2601,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   createErrorBox: {
     padding: 12,
@@ -2556,6 +2610,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fff1f2',
     color: '#b91c1c',
     fontSize: 14,
+    boxSizing: 'border-box',
+    wordBreak: 'break-word',
   },
   formBlock: {
     display: 'grid',
@@ -2578,6 +2634,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 15,
     fontWeight: 600,
     outline: 'none',
+    boxSizing: 'border-box',
   },
   formTextarea: {
     width: '100%',
@@ -2592,6 +2649,7 @@ const styles: Record<string, React.CSSProperties> = {
     outline: 'none',
     resize: 'vertical',
     fontFamily: 'inherit',
+    boxSizing: 'border-box',
   },
   createDeptRow: {
     display: 'flex',
@@ -2606,26 +2664,31 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 16,
     background: '#f8fafc',
     cursor: 'pointer',
+    boxSizing: 'border-box',
   },
   uploadBoxTitle: {
     fontSize: 14,
     fontWeight: 800,
     color: '#111827',
+    wordBreak: 'break-word',
   },
   uploadBoxSub: {
     fontSize: 12,
     color: '#64748b',
     fontWeight: 600,
+    wordBreak: 'break-word',
   },
   photoCounterText: {
     fontSize: 13,
     color: '#334155',
     fontWeight: 700,
+    wordBreak: 'break-word',
   },
   previewGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
     gap: 12,
+    width: '100%',
   },
   previewCard: {
     borderRadius: 16,
@@ -2633,6 +2696,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#f8fafc',
     overflow: 'hidden',
     display: 'grid',
+    boxSizing: 'border-box',
+    minWidth: 0,
   },
   previewThumb: {
     width: '100%',
@@ -2657,6 +2722,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     padding: '8px 10px',
     cursor: 'pointer',
+    boxSizing: 'border-box',
   },
   createActionRow: {
     display: 'flex',
@@ -2675,6 +2741,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 800,
     cursor: 'pointer',
+    boxSizing: 'border-box',
   },
   submitBtn: {
     minWidth: 130,
@@ -2687,5 +2754,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: 'pointer',
     boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
+    boxSizing: 'border-box',
   },
 };
