@@ -24,6 +24,11 @@ type Task = {
   last_updated_by_name?: string | null;
   image_url?: string | null;
   task_images?: TaskImage[];
+  created_by_email?: string | null;
+  created_by_name?: string | null;
+  edited_at?: string | null;
+  edited_by_email?: string | null;
+  edited_by_name?: string | null;
 };
 
 type SidebarView = 'DASHBOARD' | 'PAST_TASK';
@@ -131,6 +136,17 @@ export default function DashboardPage() {
   const [createPhotos, setCreatePhotos] = useState<CreatePhotoItem[]>([]);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTaskId, setEditTaskId] = useState('');
+  const [editRoom, setEditRoom] = useState('');
+  const [editDept, setEditDept] = useState<'HK' | 'MT' | 'FO' | ''>('');
+  const [editTaskText, setEditTaskText] = useState('');
+  const [editExistingImages, setEditExistingImages] = useState<TaskImage[]>([]);
+  const [editRemovedImageIds, setEditRemovedImageIds] = useState<(string | number)[]>([]);
+  const [editNewPhotos, setEditNewPhotos] = useState<CreatePhotoItem[]>([]);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState('');
 
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -498,6 +514,16 @@ export default function DashboardPage() {
     return false;
   }
 
+  function canEditTaskDetails(task: Task) {
+    if (!profile) return false;
+    if (!task.created_by_email) return false;
+
+    return (
+      profile.email.trim().toLowerCase() ===
+      task.created_by_email.trim().toLowerCase()
+    );
+  }
+
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
       setLoginOpen(true);
@@ -602,6 +628,37 @@ export default function DashboardPage() {
     setCreateError('');
   }
 
+  function openEditModal(task: Task) {
+    if (!canEditTaskDetails(task)) {
+      alert('Only the task creator can edit this task.');
+      return;
+    }
+
+    setEditTaskId(task.id);
+    setEditRoom(task.room || '');
+    setEditDept(task.department || '');
+    setEditTaskText(task.task_text || '');
+    setEditExistingImages(Array.isArray(task.task_images) ? task.task_images : []);
+    setEditRemovedImageIds([]);
+    setEditNewPhotos([]);
+    setEditError('');
+    setEditModalOpen(true);
+  }
+
+  function closeEditModal() {
+    if (editSubmitting) return;
+
+    setEditModalOpen(false);
+    setEditTaskId('');
+    setEditRoom('');
+    setEditDept('');
+    setEditTaskText('');
+    setEditExistingImages([]);
+    setEditRemovedImageIds([]);
+    setEditNewPhotos([]);
+    setEditError('');
+  }
+
   async function handleCreatePhotoChange(
     e: React.ChangeEvent<HTMLInputElement>
   ) {
@@ -645,6 +702,63 @@ export default function DashboardPage() {
 
   function removeCreatePhoto(id: string) {
     setCreatePhotos((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  async function handleEditPhotoChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const files = Array.from(e.target.files || []);
+
+    if (!files.length) {
+      return;
+    }
+
+    try {
+      setEditError('');
+
+      const remainingExisting = editExistingImages.filter(
+        (img) => !editRemovedImageIds.includes(img.id)
+      );
+
+      if (remainingExisting.length + editNewPhotos.length + files.length > 5) {
+        throw new Error('Maximum 5 photos per task');
+      }
+
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Only image files are allowed');
+        }
+      }
+
+      const processed = await Promise.all(
+        files.map(async (file, index) => {
+          const compressed = await compressImageToDataUrl(file, 1200, 0.72);
+
+          return {
+            id: `${Date.now()}-${index}-${file.name}`,
+            name: file.name,
+            dataUrl: compressed,
+          } as CreatePhotoItem;
+        })
+      );
+
+      setEditNewPhotos((prev) => [...prev, ...processed]);
+      e.target.value = '';
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to process photo(s)');
+    }
+  }
+
+  function removeEditExistingImage(id: string | number) {
+    setEditRemovedImageIds((prev) => [...prev, id]);
+  }
+
+  function undoRemoveEditExistingImage(id: string | number) {
+    setEditRemovedImageIds((prev) => prev.filter((x) => x !== id));
+  }
+
+  function removeEditNewPhoto(id: string) {
+    setEditNewPhotos((prev) => prev.filter((item) => item.id !== id));
   }
 
   async function submitCreateTask() {
@@ -711,6 +825,77 @@ export default function DashboardPage() {
       setCreateError(err?.message || 'Failed to create task');
     } finally {
       setCreateSubmitting(false);
+    }
+  }
+
+  async function submitEditTask() {
+    try {
+      if (!profile) {
+        setLoginOpen(true);
+        return;
+      }
+
+      setEditError('');
+
+      const room = editRoom.trim();
+      const taskText = editTaskText.trim();
+
+      if (!editTaskId) throw new Error('Invalid task');
+      if (!room) throw new Error('Room Number is required');
+      if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
+      if (!editDept) throw new Error('Select department');
+      if (!taskText) throw new Error('Task description required');
+
+      setEditSubmitting(true);
+
+      let uploadedUrls: string[] = [];
+
+      if (editNewPhotos.length > 0) {
+        const uploadJson = await fetchJson(
+          '/api/upload',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              images: editNewPhotos.map((p) => p.dataUrl),
+            }),
+          },
+          30000
+        );
+
+        uploadedUrls = uploadJson.urls || [];
+      }
+
+      const token = await getAccessToken();
+
+      await fetchJson(
+        `/api/tasks/${editTaskId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            room,
+            department: editDept,
+            task_text: taskText,
+            keep_image_ids: editExistingImages
+              .filter((img) => !editRemovedImageIds.includes(img.id))
+              .map((img) => img.id),
+            new_image_urls: uploadedUrls,
+            new_image_captions: editNewPhotos.map((p) => p.name),
+          }),
+        },
+        30000
+      );
+
+      closeEditModal();
+      await loadTasks(false);
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to edit task');
+    } finally {
+      setEditSubmitting(false);
     }
   }
 
@@ -1209,6 +1394,24 @@ export default function DashboardPage() {
                                   </div>
                                 </div>
                               ) : null}
+
+                              {task.edited_at ? (
+                                <div style={styles.metaCard}>
+                                  <div style={styles.metaCardLabel}>Edited</div>
+                                  <div style={styles.metaCardValue}>
+                                    {new Date(task.edited_at).toLocaleString()}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {task.edited_at && task.edited_by_name ? (
+                                <div style={styles.metaCard}>
+                                  <div style={styles.metaCardLabel}>Edited by</div>
+                                  <div style={styles.metaCardValue}>
+                                    {task.edited_by_name}
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
 
                             {sidebarView === 'DASHBOARD' ? (
@@ -1237,6 +1440,16 @@ export default function DashboardPage() {
                                   >
                                     Done
                                   </button>
+
+                                  {canEditTaskDetails(task) ? (
+                                    <button
+                                      style={styles.editTaskBtn}
+                                      disabled={busyTaskId === task.id}
+                                      onClick={() => openEditModal(task)}
+                                    >
+                                      Edit
+                                    </button>
+                                  ) : null}
                                 </div>
 
                                 {!canEditTask(task) ? (
@@ -1471,6 +1684,193 @@ export default function DashboardPage() {
                 disabled={createSubmitting}
               >
                 {createSubmitting ? 'Submitting…' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+
+      {editModalOpen ? (
+        <div style={styles.createModalOverlay} onClick={closeEditModal}>
+          <div style={styles.createModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.createModalTop}>
+              <div>
+                <div style={styles.createModalTitle}>Edit Task</div>
+                <div style={styles.createModalSubtitle}>
+                  Only the creator of this task can edit it
+                </div>
+              </div>
+
+              <button
+                onClick={closeEditModal}
+                style={styles.createModalCloseBtn}
+                aria-label="Close edit task modal"
+                disabled={editSubmitting}
+              >
+                ×
+              </button>
+            </div>
+
+            {editError ? <div style={styles.createErrorBox}>{editError}</div> : null}
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Room Number</label>
+              <input
+                type="text"
+                placeholder="e.g. 1308"
+                value={editRoom}
+                onChange={(e) => setEditRoom(e.target.value)}
+                style={styles.formInput}
+                disabled={editSubmitting}
+              />
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Department</label>
+              <select
+                value={editDept}
+                onChange={(e) =>
+                  setEditDept(e.target.value as 'HK' | 'MT' | 'FO' | '')
+                }
+                style={styles.formInput}
+                disabled={editSubmitting}
+              >
+                <option value="">Select department</option>
+                <option value="HK">HK</option>
+                <option value="MT">MT</option>
+                <option value="FO">FO</option>
+              </select>
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Task Description</label>
+              <textarea
+                placeholder="e.g. extra towel / TV no signal / guest requested callback"
+                value={editTaskText}
+                onChange={(e) => setEditTaskText(e.target.value)}
+                style={styles.formTextarea}
+                disabled={editSubmitting}
+              />
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Existing Photos</label>
+              {editExistingImages.length === 0 ? (
+                <div style={styles.emptyInlineText}>No existing photos</div>
+              ) : (
+                <div style={styles.previewGrid}>
+                  {editExistingImages.map((img) => {
+                    const removed = editRemovedImageIds.includes(img.id);
+                    return (
+                      <div
+                        key={String(img.id)}
+                        style={{
+                          ...styles.previewCard,
+                          opacity: removed ? 0.45 : 1,
+                        }}
+                      >
+                        <img
+                          src={img.image_url}
+                          alt={img.caption || 'Existing task image'}
+                          style={styles.previewThumb}
+                        />
+                        <div style={styles.previewName}>
+                          {img.caption || 'Existing image'}
+                        </div>
+                        {removed ? (
+                          <button
+                            type="button"
+                            onClick={() => undoRemoveEditExistingImage(img.id)}
+                            style={styles.previewRemoveBtn}
+                            disabled={editSubmitting}
+                          >
+                            Undo Remove
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeEditExistingImage(img.id)}
+                            style={styles.previewRemoveBtn}
+                            disabled={editSubmitting}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.formBlock}>
+              <label style={styles.formLabel}>Add New Photos</label>
+
+              <label style={styles.uploadBox}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleEditPhotoChange}
+                  style={{ display: 'none' }}
+                  disabled={editSubmitting}
+                />
+                <span style={styles.uploadBoxTitle}>
+                  {editNewPhotos.length > 0 ? 'Add More Photos' : 'Choose Photos'}
+                </span>
+                <span style={styles.uploadBoxSub}>
+                  You can upload multiple images
+                </span>
+              </label>
+
+              {editNewPhotos.length > 0 ? (
+                <div style={styles.photoCounterText}>
+                  {editNewPhotos.length} photo{editNewPhotos.length === 1 ? '' : 's'} selected
+                </div>
+              ) : null}
+
+              {editNewPhotos.length > 0 ? (
+                <div style={styles.previewGrid}>
+                  {editNewPhotos.map((photo) => (
+                    <div key={photo.id} style={styles.previewCard}>
+                      <img
+                        src={photo.dataUrl}
+                        alt={photo.name}
+                        style={styles.previewThumb}
+                      />
+                      <div style={styles.previewName}>{photo.name}</div>
+                      <button
+                        type="button"
+                        onClick={() => removeEditNewPhoto(photo.id)}
+                        style={styles.previewRemoveBtn}
+                        disabled={editSubmitting}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={styles.createActionRow}>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                style={styles.cancelBtn}
+                disabled={editSubmitting}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={submitEditTask}
+                style={styles.submitBtn}
+                disabled={editSubmitting}
+              >
+                {editSubmitting ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>
