@@ -33,7 +33,10 @@ function normalizeImageUrls(body: any): string[] {
   return [];
 }
 
-function normalizeImageCaptions(body: any, imageCount: number): (string | null)[] {
+function normalizeImageCaptions(
+  body: any,
+  imageCount: number
+): (string | null)[] {
   if (Array.isArray(body.image_captions)) {
     const captions = body.image_captions.map((v: any) => {
       const s = String(v || '').trim();
@@ -49,7 +52,9 @@ function normalizeImageCaptions(body: any, imageCount: number): (string | null)[
 
   if (body.image_caption) {
     const single = String(body.image_caption || '').trim() || null;
-    return Array.from({ length: imageCount }, (_, idx) => (idx === 0 ? single : null));
+    return Array.from({ length: imageCount }, (_, idx) =>
+      idx === 0 ? single : null
+    );
   }
 
   return Array.from({ length: imageCount }, () => null);
@@ -68,7 +73,8 @@ export async function GET() {
   try {
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
-      .select(`
+      .select(
+        `
         id,
         task_code,
         room,
@@ -76,11 +82,17 @@ export async function GET() {
         task_text,
         status,
         created_at,
+        created_by_name,
+        created_by_email,
         done_at,
         done_by_name,
         last_updated_by_name,
+        edited_at,
+        edited_by_name,
+        edited_by_email,
         image_url
-      `)
+      `
+      )
       .order('created_at', { ascending: false })
       .limit(GET_TASK_LIMIT);
 
@@ -90,18 +102,20 @@ export async function GET() {
 
     const taskIds = (tasks || []).map((t) => t.id);
 
-    let imageMap = new Map<string, any[]>();
+    const imageMap = new Map<string, any[]>();
 
     if (taskIds.length > 0) {
       const { data: taskImages, error: imagesError } = await supabaseAdmin
         .from('task_images')
-        .select(`
+        .select(
+          `
           id,
           task_id,
           image_url,
           caption,
           created_at
-        `)
+        `
+        )
         .in('task_id', taskIds)
         .order('created_at', { ascending: true });
 
@@ -181,6 +195,7 @@ export async function POST(req: NextRequest) {
     }
 
     const firstImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
+    const userEmail = String(user.email || '').trim().toLowerCase() || null;
 
     const { data: task, error: insertError } = await supabaseAdmin
       .from('tasks')
@@ -190,11 +205,13 @@ export async function POST(req: NextRequest) {
         task_text: taskText,
         status: 'OPEN',
         created_by_name: user.name,
+        created_by_email: userEmail,
         chat_id: telegramChatId,
         image_url: firstImageUrl,
         reopened_at: null,
       })
-      .select(`
+      .select(
+        `
         id,
         task_code,
         room,
@@ -202,14 +219,19 @@ export async function POST(req: NextRequest) {
         task_text,
         status,
         created_by_name,
+        created_by_email,
         chat_id,
         image_url,
         done_by_name,
         done_at,
         reopened_at,
         last_updated_by_name,
+        edited_at,
+        edited_by_name,
+        edited_by_email,
         created_at
-      `)
+      `
+      )
       .single();
 
     if (insertError || !task) {
@@ -259,7 +281,7 @@ export async function POST(req: NextRequest) {
         status: task.status,
         done_by_name: task.done_by_name,
         done_at: task.done_at,
-        reopened_at: task.reopened_at,
+        reopened_at: null,
         last_updated_by_name: task.last_updated_by_name,
       },
     });
@@ -280,12 +302,14 @@ export async function POST(req: NextRequest) {
 
     const { data: taskImages, error: finalImagesError } = await supabaseAdmin
       .from('task_images')
-      .select(`
+      .select(
+        `
         id,
         image_url,
         caption,
         created_at
-      `)
+      `
+      )
       .eq('task_id', task.id)
       .order('created_at', { ascending: true });
 
