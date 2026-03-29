@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
@@ -150,6 +150,20 @@ export default function DashboardPage() {
 
   const [envError, setEnvError] = useState('');
 
+  const mountedRef = useRef(true);
+  const realtimeCooldownRef = useRef(false);
+  const realtimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (realtimeTimerRef.current) {
+        clearTimeout(realtimeTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
@@ -173,33 +187,7 @@ export default function DashboardPage() {
       setAuthLoading(false);
       return;
     }
-    
-useEffect(() => {
-  if (!profile) return;
 
-  const supabase = getSupabaseSafe();
-  if (!supabase) return;
-
-  const channel = supabase
-    .channel('tasks-realtime')
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'tasks',
-      },
-      () => {
-        // Only refresh when actual DB change happens
-        loadTasks(false);
-      }
-    )
-    .subscribe();
-
-  return () => {
-    supabase.removeChannel(channel);
-  };
-}, [profile]);
     async function bootstrapAuth() {
       try {
         setEnvError('');
@@ -264,6 +252,52 @@ useEffect(() => {
     loadTasks(true);
   }, [profile]);
 
+  useEffect(() => {
+    if (!profile) return;
+
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+
+    const safeRefresh = () => {
+      if (realtimeCooldownRef.current) return;
+
+      realtimeCooldownRef.current = true;
+
+      loadTasks(false).finally(() => {
+        if (realtimeTimerRef.current) {
+          clearTimeout(realtimeTimerRef.current);
+        }
+
+        realtimeTimerRef.current = setTimeout(() => {
+          realtimeCooldownRef.current = false;
+        }, 1200);
+      });
+    };
+
+    const channel = supabase
+      .channel('dashboard-realtime-tasks')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+        },
+        () => {
+          safeRefresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (realtimeTimerRef.current) {
+        clearTimeout(realtimeTimerRef.current);
+      }
+      realtimeCooldownRef.current = false;
+      supabase.removeChannel(channel);
+    };
+  }, [profile]);
+
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
     if (!supabase) return '';
@@ -288,6 +322,8 @@ useEffect(() => {
 
   async function loadTasks(showLoader = false) {
     try {
+      if (!mountedRef.current) return;
+
       if (showLoader) {
         setLoading(true);
       } else {
@@ -298,11 +334,15 @@ useEffect(() => {
         method: 'GET',
       });
 
+      if (!mountedRef.current) return;
+
       setTasks(json.tasks || []);
       setErrorMsg('');
     } catch (err: any) {
+      if (!mountedRef.current) return;
       setErrorMsg(err?.message || 'Failed to load tasks');
     } finally {
+      if (!mountedRef.current) return;
       setLoading(false);
       setRefreshing(false);
     }
@@ -370,17 +410,13 @@ useEffect(() => {
   }
 
   function canEditTask(task: Task) {
-  if (!profile) return false;
-
-  if (profile.role === 'MANAGER') return true;
-
-  // Each role can only edit its own department
-  if (profile.role === 'HK') return task.department === 'HK';
-  if (profile.role === 'MT') return task.department === 'MT';
-  if (profile.role === 'FO') return task.department === 'FO';
-
-  return false;
-}
+    if (!profile) return false;
+    if (profile.role === 'MANAGER') return true;
+    if (profile.role === 'HK') return task.department === 'HK';
+    if (profile.role === 'MT') return task.department === 'MT';
+    if (profile.role === 'FO') return task.department === 'FO';
+    return false;
+  }
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
@@ -874,7 +910,6 @@ useEffect(() => {
               >
                 ☰
               </button>
-
               <div style={styles.mobileTopBarTitle}>Hallmark PMS</div>
             </div>
           ) : null}
@@ -2003,53 +2038,53 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: 'border-box',
   },
   content: {
-  flex: 1,
-  minWidth: 0,
-  width: '100%',
-  maxWidth: '100%',
-  padding: 20,
-  paddingTop: 76,
-  boxSizing: 'border-box',
-  overflowX: 'hidden',
-},
+    flex: 1,
+    minWidth: 0,
+    width: '100%',
+    maxWidth: '100%',
+    padding: 20,
+    paddingTop: 76,
+    boxSizing: 'border-box',
+    overflowX: 'hidden',
+  },
   mobileTopBar: {
-  position: 'fixed',
-  top: 14,
-  left: 14,
-  right: 14,
-  zIndex: 900,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  pointerEvents: 'none',
-},
-mobileTopBarTitle: {
-  fontSize: 15,
-  fontWeight: 800,
-  color: '#111827',
-  minWidth: 0,
-  background: 'rgba(255,255,255,0.92)',
-  border: '1px solid #e5e7eb',
-  borderRadius: 14,
-  padding: '10px 14px',
-  boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
-  pointerEvents: 'auto',
-},
+    position: 'fixed',
+    top: 14,
+    left: 14,
+    right: 14,
+    zIndex: 900,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    pointerEvents: 'none',
+  },
+  mobileTopBarTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#111827',
+    minWidth: 0,
+    background: 'rgba(255,255,255,0.92)',
+    border: '1px solid #e5e7eb',
+    borderRadius: 14,
+    padding: '10px 14px',
+    boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
+    pointerEvents: 'auto',
+  },
   menuButton: {
-  width: 46,
-  height: 46,
-  borderRadius: 14,
-  border: '1px solid #dbe3ee',
-  background: '#ffffff',
-  color: '#111827',
-  fontSize: 20,
-  fontWeight: 800,
-  cursor: 'pointer',
-  boxShadow: '0 10px 22px rgba(15,23,42,0.12)',
-  boxSizing: 'border-box',
-  flexShrink: 0,
-  pointerEvents: 'auto',
-},
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
+    color: '#111827',
+    fontSize: 20,
+    fontWeight: 800,
+    cursor: 'pointer',
+    boxShadow: '0 10px 22px rgba(15,23,42,0.12)',
+    boxSizing: 'border-box',
+    flexShrink: 0,
+    pointerEvents: 'auto',
+  },
   mobileOverlay: {
     position: 'fixed',
     inset: 0,
