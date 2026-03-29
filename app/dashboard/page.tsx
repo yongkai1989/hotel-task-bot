@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
@@ -149,6 +149,22 @@ export default function DashboardPage() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   const [envError, setEnvError] = useState('');
+    const lastTasksFingerprintRef = useRef('');
+  const lastVisibilityCheckRef = useRef(0);
+
+  function buildTasksFingerprint(taskList: Task[]) {
+    return JSON.stringify(
+      (taskList || []).map((task) => ({
+        id: task.id,
+        status: task.status,
+        done_at: task.done_at || null,
+        done_by_name: task.done_by_name || null,
+        last_updated_by_name: task.last_updated_by_name || null,
+        updated_key: `${task.id}-${task.status}-${task.done_at || ''}-${task.last_updated_by_name || ''}`,
+        image_count: Array.isArray(task.task_images) ? task.task_images.length : 0,
+      }))
+    );
+  }
 
   useEffect(() => {
     const handleResize = () => {
@@ -238,6 +254,47 @@ export default function DashboardPage() {
     loadTasks(true);
   }, [profile]);
 
+  useEffect(() => {
+  if (!profile) return;
+
+  let checking = false;
+
+  const checkForChangesWhenVisible = async () => {
+    const now = Date.now();
+
+    // prevent duplicate triggers
+    if (checking) return;
+    if (now - lastVisibilityCheckRef.current < 1500) return;
+
+    lastVisibilityCheckRef.current = now;
+    checking = true;
+
+    try {
+      await loadTasks(false, { silent: true, onlyIfChanged: true });
+    } finally {
+      checking = false;
+    }
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      checkForChangesWhenVisible();
+    }
+  };
+
+  const handleFocus = () => {
+    checkForChangesWhenVisible();
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('focus', handleFocus);
+
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('focus', handleFocus);
+  };
+}, [profile]);
+  
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
     if (!supabase) return '';
@@ -260,25 +317,49 @@ export default function DashboardPage() {
     setProfile(json.user);
   }
 
-  async function loadTasks(showLoader = false) {
+    async function loadTasks(
+    showLoader = false,
+    options?: { silent?: boolean; onlyIfChanged?: boolean }
+  ) {
+    const silent = options?.silent ?? false;
+    const onlyIfChanged = options?.onlyIfChanged ?? false;
+
     try {
-      if (showLoader) {
-        setLoading(true);
-      } else {
-        setRefreshing(true);
+      if (!silent) {
+        if (showLoader) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
+        }
       }
 
       const json = await fetchJson(`/api/tasks?t=${Date.now()}`, {
         method: 'GET',
       });
 
-      setTasks(json.tasks || []);
+      const nextTasks: Task[] = json.tasks || [];
+      const nextFingerprint = buildTasksFingerprint(nextTasks);
+
+      if (onlyIfChanged) {
+        if (lastTasksFingerprintRef.current === nextFingerprint) {
+          return false;
+        }
+      }
+
+      setTasks(nextTasks);
+      lastTasksFingerprintRef.current = nextFingerprint;
       setErrorMsg('');
+      return true;
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to load tasks');
+      if (!silent) {
+        setErrorMsg(err?.message || 'Failed to load tasks');
+      }
+      return false;
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!silent) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }
 
