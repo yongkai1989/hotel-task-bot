@@ -263,6 +263,70 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('__next');
+
+    const prevHtmlOverflowX = html.style.overflowX;
+    const prevHtmlWidth = html.style.width;
+    const prevBodyOverflowX = body.style.overflowX;
+    const prevBodyWidth = body.style.width;
+    const prevBodyMaxWidth = body.style.maxWidth;
+    const prevBodyPosition = body.style.position;
+    const prevRootOverflowX = root?.style.overflowX || '';
+    const prevRootWidth = root?.style.width || '';
+    const prevRootMaxWidth = root?.style.maxWidth || '';
+
+    html.style.overflowX = 'hidden';
+    html.style.width = '100%';
+    body.style.overflowX = 'hidden';
+    body.style.width = '100%';
+    body.style.maxWidth = '100vw';
+    body.style.position = 'relative';
+
+    if (root) {
+      root.style.overflowX = 'hidden';
+      root.style.width = '100%';
+      root.style.maxWidth = '100vw';
+    }
+
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-dashboard-lock', 'true');
+    styleEl.innerHTML = `
+      html, body, #__next {
+        overflow-x: hidden !important;
+        max-width: 100vw !important;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      img, video, canvas, svg, input, textarea, select, button {
+        max-width: 100%;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
+    return () => {
+      html.style.overflowX = prevHtmlOverflowX;
+      html.style.width = prevHtmlWidth;
+      body.style.overflowX = prevBodyOverflowX;
+      body.style.width = prevBodyWidth;
+      body.style.maxWidth = prevBodyMaxWidth;
+      body.style.position = prevBodyPosition;
+
+      if (root) {
+        root.style.overflowX = prevRootOverflowX;
+        root.style.width = prevRootWidth;
+        root.style.maxWidth = prevRootMaxWidth;
+      }
+
+      styleEl.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 920;
       setIsMobile(mobile);
@@ -1402,14 +1466,12 @@ export default function DashboardPage() {
                                 </div>
                               </div>
 
-                              {task.created_by_name ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Created by</div>
-                                  <div style={styles.metaCardValueStrong}>
-                                    {task.created_by_name}
-                                  </div>
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Created by</div>
+                                <div style={styles.metaCardValueStrong}>
+                                  {task.created_by_name || 'Unknown'}
                                 </div>
-                              ) : null}
+                              </div>
 
                               {task.status === 'DONE' && task.done_at ? (
                                 <div style={styles.metaCard}>
@@ -2387,6 +2449,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'relative',
     boxSizing: 'border-box',
     touchAction: 'pan-y',
+    margin: '0 auto',
   },
   layout: {
     display: 'flex',
@@ -2396,6 +2459,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflowX: 'hidden',
     position: 'relative',
     boxSizing: 'border-box',
+    margin: '0 auto',
   },
   sidebar: {
     width: 280,
@@ -3272,6 +3336,7 @@ menuButton: {
     display: 'flex',
     gap: 10,
     flexWrap: 'wrap',
+    width: '100%',
   },
   uploadBox: {
     display: 'grid',
