@@ -1402,6 +1402,15 @@ export default function DashboardPage() {
                                 </div>
                               </div>
 
+                              {task.created_by_name ? (
+                                <div style={styles.metaCard}>
+                                  <div style={styles.metaCardLabel}>Created by</div>
+                                  <div style={styles.metaCardValueStrong}>
+                                    {task.created_by_name}
+                                  </div>
+                                </div>
+                              ) : null}
+
                               {task.status === 'DONE' && task.done_at ? (
                                 <div style={styles.metaCard}>
                                   <div style={styles.metaCardLabel}>Completed</div>
@@ -2371,7 +2380,7 @@ function createDeptButtonStyle(
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#f3f6fb',
+    background: 'linear-gradient(180deg, #f5f7fb 0%, #eef3f8 100%)',
     overflowX: 'hidden',
     width: '100%',
     maxWidth: '100vw',
@@ -2391,10 +2400,10 @@ const styles: Record<string, React.CSSProperties> = {
   sidebar: {
     width: 280,
     minWidth: 280,
-    background: '#ffffff',
-    borderRight: '1px solid #e7edf5',
-    padding: 18,
-    boxShadow: '0 10px 30px rgba(15,23,42,0.05)',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%)',
+    borderRight: '1px solid #e5ebf3',
+    padding: 20,
+    boxShadow: '0 20px 45px rgba(15,23,42,0.07)',
     display: 'flex',
     flexDirection: 'column',
     gap: 18,
@@ -2618,9 +2627,9 @@ menuButton: {
     marginBottom: 18,
     padding: 20,
     borderRadius: 24,
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 55%, #f6f8fc 100%)',
     border: '1px solid #e7edf5',
-    boxShadow: '0 16px 34px rgba(15,23,42,0.06)',
+    boxShadow: '0 24px 48px rgba(15,23,42,0.08)',
     boxSizing: 'border-box',
     width: '100%',
     overflow: 'hidden',
@@ -2663,8 +2672,8 @@ menuButton: {
   },
   title: {
     margin: 0,
-    fontSize: 32,
-    lineHeight: 1.08,
+    fontSize: 34,
+    lineHeight: 1.04,
     color: '#111827',
     fontWeight: 800,
     wordBreak: 'break-word',
@@ -2721,11 +2730,11 @@ menuButton: {
   },
   filterPanel: {
     marginBottom: 16,
-    border: '1px solid #e7edf5',
-    borderRadius: 22,
-    padding: 16,
-    background: '#ffffff',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
+    border: '1px solid #e5ebf3',
+    borderRadius: 24,
+    padding: 18,
+    background: 'rgba(255,255,255,0.96)',
+    boxShadow: '0 18px 36px rgba(15,23,42,0.05)',
     boxSizing: 'border-box',
     width: '100%',
     overflow: 'hidden',
