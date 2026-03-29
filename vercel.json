@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/task-maintenance",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
