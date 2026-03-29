@@ -762,15 +762,18 @@ export default function DashboardPage() {
     return false;
   }
 
-  function canEditTaskDetails(task: Task) {
-    if (!profile) return false;
-    if (!task.created_by_email) return false;
+function canEditTaskDetails(task: Task) {
+  if (!profile) return false;
+  if (!task.created_by_email) return false;
 
-    return (
-      profile.email.trim().toLowerCase() ===
-      task.created_by_email.trim().toLowerCase()
-    );
-  }
+  // 🚫 Only allow edit when task is OPEN
+  if (task.status !== 'OPEN') return false;
+
+  return (
+    profile.email.trim().toLowerCase() ===
+    task.created_by_email.trim().toLowerCase()
+  );
+}
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
@@ -1698,15 +1701,15 @@ export default function DashboardPage() {
                                     Done
                                   </button>
 
-                                  {canEditTaskDetails(task) ? (
-                                    <button
-                                      style={styles.editTaskBtn}
-                                      disabled={busyTaskId === task.id}
-                                      onClick={() => openEditModal(task)}
-                                    >
-                                      Edit
-                                    </button>
-                                  ) : null}
+                                  {task.status === 'OPEN' && canEditTaskDetails(task) ? (
+  <button
+    style={styles.editTaskBtn}
+    disabled={busyTaskId === task.id}
+    onClick={() => openEditModal(task)}
+  >
+    Edit
+  </button>
+) : null}
                                 </div>
 
                                 {!canEditTask(task) ? (
