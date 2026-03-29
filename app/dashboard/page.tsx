@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -110,6 +111,184 @@ async function fetchJson(
   }
 }
 
+function getTodayLocalDateString() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getYesterdayLocalDateString() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalDateStringFromISO(value?: string | null) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateLabel(value: string) {
+  if (!value) return '';
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function labelForStatus(status: string) {
+  if (status === 'IN_PROGRESS') return 'DOING';
+  return status;
+}
+
+async function compressImageToDataUrl(
+  file: File,
+  maxDimension = 1200,
+  quality = 0.72
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('Failed to read image'));
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.onload = () => {
+        let { width, height } = img;
+
+        if (width > height && width > maxDimension) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else if (height >= width && height > maxDimension) {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas not supported'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = String(reader.result);
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function sidebarItemStyle(active: boolean): React.CSSProperties {
+  return {
+    ...styles.sidebarItem,
+    background: active ? '#0f172a' : '#ffffff',
+    color: active ? '#ffffff' : '#0f172a',
+    borderColor: active ? '#0f172a' : '#e5e7eb',
+  };
+}
+
+function departmentFilterStyle(label: string, active: boolean): React.CSSProperties {
+  const base =
+    label === 'HK'
+      ? '#16a34a'
+      : label === 'MT'
+      ? '#2563eb'
+      : label === 'FO'
+      ? '#eab308'
+      : '#64748b';
+
+  return {
+    ...styles.filterPill,
+    background: active ? base : '#ffffff',
+    color: active ? '#ffffff' : '#334155',
+    borderColor: active ? base : '#dbe3ee',
+  };
+}
+
+function statusFilterStyle(active: boolean): React.CSSProperties {
+  return {
+    ...styles.filterPill,
+    background: active ? '#0f172a' : '#ffffff',
+    color: active ? '#ffffff' : '#334155',
+    borderColor: active ? '#0f172a' : '#dbe3ee',
+  };
+}
+
+function statusBadgeStyle(status: Task['status']): React.CSSProperties {
+  if (status === 'OPEN') {
+    return { ...styles.statusBadge, background: '#fff7ed', color: '#c2410c' };
+  }
+  if (status === 'IN_PROGRESS') {
+    return { ...styles.statusBadge, background: '#eff6ff', color: '#1d4ed8' };
+  }
+  return { ...styles.statusBadge, background: '#ecfdf5', color: '#15803d' };
+}
+
+function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
+  if (dept === 'HK') {
+    return { ...styles.deptBadge, background: '#dcfce7', color: '#166534' };
+  }
+  if (dept === 'MT') {
+    return { ...styles.deptBadge, background: '#dbeafe', color: '#1d4ed8' };
+  }
+  return { ...styles.deptBadge, background: '#fef3c7', color: '#a16207' };
+}
+
+function actionBtn(active: boolean, tone: 'open' | 'doing' | 'done'): React.CSSProperties {
+  const toneMap = {
+    open: '#c2410c',
+    doing: '#1d4ed8',
+    done: '#15803d',
+  } as const;
+
+  const color = toneMap[tone];
+  return {
+    ...styles.actionButton,
+    background: active ? color : '#ffffff',
+    color: active ? '#ffffff' : color,
+    borderColor: color,
+  };
+}
+
+function SummaryCard({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: number;
+  tone: 'open' | 'doing' | 'done';
+}) {
+  const accent =
+    tone === 'open' ? '#c2410c' : tone === 'doing' ? '#1d4ed8' : '#15803d';
+
+  return (
+    <article style={{ ...styles.summaryCard, borderTop: `4px solid ${accent}` }}>
+      <div style={styles.summaryTitle}>{title}</div>
+      <div style={{ ...styles.summaryValue, color: accent }}>{value}</div>
+    </article>
+  );
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
@@ -184,6 +363,9 @@ export default function DashboardPage() {
         done_by_name: task.done_by_name || null,
         last_updated_by_name: task.last_updated_by_name || null,
         image_url: task.image_url || null,
+        created_by_name: task.created_by_name || null,
+        edited_at: task.edited_at || null,
+        edited_by_name: task.edited_by_name || null,
         image_count: Array.isArray(task.task_images) ? task.task_images.length : 0,
         image_keys: Array.isArray(task.task_images)
           ? task.task_images.map((img) => `${img.id}-${img.image_url}-${img.caption || ''}`)
@@ -227,41 +409,6 @@ export default function DashboardPage() {
     }
   }
 
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-
-    const html = document.documentElement;
-    const body = document.body;
-
-    const prevHtmlOverflowX = html.style.overflowX;
-    const prevHtmlWidth = html.style.width;
-    const prevHtmlMaxWidth = html.style.maxWidth;
-    const prevBodyOverflowX = body.style.overflowX;
-    const prevBodyWidth = body.style.width;
-    const prevBodyMaxWidth = body.style.maxWidth;
-    const prevBodyPosition = body.style.position;
-
-    html.style.overflowX = 'hidden';
-    html.style.width = '100%';
-    html.style.maxWidth = '100vw';
-
-    body.style.overflowX = 'hidden';
-    body.style.width = '100%';
-    body.style.maxWidth = '100vw';
-    body.style.position = 'relative';
-
-    return () => {
-      html.style.overflowX = prevHtmlOverflowX;
-      html.style.width = prevHtmlWidth;
-      html.style.maxWidth = prevHtmlMaxWidth;
-      body.style.overflowX = prevBodyOverflowX;
-      body.style.width = prevBodyWidth;
-      body.style.maxWidth = prevBodyMaxWidth;
-      body.style.position = prevBodyPosition;
-    };
-  }, []);
-
   useEffect(() => {
     if (typeof document === 'undefined') return;
 
@@ -271,6 +418,7 @@ export default function DashboardPage() {
 
     const prevHtmlOverflowX = html.style.overflowX;
     const prevHtmlWidth = html.style.width;
+    const prevHtmlMaxWidth = html.style.maxWidth;
     const prevBodyOverflowX = body.style.overflowX;
     const prevBodyWidth = body.style.width;
     const prevBodyMaxWidth = body.style.maxWidth;
@@ -281,6 +429,7 @@ export default function DashboardPage() {
 
     html.style.overflowX = 'hidden';
     html.style.width = '100%';
+    html.style.maxWidth = '100vw';
     body.style.overflowX = 'hidden';
     body.style.width = '100%';
     body.style.maxWidth = '100vw';
@@ -311,6 +460,7 @@ export default function DashboardPage() {
     return () => {
       html.style.overflowX = prevHtmlOverflowX;
       html.style.width = prevHtmlWidth;
+      html.style.maxWidth = prevHtmlMaxWidth;
       body.style.overflowX = prevBodyOverflowX;
       body.style.width = prevBodyWidth;
       body.style.maxWidth = prevBodyMaxWidth;
@@ -1156,6 +1306,8 @@ export default function DashboardPage() {
     ? {
         ...styles.taskMainRow,
         flexDirection: 'column',
+        width: '100%',
+        minWidth: 0,
       }
     : styles.taskMainRow;
 
@@ -1685,98 +1837,75 @@ export default function DashboardPage() {
               <label style={styles.formLabel}>Room Number</label>
               <input
                 type="text"
-                inputMode="numeric"
-                placeholder="e.g. 1308"
                 value={createRoom}
-                onChange={(e) => setCreateRoom(e.target.value.replace(/[^\d]/g, ''))}
-                style={styles.formInput}
+                onChange={(e) => setCreateRoom(e.target.value)}
+                style={styles.textInput}
+                placeholder="e.g. 1308"
                 disabled={createSubmitting}
               />
             </div>
 
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Department</label>
-              <div style={styles.createDeptRow}>
-                {(['HK', 'MT', 'FO'] as const).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setCreateDept(d)}
-                    style={createDeptButtonStyle(d, createDept === d)}
-                    disabled={createSubmitting}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
+              <select
+                value={createDept}
+                onChange={(e) => setCreateDept(e.target.value as 'HK' | 'MT' | 'FO' | '')}
+                style={styles.selectInput}
+                disabled={createSubmitting}
+              >
+                <option value="">Select department</option>
+                <option value="HK">HK</option>
+                <option value="MT">MT</option>
+                <option value="FO">FO</option>
+              </select>
             </div>
 
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Task Description</label>
               <textarea
-                placeholder="e.g. extra towel / TV no signal / guest requested callback"
                 value={createTaskText}
                 onChange={(e) => setCreateTaskText(e.target.value)}
-                style={styles.formTextarea}
+                style={styles.textArea}
+                placeholder="Enter task details"
                 disabled={createSubmitting}
               />
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Add Photos</label>
-
-              <label style={styles.uploadBox}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleCreatePhotoChange}
-                  style={{ display: 'none' }}
-                  disabled={createSubmitting}
-                />
-                <span style={styles.uploadBoxTitle}>
-                  {createPhotos.length > 0 ? 'Add More Photos' : 'Choose Photos'}
-                </span>
-                <span style={styles.uploadBoxSub}>
-                  You can upload multiple images
-                </span>
-              </label>
-
-              {createPhotos.length > 0 ? (
-                <div style={styles.photoCounterText}>
-                  {createPhotos.length} photo{createPhotos.length === 1 ? '' : 's'} selected
-                </div>
-              ) : null}
-
-              {createPhotos.length > 0 ? (
-                <div style={styles.previewGrid}>
-                  {createPhotos.map((photo) => (
-                    <div key={photo.id} style={styles.previewCard}>
-                      <img
-                        src={photo.dataUrl}
-                        alt={photo.name}
-                        style={styles.previewThumb}
-                      />
-                      <div style={styles.previewName}>{photo.name}</div>
-                      <button
-                        type="button"
-                        onClick={() => removeCreatePhoto(photo.id)}
-                        style={styles.previewRemoveBtn}
-                        disabled={createSubmitting}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <label style={styles.formLabel}>Photos</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleCreatePhotoChange}
+                disabled={createSubmitting}
+              />
+              <div style={styles.photoPreviewGrid}>
+                {createPhotos.map((photo) => (
+                  <div key={photo.id} style={styles.photoPreviewItem}>
+                    <img src={photo.dataUrl} alt={photo.name} style={styles.photoPreviewImg} />
+                    <div style={styles.photoPreviewName}>{photo.name}</div>
+                    <button
+                      type="button"
+                      style={styles.removePhotoBtn}
+                      onClick={() => removeCreatePhoto(photo.id)}
+                      disabled={createSubmitting}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {createPhotos.length === 0 ? (
+                  <div style={styles.uploadHint}>Upload up to 5 images</div>
+                ) : null}
+              </div>
             </div>
 
-            <div style={styles.createActionRow}>
+            <div style={styles.createModalActions}>
               <button
                 type="button"
                 onClick={closeCreateModal}
-                style={styles.cancelBtn}
+                style={styles.secondaryBtn}
                 disabled={createSubmitting}
               >
                 Cancel
@@ -1785,16 +1914,15 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={submitCreateTask}
-                style={styles.submitBtn}
+                style={styles.primaryBtn}
                 disabled={createSubmitting}
               >
-                {createSubmitting ? 'Submitting…' : 'Submit'}
+                {createSubmitting ? 'Creating...' : 'Create Task'}
               </button>
             </div>
           </div>
         </div>
       ) : null}
-
 
       {editModalOpen ? (
         <div style={styles.createModalOverlay} onClick={closeEditModal}>
@@ -1823,10 +1951,10 @@ export default function DashboardPage() {
               <label style={styles.formLabel}>Room Number</label>
               <input
                 type="text"
-                placeholder="e.g. 1308"
                 value={editRoom}
                 onChange={(e) => setEditRoom(e.target.value)}
-                style={styles.formInput}
+                style={styles.textInput}
+                placeholder="e.g. 1308"
                 disabled={editSubmitting}
               />
             </div>
@@ -1835,10 +1963,8 @@ export default function DashboardPage() {
               <label style={styles.formLabel}>Department</label>
               <select
                 value={editDept}
-                onChange={(e) =>
-                  setEditDept(e.target.value as 'HK' | 'MT' | 'FO' | '')
-                }
-                style={styles.formInput}
+                onChange={(e) => setEditDept(e.target.value as 'HK' | 'MT' | 'FO' | '')}
+                style={styles.selectInput}
                 disabled={editSubmitting}
               >
                 <option value="">Select department</option>
@@ -1851,43 +1977,46 @@ export default function DashboardPage() {
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Task Description</label>
               <textarea
-                placeholder="e.g. extra towel / TV no signal / guest requested callback"
                 value={editTaskText}
                 onChange={(e) => setEditTaskText(e.target.value)}
-                style={styles.formTextarea}
+                style={styles.textArea}
+                placeholder="Enter task details"
                 disabled={editSubmitting}
               />
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Existing Photos</label>
-              {editExistingImages.length === 0 ? (
-                <div style={styles.emptyInlineText}>No existing photos</div>
-              ) : (
-                <div style={styles.previewGrid}>
-                  {editExistingImages.map((img) => {
+              <label style={styles.formLabel}>Existing Images</label>
+              <div style={styles.photoPreviewGrid}>
+                {editExistingImages.length === 0 ? (
+                  <div style={styles.uploadHint}>No existing images</div>
+                ) : (
+                  editExistingImages.map((img) => {
                     const removed = editRemovedImageIds.includes(img.id);
+
                     return (
                       <div
                         key={String(img.id)}
                         style={{
-                          ...styles.previewCard,
+                          ...styles.photoPreviewItem,
                           opacity: removed ? 0.45 : 1,
                         }}
                       >
                         <img
                           src={img.image_url}
-                          alt={img.caption || 'Existing task image'}
-                          style={styles.previewThumb}
+                          alt="Existing task image"
+                          style={styles.photoPreviewImg}
                         />
-                        <div style={styles.previewName}>
+
+                        <div style={styles.photoPreviewName}>
                           {img.caption || 'Existing image'}
                         </div>
+
                         {removed ? (
                           <button
                             type="button"
+                            style={styles.removePhotoBtn}
                             onClick={() => undoRemoveEditExistingImage(img.id)}
-                            style={styles.previewRemoveBtn}
                             disabled={editSubmitting}
                           >
                             Undo Remove
@@ -1895,8 +2024,8 @@ export default function DashboardPage() {
                         ) : (
                           <button
                             type="button"
+                            style={styles.removePhotoBtn}
                             onClick={() => removeEditExistingImage(img.id)}
-                            style={styles.previewRemoveBtn}
                             disabled={editSubmitting}
                           >
                             Remove
@@ -1904,66 +2033,48 @@ export default function DashboardPage() {
                         )}
                       </div>
                     );
-                  })}
-                </div>
-              )}
+                  })
+                )}
+              </div>
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Add New Photos</label>
+              <label style={styles.formLabel}>Add New Images</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleEditPhotoChange}
+                disabled={editSubmitting}
+              />
 
-              <label style={styles.uploadBox}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleEditPhotoChange}
-                  style={{ display: 'none' }}
-                  disabled={editSubmitting}
-                />
-                <span style={styles.uploadBoxTitle}>
-                  {editNewPhotos.length > 0 ? 'Add More Photos' : 'Choose Photos'}
-                </span>
-                <span style={styles.uploadBoxSub}>
-                  You can upload multiple images
-                </span>
-              </label>
-
-              {editNewPhotos.length > 0 ? (
-                <div style={styles.photoCounterText}>
-                  {editNewPhotos.length} photo{editNewPhotos.length === 1 ? '' : 's'} selected
-                </div>
-              ) : null}
-
-              {editNewPhotos.length > 0 ? (
-                <div style={styles.previewGrid}>
-                  {editNewPhotos.map((photo) => (
-                    <div key={photo.id} style={styles.previewCard}>
-                      <img
-                        src={photo.dataUrl}
-                        alt={photo.name}
-                        style={styles.previewThumb}
-                      />
-                      <div style={styles.previewName}>{photo.name}</div>
-                      <button
-                        type="button"
-                        onClick={() => removeEditNewPhoto(photo.id)}
-                        style={styles.previewRemoveBtn}
-                        disabled={editSubmitting}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <div style={styles.photoPreviewGrid}>
+                {editNewPhotos.map((photo) => (
+                  <div key={photo.id} style={styles.photoPreviewItem}>
+                    <img
+                      src={photo.dataUrl}
+                      alt={photo.name}
+                      style={styles.photoPreviewImg}
+                    />
+                    <div style={styles.photoPreviewName}>{photo.name}</div>
+                    <button
+                      type="button"
+                      style={styles.removePhotoBtn}
+                      onClick={() => removeEditNewPhoto(photo.id)}
+                      disabled={editSubmitting}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div style={styles.createActionRow}>
+            <div style={styles.createModalActions}>
               <button
                 type="button"
                 onClick={closeEditModal}
-                style={styles.cancelBtn}
+                style={styles.secondaryBtn}
                 disabled={editSubmitting}
               >
                 Cancel
@@ -1972,10 +2083,10 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={submitEditTask}
-                style={styles.submitBtn}
+                style={styles.primaryBtn}
                 disabled={editSubmitting}
               >
-                {editSubmitting ? 'Saving…' : 'Save Changes'}
+                {editSubmitting ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -1983,21 +2094,19 @@ export default function DashboardPage() {
       ) : null}
 
       {loginOpen ? (
-        <div style={styles.createModalOverlay} onClick={() => setLoginOpen(false)}>
-          <div style={styles.loginModalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalOverlay} onClick={() => setLoginOpen(false)}>
+          <div style={styles.authCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.createModalTop}>
               <div>
-                <div style={styles.createModalTitle}>Dashboard Login</div>
+                <div style={styles.createModalTitle}>Log In</div>
                 <div style={styles.createModalSubtitle}>
-                  Log in to create tasks and update task status
+                  Sign in to manage dashboard tasks
                 </div>
               </div>
-
               <button
                 onClick={() => setLoginOpen(false)}
                 style={styles.createModalCloseBtn}
                 aria-label="Close login modal"
-                disabled={loginBusy}
               >
                 ×
               </button>
@@ -2011,7 +2120,7 @@ export default function DashboardPage() {
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                style={styles.formInput}
+                style={styles.textInput}
                 disabled={loginBusy}
               />
             </div>
@@ -2022,19 +2131,27 @@ export default function DashboardPage() {
                 type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                style={styles.formInput}
+                style={styles.textInput}
                 disabled={loginBusy}
               />
             </div>
 
-            <div style={styles.createActionRow}>
+            <div style={styles.createModalActions}>
+              <button
+                type="button"
+                onClick={() => setLoginOpen(false)}
+                style={styles.secondaryBtn}
+                disabled={loginBusy}
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={handleLogin}
-                style={styles.submitBtn}
+                style={styles.primaryBtn}
                 disabled={loginBusy}
               >
-                {loginBusy ? 'Logging in…' : 'Log In'}
+                {loginBusy ? 'Logging in...' : 'Log In'}
               </button>
             </div>
           </div>
@@ -2042,8 +2159,8 @@ export default function DashboardPage() {
       ) : null}
 
       {passwordModalOpen ? (
-        <div style={styles.createModalOverlay} onClick={closePasswordModal}>
-          <div style={styles.loginModalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={styles.modalOverlay} onClick={closePasswordModal}>
+          <div style={styles.authCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.createModalTop}>
               <div>
                 <div style={styles.createModalTitle}>Change User Password</div>
@@ -2051,7 +2168,6 @@ export default function DashboardPage() {
                   Manager access only
                 </div>
               </div>
-
               <button
                 onClick={closePasswordModal}
                 style={styles.createModalCloseBtn}
@@ -2063,19 +2179,21 @@ export default function DashboardPage() {
             </div>
 
             {passwordError ? <div style={styles.createErrorBox}>{passwordError}</div> : null}
-            {passwordSuccess ? <div style={styles.successBox}>{passwordSuccess}</div> : null}
+            {passwordSuccess ? (
+              <div style={styles.successBox}>{passwordSuccess}</div>
+            ) : null}
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Select User</label>
+              <label style={styles.formLabel}>User</label>
               <select
                 value={passwordTargetEmail}
                 onChange={(e) => setPasswordTargetEmail(e.target.value)}
-                style={styles.formInput}
+                style={styles.selectInput}
                 disabled={passwordBusy}
               >
-                {adminUsers.map((u) => (
-                  <option key={u.email} value={u.email}>
-                    {u.name} ({u.role}) - {u.email}
+                {adminUsers.map((user) => (
+                  <option key={user.email} value={user.email}>
+                    {user.name} ({user.role}) — {user.email}
                   </option>
                 ))}
               </select>
@@ -2087,19 +2205,27 @@ export default function DashboardPage() {
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                style={styles.formInput}
+                style={styles.textInput}
                 disabled={passwordBusy}
               />
             </div>
 
-            <div style={styles.createActionRow}>
+            <div style={styles.createModalActions}>
+              <button
+                type="button"
+                onClick={closePasswordModal}
+                style={styles.secondaryBtn}
+                disabled={passwordBusy}
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={handleChangePassword}
-                style={styles.submitBtn}
+                style={styles.primaryBtn}
                 disabled={passwordBusy}
               >
-                {passwordBusy ? 'Updating…' : 'Update Password'}
+                {passwordBusy ? 'Saving...' : 'Update Password'}
               </button>
             </div>
           </div>
@@ -2109,375 +2235,36 @@ export default function DashboardPage() {
   );
 }
 
-function SummaryCard({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: number;
-  tone: 'open' | 'doing' | 'done';
-}) {
-  return (
-    <div style={summaryCardStyle(tone)}>
-      <div style={styles.summaryTitle}>{title}</div>
-      <div style={styles.summaryValue}>{value}</div>
-    </div>
-  );
-}
-
-async function compressImageToDataUrl(
-  file: File,
-  maxSize = 1200,
-  quality = 0.72
-): Promise<string> {
-  const imageDataUrl = await readFileAsDataURL(file);
-  const img = await loadImage(imageDataUrl);
-
-  const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
-  const width = Math.round(img.width * ratio);
-  const height = Math.round(img.height * ratio);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Unable to process image');
-  }
-
-  ctx.drawImage(img, 0, 0, width, height);
-
-  let currentQuality = quality;
-  let result = canvas.toDataURL('image/jpeg', currentQuality);
-
-  while (result.length > 500_000 && currentQuality > 0.5) {
-    currentQuality -= 0.05;
-    result = canvas.toDataURL('image/jpeg', currentQuality);
-  }
-
-  return result;
-}
-
-function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Failed to read photo'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Failed to load photo'));
-    img.src = src;
-  });
-}
-
-function getTodayLocalDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, '0');
-  const day = `${now.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getYesterdayLocalDateString() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  const year = d.getFullYear();
-  const month = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function getLocalDateStringFromISO(iso?: string | null) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const year = d.getFullYear();
-  const month = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function formatDateLabel(dateString: string) {
-  if (!dateString) return '';
-  const d = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return dateString;
-  return d.toLocaleDateString();
-}
-
-function labelForStatus(status: string) {
-  if (status === 'IN_PROGRESS') return 'DOING';
-  return status;
-}
-
-function sidebarItemStyle(active: boolean): React.CSSProperties {
-  return {
-    width: '100%',
-    textAlign: 'left',
-    borderRadius: 16,
-    padding: '14px 16px',
-    fontSize: 14,
-    fontWeight: 800,
-    cursor: 'pointer',
-    border: active ? '1px solid #111827' : '1px solid #e5e7eb',
-    background: active ? '#111827' : '#ffffff',
-    color: active ? '#ffffff' : '#374151',
-    boxShadow: active ? '0 12px 22px rgba(17,24,39,0.16)' : 'none',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    boxSizing: 'border-box',
-  };
-}
-
-function departmentFilterStyle(
-  dept: 'ALL' | 'HK' | 'MT' | 'FO',
-  active: boolean
-): React.CSSProperties {
-  const base: React.CSSProperties = {
-    borderRadius: 999,
-    padding: '10px 14px',
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    border: '1px solid #d1d5db',
-    background: '#ffffff',
-    color: '#374151',
-    boxSizing: 'border-box',
-  };
-
-  if (!active) return base;
-
-  if (dept === 'HK') {
-    return {
-      ...base,
-      background: '#16a34a',
-      color: '#ffffff',
-      border: '1px solid #16a34a',
-      boxShadow: '0 8px 18px rgba(22,163,74,0.22)',
-    };
-  }
-
-  if (dept === 'MT') {
-    return {
-      ...base,
-      background: '#2563eb',
-      color: '#ffffff',
-      border: '1px solid #2563eb',
-      boxShadow: '0 8px 18px rgba(37,99,235,0.22)',
-    };
-  }
-
-  if (dept === 'FO') {
-    return {
-      ...base,
-      background: '#facc15',
-      color: '#111827',
-      border: '1px solid #facc15',
-      boxShadow: '0 8px 18px rgba(250,204,21,0.28)',
-    };
-  }
-
-  return {
-    ...base,
-    background: '#111827',
-    color: '#ffffff',
-    border: '1px solid #111827',
-    boxShadow: '0 8px 18px rgba(17,24,39,0.18)',
-  };
-}
-
-function statusFilterStyle(active: boolean): React.CSSProperties {
-  return {
-    border: active ? '1px solid #111827' : '1px solid #d1d5db',
-    background: active ? '#111827' : '#ffffff',
-    color: active ? '#ffffff' : '#374151',
-    borderRadius: 999,
-    padding: '10px 14px',
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    boxShadow: active ? '0 8px 18px rgba(17,24,39,0.18)' : 'none',
-    boxSizing: 'border-box',
-  };
-}
-
-function actionBtn(
-  active: boolean,
-  tone: 'open' | 'doing' | 'done'
-): React.CSSProperties {
-  const activeStyles =
-    tone === 'open'
-      ? { background: '#111827', color: '#fff', border: '1px solid #111827' }
-      : tone === 'doing'
-      ? { background: '#2563eb', color: '#fff', border: '1px solid #2563eb' }
-      : { background: '#16a34a', color: '#fff', border: '1px solid #16a34a' };
-
-  return {
-    minWidth: 92,
-    borderRadius: 12,
-    padding: '10px 14px',
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    boxSizing: 'border-box',
-    ...(active
-      ? activeStyles
-      : {
-          background: '#ffffff',
-          color: '#374151',
-          border: '1px solid #d1d5db',
-        }),
-  };
-}
-
-function statusBadgeStyle(status: Task['status']): React.CSSProperties {
-  const map: Record<Task['status'], React.CSSProperties> = {
-    OPEN: {
-      background: '#f3f4f6',
-      color: '#374151',
-      border: '1px solid #e5e7eb',
-    },
-    IN_PROGRESS: {
-      background: '#dbeafe',
-      color: '#1d4ed8',
-      border: '1px solid #bfdbfe',
-    },
-    DONE: {
-      background: '#dcfce7',
-      color: '#15803d',
-      border: '1px solid #bbf7d0',
-    },
-  };
-
-  return {
-    borderRadius: 999,
-    padding: '7px 12px',
-    fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: 0.2,
-    whiteSpace: 'nowrap',
-    boxSizing: 'border-box',
-    ...map[status],
-  };
-}
-
-function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
-  const map: Record<Task['department'], React.CSSProperties> = {
-    HK: {
-      background: '#dcfce7',
-      color: '#15803d',
-      border: '1px solid #bbf7d0',
-    },
-    MT: {
-      background: '#dbeafe',
-      color: '#1d4ed8',
-      border: '1px solid #bfdbfe',
-    },
-    FO: {
-      background: '#fef9c3',
-      color: '#a16207',
-      border: '1px solid #fde68a',
-    },
-  };
-
-  return {
-    borderRadius: 999,
-    padding: '4px 10px',
-    fontSize: 12,
-    fontWeight: 800,
-    boxSizing: 'border-box',
-    ...map[dept],
-  };
-}
-
-function summaryCardStyle(tone: 'open' | 'doing' | 'done'): React.CSSProperties {
-  const map = {
-    open: {
-      background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-      border: '1px solid #e5e7eb',
-    },
-    doing: {
-      background: 'linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%)',
-      border: '1px solid #bfdbfe',
-    },
-    done: {
-      background: 'linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%)',
-      border: '1px solid #bbf7d0',
-    },
-  };
-
-  return {
-    borderRadius: 20,
-    padding: 18,
-    boxShadow: '0 10px 24px rgba(15,23,42,0.06)',
-    boxSizing: 'border-box',
-    minWidth: 0,
-    ...map[tone],
-  };
-}
-
-function createDeptButtonStyle(
-  dept: 'HK' | 'MT' | 'FO',
-  active: boolean
-): React.CSSProperties {
-  return {
-    ...departmentFilterStyle(dept, active),
-    minWidth: 88,
-    justifyContent: 'center',
-  };
-}
-
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: 'linear-gradient(180deg, #f5f7fb 0%, #eef3f8 100%)',
-    overflowX: 'hidden',
     width: '100%',
     maxWidth: '100vw',
-    position: 'relative',
-    boxSizing: 'border-box',
-    touchAction: 'pan-y',
-    margin: '0 auto',
+    overflowX: 'hidden',
+    background: '#f6f8fb',
   },
   layout: {
     display: 'flex',
-    minHeight: '100vh',
     width: '100%',
     maxWidth: '100vw',
     overflowX: 'hidden',
-    position: 'relative',
-    boxSizing: 'border-box',
-    margin: '0 auto',
+    alignItems: 'stretch',
   },
   sidebar: {
-    width: 280,
-    minWidth: 280,
-    background: 'linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%)',
-    borderRight: '1px solid #e5ebf3',
-    padding: 20,
-    boxShadow: '0 20px 45px rgba(15,23,42,0.07)',
+    width: 270,
+    minWidth: 270,
+    background: '#ffffff',
+    borderRight: '1px solid #e5e7eb',
+    padding: 18,
+    boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
-    gap: 18,
-    boxSizing: 'border-box',
-    overflowX: 'hidden',
+    gap: 16,
   },
   sidebarTop: {
     display: 'flex',
-    alignItems: 'flex-start',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 12,
   },
   sidebarBrand: {
@@ -2485,957 +2272,868 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 12,
     minWidth: 0,
-    flex: 1,
   },
   sidebarLogoWrap: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    background: '#ffffff',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    background: '#f8fafc',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: '1px solid #ede9e3',
-    boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
     flexShrink: 0,
-    boxSizing: 'border-box',
+    overflow: 'hidden',
+  },
+  logo: {
+    objectFit: 'contain',
+    display: 'block',
   },
   sidebarBrandText: {
     minWidth: 0,
-    flex: 1,
   },
   sidebarHotel: {
     fontSize: 15,
     fontWeight: 800,
-    color: '#111827',
-    lineHeight: 1.2,
+    color: '#0f172a',
     wordBreak: 'break-word',
   },
   sidebarHotelSub: {
-    marginTop: 4,
     fontSize: 12,
-    color: '#6b7280',
-    fontWeight: 700,
+    color: '#64748b',
   },
   sidebarCloseBtn: {
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: 10,
     width: 34,
     height: 34,
-    borderRadius: 10,
-    border: '1px solid #e5e7eb',
-    background: '#ffffff',
-    color: '#111827',
-    fontSize: 22,
-    lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
-    boxSizing: 'border-box',
   },
   sidebarSectionTitle: {
-    fontSize: 11,
-    fontWeight: 800,
-    color: '#94a3b8',
-    letterSpacing: 1,
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#64748b',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   sidebarMenu: {
-    display: 'grid',
+    display: 'flex',
+    flexDirection: 'column',
     gap: 10,
+  },
+  sidebarItem: {
+    border: '1px solid #e5e7eb',
+    borderRadius: 12,
+    padding: '12px 14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
+  sidebarCount: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 999,
+    background: '#f1f5f9',
+    color: '#0f172a',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  sidebarCountActive: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 999,
+    background: 'rgba(255,255,255,0.16)',
+    color: '#ffffff',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 12,
+    fontWeight: 700,
   },
   sidebarDivider: {
     height: 1,
-    background: '#edf2f7',
-    margin: '4px 0',
+    background: '#e5e7eb',
+    width: '100%',
   },
   userPanel: {
-    display: 'grid',
+    display: 'flex',
+    flexDirection: 'column',
     gap: 10,
   },
   loginSidebarBtn: {
-    borderRadius: 14,
-    padding: '12px 14px',
-    border: '1px solid #111827',
-    background: '#111827',
+    border: 'none',
+    background: '#0f172a',
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 800,
+    borderRadius: 12,
+    padding: '12px 16px',
     cursor: 'pointer',
-    boxSizing: 'border-box',
-    width: '100%',
+    fontWeight: 700,
   },
   logoutSidebarBtn: {
-    borderRadius: 14,
-    padding: '12px 14px',
-    border: '1px solid #d1d5db',
+    border: '1px solid #dbe3ee',
     background: '#ffffff',
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: 800,
+    color: '#0f172a',
+    borderRadius: 12,
+    padding: '12px 16px',
     cursor: 'pointer',
-    boxSizing: 'border-box',
-    width: '100%',
+    fontWeight: 700,
   },
   managerBtn: {
-    borderRadius: 14,
-    padding: '12px 14px',
-    border: '1px solid #2563eb',
-    background: '#2563eb',
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: 800,
+    border: '1px solid #dbe3ee',
+    background: '#f8fafc',
+    color: '#0f172a',
+    borderRadius: 12,
+    padding: '12px 16px',
     cursor: 'pointer',
-    boxSizing: 'border-box',
-    width: '100%',
+    fontWeight: 700,
   },
   userCard: {
-    borderRadius: 16,
-    border: '1px solid #e7edf5',
+    border: '1px solid #e5e7eb',
     background: '#f8fafc',
+    borderRadius: 14,
     padding: 14,
-    display: 'grid',
-    gap: 4,
-    boxSizing: 'border-box',
-    minWidth: 0,
   },
   userName: {
     fontSize: 15,
     fontWeight: 800,
-    color: '#111827',
-    wordBreak: 'break-word',
+    color: '#0f172a',
   },
   userRole: {
     fontSize: 12,
-    fontWeight: 800,
-    color: '#2563eb',
+    color: '#475569',
+    marginTop: 4,
+    fontWeight: 700,
   },
   userEmail: {
     fontSize: 12,
     color: '#64748b',
+    marginTop: 6,
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
   },
-  sidebarCount: {
-    fontSize: 11,
-    fontWeight: 800,
-    padding: '4px 8px',
-    borderRadius: 999,
-    background: '#f3f4f6',
-    color: '#374151',
-    whiteSpace: 'nowrap',
+  content: {
+    flex: 1,
+    minWidth: 0,
+    width: '100%',
+    maxWidth: '100%',
+    overflowX: 'hidden',
+    padding: 20,
     boxSizing: 'border-box',
   },
-  sidebarCountActive: {
-    fontSize: 11,
-    fontWeight: 800,
-    padding: '4px 8px',
-    borderRadius: 999,
-    background: 'rgba(255,255,255,0.14)',
-    color: '#ffffff',
-    whiteSpace: 'nowrap',
-    boxSizing: 'border-box',
+  mobileTopBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
   },
-content: {
-  flex: 1,
-  minWidth: 0,
-  width: '100%',
-  maxWidth: '100%',
-  margin: '0 auto',
-  padding: 20,
-  paddingTop: 76,
-  boxSizing: 'border-box',
-  overflowX: 'hidden',
-},
-mobileTopBar: {
-  position: 'fixed',
-  top: 14,
-  left: 14,
-  right: 14,
-  zIndex: 900,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  pointerEvents: 'none',
-},
+  menuButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
+    color: '#0f172a',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
   mobileTopBarTitle: {
-  fontSize: 15,
-  fontWeight: 800,
-  color: '#111827',
-  minWidth: 0,
-  background: 'rgba(255,255,255,0.92)',
-  border: '1px solid #e5e7eb',
-  borderRadius: 14,
-  padding: '10px 14px',
-  boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
-  pointerEvents: 'auto',
-},
-menuButton: {
-  width: 46,
-  height: 46,
-  borderRadius: 14,
-  border: '1px solid #dbe3ee',
-  background: '#ffffff',
-  color: '#111827',
-  fontSize: 20,
-  fontWeight: 800,
-  cursor: 'pointer',
-  boxShadow: '0 10px 22px rgba(15,23,42,0.12)',
-  boxSizing: 'border-box',
-  flexShrink: 0,
-  pointerEvents: 'auto',
-},
-  mobileOverlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(15,23,42,0.38)',
-    zIndex: 1001,
+    fontSize: 16,
+    fontWeight: 800,
+    color: '#0f172a',
+    minWidth: 0,
   },
   headerCard: {
-    marginBottom: 18,
-    padding: 20,
-    borderRadius: 24,
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 55%, #f6f8fc 100%)',
-    border: '1px solid #e7edf5',
-    boxShadow: '0 24px 48px rgba(15,23,42,0.08)',
-    boxSizing: 'border-box',
     width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 18,
     overflow: 'hidden',
   },
   headerTop: {
     display: 'flex',
-    gap: 14,
     alignItems: 'center',
-    flexWrap: 'wrap',
+    gap: 14,
     minWidth: 0,
   },
   logoWrap: {
-    width: 66,
-    height: 66,
-    borderRadius: 18,
-    background: '#fff',
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    background: '#f8fafc',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: '1px solid #ede9e3',
-    boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
     flexShrink: 0,
-    boxSizing: 'border-box',
-  },
-  logo: {
-    objectFit: 'contain',
+    overflow: 'hidden',
   },
   headerTextWrap: {
     minWidth: 0,
-    flex: 1,
   },
   eyebrow: {
     fontSize: 12,
-    fontWeight: 800,
-    letterSpacing: 1,
-    color: '#8b5e34',
+    fontWeight: 700,
+    color: '#64748b',
     textTransform: 'uppercase',
-    marginBottom: 6,
-    wordBreak: 'break-word',
+    letterSpacing: 0.6,
   },
   title: {
-    margin: 0,
-    fontSize: 34,
-    lineHeight: 1.04,
-    color: '#111827',
-    fontWeight: 800,
+    fontSize: 28,
+    lineHeight: 1.15,
+    margin: '6px 0 0',
+    color: '#0f172a',
     wordBreak: 'break-word',
   },
   subtitle: {
-    marginTop: 8,
-    marginBottom: 0,
-    color: '#6b7280',
+    margin: '8px 0 0',
+    color: '#64748b',
     fontSize: 14,
-    lineHeight: 1.55,
+    lineHeight: 1.5,
     wordBreak: 'break-word',
-  },
-  errorBox: {
-    marginBottom: 14,
-    padding: 12,
-    borderRadius: 14,
-    border: '1px solid #fecaca',
-    background: '#fff1f2',
-    color: '#b91c1c',
-    fontSize: 14,
-    wordBreak: 'break-word',
-    boxSizing: 'border-box',
-    width: '100%',
-  },
-  successBox: {
-    marginBottom: 14,
-    padding: 12,
-    borderRadius: 14,
-    border: '1px solid #bbf7d0',
-    background: '#f0fdf4',
-    color: '#15803d',
-    fontSize: 14,
-    boxSizing: 'border-box',
   },
   summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 12,
-    marginBottom: 16,
-    width: '100%',
-    minWidth: 0,
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: 14,
+    marginBottom: 18,
+  },
+  summaryCard: {
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 18,
+    padding: 16,
+    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
   },
   summaryTitle: {
-    fontSize: 13,
-    color: '#6b7280',
+    fontSize: 12,
     fontWeight: 700,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   summaryValue: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: 800,
-    color: '#111827',
-    marginTop: 8,
-    wordBreak: 'break-word',
+    marginTop: 10,
   },
   filterPanel: {
-    marginBottom: 16,
-    border: '1px solid #e5ebf3',
-    borderRadius: 24,
-    padding: 18,
-    background: 'rgba(255,255,255,0.96)',
-    boxShadow: '0 18px 36px rgba(15,23,42,0.05)',
-    boxSizing: 'border-box',
     width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
     overflow: 'hidden',
   },
   filterHeader: {
     display: 'flex',
-    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 10,
+    alignItems: 'flex-start',
+    gap: 12,
     marginBottom: 14,
     flexWrap: 'wrap',
   },
   filterHeaderText: {
     minWidth: 0,
-    flex: 1,
-  },
-  filterHeaderButtons: {
-    display: 'flex',
-    gap: 10,
-    flexShrink: 0,
   },
   filterPanelTitle: {
     fontSize: 16,
     fontWeight: 800,
-    color: '#111827',
-    wordBreak: 'break-word',
+    color: '#0f172a',
   },
   filterPanelSubtitle: {
     marginTop: 4,
     fontSize: 13,
-    color: '#6b7280',
-    fontWeight: 600,
-    wordBreak: 'break-word',
+    color: '#64748b',
   },
-  addTaskBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    border: '1px solid #111827',
-    background: '#111827',
-    color: '#ffffff',
-    fontSize: 26,
-    lineHeight: 1,
-    fontWeight: 700,
-    cursor: 'pointer',
-    boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
-    flexShrink: 0,
-    boxSizing: 'border-box',
+  filterHeaderButtons: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
   },
   refreshBtn: {
     width: 42,
     height: 42,
-    borderRadius: 14,
-    border: '1px solid #d1d5db',
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
     background: '#ffffff',
-    color: '#111827',
-    fontSize: 22,
-    lineHeight: 1,
-    fontWeight: 700,
+    color: '#0f172a',
     cursor: 'pointer',
-    flexShrink: 0,
-    boxSizing: 'border-box',
+  },
+  addTaskBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    cursor: 'pointer',
+    fontSize: 24,
+    lineHeight: 1,
   },
   filterBlock: {
-    marginTop: 14,
+    marginTop: 12,
   },
   filterLabel: {
     fontSize: 12,
-    fontWeight: 800,
-    color: '#6b7280',
-    marginBottom: 8,
+    fontWeight: 700,
+    color: '#64748b',
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    marginBottom: 8,
   },
   pillRow: {
     display: 'flex',
     gap: 8,
-    overflowX: 'auto',
-    paddingBottom: 4,
-    width: '100%',
+    flexWrap: 'wrap',
+  },
+  filterPill: {
+    border: '1px solid #dbe3ee',
+    borderRadius: 999,
+    padding: '10px 14px',
+    background: '#ffffff',
+    cursor: 'pointer',
+    fontWeight: 700,
+    fontSize: 13,
   },
   dateFilterRow: {
-    display: 'grid',
+    display: 'flex',
+    flexDirection: 'column',
     gap: 8,
-    width: '100%',
   },
   dateInput: {
     width: '100%',
     maxWidth: 240,
-    borderRadius: 12,
-    border: '1px solid #d1d5db',
-    background: '#ffffff',
-    color: '#111827',
     padding: '12px 14px',
-    fontSize: 14,
-    fontWeight: 600,
-    outline: 'none',
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
     boxSizing: 'border-box',
   },
   dateHint: {
     fontSize: 12,
-    color: '#6b7280',
-    fontWeight: 600,
-    wordBreak: 'break-word',
+    color: '#64748b',
   },
   resultBar: {
-    marginBottom: 12,
-    paddingLeft: 2,
     width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
     boxSizing: 'border-box',
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+    flexWrap: 'wrap',
   },
   resultText: {
     fontSize: 13,
-    color: '#64748b',
+    color: '#475569',
     fontWeight: 700,
-    wordBreak: 'break-word',
+  },
+  updatingText: {
+    fontSize: 12,
+    color: '#1d4ed8',
+    fontWeight: 700,
   },
   cardList: {
-    display: 'grid',
-    gap: 14,
-    width: '100%',
-  },
-  taskCard: {
-    border: '1px solid #e7edf5',
-    borderRadius: 24,
-    padding: 18,
-    background: '#ffffff',
-    boxShadow: '0 14px 28px rgba(15,23,42,0.05)',
-    boxSizing: 'border-box',
     width: '100%',
     maxWidth: '100%',
+    minWidth: 0,
     overflowX: 'hidden',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
+  taskCard: {
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    overflow: 'hidden',
+    boxSizing: 'border-box',
+    background: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 18,
+    padding: 16,
   },
   taskMainRow: {
     display: 'flex',
-    gap: 16,
-    alignItems: 'flex-start',
-    minWidth: 0,
+    gap: 14,
+    alignItems: 'stretch',
     width: '100%',
-    flexWrap: 'wrap',
+    minWidth: 0,
   },
   taskMainContent: {
-    minWidth: 0,
     flex: 1,
+    minWidth: 0,
   },
   cardTopRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: 12,
     alignItems: 'flex-start',
-    flexWrap: 'wrap',
   },
   cardTopLeft: {
     minWidth: 0,
-    flex: 1,
+    width: '100%',
   },
   taskCodeRow: {
     display: 'flex',
-    alignItems: 'center',
     gap: 10,
+    alignItems: 'center',
     flexWrap: 'wrap',
-    minWidth: 0,
   },
   taskCode: {
-    fontSize: 26,
+    fontSize: 16,
     fontWeight: 800,
-    color: '#111827',
-    letterSpacing: -0.4,
+    color: '#0f172a',
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
+  },
+  statusBadge: {
+    borderRadius: 999,
+    padding: '6px 10px',
+    fontSize: 12,
+    fontWeight: 800,
   },
   roomLine: {
-    marginTop: 10,
     display: 'flex',
     alignItems: 'center',
     gap: 8,
+    marginTop: 8,
     flexWrap: 'wrap',
-    color: '#4b5563',
-    fontSize: 15,
-    minWidth: 0,
   },
   roomText: {
+    fontSize: 12,
     color: '#64748b',
     fontWeight: 700,
+    textTransform: 'uppercase',
   },
   roomNo: {
+    fontSize: 16,
     fontWeight: 800,
-    color: '#111827',
+    color: '#0f172a',
   },
   dot: {
-    color: '#9ca3af',
+    color: '#94a3b8',
+  },
+  deptBadge: {
+    borderRadius: 999,
+    padding: '6px 10px',
+    fontSize: 12,
+    fontWeight: 800,
   },
   taskText: {
-    marginTop: 16,
-    fontSize: 20,
-    lineHeight: 1.4,
-    color: '#0f172a',
-    fontWeight: 600,
+    marginTop: 14,
+    color: '#334155',
+    lineHeight: 1.6,
+    whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
   },
   metaGrid: {
-    marginTop: 16,
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
     gap: 10,
-    width: '100%',
+    marginTop: 14,
   },
   metaCard: {
-    borderRadius: 16,
-    border: '1px solid #edf2f7',
     background: '#f8fafc',
+    border: '1px solid #e5e7eb',
+    borderRadius: 12,
     padding: 12,
     minWidth: 0,
-    boxSizing: 'border-box',
   },
   metaCardLabel: {
     fontSize: 11,
-    fontWeight: 800,
     color: '#64748b',
+    fontWeight: 700,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     marginBottom: 6,
   },
   metaCardValue: {
     fontSize: 13,
     color: '#334155',
-    lineHeight: 1.45,
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
   },
   metaCardValueStrong: {
     fontSize: 13,
     color: '#0f172a',
-    lineHeight: 1.45,
     fontWeight: 800,
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
   },
   buttonRow: {
     display: 'flex',
-    gap: 10,
-    marginTop: 16,
+    gap: 8,
     flexWrap: 'wrap',
+    width: '100%',
+    marginTop: 14,
+  },
+  actionButton: {
+    border: '1px solid',
+    background: '#ffffff',
+    borderRadius: 10,
+    padding: '10px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  editTaskBtn: {
+    border: '1px solid #d6dae1',
+    background: '#ffffff',
+    color: '#1f2937',
+    borderRadius: 10,
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   permissionText: {
     marginTop: 10,
     fontSize: 12,
     color: '#b45309',
     fontWeight: 700,
-    wordBreak: 'break-word',
-  },
-  updatingText: {
-    marginTop: 10,
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: 700,
   },
   pastTaskNote: {
-    marginTop: 16,
+    marginTop: 12,
     fontSize: 12,
     color: '#64748b',
     fontWeight: 700,
-    padding: '10px 12px',
-    borderRadius: 12,
-    background: '#f8fafc',
-    border: '1px solid #edf2f7',
-    boxSizing: 'border-box',
-    wordBreak: 'break-word',
-  },
-  emptyState: {
-    marginTop: 20,
-    padding: 26,
-    borderRadius: 20,
-    background: '#ffffff',
-    border: '1px solid #e7edf5',
-    textAlign: 'center',
-    color: '#64748b',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
-    fontWeight: 600,
-    boxSizing: 'border-box',
-    width: '100%',
   },
   thumbWrap: {
-    width: 86,
-    maxWidth: '100%',
     flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 8,
+    width: 96,
+    maxWidth: 96,
+    position: 'relative',
   },
   thumbButton: {
-    width: 86,
-    height: 86,
-    borderRadius: 18,
-    overflow: 'hidden',
-    border: '1px solid #e7edf5',
-    background: '#f8fafc',
+    display: 'block',
+    width: '100%',
+    border: 'none',
     padding: 0,
+    background: 'transparent',
     cursor: 'pointer',
-    boxShadow: '0 10px 22px rgba(15,23,42,0.08)',
-    boxSizing: 'border-box',
   },
   thumbImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
     display: 'block',
+    width: '100%',
+    height: 96,
+    objectFit: 'cover',
+    borderRadius: 14,
+    border: '1px solid #e5e7eb',
   },
   imageCountBadge: {
-    fontSize: 11,
-    fontWeight: 800,
-    color: '#374151',
-    background: '#f3f4f6',
-    border: '1px solid #e5e7eb',
+    position: 'absolute',
+    right: 6,
+    bottom: 6,
+    background: 'rgba(15,23,42,0.78)',
+    color: '#ffffff',
     borderRadius: 999,
     padding: '4px 8px',
-    whiteSpace: 'nowrap',
-    boxSizing: 'border-box',
+    fontSize: 11,
+    fontWeight: 700,
+  },
+  mobileOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15,23,42,0.28)',
+    zIndex: 1001,
   },
   modalOverlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 1100,
-    background: 'rgba(0,0,0,0.82)',
+    background: 'rgba(15,23,42,0.56)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    boxSizing: 'border-box',
+    padding: 20,
+    zIndex: 1100,
   },
   modalInner: {
     position: 'relative',
     width: '100%',
-    maxWidth: 1100,
+    maxWidth: 980,
+    background: '#0f172a',
+    borderRadius: 20,
+    padding: 24,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 14,
+    boxSizing: 'border-box',
+    overflow: 'hidden',
   },
   modalCloseBtn: {
     position: 'absolute',
-    top: -8,
-    right: 0,
+    right: 12,
+    top: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    border: 'none',
+    background: 'rgba(255,255,255,0.12)',
+    color: '#ffffff',
+    cursor: 'pointer',
+    zIndex: 2,
+  },
+  modalNavLeft: {
     width: 42,
     height: 42,
     borderRadius: 999,
-    border: '1px solid rgba(255,255,255,0.18)',
+    border: 'none',
     background: 'rgba(255,255,255,0.12)',
     color: '#ffffff',
-    fontSize: 26,
-    lineHeight: 1,
-    cursor: 'pointer',
-    zIndex: 2,
-    boxSizing: 'border-box',
-  },
-  modalNavLeft: {
-    border: '1px solid rgba(255,255,255,0.18)',
-    background: 'rgba(255,255,255,0.12)',
-    color: '#ffffff',
-    width: 48,
-    height: 48,
-    borderRadius: 999,
-    fontSize: 34,
-    lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
-    boxSizing: 'border-box',
   },
   modalNavRight: {
-    border: '1px solid rgba(255,255,255,0.18)',
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    border: 'none',
     background: 'rgba(255,255,255,0.12)',
     color: '#ffffff',
-    width: 48,
-    height: 48,
-    borderRadius: 999,
-    fontSize: 34,
-    lineHeight: 1,
     cursor: 'pointer',
     flexShrink: 0,
-    boxSizing: 'border-box',
   },
   modalImageWrap: {
     width: '100%',
-    maxWidth: 920,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 12,
+    minWidth: 0,
   },
   modalImage: {
+    display: 'block',
     width: '100%',
-    maxHeight: '80vh',
+    maxHeight: '70vh',
     objectFit: 'contain',
-    borderRadius: 18,
-    background: '#111827',
+    borderRadius: 16,
   },
   modalFooter: {
-    width: '100%',
-    display: 'grid',
-    gap: 8,
-    justifyItems: 'center',
+    marginTop: 12,
+    color: '#ffffff',
   },
   modalCounter: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: 800,
+    fontSize: 12,
+    fontWeight: 700,
   },
   modalCaption: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: 14,
-    lineHeight: 1.5,
-    textAlign: 'center',
-    maxWidth: 780,
+    fontSize: 13,
+    color: '#cbd5e1',
+    marginTop: 6,
     wordBreak: 'break-word',
   },
   createModalOverlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 1200,
-    background: 'rgba(15,23,42,0.55)',
+    background: 'rgba(15,23,42,0.56)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    boxSizing: 'border-box',
+    padding: 20,
+    zIndex: 1100,
   },
   createModalCard: {
     width: '100%',
-    maxWidth: 640,
-    borderRadius: 24,
-    background: '#ffffff',
-    border: '1px solid #e7edf5',
-    boxShadow: '0 24px 48px rgba(15,23,42,0.18)',
-    padding: 18,
-    display: 'grid',
-    gap: 16,
-    maxHeight: '90vh',
+    maxWidth: 760,
+    maxHeight: '88vh',
     overflowY: 'auto',
+    background: '#ffffff',
+    borderRadius: 20,
+    padding: 20,
     boxSizing: 'border-box',
   },
-  loginModalCard: {
+  authCard: {
     width: '100%',
     maxWidth: 520,
-    borderRadius: 24,
     background: '#ffffff',
-    border: '1px solid #e7edf5',
-    boxShadow: '0 24px 48px rgba(15,23,42,0.18)',
-    padding: 18,
-    display: 'grid',
-    gap: 16,
-    maxHeight: '90vh',
-    overflowY: 'auto',
+    borderRadius: 20,
+    padding: 20,
     boxSizing: 'border-box',
   },
   createModalTop: {
     display: 'flex',
-    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 12,
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
   createModalTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 800,
-    color: '#111827',
-    wordBreak: 'break-word',
+    color: '#0f172a',
   },
   createModalSubtitle: {
-    marginTop: 6,
+    marginTop: 4,
+    color: '#64748b',
     fontSize: 13,
-    color: '#6b7280',
-    fontWeight: 600,
-    lineHeight: 1.45,
-    wordBreak: 'break-word',
   },
   createModalCloseBtn: {
     width: 38,
     height: 38,
-    borderRadius: 12,
-    border: '1px solid #e5e7eb',
+    borderRadius: 999,
+    border: '1px solid #dbe3ee',
     background: '#ffffff',
-    color: '#111827',
-    fontSize: 24,
-    lineHeight: 1,
+    color: '#334155',
     cursor: 'pointer',
     flexShrink: 0,
-    boxSizing: 'border-box',
   },
   createErrorBox: {
-    padding: 12,
-    borderRadius: 14,
+    borderRadius: 12,
+    background: '#fef2f2',
     border: '1px solid #fecaca',
-    background: '#fff1f2',
     color: '#b91c1c',
-    fontSize: 14,
-    boxSizing: 'border-box',
-    wordBreak: 'break-word',
+    padding: '12px 14px',
+    marginBottom: 12,
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  successBox: {
+    borderRadius: 12,
+    background: '#ecfdf5',
+    border: '1px solid #bbf7d0',
+    color: '#166534',
+    padding: '12px 14px',
+    marginBottom: 12,
+    fontSize: 13,
+    fontWeight: 700,
   },
   formBlock: {
-    display: 'grid',
-    gap: 8,
+    marginTop: 14,
   },
   formLabel: {
-    fontSize: 12,
-    fontWeight: 800,
-    color: '#6b7280',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    display: 'block',
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#334155',
   },
-  formInput: {
+  textInput: {
     width: '100%',
-    borderRadius: 14,
-    border: '1px solid #d1d5db',
-    background: '#ffffff',
-    color: '#111827',
-    padding: '14px 16px',
-    fontSize: 15,
-    fontWeight: 600,
+    padding: '12px 14px',
+    borderRadius: 10,
+    border: '1px solid #d6dae1',
+    fontSize: 14,
     outline: 'none',
     boxSizing: 'border-box',
   },
-  formTextarea: {
+  selectInput: {
+    width: '100%',
+    padding: '12px 14px',
+    borderRadius: 10,
+    border: '1px solid #d6dae1',
+    fontSize: 14,
+    outline: 'none',
+    background: '#fff',
+    boxSizing: 'border-box',
+  },
+  textArea: {
     width: '100%',
     minHeight: 110,
-    borderRadius: 14,
-    border: '1px solid #d1d5db',
-    background: '#ffffff',
-    color: '#111827',
-    padding: '14px 16px',
-    fontSize: 15,
-    fontWeight: 600,
+    padding: '12px 14px',
+    borderRadius: 10,
+    border: '1px solid #d6dae1',
+    fontSize: 14,
     outline: 'none',
     resize: 'vertical',
-    fontFamily: 'inherit',
     boxSizing: 'border-box',
   },
-  createDeptRow: {
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-    width: '100%',
-  },
-  uploadBox: {
-    display: 'grid',
-    gap: 4,
-    border: '1px dashed #cbd5e1',
-    borderRadius: 16,
-    padding: 16,
-    background: '#f8fafc',
-    cursor: 'pointer',
-    boxSizing: 'border-box',
-  },
-  uploadBoxTitle: {
-    fontSize: 14,
-    fontWeight: 800,
-    color: '#111827',
-    wordBreak: 'break-word',
-  },
-  uploadBoxSub: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: 600,
-    wordBreak: 'break-word',
-  },
-  photoCounterText: {
-    fontSize: 13,
-    color: '#334155',
-    fontWeight: 700,
-    wordBreak: 'break-word',
-  },
-  previewGrid: {
+  photoPreviewGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
     gap: 12,
-    width: '100%',
+    marginTop: 12,
   },
-  previewCard: {
-    borderRadius: 16,
+  photoPreviewItem: {
     border: '1px solid #e5e7eb',
-    background: '#f8fafc',
-    overflow: 'hidden',
-    display: 'grid',
-    boxSizing: 'border-box',
+    borderRadius: 12,
+    padding: 8,
+    background: '#fff',
     minWidth: 0,
   },
-  previewThumb: {
+  photoPreviewImg: {
     width: '100%',
-    height: 110,
+    height: 100,
     objectFit: 'cover',
+    borderRadius: 8,
     display: 'block',
   },
-  previewName: {
-    fontSize: 11,
-    color: '#334155',
-    fontWeight: 700,
-    padding: '8px 10px 0 10px',
+  photoPreviewName: {
+    fontSize: 12,
+    marginTop: 8,
+    color: '#475467',
     wordBreak: 'break-word',
   },
-  previewRemoveBtn: {
-    margin: 10,
-    borderRadius: 10,
-    border: '1px solid #fecaca',
-    background: '#fff1f2',
-    color: '#b91c1c',
-    fontSize: 12,
-    fontWeight: 800,
+  removePhotoBtn: {
+    marginTop: 8,
+    width: '100%',
+    border: '1px solid #e5e7eb',
+    background: '#f8fafc',
+    color: '#344054',
+    borderRadius: 8,
     padding: '8px 10px',
+    fontWeight: 600,
     cursor: 'pointer',
-    boxSizing: 'border-box',
   },
-  createActionRow: {
+  createModalActions: {
     display: 'flex',
     justifyContent: 'flex-end',
     gap: 10,
+    marginTop: 20,
     flexWrap: 'wrap',
-    marginTop: 4,
   },
-  cancelBtn: {
-    minWidth: 110,
+  secondaryBtn: {
+    border: '1px solid #d6dae1',
+    background: '#fff',
+    color: '#344054',
+    borderRadius: 10,
+    padding: '10px 16px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  primaryBtn: {
+    border: 'none',
+    background: '#0f172a',
+    color: '#fff',
+    borderRadius: 10,
+    padding: '10px 16px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  uploadHint: {
+    color: '#667085',
+    fontSize: 13,
+  },
+  errorBox: {
     borderRadius: 14,
-    padding: '12px 16px',
-    border: '1px solid #d1d5db',
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#b91c1c',
+    padding: '12px 14px',
+    marginBottom: 14,
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  emptyState: {
     background: '#ffffff',
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: 800,
-    cursor: 'pointer',
-    boxSizing: 'border-box',
-  },
-  submitBtn: {
-    minWidth: 130,
-    borderRadius: 14,
-    padding: '12px 18px',
-    border: '1px solid #111827',
-    background: '#111827',
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 800,
-    cursor: 'pointer',
-    boxShadow: '0 12px 22px rgba(17,24,39,0.18)',
-    boxSizing: 'border-box',
+    border: '1px solid #e5e7eb',
+    borderRadius: 18,
+    padding: '28px 20px',
+    color: '#64748b',
+    textAlign: 'center',
+    fontWeight: 700,
   },
 };
