@@ -149,22 +149,68 @@ export default function DashboardPage() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   const [envError, setEnvError] = useState('');
-    const lastTasksFingerprintRef = useRef('');
+
+  const lastTasksFingerprintRef = useRef('');
+  const hasHydratedFromCacheRef = useRef(false);
   const lastVisibilityCheckRef = useRef(0);
 
   function buildTasksFingerprint(taskList: Task[]) {
     return JSON.stringify(
       (taskList || []).map((task) => ({
         id: task.id,
+        task_code: task.task_code,
+        room: task.room,
+        department: task.department,
+        task_text: task.task_text,
         status: task.status,
+        created_at: task.created_at,
         done_at: task.done_at || null,
         done_by_name: task.done_by_name || null,
         last_updated_by_name: task.last_updated_by_name || null,
-        updated_key: `${task.id}-${task.status}-${task.done_at || ''}-${task.last_updated_by_name || ''}`,
+        image_url: task.image_url || null,
         image_count: Array.isArray(task.task_images) ? task.task_images.length : 0,
+        image_keys: Array.isArray(task.task_images)
+          ? task.task_images.map((img) => `${img.id}-${img.image_url}-${img.caption || ''}`)
+          : [],
       }))
     );
   }
+
+  function saveTasksToCache(taskList: Task[]) {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const payload = {
+        tasks: taskList,
+        fingerprint: buildTasksFingerprint(taskList),
+        savedAt: Date.now(),
+      };
+
+      sessionStorage.setItem('dashboard_tasks_cache', JSON.stringify(payload));
+    } catch {
+      // ignore cache write failure
+    }
+  }
+
+  function readTasksFromCache(): Task[] | null {
+    if (typeof window === 'undefined') return null;
+
+    try {
+      const raw = sessionStorage.getItem('dashboard_tasks_cache');
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw);
+      if (!parsed?.tasks || !Array.isArray(parsed.tasks)) return null;
+
+      lastTasksFingerprintRef.current =
+        parsed.fingerprint || buildTasksFingerprint(parsed.tasks);
+
+      return parsed.tasks as Task[];
+    } catch {
+      return null;
+    }
+  }
+
 
   useEffect(() => {
     const handleResize = () => {
@@ -245,56 +291,76 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (hasHydratedFromCacheRef.current) return;
+
+    const cachedTasks = readTasksFromCache();
+    if (cachedTasks && cachedTasks.length > 0) {
+      setTasks(cachedTasks);
+      setLoading(false);
+    }
+
+    hasHydratedFromCacheRef.current = true;
+  }, []);
+
+  useEffect(() => {
     if (!profile) {
       setTasks([]);
       setLoading(false);
       return;
     }
 
-    loadTasks(true);
+    const cachedTasks = readTasksFromCache();
+
+    if (cachedTasks && cachedTasks.length > 0) {
+      setTasks((prev) => (prev.length > 0 ? prev : cachedTasks));
+      void loadTasks(false, { silent: true, onlyIfChanged: true });
+      setLoading(false);
+      return;
+    }
+
+    void loadTasks(true);
   }, [profile]);
 
   useEffect(() => {
-  if (!profile) return;
+    if (!profile) return;
 
-  let checking = false;
+    let checking = false;
 
-  const checkForChangesWhenVisible = async () => {
-    const now = Date.now();
+    const checkForChangesWhenVisible = async () => {
+      const now = Date.now();
 
-    // prevent duplicate triggers
-    if (checking) return;
-    if (now - lastVisibilityCheckRef.current < 1500) return;
+      if (checking) return;
+      if (now - lastVisibilityCheckRef.current < 1500) return;
 
-    lastVisibilityCheckRef.current = now;
-    checking = true;
+      lastVisibilityCheckRef.current = now;
+      checking = true;
 
-    try {
-      await loadTasks(false, { silent: true, onlyIfChanged: true });
-    } finally {
-      checking = false;
-    }
-  };
+      try {
+        await loadTasks(false, { silent: true, onlyIfChanged: true });
+      } finally {
+        checking = false;
+      }
+    };
 
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-      checkForChangesWhenVisible();
-    }
-  };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkForChangesWhenVisible();
+      }
+    };
 
-  const handleFocus = () => {
-    checkForChangesWhenVisible();
-  };
+    const handleFocus = () => {
+      void checkForChangesWhenVisible();
+    };
 
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  window.addEventListener('focus', handleFocus);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
-  return () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('focus', handleFocus);
-  };
-}, [profile]);
-  
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [profile]);
+
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
     if (!supabase) return '';
@@ -317,7 +383,7 @@ export default function DashboardPage() {
     setProfile(json.user);
   }
 
-    async function loadTasks(
+  async function loadTasks(
     showLoader = false,
     options?: { silent?: boolean; onlyIfChanged?: boolean }
   ) {
@@ -340,14 +406,13 @@ export default function DashboardPage() {
       const nextTasks: Task[] = json.tasks || [];
       const nextFingerprint = buildTasksFingerprint(nextTasks);
 
-      if (onlyIfChanged) {
-        if (lastTasksFingerprintRef.current === nextFingerprint) {
-          return false;
-        }
+      if (onlyIfChanged && lastTasksFingerprintRef.current === nextFingerprint) {
+        return false;
       }
 
       setTasks(nextTasks);
       lastTasksFingerprintRef.current = nextFingerprint;
+      saveTasksToCache(nextTasks);
       setErrorMsg('');
       return true;
     } catch (err: any) {
@@ -413,6 +478,7 @@ export default function DashboardPage() {
       setSidebarOpen(false);
       setLoginOpen(false);
       setPasswordModalOpen(false);
+      sessionStorage.removeItem('dashboard_tasks_cache');
 
       window.location.replace('/dashboard');
     } catch (err: any) {
