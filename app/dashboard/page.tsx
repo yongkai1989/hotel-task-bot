@@ -722,6 +722,13 @@ export default function DashboardPage() {
         height: '100vh',
       };
 
+  const taskMainRowStyle: React.CSSProperties = isMobile
+    ? {
+        ...styles.taskMainRow,
+        flexDirection: 'column',
+      }
+    : styles.taskMainRow;
+
   return (
     <main style={styles.page}>
       {isMobile && sidebarOpen ? (
@@ -997,7 +1004,7 @@ export default function DashboardPage() {
 
                     return (
                       <article key={task.id} style={styles.taskCard}>
-                        <div style={styles.taskMainRow}>
+                        <div style={taskMainRowStyle}>
                           <div style={styles.taskMainContent}>
                             <div style={styles.cardTopRow}>
                               <div style={styles.cardTopLeft}>
@@ -2097,10 +2104,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
     gap: 12,
     marginBottom: 16,
     width: '100%',
+    minWidth: 0,
   },
   summaryTitle: {
     fontSize: 13,
@@ -2251,7 +2259,8 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 14px 28px rgba(15,23,42,0.05)',
     boxSizing: 'border-box',
     width: '100%',
-    overflow: 'hidden',
+    maxWidth: '100%',
+    overflowX: 'hidden',
   },
   taskMainRow: {
     display: 'flex',
@@ -2259,6 +2268,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-start',
     minWidth: 0,
     width: '100%',
+    flexWrap: 'wrap',
   },
   taskMainContent: {
     minWidth: 0,
@@ -2400,6 +2410,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   thumbWrap: {
     width: 86,
+    maxWidth: '100%',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
