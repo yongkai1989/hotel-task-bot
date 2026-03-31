@@ -388,20 +388,23 @@ export default function SupervisorUpdatePage() {
   }
 
   if (!canAccess) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.centerCard}>
-          <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>
-            Only Supervisor, Manager, and Superuser can access Supervisor Update.
-          </p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  return (
+    <main style={styles.page}>
+      <div style={styles.centerCard}>
+        <div style={styles.centerTitle}>Access denied</div>
+        <p style={styles.centerText}>
+          Current role read by this page: <strong>{profile?.role || 'NONE'}</strong>
+        </p>
+        <p style={styles.centerText}>
+          Current email: <strong>{profile?.email || 'NONE'}</strong>
+        </p>
+        <Link href="/dashboard" style={styles.linkBtn}>
+          Back to Dashboard
+        </Link>
+      </div>
+    </main>
+  );
+}
 
   return (
     <main style={styles.page}>
