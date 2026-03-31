@@ -16,10 +16,10 @@ type RoomRow = {
   block_no: number;
   floor_no: number;
   room_type: string;
+  supervisor_status: 'CHECKOUT' | 'STAYOVER';
 };
 
-type EntryForm = {
-  room_number: string;
+type RoomEntryState = {
   is_dnd: boolean;
   bedsheet_king: number;
   pillow_case: number;
@@ -27,9 +27,9 @@ type EntryForm = {
   bath_mat: number;
   duvet_cover_king: number;
   duvet_cover_single: number;
+  isSaving?: boolean;
+  savedAt?: string;
 };
-
-type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 const BLOCKS = [1, 2];
 const FLOORS_BY_BLOCK: Record<number, number[]> = {
@@ -37,16 +37,20 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
   2: [3, 5, 6, 7],
 };
 
-const EMPTY_ENTRY = (roomNumber: string): EntryForm => ({
-  room_number: roomNumber,
-  is_dnd: false,
-  bedsheet_king: 0,
-  pillow_case: 0,
-  bath_towel: 0,
-  bath_mat: 0,
-  duvet_cover_king: 0,
-  duvet_cover_single: 0,
-});
+const LINEN_FIELDS: Array<{
+  key: keyof Omit<
+    RoomEntryState,
+    'is_dnd' | 'isSaving' | 'savedAt'
+  >;
+  label: string;
+}> = [
+  { key: 'bedsheet_king', label: 'Bedsheet King' },
+  { key: 'pillow_case', label: 'Pillow Case' },
+  { key: 'bath_towel', label: 'Bath Towel' },
+  { key: 'bath_mat', label: 'Bath Mat' },
+  { key: 'duvet_cover_king', label: 'Duvet Cover King' },
+  { key: 'duvet_cover_single', label: 'Duvet Cover Single' },
+];
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -67,25 +71,26 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
-function canAccess(role?: DashboardUser['role']) {
-  return (
-    role === 'SUPERUSER' ||
-    role === 'MANAGER' ||
-    role === 'SUPERVISOR' ||
-    role === 'HK'
-  );
+function emptyEntry(): RoomEntryState {
+  return {
+    is_dnd: false,
+    bedsheet_king: 0,
+    pillow_case: 0,
+    bath_towel: 0,
+    bath_mat: 0,
+    duvet_cover_king: 0,
+    duvet_cover_single: 0,
+  };
 }
 
-function fieldLabel(field: keyof Omit<EntryForm, 'room_number' | 'is_dnd'>) {
-  const labels: Record<string, string> = {
-    bedsheet_king: 'Bedsheet King',
-    pillow_case: 'Pillow Case',
-    bath_towel: 'Bath Towel',
-    bath_mat: 'Bath Mat',
-    duvet_cover_king: 'Duvet Cover King',
-    duvet_cover_single: 'Duvet Cover Single',
-  };
-  return labels[field] || field;
+function formatTime(value?: string) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export default function ChambermaidEntryPage() {
@@ -101,8 +106,7 @@ export default function ChambermaidEntryPage() {
   const [roomSearch, setRoomSearch] = useState('');
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
-  const [entryMap, setEntryMap] = useState<Record<string, EntryForm>>({});
-  const [saveStateMap, setSaveStateMap] = useState<Record<string, SaveState>>({});
+  const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -118,8 +122,13 @@ export default function ChambermaidEntryPage() {
       try {
         const supabase = getSupabaseSafe();
         if (!supabase) {
-          throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+          throw new Error(
+            'Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.'
+          );
         }
+
+        setAuthLoading(true);
+        setErrorMsg('');
 
         const {
           data: { session },
@@ -160,7 +169,9 @@ export default function ChambermaidEntryPage() {
         if (!mounted) return;
         setErrorMsg(err?.message || 'Failed to load session');
       } finally {
-        if (mounted) setAuthLoading(false);
+        if (mounted) {
+          setAuthLoading(false);
+        }
       }
     }
 
@@ -170,6 +181,16 @@ export default function ChambermaidEntryPage() {
       mounted = false;
     };
   }, []);
+
+  const canAccess = useMemo(() => {
+    if (!profile) return false;
+    return (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR' ||
+      profile.role === 'HK'
+    );
+  }, [profile]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
     const supabase = getSupabaseSafe();
@@ -183,60 +204,49 @@ export default function ChambermaidEntryPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const { data: roomRows, error: roomError } = await supabase
-        .from('room_master')
-        .select('room_number, block_no, floor_no, room_type')
-        .eq('block_no', blockNo)
-        .eq('floor_no', floorNo)
-        .eq('is_active', true)
-        .order('room_number', { ascending: true });
-
-      if (roomError) throw roomError;
-
-      const floorRoomNumbers = (roomRows || []).map((r: any) => r.room_number);
-
-      if (floorRoomNumbers.length === 0) {
-        setRooms([]);
-        setEntryMap({});
-        setSaveStateMap({});
-        return;
-      }
-
       const { data: statusRows, error: statusError } = await supabase
         .from('linen_room_status')
-        .select('room_number, status')
+        .select('room_number, status, room_master!inner(room_number, block_no, floor_no, room_type, is_active)')
         .eq('service_date', serviceDate)
-        .in('room_number', floorRoomNumbers)
-        .in('status', ['CHECKOUT', 'STAYOVER']);
+        .eq('room_master.block_no', blockNo)
+        .eq('room_master.floor_no', floorNo)
+        .eq('room_master.is_active', true)
+        .in('status', ['CHECKOUT', 'STAYOVER'])
+        .order('room_number', { ascending: true });
 
       if (statusError) throw statusError;
 
-      const visibleSet = new Set((statusRows || []).map((row: any) => row.room_number));
-      const visibleRooms = (roomRows || []).filter((room: any) => visibleSet.has(room.room_number));
-      const visibleRoomNumbers = visibleRooms.map((room: any) => room.room_number);
+      const nextRooms: RoomRow[] = (statusRows || []).map((row: any) => ({
+        room_number: row.room_number,
+        block_no: row.room_master.block_no,
+        floor_no: row.room_master.floor_no,
+        room_type: row.room_master.room_type,
+        supervisor_status: row.status,
+      }));
 
+      const roomNumbers = nextRooms.map((room) => room.room_number);
       let entryRows: any[] = [];
-      if (visibleRoomNumbers.length > 0) {
+
+      if (roomNumbers.length > 0) {
         const { data, error: entryError } = await supabase
           .from('linen_room_entry')
           .select(
-            'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'
+            'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at'
           )
           .eq('service_date', serviceDate)
-          .in('room_number', visibleRoomNumbers);
+          .in('room_number', roomNumbers);
 
         if (entryError) throw entryError;
         entryRows = data || [];
       }
 
-      const nextEntryMap: Record<string, EntryForm> = {};
-      visibleRooms.forEach((room: any) => {
-        nextEntryMap[room.room_number] = EMPTY_ENTRY(room.room_number);
+      const nextEntryMap: Record<string, RoomEntryState> = {};
+      nextRooms.forEach((room) => {
+        nextEntryMap[room.room_number] = emptyEntry();
       });
 
       entryRows.forEach((row: any) => {
         nextEntryMap[row.room_number] = {
-          room_number: row.room_number,
           is_dnd: !!row.is_dnd,
           bedsheet_king: row.bedsheet_king || 0,
           pillow_case: row.pillow_case || 0,
@@ -244,24 +254,23 @@ export default function ChambermaidEntryPage() {
           bath_mat: row.bath_mat || 0,
           duvet_cover_king: row.duvet_cover_king || 0,
           duvet_cover_single: row.duvet_cover_single || 0,
+          savedAt: row.updated_at || '',
         };
       });
 
-      setRooms(visibleRooms as RoomRow[]);
+      setRooms(nextRooms);
       setEntryMap(nextEntryMap);
-      setSaveStateMap({});
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load chambermaid rooms');
       setRooms([]);
       setEntryMap({});
-      setSaveStateMap({});
     } finally {
       setPageLoading(false);
     }
   }
 
   useEffect(() => {
-    if (!profile || !canAccess(profile.role)) {
+    if (!profile || !canAccess) {
       setRooms([]);
       setEntryMap({});
       setPageLoading(false);
@@ -269,56 +278,61 @@ export default function ChambermaidEntryPage() {
     }
 
     void loadFloorData(selectedBlock, selectedFloor);
-  }, [profile, selectedBlock, selectedFloor, serviceDate]);
+  }, [profile, canAccess, selectedBlock, selectedFloor, serviceDate]);
 
-  const filteredRooms = useMemo(() => {
-    const keyword = roomSearch.trim();
-    if (!keyword) return rooms;
-    return rooms.filter((room) => room.room_number === keyword);
-  }, [rooms, roomSearch]);
-
-  function updateCount(roomNumber: string, field: keyof Omit<EntryForm, 'room_number' | 'is_dnd'>, delta: number) {
+  function updateRoomField(
+    roomNumber: string,
+    field: keyof Omit<RoomEntryState, 'isSaving' | 'savedAt'>,
+    value: boolean | number
+  ) {
     setEntryMap((prev) => {
-      const current = prev[roomNumber] || EMPTY_ENTRY(roomNumber);
+      const current = prev[roomNumber] || emptyEntry();
+      const next = {
+        ...current,
+        [field]: value,
+      } as RoomEntryState;
+
+      if (field === 'is_dnd' && value === true) {
+        next.bedsheet_king = 0;
+        next.pillow_case = 0;
+        next.bath_towel = 0;
+        next.bath_mat = 0;
+        next.duvet_cover_king = 0;
+        next.duvet_cover_single = 0;
+      }
+
+      return {
+        ...prev,
+        [roomNumber]: next,
+      };
+    });
+
+    setSuccessMsg('');
+  }
+
+  function adjustQty(
+    roomNumber: string,
+    field: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt'>,
+    delta: number
+  ) {
+    setEntryMap((prev) => {
+      const current = prev[roomNumber] || emptyEntry();
       if (current.is_dnd) return prev;
 
+      const nextValue = Math.max(0, (current[field] as number) + delta);
       return {
         ...prev,
         [roomNumber]: {
           ...current,
-          [field]: Math.max(0, (current[field] || 0) + delta),
+          [field]: nextValue,
         },
       };
     });
+
+    setSuccessMsg('');
   }
 
-  function toggleDnd(roomNumber: string) {
-    setEntryMap((prev) => {
-      const current = prev[roomNumber] || EMPTY_ENTRY(roomNumber);
-      const nextIsDnd = !current.is_dnd;
-
-      return {
-        ...prev,
-        [roomNumber]: nextIsDnd
-          ? {
-              ...current,
-              is_dnd: true,
-              bedsheet_king: 0,
-              pillow_case: 0,
-              bath_towel: 0,
-              bath_mat: 0,
-              duvet_cover_king: 0,
-              duvet_cover_single: 0,
-            }
-          : {
-              ...current,
-              is_dnd: false,
-            },
-      };
-    });
-  }
-
-  async function submitRoom(room: RoomRow) {
+  async function saveRoom(room: RoomRow) {
     const supabase = getSupabaseSafe();
     if (!supabase) {
       setErrorMsg('Supabase is not configured.');
@@ -330,13 +344,19 @@ export default function ChambermaidEntryPage() {
       return;
     }
 
-    const entry = entryMap[room.room_number] || EMPTY_ENTRY(room.room_number);
+    const entry = entryMap[room.room_number] || emptyEntry();
+
+    setEntryMap((prev) => ({
+      ...prev,
+      [room.room_number]: {
+        ...entry,
+        isSaving: true,
+      },
+    }));
+    setErrorMsg('');
+    setSuccessMsg('');
 
     try {
-      setSaveStateMap((prev) => ({ ...prev, [room.room_number]: 'saving' }));
-      setErrorMsg('');
-      setSuccessMsg('');
-
       const payload = {
         service_date: serviceDate,
         room_number: room.room_number,
@@ -353,28 +373,47 @@ export default function ChambermaidEntryPage() {
         updated_by_name: profile.name || profile.email,
       };
 
-      const { error } = await supabase
-        .from('linen_room_entry')
-        .upsert([payload], {
-          onConflict: 'service_date,room_number',
-        });
+      const { error } = await supabase.from('linen_room_entry').upsert([payload], {
+        onConflict: 'service_date,room_number',
+      });
 
       if (error) throw error;
 
-      setSaveStateMap((prev) => ({ ...prev, [room.room_number]: 'saved' }));
-      setSuccessMsg(`Saved ${room.room_number}.`);
-
-      window.setTimeout(() => {
-        setSaveStateMap((prev) => ({
-          ...prev,
-          [room.room_number]: prev[room.room_number] === 'saved' ? 'idle' : prev[room.room_number],
-        }));
-      }, 1800);
+      const savedAt = new Date().toISOString();
+      setEntryMap((prev) => ({
+        ...prev,
+        [room.room_number]: {
+          ...payload,
+          isSaving: false,
+          savedAt,
+        },
+      }));
+      setSuccessMsg(`Saved room ${room.room_number}.`);
     } catch (err: any) {
-      setSaveStateMap((prev) => ({ ...prev, [room.room_number]: 'error' }));
+      setEntryMap((prev) => ({
+        ...prev,
+        [room.room_number]: {
+          ...(prev[room.room_number] || emptyEntry()),
+          isSaving: false,
+        },
+      }));
       setErrorMsg(err?.message || `Failed to save ${room.room_number}`);
     }
   }
+
+  const roomCount = rooms.length;
+  const savedCount = useMemo(() => {
+    return rooms.filter((room) => {
+      const entry = entryMap[room.room_number];
+      return !!entry?.savedAt;
+    }).length;
+  }, [rooms, entryMap]);
+
+  const filteredRooms = useMemo(() => {
+    const keyword = roomSearch.trim();
+    if (!keyword) return rooms;
+    return rooms.filter((room) => room.room_number === keyword);
+  }, [rooms, roomSearch]);
 
   if (authLoading) {
     return (
@@ -398,7 +437,7 @@ export default function ChambermaidEntryPage() {
     );
   }
 
-  if (!canAccess(profile.role)) {
+  if (!canAccess) {
     return (
       <main style={styles.page}>
         <div style={styles.centerCard}>
@@ -471,121 +510,149 @@ export default function ChambermaidEntryPage() {
             </div>
           </div>
 
-          <div style={styles.searchWrap}>
-            <input
-              type="text"
-              value={roomSearch}
-              onChange={(e) => {
-                const value = e.target.value.replace(/\D/g, '').slice(0, 4);
-                setRoomSearch(value);
-              }}
-              placeholder="Enter exact room number"
-              style={styles.searchInput}
-            />
+          <div style={styles.summaryGrid}>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryLabel}>Rooms to Service</div>
+              <div style={styles.summaryValue}>{roomCount}</div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryLabel}>Rooms Submitted</div>
+              <div style={{ ...styles.summaryValue, color: '#166534' }}>{savedCount}</div>
+            </div>
           </div>
 
           {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
           {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
         </div>
 
-        <div style={styles.gridCard}>
-          <div style={styles.gridHeader}>
-            Block {selectedBlock} · Floor {selectedFloor}
+        <div style={styles.searchCard}>
+          <div style={styles.searchRow}>
+            <div style={styles.searchBox}>
+              <label style={styles.label}>Search Room</label>
+              <input
+                type="text"
+                value={roomSearch}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                  setRoomSearch(value);
+                }}
+                placeholder="Enter exact room number"
+                style={styles.searchInput}
+              />
+            </div>
           </div>
-
-          {pageLoading ? (
-            <div style={styles.emptyState}>Loading rooms...</div>
-          ) : filteredRooms.length === 0 ? (
-            <div style={styles.emptyState}>
-              {roomSearch.trim()
-                ? 'No matching room found on this floor that was marked by supervisor.'
-                : 'No rooms marked by supervisor for this floor.'}
-            </div>
-          ) : (
-            <div style={styles.roomList}>
-              {filteredRooms.map((room) => {
-                const entry = entryMap[room.room_number] || EMPTY_ENTRY(room.room_number);
-                const saveState = saveStateMap[room.room_number] || 'idle';
-
-                return (
-                  <article key={room.room_number} style={styles.roomCard}>
-                    <div style={styles.roomCardHeader}>
-                      <div>
-                        <div style={styles.roomNo}>{room.room_number}</div>
-                        <div style={styles.roomType}>{room.room_type}</div>
-                      </div>
-
-                      <div style={styles.roomHeaderRight}>
-                        <label style={styles.dndWrap}>
-                          <input
-                            type="checkbox"
-                            checked={entry.is_dnd}
-                            onChange={() => toggleDnd(room.room_number)}
-                          />
-                          <span>DND</span>
-                        </label>
-
-                        <button
-                          type="button"
-                          onClick={() => void submitRoom(room)}
-                          style={{
-                            ...styles.submitBtn,
-                            ...(saveState === 'saving' ? styles.submitBtnMuted : {}),
-                          }}
-                          disabled={saveState === 'saving'}
-                        >
-                          {saveState === 'saving' ? 'Saving...' : 'Submit'}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={styles.itemGrid}>
-                      {(
-                        [
-                          'bedsheet_king',
-                          'pillow_case',
-                          'bath_towel',
-                          'bath_mat',
-                          'duvet_cover_king',
-                          'duvet_cover_single',
-                        ] as (keyof Omit<EntryForm, 'room_number' | 'is_dnd'>)[]
-                      ).map((field) => (
-                        <div key={field} style={styles.itemRow}>
-                          <div style={styles.itemLabel}>{fieldLabel(field)}</div>
-                          <div style={styles.counterWrap}>
-                            <button
-                              type="button"
-                              onClick={() => updateCount(room.room_number, field, -1)}
-                              style={styles.counterBtn}
-                              disabled={entry.is_dnd}
-                            >
-                              −
-                            </button>
-                            <div style={styles.counterValue}>{entry[field]}</div>
-                            <button
-                              type="button"
-                              onClick={() => updateCount(room.room_number, field, 1)}
-                              style={styles.counterBtn}
-                              disabled={entry.is_dnd}
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {saveState === 'saved' ? (
-                      <div style={styles.savedTag}>Saved</div>
-                    ) : saveState === 'error' ? (
-                      <div style={styles.errorTag}>Save failed</div>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          )}
         </div>
+
+        {pageLoading ? (
+          <div style={styles.gridCard}>
+            <div style={styles.emptyState}>Loading rooms...</div>
+          </div>
+        ) : rooms.length === 0 ? (
+          <div style={styles.gridCard}>
+            <div style={styles.emptyState}>No supervisor-marked rooms found for this floor.</div>
+          </div>
+        ) : filteredRooms.length === 0 ? (
+          <div style={styles.gridCard}>
+            <div style={styles.emptyState}>No room found for that exact room number on this floor.</div>
+          </div>
+        ) : (
+          <div style={styles.cardsWrap}>
+            {filteredRooms.map((room) => {
+              const entry = entryMap[room.room_number] || emptyEntry();
+              const isSaving = !!entry.isSaving;
+
+              return (
+                <div key={room.room_number} style={styles.roomCard}>
+                  <div style={styles.roomCardHeader}>
+                    <div>
+                      <div style={styles.roomNo}>{room.room_number}</div>
+                      <div style={styles.roomType}>{room.room_type}</div>
+                    </div>
+                    <div
+                      style={{
+                        ...styles.statusPill,
+                        background:
+                          room.supervisor_status === 'CHECKOUT' ? '#dcfce7' : '#dbeafe',
+                        color:
+                          room.supervisor_status === 'CHECKOUT' ? '#166534' : '#1d4ed8',
+                      }}
+                    >
+                      {room.supervisor_status === 'CHECKOUT' ? 'CHECK OUT' : 'STAY OVER'}
+                    </div>
+                  </div>
+
+                  <div style={styles.dndRow}>
+                    <label style={styles.dndLabel}>
+                      <input
+                        type="checkbox"
+                        checked={entry.is_dnd}
+                        onChange={(e) =>
+                          updateRoomField(room.room_number, 'is_dnd', e.target.checked)
+                        }
+                      />
+                      <span>Mark as DND</span>
+                    </label>
+                    {entry.savedAt ? (
+                      <div style={styles.savedAtText}>Last saved {formatTime(entry.savedAt)}</div>
+                    ) : null}
+                  </div>
+
+                  <div style={styles.linenList}>
+                    {LINEN_FIELDS.map((item) => (
+                      <div key={item.key} style={styles.linenRow}>
+                        <div style={styles.linenLabel}>{item.label}</div>
+                        <div style={styles.counterWrap}>
+                          <button
+                            type="button"
+                            disabled={entry.is_dnd || isSaving}
+                            onClick={() => adjustQty(room.room_number, item.key, -1)}
+                            style={styles.counterBtn}
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={0}
+                            value={entry[item.key]}
+                            disabled={entry.is_dnd || isSaving}
+                            onChange={(e) =>
+                              updateRoomField(
+                                room.room_number,
+                                item.key,
+                                Math.max(0, Number(e.target.value || 0))
+                              )
+                            }
+                            style={styles.counterInput}
+                          />
+                          <button
+                            type="button"
+                            disabled={entry.is_dnd || isSaving}
+                            onClick={() => adjustQty(room.room_number, item.key, 1)}
+                            style={styles.counterBtn}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void saveRoom(room)}
+                    disabled={isSaving}
+                    style={{
+                      ...styles.submitBtn,
+                      opacity: isSaving ? 0.6 : 1,
+                    }}
+                  >
+                    {isSaving ? 'Submitting...' : `Submit ${room.room_number}`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
   );
@@ -596,11 +663,13 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '100vh',
     background: '#f8fafc',
     padding: '20px',
+    overflowX: 'hidden',
   },
   shell: {
     width: '100%',
-    maxWidth: '1200px',
+    maxWidth: '1120px',
     margin: '0 auto',
+    paddingInline: '4px',
   },
   topBar: {
     display: 'flex',
@@ -670,19 +739,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#ffffff',
     borderColor: '#0f172a',
   },
-  searchWrap: {
-    marginTop: '6px',
-  },
-  searchInput: {
-    width: '100%',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-  },
   secondaryBtn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -695,127 +751,177 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 16px',
     fontWeight: 700,
   },
-  gridCard: {
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '10px',
+  },
+  searchCard: {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    padding: '16px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+    marginBottom: '16px',
+  },
+  searchRow: {
+    display: 'flex',
+    justifyContent: 'center',
+  },
+  searchBox: {
+    width: '100%',
+    maxWidth: '360px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  searchInput: {
+    width: '100%',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontSize: '15px',
+    outline: 'none',
+  },
+  summaryCard: {
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '14px',
+    padding: '14px',
+  },
+  summaryLabel: {
+    fontSize: '13px',
+    color: '#64748b',
+    fontWeight: 700,
+    marginBottom: '8px',
+  },
+  summaryValue: {
+    fontSize: '28px',
+    fontWeight: 800,
+    color: '#0f172a',
+    lineHeight: 1,
+  },
+  cardsWrap: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 420px))',
+    gap: '16px',
+    justifyContent: 'center',
+    alignItems: 'start',
+  },
+  roomCard: {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     padding: '16px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
   },
-  gridHeader: {
-    fontSize: '18px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '14px',
-  },
-  roomList: {
-    display: 'grid',
-    gap: '14px',
-  },
-  roomCard: {
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '16px',
-    background: '#f8fafc',
-  },
   roomCardHeader: {
     display: 'flex',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '16px',
-    flexWrap: 'wrap',
+    gap: '12px',
+    alignItems: 'flex-start',
     marginBottom: '14px',
   },
-  roomHeaderRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
   roomNo: {
-    fontSize: '24px',
+    fontSize: '26px',
     fontWeight: 800,
     color: '#0f172a',
-    lineHeight: 1,
   },
   roomType: {
     fontSize: '13px',
     color: '#64748b',
-    marginTop: '6px',
-    fontWeight: 600,
+    fontWeight: 700,
+    marginTop: '4px',
   },
-  dndWrap: {
-    display: 'inline-flex',
+  statusPill: {
+    borderRadius: '999px',
+    padding: '8px 12px',
+    fontSize: '12px',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  dndRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: '14px',
+  },
+  dndLabel: {
+    display: 'flex',
     alignItems: 'center',
     gap: '8px',
     fontWeight: 700,
     color: '#334155',
   },
+  savedAtText: {
+    fontSize: '12px',
+    color: '#64748b',
+    fontWeight: 700,
+  },
+  linenList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    marginBottom: '14px',
+  },
+  linenRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    alignItems: 'center',
+  },
+  linenLabel: {
+    fontSize: '13px',
+    fontWeight: 700,
+    color: '#334155',
+    flex: 1,
+  },
+  counterWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  counterBtn: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '10px',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    fontSize: '20px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  counterInput: {
+    width: '58px',
+    height: '36px',
+    borderRadius: '10px',
+    border: '1px solid #cbd5e1',
+    textAlign: 'center',
+    fontSize: '14px',
+    fontWeight: 700,
+    color: '#0f172a',
+  },
   submitBtn: {
+    width: '100%',
     border: 'none',
     background: '#0f172a',
     color: '#ffffff',
     borderRadius: '12px',
     padding: '12px 16px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  submitBtnMuted: {
-    opacity: 0.7,
-    cursor: 'not-allowed',
-  },
-  itemGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-    gap: '12px',
-  },
-  itemRow: {
-    border: '1px solid #e2e8f0',
-    background: '#ffffff',
-    borderRadius: '14px',
-    padding: '12px',
-  },
-  itemLabel: {
-    fontSize: '13px',
-    fontWeight: 700,
-    color: '#334155',
-    marginBottom: '10px',
-  },
-  counterWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '10px',
-  },
-  counterBtn: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '12px',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    fontSize: '22px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  counterValue: {
-    minWidth: '48px',
-    textAlign: 'center',
-    fontSize: '22px',
     fontWeight: 800,
-    color: '#0f172a',
+    cursor: 'pointer',
   },
-  savedTag: {
-    marginTop: '12px',
-    color: '#166534',
-    fontWeight: 700,
-    fontSize: '13px',
-  },
-  errorTag: {
-    marginTop: '12px',
-    color: '#b91c1c',
-    fontWeight: 700,
-    fontSize: '13px',
+  gridCard: {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    padding: '16px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
   },
   errorBox: {
     marginTop: '14px',
