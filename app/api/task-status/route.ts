@@ -30,6 +30,7 @@ function normalizeStatus(value: string): TaskStatus | null {
 
 function canEditTask(role: string, dept: Dept) {
   if (role === 'MANAGER') return true;
+  if (role === 'SUPERUSER') return true;
   if (role === 'HK') return dept === 'HK';
   if (role === 'MT') return dept === 'MT';
   return false;
