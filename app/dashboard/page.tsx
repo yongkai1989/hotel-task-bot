@@ -1418,8 +1418,8 @@ async function handleDeleteTask(taskId: string) {
   </button>
 
   {(profile?.role === 'SUPERUSER' ||
-    profile?.role === 'MANAGER' ||
-    profile?.role === 'SUPERVISOR') ? (
+  profile?.role === 'MANAGER') ? (
+      
     <Link
       href="/dashboard/supervisor-update"
       onClick={() => setSidebarOpen(false)}
