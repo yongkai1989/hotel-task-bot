@@ -23,7 +23,7 @@ type Task = {
   created_at: string;
   done_at?: string | null;
   done_by_name?: string | null;
-  last_d_by_name?: string | null;
+  last_updated_by_name?: string | null;
   image_url?: string | null;
   task_images?: TaskImage[];
   created_by_email?: string | null;
