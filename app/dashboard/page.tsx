@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
+import Link from 'next/link';
 
 type TaskImage = {
   id: string | number;
@@ -1384,39 +1385,50 @@ async function handleDeleteTask(taskId: string) {
 
           <div style={styles.sidebarSectionTitle}>Navigation</div>
 
-          <div style={styles.sidebarMenu}>
-            <button
-              onClick={() => {
-                setSidebarView('DASHBOARD');
-                setSidebarOpen(false);
-              }}
-              style={sidebarItemStyle(sidebarView === 'DASHBOARD')}
-            >
-              <span>Dashboard</span>
-            </button>
+         <div style={styles.sidebarMenu}>
+  <button
+    onClick={() => {
+      setSidebarView('DASHBOARD');
+      setSidebarOpen(false);
+    }}
+    style={sidebarItemStyle(sidebarView === 'DASHBOARD')}
+  >
+    <span>Dashboard</span>
+  </button>
 
-            <button
-              onClick={() => {
-                setSidebarView('PAST_TASK');
-                setSidebarOpen(false);
-              }}
-              style={sidebarItemStyle(sidebarView === 'PAST_TASK')}
-            >
-              <span>Past Task</span>
-              {summary.pastDone > 0 ? (
-                <span
-                  style={
-                    sidebarView === 'PAST_TASK'
-                      ? styles.sidebarCountActive
-                      : styles.sidebarCount
-                  }
-                >
-                  {summary.pastDone}
-                </span>
-              ) : null}
-            </button>
-          </div>
+  <button
+    onClick={() => {
+      setSidebarView('PAST_TASK');
+      setSidebarOpen(false);
+    }}
+    style={sidebarItemStyle(sidebarView === 'PAST_TASK')}
+  >
+    <span>Past Task</span>
+    {summary.pastDone > 0 ? (
+      <span
+        style={
+          sidebarView === 'PAST_TASK'
+            ? styles.sidebarCountActive
+            : styles.sidebarCount
+        }
+      >
+        {summary.pastDone}
+      </span>
+    ) : null}
+  </button>
 
+  {(profile?.role === 'SUPERUSER' ||
+    profile?.role === 'MANAGER' ||
+    profile?.role === 'SUPERVISOR') ? (
+    <Link
+      href="/dashboard/supervisor-update"
+      onClick={() => setSidebarOpen(false)}
+      style={sidebarItemStyle(false)}
+    >
+      <span>Supervisor Update</span>
+    </Link>
+  ) : null}
+</div>
           <div style={styles.sidebarDivider} />
 
           <div style={styles.userPanel}>
