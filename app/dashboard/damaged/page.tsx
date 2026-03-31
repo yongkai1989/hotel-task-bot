@@ -289,9 +289,7 @@ export default function DamagedPage() {
 
       if (error) throw error;
 
-      if (editingId === rowId) {
-        resetForm();
-      }
+      if (editingId === rowId) resetForm();
 
       setSuccessMsg('Damage entry deleted.');
       await loadDamageRows();
@@ -329,9 +327,7 @@ export default function DamagedPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>
-            Only Supervisor, Manager, and Superuser can access Damaged.
-          </p>
+          <p style={styles.centerText}>Only Supervisor, Manager, and Superuser can access Damaged.</p>
           <Link href="/dashboard" style={styles.linkBtn}>
             Back to Dashboard
           </Link>
@@ -346,9 +342,7 @@ export default function DamagedPage() {
         <div style={styles.topBar}>
           <div>
             <div style={styles.pageTitle}>Damaged</div>
-            <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role})
-            </div>
+            <div style={styles.pageSubTitle}>{profile.name} ({profile.role})</div>
           </div>
 
           <div style={styles.topBarActions}>
@@ -362,9 +356,7 @@ export default function DamagedPage() {
         {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>
-            {editingId ? 'Edit Damage Entry' : 'Add Damage'}
-          </div>
+          <div style={styles.sectionTitle}>{editingId ? 'Edit Damage' : 'Add Damage'}</div>
 
           <div style={styles.formGrid}>
             <div style={styles.fieldWrap}>
@@ -387,9 +379,7 @@ export default function DamagedPage() {
                 disabled={saving}
               >
                 {LINEN_TYPES.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
+                  <option key={item} value={item}>{item}</option>
                 ))}
               </select>
             </div>
@@ -425,10 +415,7 @@ export default function DamagedPage() {
               type="button"
               onClick={submitDamage}
               disabled={saving}
-              style={{
-                ...styles.primaryBtn,
-                opacity: saving ? 0.6 : 1,
-              }}
+              style={{ ...styles.primaryBtn, opacity: saving ? 0.6 : 1 }}
             >
               {saving ? 'Saving...' : editingId ? 'Update Entry' : 'Submit Damage'}
             </button>
@@ -460,12 +447,9 @@ export default function DamagedPage() {
                   <div style={styles.logHeader}>
                     <div>
                       <div style={styles.logTitle}>{row.linen_type}</div>
-                      <div style={styles.logMeta}>
-                        Qty: {row.qty} · By: {row.updated_by_name || '-'}
-                      </div>
-                      <div style={styles.logMeta}>
-                        {formatDateTime(row.updated_at || row.created_at)}
-                      </div>
+                      <div style={styles.logMeta}>Qty: {row.qty}</div>
+                      <div style={styles.logMeta}>By: {row.updated_by_name || '-'}</div>
+                      <div style={styles.logMeta}>{formatDateTime(row.updated_at || row.created_at)}</div>
                     </div>
 
                     <div style={styles.logActions}>
@@ -478,16 +462,14 @@ export default function DamagedPage() {
                         Edit
                       </button>
 
-                      {profile.role === 'SUPERUSER' ? (
-                        <button
-                          type="button"
-                          onClick={() => void deleteRow(row.id)}
-                          disabled={saving}
-                          style={styles.deleteBtn}
-                        >
-                          Delete
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void deleteRow(row.id)}
+                        disabled={saving}
+                        style={styles.deleteBtn}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
 
@@ -510,7 +492,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   shell: {
     width: '100%',
-    maxWidth: '1000px',
+    maxWidth: '1120px',
     margin: '0 auto',
   },
   topBar: {
@@ -542,25 +524,27 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
     borderRadius: '22px',
-    padding: '16px',
+    padding: '20px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
     marginBottom: '16px',
+    overflow: 'hidden',
   },
   sectionTitle: {
     fontSize: '22px',
     fontWeight: 800,
     color: '#0f172a',
-    marginBottom: '14px',
+    marginBottom: '16px',
   },
   formGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '12px',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '14px',
   },
   fieldWrap: {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
+    minWidth: 0,
   },
   label: {
     fontSize: '13px',
@@ -569,6 +553,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
+    minWidth: 0,
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
@@ -576,10 +561,11 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 14px',
     fontSize: '15px',
     outline: 'none',
+    boxSizing: 'border-box',
   },
   textarea: {
     width: '100%',
-    minHeight: '96px',
+    minHeight: '120px',
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
@@ -588,6 +574,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     outline: 'none',
     resize: 'vertical',
+    boxSizing: 'border-box',
   },
   actionRow: {
     display: 'flex',
@@ -633,12 +620,12 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     background: '#ffffff',
-    padding: '14px',
+    padding: '16px',
   },
   logHeader: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '12px',
+    gap: '16px',
     alignItems: 'flex-start',
     flexWrap: 'wrap',
   },
@@ -647,13 +634,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#0f172a',
     lineHeight: 1.2,
-    marginBottom: '6px',
+    marginBottom: '8px',
   },
   logMeta: {
     fontSize: '13px',
     color: '#64748b',
     fontWeight: 600,
-    marginTop: '2px',
+    marginTop: '3px',
   },
   logActions: {
     display: 'flex',
@@ -750,3 +737,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
   },
 };
+
