@@ -1440,6 +1440,18 @@ async function handleDeleteTask(taskId: string) {
     <span>Chambermaid Entry</span>
   </Link>
 ) : null}
+           
+           {(profile?.role === 'SUPERUSER' ||
+  profile?.role === 'MANAGER') ? (
+  <Link
+    href="/dashboard/laundry-count"
+    onClick={() => setSidebarOpen(false)}
+    style={sidebarItemStyle(false)}
+  >
+    <span>Laundry Count</span>
+  </Link>
+) : null}
+           
 </div>
           <div style={styles.sidebarDivider} />
 
