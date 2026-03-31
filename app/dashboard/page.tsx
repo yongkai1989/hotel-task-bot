@@ -1462,6 +1462,17 @@ async function handleDeleteTask(taskId: string) {
     <span>Stock Card</span>
   </Link>
 ) : null}
+
+           {(profile?.role === 'SUPERUSER' ||
+  profile?.role === 'MANAGER') ? (
+  <Link
+    href="/dashboard/damaged"
+    onClick={() => setSidebarOpen(false)}
+    style={sidebarItemStyle(false)}
+  >
+    <span>Damaged</span>
+  </Link>
+) : null}
            
 </div>
           <div style={styles.sidebarDivider} />
