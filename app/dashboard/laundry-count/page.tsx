@@ -67,10 +67,7 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
   2: [3, 5, 6, 7],
 };
 
-const ITEM_DEFS: Array<{
-  key: keyof LinenTotals;
-  label: string;
-}> = [
+const ITEM_DEFS: Array<{ key: keyof LinenTotals; label: string }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
   { key: 'pillow_case', label: 'Pillow Case' },
   { key: 'bath_towel', label: 'Bath Towel' },
@@ -140,12 +137,8 @@ function formatDiff(value: number) {
 }
 
 function diffStyle(value: number): React.CSSProperties {
-  if (value > 0) {
-    return { color: '#b45309', fontWeight: 800 };
-  }
-  if (value < 0) {
-    return { color: '#b91c1c', fontWeight: 800 };
-  }
+  if (value > 0) return { color: '#b45309', fontWeight: 800 };
+  if (value < 0) return { color: '#b91c1c', fontWeight: 800 };
   return { color: '#166534', fontWeight: 800 };
 }
 
@@ -214,7 +207,7 @@ export default function LaundryCountPage() {
       }
     }
 
-    bootstrap();
+    void bootstrap();
 
     return () => {
       mounted = false;
@@ -244,16 +237,9 @@ export default function LaundryCountPage() {
         setErrorMsg('');
 
         const supabase = getSupabaseSafe();
-        if (!supabase) {
-          throw new Error('Supabase is not configured.');
-        }
+        if (!supabase) throw new Error('Supabase is not configured.');
 
-        const [
-          roomRes,
-          statusRes,
-          entryRes,
-          mapRes,
-        ] = await Promise.all([
+        const [roomRes, statusRes, entryRes, mapRes] = await Promise.all([
           supabase
             .from('room_master')
             .select('room_number, block_no, floor_no, room_type')
@@ -347,9 +333,7 @@ export default function LaundryCountPage() {
       const isDnd = Boolean(entry?.is_dnd);
 
       const expectedForRoom = zeroTotals();
-      if (!isDnd && roomTypeMap) {
-        addTotals(expectedForRoom, roomTypeMap);
-      }
+      if (!isDnd && roomTypeMap) addTotals(expectedForRoom, roomTypeMap);
 
       const actualForRoom = zeroTotals();
       if (entry && !isDnd) {
@@ -484,39 +468,19 @@ export default function LaundryCountPage() {
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
         <div style={styles.summaryRow}>
-          <div
-            style={{
-              ...styles.summaryCard,
-              borderTop: `4px solid ${summaryCardAccent(0)}`,
-            }}
-          >
+          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(0)}` }}>
             <div style={styles.summaryLabel}>Rooms to Service</div>
             <div style={styles.summaryValue}>{data.grandSummary.roomCount}</div>
           </div>
-          <div
-            style={{
-              ...styles.summaryCard,
-              borderTop: `4px solid ${summaryCardAccent(1)}`,
-            }}
-          >
+          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(1)}` }}>
             <div style={styles.summaryLabel}>DND Rooms</div>
             <div style={styles.summaryValue}>{data.grandSummary.dndCount}</div>
           </div>
-          <div
-            style={{
-              ...styles.summaryCard,
-              borderTop: `4px solid ${summaryCardAccent(2)}`,
-            }}
-          >
+          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(2)}` }}>
             <div style={styles.summaryLabel}>Floors Active</div>
             <div style={styles.summaryValue}>{data.floorGroups.length}</div>
           </div>
-          <div
-            style={{
-              ...styles.summaryCard,
-              borderTop: `4px solid ${summaryCardAccent(3)}`,
-            }}
-          >
+          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(3)}` }}>
             <div style={styles.summaryLabel}>Blocks Active</div>
             <div style={styles.summaryValue}>{data.blockGroups.length}</div>
           </div>
@@ -577,32 +541,31 @@ function GroupCard({ group }: { group: GroupSummary }) {
         </div>
       </div>
 
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.thLeft}>Item</th>
-              <th style={styles.th}>Expected</th>
-              <th style={styles.th}>Actual</th>
-              <th style={styles.th}>Difference</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ITEM_DEFS.map((item) => {
-              const diffValue = group.difference[item.key];
-              return (
-                <tr key={item.key}>
-                  <td style={styles.tdLeft}>{item.label}</td>
-                  <td style={styles.td}>{group.expected[item.key]}</td>
-                  <td style={styles.td}>{group.actual[item.key]}</td>
-                  <td style={{ ...styles.td, ...diffStyle(diffValue) }}>
+      <div style={styles.itemList}>
+        {ITEM_DEFS.map((item) => {
+          const diffValue = group.difference[item.key];
+          return (
+            <div key={item.key} style={styles.itemRowCard}>
+              <div style={styles.itemName}>{item.label}</div>
+              <div style={styles.valueGrid}>
+                <div style={styles.valueBox}>
+                  <div style={styles.valueLabel}>Expected</div>
+                  <div style={styles.valueNumber}>{group.expected[item.key]}</div>
+                </div>
+                <div style={styles.valueBox}>
+                  <div style={styles.valueLabel}>Actual</div>
+                  <div style={styles.valueNumber}>{group.actual[item.key]}</div>
+                </div>
+                <div style={styles.valueBox}>
+                  <div style={styles.valueLabel}>Difference</div>
+                  <div style={{ ...styles.valueNumber, ...diffStyle(diffValue) }}>
                     {formatDiff(diffValue)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </article>
   );
@@ -651,7 +614,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '16px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
     marginBottom: '16px',
-    overflowX: 'hidden',
+    overflow: 'hidden',
   },
   sectionTitle: {
     fontSize: '22px',
@@ -686,7 +649,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   groupGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
     gap: '14px',
   },
   groupCard: {
@@ -694,14 +657,13 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '18px',
     background: '#ffffff',
     padding: '14px',
-    overflowX: 'hidden',
   },
   groupHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '12px',
     alignItems: 'center',
-    marginBottom: '10px',
+    marginBottom: '12px',
   },
   groupTitle: {
     fontSize: '20px',
@@ -715,51 +677,49 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '4px',
     fontWeight: 600,
   },
-  tableWrap: {
-    width: '100%',
-    overflowX: 'auto',
-    WebkitOverflowScrolling: 'touch',
+  itemList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
   },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    minWidth: '520px',
+  itemRowCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '16px',
+    padding: '12px',
+    background: '#f8fafc',
   },
-  thLeft: {
-    textAlign: 'left',
-    padding: '10px 8px',
-    fontSize: '12px',
+  itemName: {
+    fontSize: '16px',
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: '10px',
+  },
+  valueGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '10px',
+  },
+  valueBox: {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '12px',
+    padding: '10px',
+    minWidth: 0,
+  },
+  valueLabel: {
+    fontSize: '11px',
     color: '#64748b',
     fontWeight: 800,
-    borderBottom: '1px solid #e2e8f0',
-    whiteSpace: 'nowrap',
+    marginBottom: '6px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
   },
-  th: {
-    textAlign: 'center',
-    padding: '10px 8px',
-    fontSize: '12px',
-    color: '#64748b',
+  valueNumber: {
+    fontSize: '22px',
     fontWeight: 800,
-    borderBottom: '1px solid #e2e8f0',
-    whiteSpace: 'nowrap',
-  },
-  tdLeft: {
-    textAlign: 'left',
-    padding: '12px 8px',
-    fontSize: '14px',
     color: '#0f172a',
-    fontWeight: 700,
-    borderBottom: '1px solid #f1f5f9',
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    textAlign: 'center',
-    padding: '12px 8px',
-    fontSize: '14px',
-    color: '#0f172a',
-    fontWeight: 700,
-    borderBottom: '1px solid #f1f5f9',
-    whiteSpace: 'nowrap',
+    lineHeight: 1.1,
+    wordBreak: 'break-word',
   },
   secondaryBtn: {
     display: 'inline-flex',
