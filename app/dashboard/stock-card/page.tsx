@@ -30,7 +30,7 @@ type DamageRow = {
   qty: number;
 };
 
-type ViewMode = 'OVERALL' | 'FLOOR';
+type ViewMode = 'OVERALL' | 'FLOOR' | 'SUPERVISOR_STORE';
 
 type StockItem = {
   linenType: string;
@@ -97,7 +97,8 @@ export default function StockCardPage() {
 
   const [linenStock, setLinenStock] = useState<LinenStockRow[]>([]);
   const [floorStock, setFloorStock] = useState<LinenFloorStockRow[]>([]);
-  const [draftFloorQty, setDraftFloorQty] = useState<Record<string, number>>({});
+  const [draftFloorQty, setDraftFloorQty] = useState<Record<string, string>>({});
+  const [draftSupervisorStoreQty, setDraftSupervisorStoreQty] = useState<Record<string, string>>({});
   const [damageRows, setDamageRows] = useState<DamageRow[]>([]);
 
   useEffect(() => {
@@ -199,19 +200,26 @@ export default function StockCardPage() {
       setDamageRows(damage);
 
       const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
-      const draft: Record<string, number> = {};
+      const nextDraftFloor: Record<string, string> = {};
+      const nextSupervisorStoreDraft: Record<string, string> = {};
 
       floorRows
         .filter((row) => row.block_no === selectedFloor.block && row.floor_no === selectedFloor.floor)
         .forEach((row) => {
-          draft[row.linen_type] = safeNumber(row.qty);
+          nextDraftFloor[row.linen_type] = String(safeNumber(row.qty));
         });
 
-      LINEN_TYPES.forEach((type) => {
-        if (typeof draft[type] === 'undefined') draft[type] = 0;
+      stockRows.forEach((row) => {
+        nextSupervisorStoreDraft[row.linen_type] = String(safeNumber(row.floor_store_stock));
       });
 
-      setDraftFloorQty(draft);
+      LINEN_TYPES.forEach((type) => {
+        if (typeof nextDraftFloor[type] === 'undefined') nextDraftFloor[type] = '0';
+        if (typeof nextSupervisorStoreDraft[type] === 'undefined') nextSupervisorStoreDraft[type] = '0';
+      });
+
+      setDraftFloorQty(nextDraftFloor);
+      setDraftSupervisorStoreQty(nextSupervisorStoreDraft);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load stock card');
     } finally {
@@ -230,19 +238,19 @@ export default function StockCardPage() {
 
   useEffect(() => {
     const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
-    const draft: Record<string, number> = {};
+    const nextDraft: Record<string, string> = {};
 
     floorStock
       .filter((row) => row.block_no === selectedFloor.block && row.floor_no === selectedFloor.floor)
       .forEach((row) => {
-        draft[row.linen_type] = safeNumber(row.qty);
+        nextDraft[row.linen_type] = String(safeNumber(row.qty));
       });
 
     LINEN_TYPES.forEach((type) => {
-      if (typeof draft[type] === 'undefined') draft[type] = 0;
+      if (typeof nextDraft[type] === 'undefined') nextDraft[type] = '0';
     });
 
-    setDraftFloorQty(draft);
+    setDraftFloorQty(nextDraft);
   }, [selectedFloorKey, floorStock]);
 
   const stockItems = useMemo(() => {
@@ -270,10 +278,11 @@ export default function StockCardPage() {
       const inRoomPar = safeNumber(stockRow?.in_room_par);
       const contractorStock = safeNumber(stockRow?.contractor_stock);
       const damaged = safeNumber(damageMap.get(linenType));
-      const floorValue =
-        viewMode === 'OVERALL'
-          ? safeNumber(overallFloorMap.get(linenType))
-          : safeNumber(selectedFloorMap.get(linenType));
+
+      let floorValue = 0;
+      if (viewMode === 'OVERALL') floorValue = safeNumber(overallFloorMap.get(linenType));
+      if (viewMode === 'FLOOR') floorValue = safeNumber(selectedFloorMap.get(linenType));
+      if (viewMode === 'SUPERVISOR_STORE') floorValue = safeNumber(stockRow?.floor_store_stock);
 
       const totalUsable = Math.max(0, inRoomPar + floorValue + contractorStock - damaged);
       const threeParTarget = inRoomPar * 3;
@@ -296,6 +305,7 @@ export default function StockCardPage() {
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
+    if (viewMode === 'SUPERVISOR_STORE') return 'Supervisor Store';
     return FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey)?.label || 'Selected Floor';
   }, [viewMode, selectedFloorKey]);
 
@@ -317,7 +327,7 @@ export default function StockCardPage() {
         block_no: selectedFloor.block,
         floor_no: selectedFloor.floor,
         linen_type: linenType,
-        qty: safeNumber(draftFloorQty[linenType]),
+        qty: Math.max(0, safeNumber(draftFloorQty[linenType])),
       }));
 
       const { error } = await supabase
@@ -337,11 +347,64 @@ export default function StockCardPage() {
     }
   }
 
-  function changeDraftQty(linenType: string, delta: number) {
-    setDraftFloorQty((prev) => ({
-      ...prev,
-      [linenType]: Math.max(0, safeNumber(prev[linenType]) + delta),
-    }));
+  async function saveSupervisorStore() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const rows = LINEN_TYPES.map((linenType) => ({
+        linen_type: linenType,
+        floor_store_stock: Math.max(0, safeNumber(draftSupervisorStoreQty[linenType])),
+      }));
+
+      const { error } = await supabase
+        .from('linen_stock')
+        .upsert(rows, {
+          onConflict: 'linen_type',
+        });
+
+      if (error) throw error;
+
+      setSuccessMsg('Saved Supervisor Store.');
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save Supervisor Store');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function renderEditableField(
+    linenType: string,
+    value: string,
+    onChange: (value: string) => void
+  ) {
+    return (
+      <input
+        type="number"
+        min="0"
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === '') {
+            onChange('');
+            return;
+          }
+          const clean = String(Math.max(0, safeNumber(next)));
+          onChange(clean);
+        }}
+        style={styles.numberInput}
+        disabled={saving}
+      />
+    );
   }
 
   if (authLoading) {
@@ -425,6 +488,17 @@ export default function StockCardPage() {
             >
               By Floor
             </button>
+
+            <button
+              type="button"
+              onClick={() => setViewMode('SUPERVISOR_STORE')}
+              style={{
+                ...styles.modeBtn,
+                ...(viewMode === 'SUPERVISOR_STORE' ? styles.modeBtnActive : {}),
+              }}
+            >
+              Supervisor Store
+            </button>
           </div>
 
           {viewMode === 'FLOOR' ? (
@@ -467,32 +541,35 @@ export default function StockCardPage() {
 
                   <div style={styles.metricRow}>
                     <span style={styles.metricLabel}>
-                      {viewMode === 'OVERALL' ? 'Floor Stock Total' : 'Selected Floor Stock'}
+                      {viewMode === 'OVERALL'
+                        ? 'Floor Stock Total'
+                        : viewMode === 'SUPERVISOR_STORE'
+                        ? 'Supervisor Store'
+                        : 'Selected Floor Stock'}
                     </span>
+
                     {viewMode === 'OVERALL' ? (
                       <span style={styles.metricValue}>{item.floorStock}</span>
+                    ) : viewMode === 'FLOOR' ? (
+                      renderEditableField(
+                        item.linenType,
+                        draftFloorQty[item.linenType] ?? '0',
+                        (value) =>
+                          setDraftFloorQty((prev) => ({
+                            ...prev,
+                            [item.linenType]: value,
+                          }))
+                      )
                     ) : (
-                      <div style={styles.stepperWrap}>
-                        <button
-                          type="button"
-                          onClick={() => changeDraftQty(item.linenType, -1)}
-                          style={styles.stepBtn}
-                          disabled={saving}
-                        >
-                          -
-                        </button>
-                        <span style={styles.stepValue}>
-                          {safeNumber(draftFloorQty[item.linenType])}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => changeDraftQty(item.linenType, 1)}
-                          style={styles.stepBtn}
-                          disabled={saving}
-                        >
-                          +
-                        </button>
-                      </div>
+                      renderEditableField(
+                        item.linenType,
+                        draftSupervisorStoreQty[item.linenType] ?? '0',
+                        (value) =>
+                          setDraftSupervisorStoreQty((prev) => ({
+                            ...prev,
+                            [item.linenType]: value,
+                          }))
+                      )
                     )}
                   </div>
 
@@ -538,7 +615,23 @@ export default function StockCardPage() {
                   opacity: saving || loading ? 0.6 : 1,
                 }}
               >
-                {saving ? 'Saving...' : 'Save Floor Stock'}
+                {saving ? 'Saving...' : 'Save Floor'}
+              </button>
+            </div>
+          ) : null}
+
+          {viewMode === 'SUPERVISOR_STORE' ? (
+            <div style={styles.saveRow}>
+              <button
+                type="button"
+                onClick={saveSupervisorStore}
+                disabled={saving || loading}
+                style={{
+                  ...styles.primaryBtn,
+                  opacity: saving || loading ? 0.6 : 1,
+                }}
+              >
+                {saving ? 'Saving...' : 'Save Store'}
               </button>
             </div>
           ) : null}
@@ -667,33 +760,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     color: '#64748b',
     fontWeight: 700,
+    flex: 1,
   },
   metricValue: {
     fontSize: '22px',
     color: '#0f172a',
     fontWeight: 800,
   },
-  stepperWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  stepBtn: {
-    width: '34px',
-    height: '34px',
-    borderRadius: '10px',
+  numberInput: {
+    width: '96px',
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    fontSize: '18px',
     fontWeight: 800,
-    cursor: 'pointer',
-  },
-  stepValue: {
-    minWidth: '34px',
-    textAlign: 'center',
-    fontSize: '20px',
-    fontWeight: 800,
-    color: '#0f172a',
+    textAlign: 'right' as const,
+    outline: 'none',
   },
   saveRow: {
     display: 'flex',
