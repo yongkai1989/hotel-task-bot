@@ -3235,3 +3235,4 @@ deleteTaskBtn: {
     fontWeight: 700,
   },
 };
+
