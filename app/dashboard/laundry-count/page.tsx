@@ -62,6 +62,8 @@ type GroupSummary = {
   dndCount: number;
 };
 
+type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND_TOTAL';
+
 const FLOORS_BY_BLOCK: Record<number, number[]> = {
   1: [1, 2, 3, 5],
   2: [3, 5, 6, 7],
@@ -142,16 +144,12 @@ function diffStyle(value: number): React.CSSProperties {
   return { color: '#166534', fontWeight: 800 };
 }
 
-function summaryCardAccent(index: number) {
-  const accents = ['#0f172a', '#166534', '#b45309', '#1d4ed8'];
-  return accents[index % accents.length];
-}
-
 export default function LaundryCountPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
 
   const [rooms, setRooms] = useState<RoomMasterRow[]>([]);
   const [statuses, setStatuses] = useState<StatusRow[]>([]);
@@ -237,7 +235,9 @@ export default function LaundryCountPage() {
         setErrorMsg('');
 
         const supabase = getSupabaseSafe();
-        if (!supabase) throw new Error('Supabase is not configured.');
+        if (!supabase) {
+          throw new Error('Supabase is not configured.');
+        }
 
         const [roomRes, statusRes, entryRes, mapRes] = await Promise.all([
           supabase
@@ -333,7 +333,9 @@ export default function LaundryCountPage() {
       const isDnd = Boolean(entry?.is_dnd);
 
       const expectedForRoom = zeroTotals();
-      if (!isDnd && roomTypeMap) addTotals(expectedForRoom, roomTypeMap);
+      if (!isDnd && roomTypeMap) {
+        addTotals(expectedForRoom, roomTypeMap);
+      }
 
       const actualForRoom = zeroTotals();
       if (entry && !isDnd) {
@@ -409,6 +411,15 @@ export default function LaundryCountPage() {
     };
   }, [rooms, statuses, entries, linenMap]);
 
+  const visibleGroups = useMemo(() => {
+    if (viewMode === 'FLOOR') return data.floorGroups;
+    if (viewMode === 'BLOCK') return data.blockGroups;
+    return [data.grandSummary];
+  }, [data, viewMode]);
+
+  const currentHeading =
+    viewMode === 'FLOOR' ? 'By Floor' : viewMode === 'BLOCK' ? 'By Block' : 'Grand Total';
+
   if (authLoading) {
     return (
       <main style={styles.page}>
@@ -468,62 +479,63 @@ export default function LaundryCountPage() {
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
         <div style={styles.summaryRow}>
-          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(0)}` }}>
+          <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Rooms to Service</div>
             <div style={styles.summaryValue}>{data.grandSummary.roomCount}</div>
           </div>
-          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(1)}` }}>
+          <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>DND Rooms</div>
             <div style={styles.summaryValue}>{data.grandSummary.dndCount}</div>
           </div>
-          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(2)}` }}>
+          <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Floors Active</div>
             <div style={styles.summaryValue}>{data.floorGroups.length}</div>
           </div>
-          <div style={{ ...styles.summaryCard, borderTop: `4px solid ${summaryCardAccent(3)}` }}>
+          <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Blocks Active</div>
             <div style={styles.summaryValue}>{data.blockGroups.length}</div>
           </div>
         </div>
 
-        {loading ? (
-          <div style={styles.panel}>
-            <div style={styles.emptyState}>Loading laundry count...</div>
+        <section style={styles.panel}>
+          <div style={styles.toggleRow}>
+            <button
+              type="button"
+              onClick={() => setViewMode('FLOOR')}
+              style={{ ...styles.toggleBtn, ...(viewMode === 'FLOOR' ? styles.toggleBtnActive : {}) }}
+            >
+              By Floor
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('BLOCK')}
+              style={{ ...styles.toggleBtn, ...(viewMode === 'BLOCK' ? styles.toggleBtnActive : {}) }}
+            >
+              By Block
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('GRAND_TOTAL')}
+              style={{ ...styles.toggleBtn, ...(viewMode === 'GRAND_TOTAL' ? styles.toggleBtnActive : {}) }}
+            >
+              Grand Total
+            </button>
           </div>
-        ) : (
-          <>
-            <section style={styles.panel}>
-              <div style={styles.sectionTitle}>By Floor</div>
-              {data.floorGroups.length === 0 ? (
-                <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
-              ) : (
-                <div style={styles.groupGrid}>
-                  {data.floorGroups.map((group) => (
-                    <GroupCard key={group.label} group={group} />
-                  ))}
-                </div>
-              )}
-            </section>
 
-            <section style={styles.panel}>
-              <div style={styles.sectionTitle}>By Block</div>
-              {data.blockGroups.length === 0 ? (
-                <div style={styles.emptyState}>No active blocks for today yet.</div>
-              ) : (
-                <div style={styles.groupGrid}>
-                  {data.blockGroups.map((group) => (
-                    <GroupCard key={group.label} group={group} />
-                  ))}
-                </div>
-              )}
-            </section>
+          <div style={styles.sectionTitle}>{currentHeading}</div>
 
-            <section style={styles.panel}>
-              <div style={styles.sectionTitle}>Grand Total</div>
-              <GroupCard group={data.grandSummary} />
-            </section>
-          </>
-        )}
+          {loading ? (
+            <div style={styles.emptyState}>Loading laundry count...</div>
+          ) : visibleGroups.length === 0 ? (
+            <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
+          ) : (
+            <div style={styles.groupGrid}>
+              {visibleGroups.map((group) => (
+                <GroupCard key={group.label} group={group} />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
@@ -545,22 +557,20 @@ function GroupCard({ group }: { group: GroupSummary }) {
         {ITEM_DEFS.map((item) => {
           const diffValue = group.difference[item.key];
           return (
-            <div key={item.key} style={styles.itemRowCard}>
-              <div style={styles.itemName}>{item.label}</div>
-              <div style={styles.valueGrid}>
-                <div style={styles.valueBox}>
-                  <div style={styles.valueLabel}>Expected</div>
-                  <div style={styles.valueNumber}>{group.expected[item.key]}</div>
+            <div key={item.key} style={styles.itemCard}>
+              <div style={styles.itemTitle}>{item.label}</div>
+              <div style={styles.metricRow}>
+                <div style={styles.metricBox}>
+                  <div style={styles.metricLabel}>Expected</div>
+                  <div style={styles.metricValue}>{group.expected[item.key]}</div>
                 </div>
-                <div style={styles.valueBox}>
-                  <div style={styles.valueLabel}>Actual</div>
-                  <div style={styles.valueNumber}>{group.actual[item.key]}</div>
+                <div style={styles.metricBox}>
+                  <div style={styles.metricLabel}>Actual</div>
+                  <div style={styles.metricValue}>{group.actual[item.key]}</div>
                 </div>
-                <div style={styles.valueBox}>
-                  <div style={styles.valueLabel}>Difference</div>
-                  <div style={{ ...styles.valueNumber, ...diffStyle(diffValue) }}>
-                    {formatDiff(diffValue)}
-                  </div>
+                <div style={styles.metricBox}>
+                  <div style={styles.metricLabel}>Difference</div>
+                  <div style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>{formatDiff(diffValue)}</div>
                 </div>
               </div>
             </div>
@@ -579,7 +589,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   shell: {
     width: '100%',
-    maxWidth: '1180px',
+    maxWidth: '1080px',
     margin: '0 auto',
   },
   topBar: {
@@ -614,7 +624,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '16px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
     marginBottom: '16px',
-    overflow: 'hidden',
   },
   sectionTitle: {
     fontSize: '22px',
@@ -647,9 +656,29 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     lineHeight: 1,
   },
+  toggleRow: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+    marginBottom: '16px',
+  },
+  toggleBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '999px',
+    padding: '10px 16px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  toggleBtnActive: {
+    background: '#0f172a',
+    color: '#ffffff',
+    borderColor: '#0f172a',
+  },
   groupGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gridTemplateColumns: '1fr',
     gap: '14px',
   },
   groupCard: {
@@ -659,10 +688,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '14px',
   },
   groupHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'center',
     marginBottom: '12px',
   },
   groupTitle: {
@@ -678,48 +703,44 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
   },
   itemList: {
-    display: 'flex',
-    flexDirection: 'column',
+    display: 'grid',
     gap: '10px',
   },
-  itemRowCard: {
+  itemCard: {
     border: '1px solid #e2e8f0',
     borderRadius: '16px',
     padding: '12px',
     background: '#f8fafc',
   },
-  itemName: {
-    fontSize: '16px',
+  itemTitle: {
+    fontSize: '18px',
     fontWeight: 800,
     color: '#0f172a',
     marginBottom: '10px',
   },
-  valueGrid: {
+  metricRow: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     gap: '10px',
   },
-  valueBox: {
+  metricBox: {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
-    borderRadius: '12px',
+    borderRadius: '14px',
     padding: '10px',
-    minWidth: 0,
+    textAlign: 'center',
   },
-  valueLabel: {
-    fontSize: '11px',
+  metricLabel: {
+    fontSize: '12px',
     color: '#64748b',
-    fontWeight: 800,
+    fontWeight: 700,
     marginBottom: '6px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.04em',
   },
-  valueNumber: {
-    fontSize: '22px',
-    fontWeight: 800,
+  metricValue: {
+    fontSize: '24px',
     color: '#0f172a',
-    lineHeight: 1.1,
-    wordBreak: 'break-word',
+    fontWeight: 800,
+    lineHeight: 1,
   },
   secondaryBtn: {
     display: 'inline-flex',
