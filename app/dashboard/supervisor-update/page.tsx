@@ -19,11 +19,6 @@ type RoomRow = {
   is_active: boolean;
 };
 
-type RoomStatusRow = {
-  room_number: string;
-  status: 'VACANT' | 'CHECKOUT' | 'STAYOVER';
-};
-
 type StatusValue = 'VACANT' | 'CHECKOUT' | 'STAYOVER';
 
 const BLOCKS = [1, 2];
@@ -160,8 +155,7 @@ export default function SupervisorUpdatePage() {
           user_id: userId,
           email: profileRow?.email || email,
           name: profileRow?.name || email || 'User',
-          role: (profileRow?.role ||
-            'HK') as DashboardUser['role'],
+          role: (profileRow?.role || 'HK') as DashboardUser['role'],
         };
 
         if (!mounted) return;
@@ -214,22 +208,25 @@ export default function SupervisorUpdatePage() {
 
       if (roomError) throw roomError;
 
-      const { data: statusRows, error: statusError } = await supabase
-        .from('linen_room_status')
-        .select('room_number, status')
-        .eq('service_date', serviceDate)
-        .in(
-          'room_number',
-          (roomRows || []).map((r: any) => r.room_number)
-        );
+      const roomNumbers = (roomRows || []).map((r: any) => r.room_number);
+      let statusRows: any[] = [];
 
-      if (statusError) throw statusError;
+      if (roomNumbers.length > 0) {
+        const { data, error: statusError } = await supabase
+          .from('linen_room_status')
+          .select('room_number, status')
+          .eq('service_date', serviceDate)
+          .in('room_number', roomNumbers);
+
+        if (statusError) throw statusError;
+        statusRows = data || [];
+      }
 
       const nextStatusMap: Record<string, StatusValue> = {};
       (roomRows || []).forEach((room: any) => {
         nextStatusMap[room.room_number] = 'VACANT';
       });
-      (statusRows || []).forEach((row: any) => {
+      statusRows.forEach((row: any) => {
         nextStatusMap[row.room_number] =
           (row.status as StatusValue) || 'VACANT';
       });
@@ -256,33 +253,73 @@ export default function SupervisorUpdatePage() {
     void loadFloorData(selectedBlock, selectedFloor);
   }, [profile, canAccess, selectedBlock, selectedFloor, serviceDate]);
 
-  function handleTileClick(roomNumber: string) {
+  async function handleTileClick(roomNumber: string) {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    if (!profile?.user_id) {
+      setErrorMsg('User not found.');
+      return;
+    }
+
+    const currentStatus = statusMap[roomNumber] || 'VACANT';
+    const newStatus = nextStatus(currentStatus);
+
     setStatusMap((prev) => ({
       ...prev,
-      [roomNumber]: nextStatus(prev[roomNumber] || 'VACANT'),
+      [roomNumber]: newStatus,
     }));
+
+    setSaving(true);
+    setErrorMsg('');
     setSuccessMsg('');
+
+    try {
+      if (newStatus === 'VACANT') {
+        const { error } = await supabase
+          .from('linen_room_status')
+          .delete()
+          .eq('service_date', serviceDate)
+          .eq('room_number', roomNumber);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('linen_room_status')
+          .upsert(
+            [
+              {
+                service_date: serviceDate,
+                room_number: roomNumber,
+                status: newStatus,
+                updated_by_user_id: profile.user_id,
+                updated_by_name: profile.name || profile.email,
+              },
+            ],
+            {
+              onConflict: 'service_date,room_number',
+            }
+          );
+
+        if (error) throw error;
+      }
+
+      setSuccessMsg(`Saved ${roomNumber} as ${statusLabel(newStatus)}.`);
+    } catch (err: any) {
+      setStatusMap((prev) => ({
+        ...prev,
+        [roomNumber]: currentStatus,
+      }));
+      setErrorMsg(err?.message || `Failed to save ${roomNumber}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function markAllCheckout() {
-    const nextMap: Record<string, StatusValue> = {};
-    rooms.forEach((room) => {
-      nextMap[room.room_number] = 'CHECKOUT';
-    });
-    setStatusMap(nextMap);
-    setSuccessMsg('');
-  }
-
-  function clearFloor() {
-    const nextMap: Record<string, StatusValue> = {};
-    rooms.forEach((room) => {
-      nextMap[room.room_number] = 'VACANT';
-    });
-    setStatusMap(nextMap);
-    setSuccessMsg('');
-  }
-
-  async function saveFloor() {
+  async function markAllCheckout() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
       setErrorMsg('Supabase is not configured.');
@@ -299,45 +336,72 @@ export default function SupervisorUpdatePage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const activeRows = rooms
-        .map((room) => ({
+      const nextMap: Record<string, StatusValue> = {};
+      const rows = rooms.map((room) => {
+        nextMap[room.room_number] = 'CHECKOUT';
+        return {
           service_date: serviceDate,
           room_number: room.room_number,
-          status: statusMap[room.room_number] || 'VACANT',
+          status: 'CHECKOUT' as StatusValue,
           updated_by_user_id: profile.user_id,
           updated_by_name: profile.name || profile.email,
-        }))
-        .filter((row) => row.status !== 'VACANT');
+        };
+      });
 
-      const allRoomNumbers = rooms.map((r) => r.room_number);
-
-      if (allRoomNumbers.length > 0) {
-        const { error: deleteError } = await supabase
+      if (rows.length > 0) {
+        const { error } = await supabase
           .from('linen_room_status')
-          .delete()
-          .eq('service_date', serviceDate)
-          .in('room_number', allRoomNumbers);
-
-        if (deleteError) throw deleteError;
-      }
-
-      if (activeRows.length > 0) {
-        const { error: upsertError } = await supabase
-          .from('linen_room_status')
-          .upsert(activeRows, {
+          .upsert(rows, {
             onConflict: 'service_date,room_number',
           });
 
-        if (upsertError) throw upsertError;
+        if (error) throw error;
       }
 
+      setStatusMap(nextMap);
       setSuccessMsg(
-        `Saved ${rooms.length} room statuses for Block ${selectedBlock} Floor ${selectedFloor}.`
+        `Marked all rooms on Block ${selectedBlock} Floor ${selectedFloor} as Check Out.`
       );
-
-      await loadFloorData(selectedBlock, selectedFloor);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to save floor');
+      setErrorMsg(err?.message || 'Failed to mark all as check out');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearFloor() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const roomNumbers = rooms.map((room) => room.room_number);
+
+      if (roomNumbers.length > 0) {
+        const { error } = await supabase
+          .from('linen_room_status')
+          .delete()
+          .eq('service_date', serviceDate)
+          .in('room_number', roomNumbers);
+
+        if (error) throw error;
+      }
+
+      const nextMap: Record<string, StatusValue> = {};
+      rooms.forEach((room) => {
+        nextMap[room.room_number] = 'VACANT';
+      });
+
+      setStatusMap(nextMap);
+      setSuccessMsg(`Cleared Block ${selectedBlock} Floor ${selectedFloor}.`);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to clear floor');
     } finally {
       setSaving(false);
     }
@@ -388,23 +452,24 @@ export default function SupervisorUpdatePage() {
   }
 
   if (!canAccess) {
-  return (
-    <main style={styles.page}>
-      <div style={styles.centerCard}>
-        <div style={styles.centerTitle}>Access denied</div>
-        <p style={styles.centerText}>
-          Current role read by this page: <strong>{profile?.role || 'NONE'}</strong>
-        </p>
-        <p style={styles.centerText}>
-          Current email: <strong>{profile?.email || 'NONE'}</strong>
-        </p>
-        <Link href="/dashboard" style={styles.linkBtn}>
-          Back to Dashboard
-        </Link>
-      </div>
-    </main>
-  );
-}
+    return (
+      <main style={styles.page}>
+        <div style={styles.centerCard}>
+          <div style={styles.centerTitle}>Access denied</div>
+          <p style={styles.centerText}>
+            Current role read by this page:{' '}
+            <strong>{profile?.role || 'NONE'}</strong>
+          </p>
+          <p style={styles.centerText}>
+            Current email: <strong>{profile?.email || 'NONE'}</strong>
+          </p>
+          <Link href="/dashboard" style={styles.linkBtn}>
+            Back to Dashboard
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main style={styles.page}>
@@ -413,7 +478,8 @@ export default function SupervisorUpdatePage() {
           <div>
             <div style={styles.pageTitle}>Supervisor Update</div>
             <div style={styles.pageSubTitle}>
-              Service Date: {serviceDate} · {profile.name} ({profile.role})
+              Service Date: {serviceDate} · {profile.name} ({profile.role}){' '}
+              {saving ? '· Saving...' : ''}
             </div>
           </div>
 
@@ -421,17 +487,6 @@ export default function SupervisorUpdatePage() {
             <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
-            <button
-              type="button"
-              onClick={saveFloor}
-              disabled={saving || pageLoading || rooms.length === 0}
-              style={{
-                ...styles.primaryBtn,
-                opacity: saving || pageLoading || rooms.length === 0 ? 0.6 : 1,
-              }}
-            >
-              {saving ? 'Saving...' : 'Save Floor'}
-            </button>
           </div>
         </div>
 
@@ -480,8 +535,11 @@ export default function SupervisorUpdatePage() {
             <button
               type="button"
               onClick={markAllCheckout}
-              disabled={pageLoading || rooms.length === 0}
-              style={styles.checkoutBtn}
+              disabled={pageLoading || rooms.length === 0 || saving}
+              style={{
+                ...styles.checkoutBtn,
+                opacity: pageLoading || rooms.length === 0 || saving ? 0.6 : 1,
+              }}
             >
               Mark All as Check Out
             </button>
@@ -489,8 +547,11 @@ export default function SupervisorUpdatePage() {
             <button
               type="button"
               onClick={clearFloor}
-              disabled={pageLoading || rooms.length === 0}
-              style={styles.clearBtn}
+              disabled={pageLoading || rooms.length === 0 || saving}
+              style={{
+                ...styles.clearBtn,
+                opacity: pageLoading || rooms.length === 0 || saving ? 0.6 : 1,
+              }}
             >
               Clear This Floor
             </button>
@@ -543,8 +604,12 @@ export default function SupervisorUpdatePage() {
                   <button
                     key={room.room_number}
                     type="button"
-                    onClick={() => handleTileClick(room.room_number)}
-                    style={statusTileStyle(status)}
+                    onClick={() => void handleTileClick(room.room_number)}
+                    disabled={saving}
+                    style={{
+                      ...statusTileStyle(status),
+                      opacity: saving ? 0.75 : 1,
+                    }}
                   >
                     <div style={styles.roomNo}>{room.room_number}</div>
                     <div style={styles.roomType}>{room.room_type}</div>
@@ -644,15 +709,6 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
     flexWrap: 'wrap',
     marginBottom: '16px',
-  },
-  primaryBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-    cursor: 'pointer',
   },
   secondaryBtn: {
     display: 'inline-flex',
