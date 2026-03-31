@@ -14,7 +14,7 @@ type DashboardUser = {
 type LinenStockRow = {
   linen_type: string;
   in_room_par: number;
-  floor_store_stock: number;
+  floor_store_stock: number; // supervisor store
   contractor_stock: number;
 };
 
@@ -36,6 +36,7 @@ type StockItem = {
   linenType: string;
   inRoomPar: number;
   floorStock: number;
+  supervisorStore: number;
   contractorStock: number;
   damaged: number;
   totalUsable: number;
@@ -149,7 +150,7 @@ export default function StockCardPage() {
     void bootstrap();
 
     return () => {
-      mounted = false;
+      mounted = false
     };
   }, []);
 
@@ -277,14 +278,14 @@ export default function StockCardPage() {
 
       const inRoomPar = safeNumber(stockRow?.in_room_par);
       const contractorStock = safeNumber(stockRow?.contractor_stock);
+      const supervisorStore = safeNumber(stockRow?.floor_store_stock);
       const damaged = safeNumber(damageMap.get(linenType));
 
       let floorValue = 0;
       if (viewMode === 'OVERALL') floorValue = safeNumber(overallFloorMap.get(linenType));
       if (viewMode === 'FLOOR') floorValue = safeNumber(selectedFloorMap.get(linenType));
-      if (viewMode === 'SUPERVISOR_STORE') floorValue = safeNumber(stockRow?.floor_store_stock);
 
-      const totalUsable = Math.max(0, inRoomPar + floorValue + contractorStock - damaged);
+      const totalUsable = Math.max(0, inRoomPar + floorValue + supervisorStore + contractorStock - damaged);
       const threeParTarget = inRoomPar * 3;
       const shortfall = Math.max(0, threeParTarget - totalUsable);
 
@@ -292,6 +293,7 @@ export default function StockCardPage() {
         linenType,
         inRoomPar,
         floorStock: floorValue,
+        supervisorStore,
         contractorStock,
         damaged,
         totalUsable,
@@ -361,6 +363,8 @@ export default function StockCardPage() {
 
       const rows = LINEN_TYPES.map((linenType) => ({
         linen_type: linenType,
+        in_room_par: safeNumber(linenStock.find((row) => row.linen_type === linenType)?.in_room_par),
+        contractor_stock: safeNumber(linenStock.find((row) => row.linen_type === linenType)?.contractor_stock),
         floor_store_stock: Math.max(0, safeNumber(draftSupervisorStoreQty[linenType])),
       }));
 
@@ -382,7 +386,6 @@ export default function StockCardPage() {
   }
 
   function renderEditableField(
-    linenType: string,
     value: string,
     onChange: (value: string) => void
   ) {
@@ -398,8 +401,7 @@ export default function StockCardPage() {
             onChange('');
             return;
           }
-          const clean = String(Math.max(0, safeNumber(next)));
-          onChange(clean);
+          onChange(String(Math.max(0, safeNumber(next))));
         }}
         style={styles.numberInput}
         disabled={saving}
@@ -421,9 +423,7 @@ export default function StockCardPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Login required</div>
           <p style={styles.centerText}>Please log in first, then open this page again.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -434,12 +434,8 @@ export default function StockCardPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>
-            Only Supervisor, Manager, and Superuser can access Stock Card.
-          </p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <p style={styles.centerText}>Only Supervisor, Manager, and Superuser can access Stock Card.</p>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -451,15 +447,11 @@ export default function StockCardPage() {
         <div style={styles.topBar}>
           <div>
             <div style={styles.pageTitle}>Stock Card</div>
-            <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role})
-            </div>
+            <div style={styles.pageSubTitle}>{profile.name} ({profile.role})</div>
           </div>
 
           <div style={styles.topBarActions}>
-            <Link href="/dashboard" style={styles.secondaryBtn}>
-              Back to Dashboard
-            </Link>
+            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
@@ -470,10 +462,7 @@ export default function StockCardPage() {
             <button
               type="button"
               onClick={() => setViewMode('OVERALL')}
-              style={{
-                ...styles.modeBtn,
-                ...(viewMode === 'OVERALL' ? styles.modeBtnActive : {}),
-              }}
+              style={{ ...styles.modeBtn, ...(viewMode === 'OVERALL' ? styles.modeBtnActive : {}) }}
             >
               Overall
             </button>
@@ -481,10 +470,7 @@ export default function StockCardPage() {
             <button
               type="button"
               onClick={() => setViewMode('FLOOR')}
-              style={{
-                ...styles.modeBtn,
-                ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}),
-              }}
+              style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
             >
               By Floor
             </button>
@@ -492,10 +478,7 @@ export default function StockCardPage() {
             <button
               type="button"
               onClick={() => setViewMode('SUPERVISOR_STORE')}
-              style={{
-                ...styles.modeBtn,
-                ...(viewMode === 'SUPERVISOR_STORE' ? styles.modeBtnActive : {}),
-              }}
+              style={{ ...styles.modeBtn, ...(viewMode === 'SUPERVISOR_STORE' ? styles.modeBtnActive : {}) }}
             >
               Supervisor Store
             </button>
@@ -541,18 +524,13 @@ export default function StockCardPage() {
 
                   <div style={styles.metricRow}>
                     <span style={styles.metricLabel}>
-                      {viewMode === 'OVERALL'
-                        ? 'Floor Stock Total'
-                        : viewMode === 'SUPERVISOR_STORE'
-                        ? 'Supervisor Store'
-                        : 'Selected Floor Stock'}
+                      {viewMode === 'OVERALL' ? 'Floor Stock Total' : viewMode === 'FLOOR' ? 'Selected Floor Stock' : 'Supervisor Store'}
                     </span>
 
                     {viewMode === 'OVERALL' ? (
                       <span style={styles.metricValue}>{item.floorStock}</span>
                     ) : viewMode === 'FLOOR' ? (
                       renderEditableField(
-                        item.linenType,
                         draftFloorQty[item.linenType] ?? '0',
                         (value) =>
                           setDraftFloorQty((prev) => ({
@@ -562,7 +540,6 @@ export default function StockCardPage() {
                       )
                     ) : (
                       renderEditableField(
-                        item.linenType,
                         draftSupervisorStoreQty[item.linenType] ?? '0',
                         (value) =>
                           setDraftSupervisorStoreQty((prev) => ({
@@ -572,6 +549,13 @@ export default function StockCardPage() {
                       )
                     )}
                   </div>
+
+                  {viewMode === 'OVERALL' ? (
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Supervisor Store</span>
+                      <span style={styles.metricValue}>{item.supervisorStore}</span>
+                    </div>
+                  ) : null}
 
                   <div style={styles.metricRow}>
                     <span style={styles.metricLabel}>With Laundry Contractor</span>
@@ -610,10 +594,7 @@ export default function StockCardPage() {
                 type="button"
                 onClick={saveSelectedFloorStock}
                 disabled={saving || loading}
-                style={{
-                  ...styles.primaryBtn,
-                  opacity: saving || loading ? 0.6 : 1,
-                }}
+                style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
               >
                 {saving ? 'Saving...' : 'Save Floor'}
               </button>
@@ -626,10 +607,7 @@ export default function StockCardPage() {
                 type="button"
                 onClick={saveSupervisorStore}
                 disabled={saving || loading}
-                style={{
-                  ...styles.primaryBtn,
-                  opacity: saving || loading ? 0.6 : 1,
-                }}
+                style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
               >
                 {saving ? 'Saving...' : 'Save Store'}
               </button>
