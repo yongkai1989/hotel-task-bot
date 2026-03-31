@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
+import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
 type DashboardUser = {
   user_id?: string;
