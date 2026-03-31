@@ -361,7 +361,7 @@ export default function DashboardPage() {
         created_at: task.created_at,
         done_at: task.done_at || null,
         done_by_name: task.done_by_name || null,
-        last_d_by_name: task.last_d_by_name || null,
+        last_updated_by_name: task.last_updated_by_name || null,
         image_url: task.image_url || null,
         created_by_name: task.created_by_name || null,
         edited_at: task.edited_at || null,
