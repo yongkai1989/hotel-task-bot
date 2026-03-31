@@ -54,6 +54,7 @@ type LinenTotals = {
 };
 
 type GroupSummary = {
+  key: string;
   label: string;
   expected: LinenTotals;
   actual: LinenTotals;
@@ -62,14 +63,30 @@ type GroupSummary = {
   dndCount: number;
 };
 
-type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND_TOTAL';
+type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
 
 const FLOORS_BY_BLOCK: Record<number, number[]> = {
   1: [1, 2, 3, 5],
   2: [3, 5, 6, 7],
 };
 
-const ITEM_DEFS: Array<{ key: keyof LinenTotals; label: string }> = [
+const FLOOR_KEYS = [
+  'B1F1',
+  'B1F2',
+  'B1F3',
+  'B1F5',
+  'B2F3',
+  'B2F5',
+  'B2F6',
+  'B2F7',
+] as const;
+
+const BLOCK_KEYS = ['B1', 'B2'] as const;
+
+const ITEM_DEFS: Array<{
+  key: keyof LinenTotals;
+  label: string;
+}> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
   { key: 'pillow_case', label: 'Pillow Case' },
   { key: 'bath_towel', label: 'Bath Towel' },
@@ -144,17 +161,24 @@ function diffStyle(value: number): React.CSSProperties {
   return { color: '#166534', fontWeight: 800 };
 }
 
+function floorKey(blockNo: number, floorNo: number) {
+  return `B${blockNo}F${floorNo}`;
+}
+
 export default function LaundryCountPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
 
   const [rooms, setRooms] = useState<RoomMasterRow[]>([]);
   const [statuses, setStatuses] = useState<StatusRow[]>([]);
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [linenMap, setLinenMap] = useState<LinenMapRow[]>([]);
+
+  const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
+  const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
+  const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
 
   const serviceDate = getTodayLocalDateString();
 
@@ -164,9 +188,7 @@ export default function LaundryCountPage() {
     async function bootstrap() {
       try {
         const supabase = getSupabaseSafe();
-        if (!supabase) {
-          throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
-        }
+        if (!supabase) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
 
         const {
           data: { session },
@@ -235,9 +257,7 @@ export default function LaundryCountPage() {
         setErrorMsg('');
 
         const supabase = getSupabaseSafe();
-        if (!supabase) {
-          throw new Error('Supabase is not configured.');
-        }
+        if (!supabase) throw new Error('Supabase is not configured.');
 
         const [roomRes, statusRes, entryRes, mapRes] = await Promise.all([
           supabase
@@ -252,15 +272,11 @@ export default function LaundryCountPage() {
             .in('status', ['CHECKOUT', 'STAYOVER']),
           supabase
             .from('linen_room_entry')
-            .select(
-              'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'
-            )
+            .select('room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
             .eq('service_date', serviceDate),
           supabase
             .from('linen_room_type_map')
-            .select(
-              'room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'
-            ),
+            .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
         ]);
 
         if (roomRes.error) throw roomRes.error;
@@ -289,7 +305,7 @@ export default function LaundryCountPage() {
     };
   }, [profile, canAccess, serviceDate]);
 
-  const data = useMemo(() => {
+  const summaries = useMemo(() => {
     const roomByNumber = new Map<string, RoomMasterRow>();
     const mapByRoomType = new Map<string, LinenMapRow>();
     const entryByRoom = new Map<string, EntryRow>();
@@ -305,20 +321,39 @@ export default function LaundryCountPage() {
     let grandRoomCount = 0;
     let grandDndCount = 0;
 
-    function getOrCreateGroup(map: Map<string, GroupSummary>, label: string) {
-      const existing = map.get(label);
+    function getOrCreateFloorGroup(blockNo: number, floorNo: number) {
+      const key = floorKey(blockNo, floorNo);
+      const existing = floorGroups.get(key);
       if (existing) return existing;
 
       const next: GroupSummary = {
-        label,
+        key,
+        label: `Block ${blockNo} · Floor ${floorNo}`,
         expected: zeroTotals(),
         actual: zeroTotals(),
         difference: zeroTotals(),
         roomCount: 0,
         dndCount: 0,
       };
+      floorGroups.set(key, next);
+      return next;
+    }
 
-      map.set(label, next);
+    function getOrCreateBlockGroup(blockNo: number) {
+      const key = `B${blockNo}`;
+      const existing = blockGroups.get(key);
+      if (existing) return existing;
+
+      const next: GroupSummary = {
+        key,
+        label: `Block ${blockNo}`,
+        expected: zeroTotals(),
+        actual: zeroTotals(),
+        difference: zeroTotals(),
+        roomCount: 0,
+        dndCount: 0,
+      };
+      blockGroups.set(key, next);
       return next;
     }
 
@@ -333,9 +368,7 @@ export default function LaundryCountPage() {
       const isDnd = Boolean(entry?.is_dnd);
 
       const expectedForRoom = zeroTotals();
-      if (!isDnd && roomTypeMap) {
-        addTotals(expectedForRoom, roomTypeMap);
-      }
+      if (!isDnd && roomTypeMap) addTotals(expectedForRoom, roomTypeMap);
 
       const actualForRoom = zeroTotals();
       if (entry && !isDnd) {
@@ -349,11 +382,8 @@ export default function LaundryCountPage() {
         });
       }
 
-      const floorLabel = `Block ${room.block_no} · Floor ${room.floor_no}`;
-      const blockLabel = `Block ${room.block_no}`;
-
-      const floorGroup = getOrCreateGroup(floorGroups, floorLabel);
-      const blockGroup = getOrCreateGroup(blockGroups, blockLabel);
+      const floorGroup = getOrCreateFloorGroup(room.block_no, room.floor_no);
+      const blockGroup = getOrCreateBlockGroup(room.block_no);
 
       addTotals(floorGroup.expected, expectedForRoom);
       addTotals(floorGroup.actual, actualForRoom);
@@ -381,7 +411,16 @@ export default function LaundryCountPage() {
       group.difference = subtractTotals(group.actual, group.expected);
     });
 
-    const grandSummary: GroupSummary = {
+    const floorList = FLOOR_KEYS
+      .map((key) => floorGroups.get(key))
+      .filter(Boolean) as GroupSummary[];
+
+    const blockList = BLOCK_KEYS
+      .map((key) => blockGroups.get(key))
+      .filter(Boolean) as GroupSummary[];
+
+    const grand: GroupSummary = {
+      key: 'GRAND',
       label: 'Grand Total',
       expected: grandExpected,
       actual: grandActual,
@@ -390,35 +429,27 @@ export default function LaundryCountPage() {
       dndCount: grandDndCount,
     };
 
-    const orderedFloorGroups: GroupSummary[] = [];
-    Object.entries(FLOORS_BY_BLOCK).forEach(([blockStr, floors]) => {
-      const blockNo = Number(blockStr);
-      floors.forEach((floorNo) => {
-        const label = `Block ${blockNo} · Floor ${floorNo}`;
-        const group = floorGroups.get(label);
-        if (group) orderedFloorGroups.push(group);
-      });
-    });
-
-    const orderedBlockGroups: GroupSummary[] = [1, 2]
-      .map((blockNo) => blockGroups.get(`Block ${blockNo}`))
-      .filter(Boolean) as GroupSummary[];
-
-    return {
-      floorGroups: orderedFloorGroups,
-      blockGroups: orderedBlockGroups,
-      grandSummary,
-    };
+    return { floorList, blockList, grand };
   }, [rooms, statuses, entries, linenMap]);
 
-  const visibleGroups = useMemo(() => {
-    if (viewMode === 'FLOOR') return data.floorGroups;
-    if (viewMode === 'BLOCK') return data.blockGroups;
-    return [data.grandSummary];
-  }, [data, viewMode]);
+  useEffect(() => {
+    if (summaries.floorList.length > 0 && !summaries.floorList.find((g) => g.key === selectedFloorKey)) {
+      setSelectedFloorKey(summaries.floorList[0].key);
+    }
+    if (summaries.blockList.length > 0 && !summaries.blockList.find((g) => g.key === selectedBlockKey)) {
+      setSelectedBlockKey(summaries.blockList[0].key);
+    }
+  }, [summaries.floorList, summaries.blockList, selectedFloorKey, selectedBlockKey]);
 
-  const currentHeading =
-    viewMode === 'FLOOR' ? 'By Floor' : viewMode === 'BLOCK' ? 'By Block' : 'Grand Total';
+  const selectedSummary = useMemo(() => {
+    if (viewMode === 'FLOOR') {
+      return summaries.floorList.find((g) => g.key === selectedFloorKey) || summaries.floorList[0] || null;
+    }
+    if (viewMode === 'BLOCK') {
+      return summaries.blockList.find((g) => g.key === selectedBlockKey) || summaries.blockList[0] || null;
+    }
+    return summaries.grand;
+  }, [viewMode, selectedFloorKey, selectedBlockKey, summaries]);
 
   if (authLoading) {
     return (
@@ -434,9 +465,7 @@ export default function LaundryCountPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Login required</div>
           <p style={styles.centerText}>Please log in first, then open this page again.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -447,12 +476,8 @@ export default function LaundryCountPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>
-            Only Supervisor, Manager, and Superuser can access Laundry Count.
-          </p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <p style={styles.centerText}>Only Supervisor, Manager, and Superuser can access Laundry Count.</p>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -464,15 +489,10 @@ export default function LaundryCountPage() {
         <div style={styles.topBar}>
           <div>
             <div style={styles.pageTitle}>Laundry Count</div>
-            <div style={styles.pageSubTitle}>
-              Service Date: {serviceDate} · {profile.name} ({profile.role})
-            </div>
+            <div style={styles.pageSubTitle}>Service Date: {serviceDate} · {profile.name} ({profile.role})</div>
           </div>
-
           <div style={styles.topBarActions}>
-            <Link href="/dashboard" style={styles.secondaryBtn}>
-              Back to Dashboard
-            </Link>
+            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
@@ -481,103 +501,129 @@ export default function LaundryCountPage() {
         <div style={styles.summaryRow}>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Rooms to Service</div>
-            <div style={styles.summaryValue}>{data.grandSummary.roomCount}</div>
+            <div style={styles.summaryValue}>{summaries.grand.roomCount}</div>
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>DND Rooms</div>
-            <div style={styles.summaryValue}>{data.grandSummary.dndCount}</div>
+            <div style={styles.summaryValue}>{summaries.grand.dndCount}</div>
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Floors Active</div>
-            <div style={styles.summaryValue}>{data.floorGroups.length}</div>
+            <div style={styles.summaryValue}>{summaries.floorList.length}</div>
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Blocks Active</div>
-            <div style={styles.summaryValue}>{data.blockGroups.length}</div>
+            <div style={styles.summaryValue}>{summaries.blockList.length}</div>
           </div>
         </div>
 
         <section style={styles.panel}>
-          <div style={styles.toggleRow}>
+          <div style={styles.sectionTitle}>View</div>
+
+          <div style={styles.modeRow}>
             <button
               type="button"
               onClick={() => setViewMode('FLOOR')}
-              style={{ ...styles.toggleBtn, ...(viewMode === 'FLOOR' ? styles.toggleBtnActive : {}) }}
+              style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
             >
               By Floor
             </button>
             <button
               type="button"
               onClick={() => setViewMode('BLOCK')}
-              style={{ ...styles.toggleBtn, ...(viewMode === 'BLOCK' ? styles.toggleBtnActive : {}) }}
+              style={{ ...styles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
             >
               By Block
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('GRAND_TOTAL')}
-              style={{ ...styles.toggleBtn, ...(viewMode === 'GRAND_TOTAL' ? styles.toggleBtnActive : {}) }}
+              onClick={() => setViewMode('GRAND')}
+              style={{ ...styles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
             >
               Grand Total
             </button>
           </div>
 
-          <div style={styles.sectionTitle}>{currentHeading}</div>
-
-          {loading ? (
-            <div style={styles.emptyState}>Loading laundry count...</div>
-          ) : visibleGroups.length === 0 ? (
-            <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
-          ) : (
-            <div style={styles.groupGrid}>
-              {visibleGroups.map((group) => (
-                <GroupCard key={group.label} group={group} />
+          {viewMode === 'FLOOR' ? (
+            <div style={styles.selectorRow}>
+              {summaries.floorList.map((group) => (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => setSelectedFloorKey(group.key)}
+                  style={{
+                    ...styles.selectorBtn,
+                    ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}),
+                  }}
+                >
+                  {group.label}
+                </button>
               ))}
             </div>
-          )}
+          ) : null}
+
+          {viewMode === 'BLOCK' ? (
+            <div style={styles.selectorRow}>
+              {summaries.blockList.map((group) => (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => setSelectedBlockKey(group.key)}
+                  style={{
+                    ...styles.selectorBtn,
+                    ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}),
+                  }}
+                >
+                  {group.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </section>
+
+        {loading ? (
+          <section style={styles.panel}>
+            <div style={styles.emptyState}>Loading laundry count...</div>
+          </section>
+        ) : !selectedSummary ? (
+          <section style={styles.panel}>
+            <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
+          </section>
+        ) : (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>{selectedSummary.label}</div>
+            <div style={styles.groupMeta}>
+              Rooms: {selectedSummary.roomCount} · DND: {selectedSummary.dndCount}
+            </div>
+
+            <div style={styles.itemGrid}>
+              {ITEM_DEFS.map((item) => {
+                const diffValue = selectedSummary.difference[item.key];
+                return (
+                  <div key={item.key} style={styles.itemCard}>
+                    <div style={styles.itemTitle}>{item.label}</div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Expected</span>
+                      <span style={styles.metricValue}>{selectedSummary.expected[item.key]}</span>
+                    </div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Actual</span>
+                      <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
+                    </div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Difference</span>
+                      <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
+                        {formatDiff(diffValue)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
     </main>
-  );
-}
-
-function GroupCard({ group }: { group: GroupSummary }) {
-  return (
-    <article style={styles.groupCard}>
-      <div style={styles.groupHeader}>
-        <div>
-          <div style={styles.groupTitle}>{group.label}</div>
-          <div style={styles.groupMeta}>
-            Rooms: {group.roomCount} · DND: {group.dndCount}
-          </div>
-        </div>
-      </div>
-
-      <div style={styles.itemList}>
-        {ITEM_DEFS.map((item) => {
-          const diffValue = group.difference[item.key];
-          return (
-            <div key={item.key} style={styles.itemCard}>
-              <div style={styles.itemTitle}>{item.label}</div>
-              <div style={styles.metricRow}>
-                <div style={styles.metricBox}>
-                  <div style={styles.metricLabel}>Expected</div>
-                  <div style={styles.metricValue}>{group.expected[item.key]}</div>
-                </div>
-                <div style={styles.metricBox}>
-                  <div style={styles.metricLabel}>Actual</div>
-                  <div style={styles.metricValue}>{group.actual[item.key]}</div>
-                </div>
-                <div style={styles.metricBox}>
-                  <div style={styles.metricLabel}>Difference</div>
-                  <div style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>{formatDiff(diffValue)}</div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </article>
   );
 }
 
@@ -629,7 +675,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '22px',
     fontWeight: 800,
     color: '#0f172a',
-    marginBottom: '14px',
+    marginBottom: '12px',
   },
   summaryRow: {
     display: 'grid',
@@ -656,91 +702,86 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     lineHeight: 1,
   },
-  toggleRow: {
+  modeRow: {
     display: 'flex',
     gap: '10px',
     flexWrap: 'wrap',
-    marginBottom: '16px',
+    marginBottom: '14px',
   },
-  toggleBtn: {
+  modeBtn: {
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#334155',
     borderRadius: '999px',
-    padding: '10px 16px',
-    fontWeight: 700,
+    padding: '12px 16px',
+    fontWeight: 800,
     cursor: 'pointer',
   },
-  toggleBtnActive: {
+  modeBtnActive: {
     background: '#0f172a',
     color: '#ffffff',
     borderColor: '#0f172a',
   },
-  groupGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr',
-    gap: '14px',
+  selectorRow: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
   },
-  groupCard: {
+  selectorBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#f8fafc',
+    color: '#334155',
+    borderRadius: '999px',
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  selectorBtnActive: {
+    background: '#dbeafe',
+    color: '#1d4ed8',
+    borderColor: '#93c5fd',
+  },
+  groupMeta: {
+    fontSize: '14px',
+    color: '#64748b',
+    marginBottom: '14px',
+    fontWeight: 700,
+  },
+  itemGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '12px',
+  },
+  itemCard: {
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     background: '#ffffff',
     padding: '14px',
   },
-  groupHeader: {
-    marginBottom: '12px',
-  },
-  groupTitle: {
+  itemTitle: {
     fontSize: '20px',
     fontWeight: 800,
     color: '#0f172a',
+    marginBottom: '12px',
     lineHeight: 1.2,
   },
-  groupMeta: {
-    fontSize: '13px',
-    color: '#64748b',
-    marginTop: '4px',
-    fontWeight: 600,
-  },
-  itemList: {
-    display: 'grid',
-    gap: '10px',
-  },
-  itemCard: {
-    border: '1px solid #e2e8f0',
-    borderRadius: '16px',
-    padding: '12px',
-    background: '#f8fafc',
-  },
-  itemTitle: {
-    fontSize: '18px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '10px',
-  },
   metricRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: '10px',
-  },
-  metricBox: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '14px',
-    padding: '10px',
-    textAlign: 'center',
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'center',
+    padding: '10px 0',
+    borderTop: '1px solid #f1f5f9',
   },
   metricLabel: {
-    fontSize: '12px',
+    fontSize: '14px',
     color: '#64748b',
     fontWeight: 700,
-    marginBottom: '6px',
   },
   metricValue: {
-    fontSize: '24px',
+    fontSize: '22px',
     color: '#0f172a',
     fontWeight: 800,
-    lineHeight: 1,
   },
   secondaryBtn: {
     display: 'inline-flex',
