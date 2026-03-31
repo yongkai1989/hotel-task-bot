@@ -43,15 +43,14 @@ type CreatePhotoItem = {
 type DashboardUser = {
   email: string;
   name: string;
-  role: 'MANAGER' | 'FO' | 'HK' | 'MT';
+  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
 };
 
 type AdminUser = {
   email: string;
   name: string;
-  role: 'MANAGER' | 'FO' | 'HK' | 'MT';
+  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
 };
-
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 
@@ -764,9 +763,14 @@ export default function DashboardPage() {
 
 function canEditTaskDetails(task: Task) {
   if (!profile) return false;
+
+  // SUPERUSER override (but still OPEN only)
+  if (profile.role === 'SUPERUSER') {
+    return task.status === 'OPEN';
+  }
+
   if (!task.created_by_email) return false;
 
-  // 🚫 Only allow edit when task is OPEN
   if (task.status !== 'OPEN') return false;
 
   return (
@@ -774,7 +778,6 @@ function canEditTaskDetails(task: Task) {
     task.created_by_email.trim().toLowerCase()
   );
 }
-
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
       setLoginOpen(true);
@@ -954,6 +957,34 @@ function canEditTaskDetails(task: Task) {
   function removeCreatePhoto(id: string) {
     setCreatePhotos((prev) => prev.filter((item) => item.id !== id));
   }
+async function handleDeleteTask(taskId: string) {
+  try {
+    if (!profile || profile.role !== 'SUPERUSER') {
+      alert('Unauthorized');
+      return;
+    }
+
+    const confirmDelete = confirm('Delete this task permanently?');
+    if (!confirmDelete) return;
+
+    setBusyTaskId(taskId);
+
+    const token = await getAccessToken();
+
+    await fetchJson(`/api/tasks/${taskId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    await loadTasks(false);
+  } catch (err: any) {
+    alert(err?.message || 'Failed to delete task');
+  } finally {
+    setBusyTaskId(null);
+  }
+}
 
   async function handleEditPhotoChange(
     e: React.ChangeEvent<HTMLInputElement>
@@ -1708,6 +1739,14 @@ function canEditTaskDetails(task: Task) {
     onClick={() => openEditModal(task)}
   >
     Edit
+  </button>
+) : null}
+{profile?.role === 'SUPERUSER' ? (
+  <button
+    style={styles.deleteTaskBtn}
+    onClick={() => handleDeleteTask(task.id)}
+  >
+    Delete
   </button>
 ) : null}
                                 </div>
@@ -2806,6 +2845,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
   },
+deleteTaskBtn: {
+  border: '1px solid #ef4444',
+  background: '#fff',
+  color: '#ef4444',
+  borderRadius: 10,
+  padding: '10px 14px',
+  fontWeight: 700,
+  cursor: 'pointer',
+},
   permissionText: {
     marginTop: 10,
     fontSize: 12,
