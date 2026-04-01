@@ -304,8 +304,6 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
@@ -479,17 +477,6 @@ export default function DashboardPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth <= 920;
-      setIsMobile(mobile);
-      if (!mobile) setSidebarOpen(false);
-    };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -1379,7 +1366,7 @@ async function handleDeleteTask(taskId: string) {
     <span>Chambermaid Entry</span>
   </Link>
 ) : null}
-           
+        
            {profile?.can_access_linen_admin ? (
   <Link
     href="/dashboard/laundry-count"
@@ -1418,55 +1405,8 @@ async function handleDeleteTask(taskId: string) {
   >
     <span>Linen History</span>
   </Link>
-) : null}
-           
-</div>
-          <div style={styles.sidebarDivider} />
-
-          <div style={styles.userPanel}>
-            {!profile ? (
-              <button
-                onClick={() => setLoginOpen(true)}
-                style={styles.loginSidebarBtn}
-              >
-                Log In
-              </button>
-            ) : (
-              <>
-                <div style={styles.userCard}>
-                  <div style={styles.userName}>{profile.name}</div>
-                  <div style={styles.userRole}>{profile.role}</div>
-                  <div style={styles.userEmail}>{profile.email}</div>
-                </div>
-
-                {profile.role === 'MANAGER' ? (
-                  <button onClick={openPasswordModal} style={styles.managerBtn}>
-                    Change User Password
-                  </button>
-                ) : null}
-
-                <button onClick={handleLogout} style={styles.logoutSidebarBtn}>
-                  Log Out
-                </button>
-              </>
-            )}
-          </div>
-        </aside>
 
         <section style={styles.content}>
-          {isMobile ? (
-            <div style={styles.mobileTopBar}>
-              <button
-                onClick={() => setSidebarOpen(true)}
-                style={styles.menuButton}
-                aria-label="Open sidebar"
-              >
-                ☰
-              </button>
-
-              <div style={styles.mobileTopBarTitle}>Hallmark PMS</div>
-            </div>
-          ) : null}
 
           <div style={styles.headerCard}>
             <div style={styles.headerTop}>
