@@ -13,6 +13,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ ok: true, user });
   console.log('API USER', user);
+  return NextResponse.json({ ok: true, user });
 }
