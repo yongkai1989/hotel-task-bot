@@ -477,10 +477,28 @@ export default function DashboardPage() {
     syncViewFromUrl();
 
     const handleUrlChange = () => syncViewFromUrl();
+
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function (...args) {
+      const result = originalPushState.apply(this, args as any);
+      window.dispatchEvent(new Event('dashboard-url-change'));
+      return result;
+    };
+
+    window.history.replaceState = function (...args) {
+      const result = originalReplaceState.apply(this, args as any);
+      window.dispatchEvent(new Event('dashboard-url-change'));
+      return result;
+    };
+
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('dashboard-url-change', handleUrlChange);
 
     return () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('dashboard-url-change', handleUrlChange);
     };
