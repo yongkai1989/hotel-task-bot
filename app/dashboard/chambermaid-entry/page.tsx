@@ -155,28 +155,23 @@ export default function ChambermaidEntryPage() {
         const email = session.user.email || '';
 
         const { data: profileRow, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('user_id, email, name, role, can_access_chambermaid_entry')
-          .eq('user_id', userId)
-          .maybeSingle();
+  .from('user_profiles')
+  .select('user_id, email, name, role, can_access_chambermaid_entry')
+  .eq('user_id', userId)
+  .maybeSingle();
 
-        if (profileError) throw profileError;
+if (profileError) throw profileError;
 
-        const nextProfile: DashboardUser = {
+const nextProfile: DashboardUser = {
   user_id: userId,
   email: profileRow?.email || email,
   name: profileRow?.name || email || 'User',
   role: (profileRow?.role || 'HK') as DashboardUser['role'],
   can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
-}; DashboardUser = {
-          user_id: userId,
-          email: profileRow?.email || email,
-          name: profileRow?.name || email || 'User',
-          role: (profileRow?.role || 'HK') as DashboardUser['role'],
-        };
+};
 
-        if (!mounted) return;
-        setProfile(nextProfile);
+if (!mounted) return;
+setProfile(nextProfile);
       } catch (err: any) {
         if (!mounted) return;
         setErrorMsg(err?.message || 'Failed to load session');
