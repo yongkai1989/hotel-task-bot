@@ -153,20 +153,22 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
-    
-    if (!user.can_create_task) {
+
+// ✅ FIRST: auth check
+if (!user) {
+  return jsonNoCache(
+    { ok: false, error: authError || 'Unauthorized' },
+    401
+  );
+}
+
+// ✅ SECOND: permission check
+if (!user.can_create_task) {
   return NextResponse.json(
     { ok: false, error: 'Not allowed to create tasks' },
     { status: 403 }
   );
 }
-
-    if (!user) {
-      return jsonNoCache(
-        { ok: false, error: authError || 'Unauthorized' },
-        401
-      );
-    }
 
     const body = await req.json();
 
