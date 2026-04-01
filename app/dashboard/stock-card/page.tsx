@@ -186,22 +186,61 @@ export default function StockCardPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const [stockRes, floorRes, damageRes] = await Promise.all([
-        supabase
-          .from('linen_stock')
-          .select('linen_type, in_room_par, floor_store_stock, contractor_stock')
-          .order('linen_type', { ascending: true }),
-        supabase
-          .from('linen_floor_stock')
-          .select('block_no, floor_no, linen_type, qty'),
-        supabase
-          .from('linen_damage_log')
-          .select('linen_type, qty'),
-      ]);
+      const today = new Date().toISOString().slice(0, 10);
+
+const [stockRes, floorRes, damageRes, entryRes] = await Promise.all([
+  supabase
+    .from('linen_stock')
+    .select('linen_type, in_room_par, floor_store_stock, contractor_stock')
+    .order('linen_type', { ascending: true }),
+
+  supabase
+    .from('linen_floor_stock')
+    .select('block_no, floor_no, linen_type, qty'),
+
+  supabase
+    .from('linen_damage_log')
+    .select('linen_type, qty'),
+
+  // ✅ NEW — chambermaid entries
+  supabase
+    .from('linen_room_entry')
+    .select(`
+      bedsheet_king,
+      pillow_case,
+      bath_towel,
+      bath_mat,
+      duvet_cover_king,
+      duvet_cover_single
+    `)
+    .eq('service_date', today)
+]);
 
       if (stockRes.error) throw stockRes.error;
       if (floorRes.error) throw floorRes.error;
       if (damageRes.error) throw damageRes.error;
+      if (entryRes.error) throw entryRes.error;
+
+const entryRows = entryRes.data || [];
+
+// ✅ build totals
+const contractorMap = {
+  'Bedsheet King': 0,
+  'Pillow Case': 0,
+  'Bath Towel': 0,
+  'Bath Mat': 0,
+  'Duvet Cover King': 0,
+  'Duvet Cover Single': 0,
+};
+
+entryRows.forEach((row: any) => {
+  contractorMap['Bedsheet King'] += row.bedsheet_king || 0;
+  contractorMap['Pillow Case'] += row.pillow_case || 0;
+  contractorMap['Bath Towel'] += row.bath_towel || 0;
+  contractorMap['Bath Mat'] += row.bath_mat || 0;
+  contractorMap['Duvet Cover King'] += row.duvet_cover_king || 0;
+  contractorMap['Duvet Cover Single'] += row.duvet_cover_single || 0;
+});
 
       const stockRows = (stockRes.data || []) as LinenStockRow[];
       const floorRows = (floorRes.data || []) as LinenFloorStockRow[];
@@ -288,7 +327,7 @@ export default function StockCardPage() {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
       const inRoomPar = safeNumber(stockRow?.in_room_par);
-      const contractorStock = safeNumber(stockRow?.contractor_stock);
+      const contractorStock = safeNumber(contractorMap[linenType] || 0);
       const supervisorStore = safeNumber(stockRow?.floor_store_stock);
       const damaged = safeNumber(damageMap.get(linenType));
 
