@@ -3,15 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
-import DashboardSidebar from '../../../components/DashboardSidebar';
 
 type DashboardUser = {
   user_id?: string;
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-
-  // ✅ NEW
   can_access_linen_admin?: boolean;
 };
 
@@ -106,20 +103,6 @@ export default function SupervisorUpdatePage() {
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, StatusValue>>({});
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-const [isMobile, setIsMobile] = useState(false);
-
-useEffect(() => {
-  const handleResize = () => {
-    const mobile = window.innerWidth <= 920;
-    setIsMobile(mobile);
-    if (!mobile) setSidebarOpen(false);
-  };
-
-  handleResize();
-  window.addEventListener('resize', handleResize);
-  return () => window.removeEventListener('resize', handleResize);
-}, []);
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -169,13 +152,13 @@ useEffect(() => {
 
         if (profileError) throw profileError;
 
-       const nextProfile: DashboardUser = {
-  user_id: userId,
-  email: profileRow?.email || email,
-  name: profileRow?.name || email || 'User',
-  role: (profileRow?.role || 'HK') as DashboardUser['role'],
-  can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
-};
+        const nextProfile: DashboardUser = {
+          user_id: userId,
+          email: profileRow?.email || email,
+          name: profileRow?.name || email || 'User',
+          role: (profileRow?.role || 'HK') as DashboardUser['role'],
+          can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+        };
 
         if (!mounted) return;
         setProfile(nextProfile);
@@ -197,20 +180,18 @@ useEffect(() => {
   }, []);
 
   const canAccess = useMemo(() => {
-  if (!profile) return false;
+    if (!profile) return false;
 
-  // ✅ Admin roles always allowed
-  if (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER' ||
-    profile.role === 'SUPERVISOR'
-  ) {
-    return true;
-  }
+    if (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR'
+    ) {
+      return true;
+    }
 
-  // ✅ fallback to permission flag
-  return profile.can_access_linen_admin === true;
-}, [profile]);
+    return profile.can_access_linen_admin === true;
+  }, [profile]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
     const supabase = getSupabaseSafe();
@@ -498,21 +479,7 @@ useEffect(() => {
   }
 
   return (
-  <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
-    <DashboardSidebar
-      profile={profile}
-      sidebarOpen={sidebarOpen}
-      setSidebarOpen={setSidebarOpen}
-      isMobile={isMobile}
-    />
-
-    <main
-      style={{
-        flex: 1,
-        minWidth: 0,
-        padding: '20px',
-      }}
-    >
+    <main style={styles.page}>
       <div style={styles.shell}>
         <div style={styles.topBar}>
           <div>
@@ -524,15 +491,7 @@ useEffect(() => {
           </div>
 
           <div style={styles.topBarActions}>
-  <button
-    type="button"
-    onClick={() => setSidebarOpen(true)}
-    style={styles.secondaryBtn}
-  >
-    ☰ Menu
-  </button>
-
-  <Link href="/dashboard" style={styles.secondaryBtn}>
+            <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
           </div>
@@ -668,10 +627,9 @@ useEffect(() => {
             </div>
           )}
         </div>
-         </div>
+      </div>
     </main>
-  </div>
-);
+  );
 }
 
 const styles: Record<string, React.CSSProperties> = {
