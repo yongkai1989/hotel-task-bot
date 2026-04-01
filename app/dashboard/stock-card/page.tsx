@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import DashboardSidebar from '../../../components/DashboardSidebar';
 
 type DashboardUser = {
   user_id?: string;
@@ -93,6 +94,21 @@ export default function StockCardPage() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+const [isMobile, setIsMobile] = useState(false);
+
+useEffect(() => {
+  const handleResize = () => {
+    const mobile = window.innerWidth <= 920;
+    setIsMobile(mobile);
+    if (!mobile) setSidebarOpen(false);
+  };
+
+  handleResize();
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('OVERALL');
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
@@ -448,9 +464,18 @@ export default function StockCardPage() {
 
   if (authLoading) {
     return (
-      <main style={styles.page}>
+  <div style={{ display: 'flex' }}>
+    <DashboardSidebar
+      profile={profile}
+      sidebarOpen={sidebarOpen}
+      setSidebarOpen={setSidebarOpen}
+      isMobile={isMobile}
+    />
+
+    <main style={{ flex: 1 }}>
         <div style={styles.centerCard}>Loading...</div>
       </main>
+     </div>
     );
   }
 
