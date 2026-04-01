@@ -296,7 +296,6 @@ export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
   const [status, setStatus] = useState<(typeof liveStatuses)[number]>('OPEN');
-  const [sidebarView, setSidebarView] = useState<SidebarView>('DASHBOARD');
   const [pastTaskDate, setPastTaskDate] = useState(getYesterdayLocalDateString());
 
   const [loading, setLoading] = useState(true);
