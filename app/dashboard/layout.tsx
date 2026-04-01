@@ -32,11 +32,6 @@ export default function DashboardLayout({
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   useEffect(() => {
     let mounted = true;
 
@@ -92,10 +87,10 @@ export default function DashboardLayout({
       }}
     >
       <DashboardSidebar
-  profile={profile}
-  sidebarOpen={sidebarOpen}
-  setSidebarOpen={setSidebarOpen}
-/>
+        profile={profile}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+      />
 
       <main
         style={{
