@@ -13,6 +13,12 @@ type DashboardUser = {
   can_access_linen_admin?: boolean;
 };
 
+type AdminUser = {
+  email: string;
+  name: string;
+  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
+};
+
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
@@ -22,43 +28,92 @@ export default function DashboardSidebar({
   sidebarOpen: boolean;
   setSidebarOpen: (value: boolean) => void;
 }) {
+  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [logoutBusy, setLogoutBusy] = useState(false);
 
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [passwordTargetEmail, setPasswordTargetEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   const canSeeChambermaid =
     !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
+    (profile.role === 'SUPERUSER' ||
       profile.role === 'MANAGER' ||
       profile.role === 'SUPERVISOR' ||
-      profile.can_access_chambermaid_entry === true
-    );
+      profile.can_access_chambermaid_entry === true);
 
   const canSeeLinenAdmin =
     !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
+    (profile.role === 'SUPERUSER' ||
       profile.role === 'MANAGER' ||
       profile.role === 'SUPERVISOR' ||
-      profile.can_access_linen_admin === true
-    );
+      profile.can_access_linen_admin === true);
 
-  const canChangeOwnPassword = !!profile;
+  const canOpenPasswordModal = !!profile;
+  const isManager = profile?.role === 'MANAGER';
 
   function closeSidebar() {
     setSidebarOpen(false);
+  }
+
+  async function getAccessToken() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    return session?.access_token || '';
+  }
+
+  async function fetchJson(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    timeoutMs = 15000
+  ) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(input, {
+        ...init,
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+
+      const contentType = res.headers.get('content-type') || '';
+      const isJson = contentType.includes('application/json');
+
+      if (!isJson) {
+        const text = await res.text();
+        throw new Error(text || `Request failed (${res.status})`);
+      }
+
+      const json = await res.json();
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `Request failed (${res.status})`);
+      }
+
+      return json;
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw new Error('Request timeout');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function handleLogout() {
     try {
       setLogoutBusy(true);
       await supabase.auth.signOut();
+      closeSidebar();
       window.location.href = '/dashboard';
     } catch (error: any) {
       alert(error?.message || 'Logout failed');
@@ -67,26 +122,50 @@ export default function DashboardSidebar({
     }
   }
 
-  function openPasswordModal() {
-    if (!canChangeOwnPassword) return;
-    setPasswordError('');
-    setPasswordSuccess('');
-    setNewPassword('');
-    setPasswordModalOpen(true);
-    closeSidebar();
+  async function openPasswordModal() {
+    if (!canOpenPasswordModal) return;
+
+    try {
+      setPasswordError('');
+      setPasswordSuccess('');
+      setNewPassword('');
+      setAdminUsers([]);
+      setPasswordTargetEmail(profile?.email || '');
+      setPasswordModalOpen(true);
+      closeSidebar();
+
+      if (isManager) {
+        const token = await getAccessToken();
+
+        const json = await fetchJson('/api/admin/users', {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const users = (json.users || []) as AdminUser[];
+        setAdminUsers(users);
+        setPasswordTargetEmail(users[0]?.email || profile?.email || '');
+      }
+    } catch (error: any) {
+      setPasswordError(error?.message || 'Failed to load users');
+    }
   }
 
   function closePasswordModal() {
     if (passwordBusy) return;
     setPasswordModalOpen(false);
-    setNewPassword('');
     setPasswordError('');
     setPasswordSuccess('');
+    setNewPassword('');
+    setAdminUsers([]);
+    setPasswordTargetEmail('');
   }
 
   async function handleChangePassword() {
     try {
-      if (!canChangeOwnPassword) {
+      if (!profile) {
         throw new Error('Login required');
       }
 
@@ -104,12 +183,30 @@ export default function DashboardSidebar({
       setPasswordError('');
       setPasswordSuccess('');
 
-      const { error } = await supabase.auth.updateUser({
-        password: trimmed,
-      });
+      if (isManager) {
+        if (!passwordTargetEmail) {
+          throw new Error('Please select a user');
+        }
 
-      if (error) {
-        throw error;
+        const token = await getAccessToken();
+
+        await fetchJson('/api/admin/change-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            targetEmail: passwordTargetEmail,
+            newPassword: trimmed,
+          }),
+        });
+      } else {
+        const { error } = await supabase.auth.updateUser({
+          password: trimmed,
+        });
+
+        if (error) throw error;
       }
 
       setPasswordSuccess('Password updated successfully');
@@ -123,12 +220,7 @@ export default function DashboardSidebar({
 
   return (
     <>
-      {sidebarOpen ? (
-        <div
-          onClick={closeSidebar}
-          style={styles.overlay}
-        />
-      ) : null}
+      {sidebarOpen ? <div onClick={closeSidebar} style={styles.overlay} /> : null}
 
       <aside
         style={{
@@ -138,12 +230,7 @@ export default function DashboardSidebar({
       >
         <div style={styles.headerRow}>
           <div style={styles.menuTitle}>Menu</div>
-          <button
-            type="button"
-            onClick={closeSidebar}
-            style={styles.closeBtn}
-            aria-label="Close menu"
-          >
+          <button type="button" onClick={closeSidebar} style={styles.closeBtn} aria-label="Close menu">
             ✕
           </button>
         </div>
@@ -168,19 +255,15 @@ export default function DashboardSidebar({
               <Link href="/dashboard/supervisor-update" onClick={closeSidebar} style={styles.navBtn}>
                 Supervisor Update
               </Link>
-
               <Link href="/dashboard/laundry-count" onClick={closeSidebar} style={styles.navBtn}>
                 Laundry Count
               </Link>
-
               <Link href="/dashboard/stock-card" onClick={closeSidebar} style={styles.navBtn}>
                 Stock Card
               </Link>
-
               <Link href="/dashboard/damaged" onClick={closeSidebar} style={styles.navBtn}>
                 Damaged
               </Link>
-
               <Link href="/dashboard/linen-history" onClick={closeSidebar} style={styles.navBtn}>
                 Linen History
               </Link>
@@ -190,46 +273,71 @@ export default function DashboardSidebar({
 
         <div style={styles.footer}>
           {profile ? (
-            <div style={styles.userBox}>
-              <div style={styles.userName}>{profile.name}</div>
-              <div style={styles.userRole}>{profile.role}</div>
-              <div style={styles.userEmail}>{profile.email}</div>
-            </div>
+            <>
+              <div style={styles.userBox}>
+                <div style={styles.userName}>{profile.name}</div>
+                <div style={styles.userRole}>{profile.role}</div>
+                <div style={styles.userEmail}>{profile.email}</div>
+              </div>
+
+              <button type="button" onClick={openPasswordModal} style={styles.secondaryAction}>
+                {isManager ? 'Change User Password' : 'Change Password'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={{
+                  ...styles.primaryAction,
+                  opacity: logoutBusy ? 0.7 : 1,
+                }}
+                disabled={logoutBusy}
+              >
+                {logoutBusy ? 'Logging out...' : 'Log Out'}
+              </button>
+            </>
           ) : (
-            <div style={styles.userBox}>
-              <div style={styles.userName}>Not logged in</div>
-            </div>
+            <>
+              <div style={styles.userBox}>
+                <div style={styles.userName}>Not logged in</div>
+                <div style={styles.userEmail}>Please log in from Dashboard</div>
+              </div>
+
+              <Link href="/dashboard" onClick={closeSidebar} style={styles.primaryLink}>
+                Go to Dashboard
+              </Link>
+            </>
           )}
-
-          <button
-            type="button"
-            onClick={openPasswordModal}
-            style={styles.secondaryAction}
-            disabled={!canChangeOwnPassword}
-          >
-            Change Password
-          </button>
-
-          <button
-            type="button"
-            onClick={handleLogout}
-            style={{
-              ...styles.primaryAction,
-              opacity: logoutBusy ? 0.7 : 1,
-            }}
-            disabled={logoutBusy}
-          >
-            {logoutBusy ? 'Logging out...' : 'Log Out'}
-          </button>
         </div>
       </aside>
 
       {passwordModalOpen ? (
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard}>
-            <div style={styles.modalTitle}>Change Password</div>
+            <div style={styles.modalTitle}>
+              {isManager ? 'Change User Password' : 'Change Password'}
+            </div>
 
-            <div style={styles.modalLabel}>New Password</div>
+            {isManager ? (
+              <>
+                <div style={styles.modalLabel}>User</div>
+                <select
+                  value={passwordTargetEmail}
+                  onChange={(e) => setPasswordTargetEmail(e.target.value)}
+                  style={styles.input}
+                  disabled={passwordBusy}
+                >
+                  <option value="">Select user</option>
+                  {adminUsers.map((user) => (
+                    <option key={user.email} value={user.email}>
+                      {user.name} ({user.role}) - {user.email}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
+
+            <div style={{ ...styles.modalLabel, marginTop: isManager ? 12 : 0 }}>New Password</div>
             <input
               type="password"
               value={newPassword}
@@ -383,6 +491,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
   },
+  primaryLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontWeight: 700,
+  },
   modalOverlay: {
     position: 'fixed',
     inset: 0,
@@ -395,7 +515,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modalCard: {
     width: '100%',
-    maxWidth: '420px',
+    maxWidth: '460px',
     background: '#ffffff',
     borderRadius: '18px',
     border: '1px solid #e2e8f0',
@@ -422,6 +542,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     outline: 'none',
     boxSizing: 'border-box',
+    background: '#ffffff',
   },
   modalActions: {
     display: 'flex',
@@ -468,4 +589,3 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
   },
 };
-
