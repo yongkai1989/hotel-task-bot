@@ -9,6 +9,9 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+
+  // ✅ NEW
+  can_access_chambermaid_entry?: boolean;
 };
 
 type RoomRow = {
@@ -153,13 +156,19 @@ export default function ChambermaidEntryPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_chambermaid_entry')
           .eq('user_id', userId)
           .maybeSingle();
 
         if (profileError) throw profileError;
 
         const nextProfile: DashboardUser = {
+  user_id: userId,
+  email: profileRow?.email || email,
+  name: profileRow?.name || email || 'User',
+  role: (profileRow?.role || 'HK') as DashboardUser['role'],
+  can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
+}; DashboardUser = {
           user_id: userId,
           email: profileRow?.email || email,
           name: profileRow?.name || email || 'User',
@@ -186,14 +195,20 @@ export default function ChambermaidEntryPage() {
   }, []);
 
   const canAccess = useMemo(() => {
-    if (!profile) return false;
-    return (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR' ||
-      profile.role === 'HK'
-    );
-  }, [profile]);
+  if (!profile) return false;
+
+  // ✅ Admin always allowed
+  if (
+    profile.role === 'SUPERUSER' ||
+    profile.role === 'MANAGER' ||
+    profile.role === 'SUPERVISOR'
+  ) {
+    return true;
+  }
+
+  // ✅ Floor users only if allowed
+  return profile.can_access_chambermaid_entry === true;
+}, [profile]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
     const supabase = getSupabaseSafe();
@@ -453,7 +468,7 @@ entryRows.forEach((row: any) => {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>Only HK, Supervisor, Manager, and Superuser can access Chambermaid Entry.</p>
+          <p style={styles.centerText}>You do not have permission to access Chambermaid Entry.</p>
           <Link href="/dashboard" style={styles.linkBtn}>
             Back to Dashboard
           </Link>
