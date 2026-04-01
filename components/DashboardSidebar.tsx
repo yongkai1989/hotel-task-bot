@@ -6,115 +6,199 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
+  can_create_task?: boolean;
   can_access_chambermaid_entry?: boolean;
   can_access_linen_admin?: boolean;
 };
+
+type SidebarView = 'DASHBOARD' | 'PAST_TASK';
 
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
   setSidebarOpen,
   isMobile,
+  activeView = 'DASHBOARD',
 }: {
   profile: DashboardUser | null;
   sidebarOpen: boolean;
-  setSidebarOpen: (v: boolean) => void;
+  setSidebarOpen: (value: boolean) => void;
   isMobile: boolean;
+  activeView?: SidebarView;
 }) {
-  function sidebarItemStyle(active = false): React.CSSProperties {
+  const canSeeChambermaid =
+    !!profile &&
+    (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR' ||
+      profile.can_access_chambermaid_entry === true
+    );
+
+  const canSeeLinenAdmin =
+    !!profile &&
+    (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR' ||
+      profile.can_access_linen_admin === true
+    );
+
+  function closeMobileSidebar() {
+    if (isMobile) setSidebarOpen(false);
+  }
+
+  function sidebarItemStyle(active: boolean): React.CSSProperties {
     return {
-      padding: '12px 14px',
-      borderRadius: 12,
-      border: '1px solid #e5e7eb',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+      width: '100%',
+      textDecoration: 'none',
+      border: '1px solid',
+      borderColor: active ? '#0f172a' : '#e5e7eb',
       background: active ? '#0f172a' : '#ffffff',
       color: active ? '#ffffff' : '#0f172a',
+      borderRadius: '12px',
+      padding: '12px 14px',
       fontWeight: 700,
-      textDecoration: 'none',
-      display: 'block',
-      marginBottom: 8,
+      fontSize: '14px',
+      marginBottom: '8px',
+      boxSizing: 'border-box',
     };
   }
 
   return (
     <>
-      {/* Mobile overlay */}
-      {isMobile && sidebarOpen && (
+      {isMobile && sidebarOpen ? (
         <div
           onClick={() => setSidebarOpen(false)}
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.4)',
+            background: 'rgba(15, 23, 42, 0.45)',
             zIndex: 40,
           }}
         />
-      )}
+      ) : null}
 
-      {/* Sidebar */}
       <aside
         style={{
           position: isMobile ? 'fixed' : 'sticky',
           top: 0,
           left: 0,
+          width: '260px',
+          minWidth: '260px',
           height: '100vh',
-          width: 240,
           background: '#ffffff',
           borderRight: '1px solid #e5e7eb',
-          padding: 16,
+          padding: '18px 14px',
+          boxSizing: 'border-box',
+          overflowY: 'auto',
           zIndex: 50,
           transform: isMobile
             ? sidebarOpen
               ? 'translateX(0)'
               : 'translateX(-100%)'
-            : 'none',
-          transition: '0.2s ease',
+            : 'translateX(0)',
+          transition: 'transform 0.22s ease',
+          boxShadow: isMobile ? '0 10px 30px rgba(15,23,42,0.18)' : 'none',
         }}
       >
-        {/* Title */}
-        <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 16 }}>
-          Hallmark Dashboard
+        <div style={{ marginBottom: '18px' }}>
+          <div
+            style={{
+              fontSize: '18px',
+              fontWeight: 800,
+              color: '#0f172a',
+              lineHeight: 1.2,
+            }}
+          >
+            Hallmark Dashboard
+          </div>
+          <div
+            style={{
+              fontSize: '12px',
+              color: '#64748b',
+              marginTop: '4px',
+              fontWeight: 600,
+            }}
+          >
+            {profile ? `${profile.name} (${profile.role})` : 'Navigation'}
+          </div>
         </div>
 
-        {/* Always visible */}
-        <Link href="/dashboard" style={sidebarItemStyle()}>
-          Dashboard
-        </Link>
-
-        <Link href="/dashboard?view=past" style={sidebarItemStyle()}>
-          Past Task
-        </Link>
-
-        {/* Chambermaid */}
-        {profile?.can_access_chambermaid_entry && (
-          <Link href="/dashboard/chambermaid-entry" style={sidebarItemStyle()}>
-            Chambermaid Entry
+        <nav>
+          <Link
+            href="/dashboard"
+            onClick={closeMobileSidebar}
+            style={sidebarItemStyle(activeView === 'DASHBOARD')}
+          >
+            Dashboard
           </Link>
-        )}
 
-        {/* Linen Admin */}
-        {profile?.can_access_linen_admin && (
-          <>
-            <Link href="/dashboard/supervisor-update" style={sidebarItemStyle()}>
-              Supervisor Update
-            </Link>
+          <Link
+            href="/dashboard?view=past"
+            onClick={closeMobileSidebar}
+            style={sidebarItemStyle(activeView === 'PAST_TASK')}
+          >
+            Past Task
+          </Link>
 
-            <Link href="/dashboard/laundry-count" style={sidebarItemStyle()}>
-              Laundry Count
+          {canSeeChambermaid ? (
+            <Link
+              href="/dashboard/chambermaid-entry"
+              onClick={closeMobileSidebar}
+              style={sidebarItemStyle(false)}
+            >
+              Chambermaid Entry
             </Link>
+          ) : null}
 
-            <Link href="/dashboard/stock-card" style={sidebarItemStyle()}>
-              Stock Card
-            </Link>
+          {canSeeLinenAdmin ? (
+            <>
+              <Link
+                href="/dashboard/supervisor-update"
+                onClick={closeMobileSidebar}
+                style={sidebarItemStyle(false)}
+              >
+                Supervisor Update
+              </Link>
 
-            <Link href="/dashboard/damaged" style={sidebarItemStyle()}>
-              Damaged
-            </Link>
+              <Link
+                href="/dashboard/laundry-count"
+                onClick={closeMobileSidebar}
+                style={sidebarItemStyle(false)}
+              >
+                Laundry Count
+              </Link>
 
-            <Link href="/dashboard/linen-history" style={sidebarItemStyle()}>
-              Linen History
-            </Link>
-          </>
-        )}
+              <Link
+                href="/dashboard/stock-card"
+                onClick={closeMobileSidebar}
+                style={sidebarItemStyle(false)}
+              >
+                Stock Card
+              </Link>
+
+              <Link
+                href="/dashboard/damaged"
+                onClick={closeMobileSidebar}
+                style={sidebarItemStyle(false)}
+              >
+                Damaged
+              </Link>
+
+              <Link
+                href="/dashboard/linen-history"
+                onClick={closeMobileSidebar}
+                style={sidebarItemStyle(false)}
+              >
+                Linen History
+              </Link>
+            </>
+          ) : null}
+        </nav>
       </aside>
     </>
   );
