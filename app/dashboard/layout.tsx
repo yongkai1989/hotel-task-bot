@@ -58,6 +58,7 @@ export default function DashboardLayout({
         });
 
         const json = await res.json();
+        console.log('SESSION PROFILE:', json);
 
         if (!mounted) return;
 
