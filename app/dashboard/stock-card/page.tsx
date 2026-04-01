@@ -11,6 +11,7 @@ type DashboardUser = {
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
   can_access_linen_admin?: boolean;
+  can_access_chambermaid_entry?: boolean;
 };
 
 type LinenStockRow = {
@@ -96,19 +97,7 @@ export default function StockCardPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-const [isMobile, setIsMobile] = useState(false);
-
-useEffect(() => {
-  const handleResize = () => {
-    const mobile = window.innerWidth <= 920;
-    setIsMobile(mobile);
-    if (!mobile) setSidebarOpen(false);
-  };
-
-  handleResize();
-  window.addEventListener('resize', handleResize);
-  return () => window.removeEventListener('resize', handleResize);
-}, []);
+  const [isMobile, setIsMobile] = useState(false);
 
   const [viewMode, setViewMode] = useState<ViewMode>('OVERALL');
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
@@ -119,6 +108,18 @@ useEffect(() => {
   const [draftSupervisorStoreQty, setDraftSupervisorStoreQty] = useState<Record<string, string>>({});
   const [damageRows, setDamageRows] = useState<DamageRow[]>([]);
   const [contractorTotals, setContractorTotals] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 920;
+      setIsMobile(mobile);
+      if (!mobile) setSidebarOpen(false);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -143,7 +144,7 @@ useEffect(() => {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role, can_access_linen_admin')
+          .select('user_id, email, name, role, can_access_linen_admin, can_access_chambermaid_entry')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -157,6 +158,7 @@ useEffect(() => {
           name: profileRow?.name || session.user.email || 'User',
           role: (profileRow?.role || 'HK') as DashboardUser['role'],
           can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+          can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -326,7 +328,7 @@ useEffect(() => {
         selectedFloorMap.set(row.linen_type, safeNumber(row.qty));
       });
 
-    const items: StockItem[] = LINEN_TYPES.map((linenType) => {
+    return LINEN_TYPES.map((linenType) => {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
       const inRoomPar = safeNumber(stockRow?.in_room_par);
@@ -354,8 +356,6 @@ useEffect(() => {
         shortfall,
       };
     });
-
-    return items;
   }, [linenStock, floorStock, damageRows, contractorTotals, viewMode, selectedFloorKey]);
 
   const headerLabel = useMemo(() => {
@@ -464,18 +464,9 @@ useEffect(() => {
 
   if (authLoading) {
     return (
-  <div style={{ display: 'flex' }}>
-    <DashboardSidebar
-      profile={profile}
-      sidebarOpen={sidebarOpen}
-      setSidebarOpen={setSidebarOpen}
-      isMobile={isMobile}
-    />
-
-    <main style={{ flex: 1 }}>
+      <main style={styles.page}>
         <div style={styles.centerCard}>Loading...</div>
       </main>
-     </div>
     );
   }
 
@@ -504,180 +495,203 @@ useEffect(() => {
   }
 
   return (
-    <main style={styles.page}>
-      <div style={styles.shell}>
-        <div style={styles.topBar}>
-          <div>
-            <div style={styles.pageTitle}>Stock Card</div>
-            <div style={styles.pageSubTitle}>{profile.name} ({profile.role})</div>
-          </div>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
+      <DashboardSidebar
+        profile={profile}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        isMobile={isMobile}
+      />
 
-          <div style={styles.topBarActions}>
-            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
-          </div>
-        </div>
-
-        <section style={styles.panel}>
-          <div style={styles.sectionTitle}>View</div>
-
-          <div style={styles.modeRow}>
-            <button
-              type="button"
-              onClick={() => setViewMode('OVERALL')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'OVERALL' ? styles.modeBtnActive : {}) }}
-            >
-              Overall
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setViewMode('FLOOR')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
-            >
-              By Floor
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setViewMode('SUPERVISOR_STORE')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'SUPERVISOR_STORE' ? styles.modeBtnActive : {}) }}
-            >
-              Supervisor Store
-            </button>
-          </div>
-
-          {viewMode === 'FLOOR' ? (
-            <div style={styles.selectorRow}>
-              {FLOOR_OPTIONS.map((floor) => (
-                <button
-                  key={floor.key}
-                  type="button"
-                  onClick={() => setSelectedFloorKey(floor.key)}
-                  style={{
-                    ...styles.selectorBtn,
-                    ...(selectedFloorKey === floor.key ? styles.selectorBtnActive : {}),
-                  }}
-                >
-                  {floor.label}
-                </button>
-              ))}
+      <main
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: '20px 16px 40px',
+        }}
+      >
+        <div style={styles.shell}>
+          <div style={styles.topBar}>
+            <div>
+              <div style={styles.pageTitle}>Stock Card</div>
+              <div style={styles.pageSubTitle}>{profile.name} ({profile.role})</div>
             </div>
-          ) : null}
-        </section>
 
-        {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
-        {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
+            <div style={styles.topBarActions}>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                style={styles.menuBtn}
+              >
+                ☰ Menu
+              </button>
 
-        <section style={styles.panel}>
-          <div style={styles.sectionTitle}>{headerLabel}</div>
+              <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
+            </div>
+          </div>
 
-          {loading ? (
-            <div style={styles.emptyState}>Loading stock card...</div>
-          ) : (
-            <div style={styles.itemGrid}>
-              {stockItems.map((item) => (
-                <article key={item.linenType} style={styles.itemCard}>
-                  <div style={styles.itemTitle}>{item.linenType}</div>
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>View</div>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>1 Par in Room</span>
-                    <span style={styles.metricValue}>{item.inRoomPar}</span>
-                  </div>
+            <div style={styles.modeRow}>
+              <button
+                type="button"
+                onClick={() => setViewMode('OVERALL')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'OVERALL' ? styles.modeBtnActive : {}) }}
+              >
+                Overall
+              </button>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>
-                      {viewMode === 'OVERALL' ? 'Floor Stock Total' : viewMode === 'FLOOR' ? 'Selected Floor Stock' : 'Supervisor Store'}
-                    </span>
+              <button
+                type="button"
+                onClick={() => setViewMode('FLOOR')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
+              >
+                By Floor
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('SUPERVISOR_STORE')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'SUPERVISOR_STORE' ? styles.modeBtnActive : {}) }}
+              >
+                Supervisor Store
+              </button>
+            </div>
+
+            {viewMode === 'FLOOR' ? (
+              <div style={styles.selectorRow}>
+                {FLOOR_OPTIONS.map((floor) => (
+                  <button
+                    key={floor.key}
+                    type="button"
+                    onClick={() => setSelectedFloorKey(floor.key)}
+                    style={{
+                      ...styles.selectorBtn,
+                      ...(selectedFloorKey === floor.key ? styles.selectorBtnActive : {}),
+                    }}
+                  >
+                    {floor.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+          {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
+
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>{headerLabel}</div>
+
+            {loading ? (
+              <div style={styles.emptyState}>Loading stock card...</div>
+            ) : (
+              <div style={styles.itemGrid}>
+                {stockItems.map((item) => (
+                  <article key={item.linenType} style={styles.itemCard}>
+                    <div style={styles.itemTitle}>{item.linenType}</div>
+
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>1 Par in Room</span>
+                      <span style={styles.metricValue}>{item.inRoomPar}</span>
+                    </div>
+
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>
+                        {viewMode === 'OVERALL' ? 'Floor Stock Total' : viewMode === 'FLOOR' ? 'Selected Floor Stock' : 'Supervisor Store'}
+                      </span>
+
+                      {viewMode === 'OVERALL' ? (
+                        <span style={styles.metricValue}>{item.floorStock}</span>
+                      ) : viewMode === 'FLOOR' ? (
+                        renderEditableField(
+                          draftFloorQty[item.linenType] ?? '0',
+                          (value) =>
+                            setDraftFloorQty((prev) => ({
+                              ...prev,
+                              [item.linenType]: value,
+                            }))
+                        )
+                      ) : (
+                        renderEditableField(
+                          draftSupervisorStoreQty[item.linenType] ?? '0',
+                          (value) =>
+                            setDraftSupervisorStoreQty((prev) => ({
+                              ...prev,
+                              [item.linenType]: value,
+                            }))
+                        )
+                      )}
+                    </div>
 
                     {viewMode === 'OVERALL' ? (
-                      <span style={styles.metricValue}>{item.floorStock}</span>
-                    ) : viewMode === 'FLOOR' ? (
-                      renderEditableField(
-                        draftFloorQty[item.linenType] ?? '0',
-                        (value) =>
-                          setDraftFloorQty((prev) => ({
-                            ...prev,
-                            [item.linenType]: value,
-                          }))
-                      )
-                    ) : (
-                      renderEditableField(
-                        draftSupervisorStoreQty[item.linenType] ?? '0',
-                        (value) =>
-                          setDraftSupervisorStoreQty((prev) => ({
-                            ...prev,
-                            [item.linenType]: value,
-                          }))
-                      )
-                    )}
-                  </div>
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Supervisor Store</span>
+                        <span style={styles.metricValue}>{item.supervisorStore}</span>
+                      </div>
+                    ) : null}
 
-                  {viewMode === 'OVERALL' ? (
                     <div style={styles.metricRow}>
-                      <span style={styles.metricLabel}>Supervisor Store</span>
-                      <span style={styles.metricValue}>{item.supervisorStore}</span>
+                      <span style={styles.metricLabel}>With Laundry Contractor</span>
+                      <span style={styles.metricValue}>{item.contractorStock}</span>
                     </div>
-                  ) : null}
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>With Laundry Contractor</span>
-                    <span style={styles.metricValue}>{item.contractorStock}</span>
-                  </div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Damaged</span>
+                      <span style={styles.metricValue}>{item.damaged}</span>
+                    </div>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Damaged</span>
-                    <span style={styles.metricValue}>{item.damaged}</span>
-                  </div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Total Usable</span>
+                      <span style={styles.metricValue}>{item.totalUsable}</span>
+                    </div>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Total Usable</span>
-                    <span style={styles.metricValue}>{item.totalUsable}</span>
-                  </div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>3 Par Target</span>
+                      <span style={styles.metricValue}>{item.threeParTarget}</span>
+                    </div>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>3 Par Target</span>
-                    <span style={styles.metricValue}>{item.threeParTarget}</span>
-                  </div>
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Shortfall to 3 Par</span>
+                      <span style={{ ...styles.metricValue, ...shortfallStyle(item.shortfall) }}>
+                        {item.shortfall}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Shortfall to 3 Par</span>
-                    <span style={{ ...styles.metricValue, ...shortfallStyle(item.shortfall) }}>
-                      {item.shortfall}
-                    </span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+            {viewMode === 'FLOOR' ? (
+              <div style={styles.saveRow}>
+                <button
+                  type="button"
+                  onClick={saveSelectedFloorStock}
+                  disabled={saving || loading}
+                  style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
+                >
+                  {saving ? 'Saving...' : 'Save Floor'}
+                </button>
+              </div>
+            ) : null}
 
-          {viewMode === 'FLOOR' ? (
-            <div style={styles.saveRow}>
-              <button
-                type="button"
-                onClick={saveSelectedFloorStock}
-                disabled={saving || loading}
-                style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
-              >
-                {saving ? 'Saving...' : 'Save Floor'}
-              </button>
-            </div>
-          ) : null}
-
-          {viewMode === 'SUPERVISOR_STORE' ? (
-            <div style={styles.saveRow}>
-              <button
-                type="button"
-                onClick={saveSupervisorStore}
-                disabled={saving || loading}
-                style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
-              >
-                {saving ? 'Saving...' : 'Save Store'}
-              </button>
-            </div>
-          ) : null}
-        </section>
-      </div>
-    </main>
+            {viewMode === 'SUPERVISOR_STORE' ? (
+              <div style={styles.saveRow}>
+                <button
+                  type="button"
+                  onClick={saveSupervisorStore}
+                  disabled={saving || loading}
+                  style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
+                >
+                  {saving ? 'Saving...' : 'Save Store'}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </main>
+    </div>
   );
 }
 
@@ -705,6 +719,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
     alignItems: 'center',
     flexWrap: 'wrap',
+  },
+  menuBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   pageTitle: {
     fontSize: '28px',
