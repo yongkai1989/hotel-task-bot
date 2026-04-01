@@ -81,6 +81,18 @@ export async function getDashboardUserFromRequest(
       return { user: null, error: 'User profile not found' };
     }
 
+    console.log('PROFILE DEBUG', {
+  user_id: profile.user_id,
+  email: profile.email,
+  role: profile.role,
+  raw_can_access_chambermaid_entry: profile.can_access_chambermaid_entry,
+  computed_can_access_chambermaid_entry:
+    profile.role === 'SUPERUSER' ||
+    profile.role === 'MANAGER' ||
+    profile.role === 'SUPERVISOR' ||
+    profile.can_access_chambermaid_entry === true,
+});
+    
     return {
       user: {
         user_id: profile.user_id,
