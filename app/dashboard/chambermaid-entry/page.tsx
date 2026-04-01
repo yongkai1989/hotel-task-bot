@@ -29,6 +29,9 @@ type RoomEntryState = {
   duvet_cover_single: number;
   isSaving?: boolean;
   savedAt?: string;
+
+  // ✅ NEW
+  updatedByName?: string;
 };
 
 const BLOCKS = [1, 2];
@@ -231,7 +234,7 @@ export default function ChambermaidEntryPage() {
         const { data, error: entryError } = await supabase
           .from('linen_room_entry')
           .select(
-            'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at'
+            'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at, updated_by_name'
           )
           .eq('service_date', serviceDate)
           .in('room_number', roomNumbers);
@@ -245,18 +248,19 @@ export default function ChambermaidEntryPage() {
         nextEntryMap[room.room_number] = emptyEntry();
       });
 
-      entryRows.forEach((row: any) => {
-        nextEntryMap[row.room_number] = {
-          is_dnd: !!row.is_dnd,
-          bedsheet_king: row.bedsheet_king || 0,
-          pillow_case: row.pillow_case || 0,
-          bath_towel: row.bath_towel || 0,
-          bath_mat: row.bath_mat || 0,
-          duvet_cover_king: row.duvet_cover_king || 0,
-          duvet_cover_single: row.duvet_cover_single || 0,
-          savedAt: row.updated_at || '',
-        };
-      });
+entryRows.forEach((row: any) => {
+  nextEntryMap[row.room_number] = {
+    is_dnd: !!row.is_dnd,
+    bedsheet_king: row.bedsheet_king || 0,
+    pillow_case: row.pillow_case || 0,
+    bath_towel: row.bath_towel || 0,
+    bath_mat: row.bath_mat || 0,
+    duvet_cover_king: row.duvet_cover_king || 0,
+    duvet_cover_single: row.duvet_cover_single || 0,
+    savedAt: row.updated_at || '',
+    updatedByName: row.updated_by_name || '',
+  };
+});
 
       setRooms(nextRooms);
       setEntryMap(nextEntryMap);
@@ -380,14 +384,21 @@ export default function ChambermaidEntryPage() {
       if (error) throw error;
 
       const savedAt = new Date().toISOString();
-      setEntryMap((prev) => ({
-        ...prev,
-        [room.room_number]: {
-          ...payload,
-          isSaving: false,
-          savedAt,
-        },
-      }));
+   setEntryMap((prev) => ({
+  ...prev,
+  [room.room_number]: {
+    is_dnd: payload.is_dnd,
+    bedsheet_king: payload.bedsheet_king,
+    pillow_case: payload.pillow_case,
+    bath_towel: payload.bath_towel,
+    bath_mat: payload.bath_mat,
+    duvet_cover_king: payload.duvet_cover_king,
+    duvet_cover_single: payload.duvet_cover_single,
+    isSaving: false,
+    savedAt,
+    updatedByName: payload.updated_by_name, // ✅ NEW
+  },
+}));
       setSuccessMsg(`Saved room ${room.room_number}.`);
     } catch (err: any) {
       setEntryMap((prev) => ({
@@ -593,8 +604,11 @@ export default function ChambermaidEntryPage() {
                       <span>Mark as DND</span>
                     </label>
                     {entry.savedAt ? (
-                      <div style={styles.savedAtText}>Last saved {formatTime(entry.savedAt)}</div>
-                    ) : null}
+  <div style={styles.savedAtText}>
+    Last saved {formatTime(entry.savedAt)}
+    {entry.updatedByName ? ` · ${entry.updatedByName}` : ''}
+  </div>
+) : null}
                   </div>
 
                   <div style={styles.linenList}>
