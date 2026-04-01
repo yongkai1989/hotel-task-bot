@@ -89,16 +89,15 @@ export async function getDashboardUserFromRequest(
         role: profile.role as DashboardRole,
         can_create_task: profile.can_create_task ?? true,
         can_access_chambermaid_entry:
-          profile.can_access_chambermaid_entry ??
-          (profile.role === 'SUPERUSER' ||
-            profile.role === 'MANAGER' ||
-            profile.role === 'SUPERVISOR' ||
-            profile.role === 'HK'),
-        can_access_linen_admin:
-          profile.can_access_linen_admin ??
-          (profile.role === 'SUPERUSER' ||
-            profile.role === 'MANAGER' ||
-            profile.role === 'SUPERVISOR'),
+  profile.role === 'SUPERUSER' ||
+  profile.role === 'MANAGER' ||
+  profile.role === 'SUPERVISOR' ||
+  profile.can_access_chambermaid_entry === true,
+can_access_linen_admin:
+  profile.role === 'SUPERUSER' ||
+  profile.role === 'MANAGER' ||
+  profile.role === 'SUPERVISOR' ||
+  profile.can_access_linen_admin === true,
       },
       error: null,
     };
