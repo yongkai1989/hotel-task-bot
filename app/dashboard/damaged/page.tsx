@@ -32,12 +32,9 @@ const LINEN_TYPES = [
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
-
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
   if (!url || !anon) return null;
-
   return createBrowserSupabaseClient();
 }
 
@@ -53,7 +50,6 @@ function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-
   return d.toLocaleString(undefined, {
     year: 'numeric',
     month: 'short',
@@ -82,7 +78,6 @@ export default function DamagedPage() {
   const [formLinenType, setFormLinenType] = useState<string>(LINEN_TYPES[0]);
   const [formQty, setFormQty] = useState<string>('');
   const [formNotes, setFormNotes] = useState<string>('');
-
   const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -113,7 +108,6 @@ export default function DamagedPage() {
           .maybeSingle();
 
         if (profileError) throw profileError;
-
         if (!mounted) return;
 
         setProfile({
@@ -131,7 +125,6 @@ export default function DamagedPage() {
     }
 
     void bootstrap();
-
     return () => {
       mounted = false;
     };
@@ -139,11 +132,7 @@ export default function DamagedPage() {
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    return (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR'
-    );
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'SUPERVISOR';
   }, [profile]);
 
   async function loadDamageRows() {
@@ -164,7 +153,6 @@ export default function DamagedPage() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
       setDamageRows((data || []) as DamageRow[]);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load damage log');
@@ -178,7 +166,6 @@ export default function DamagedPage() {
       setLoading(false);
       return;
     }
-
     void loadDamageRows();
   }, [profile, canAccess, selectedDate]);
 
@@ -230,7 +217,6 @@ export default function DamagedPage() {
           .eq('id', editingId);
 
         if (error) throw error;
-
         setSuccessMsg('Damage entry updated.');
       } else {
         const { error } = await supabase
@@ -247,7 +233,6 @@ export default function DamagedPage() {
           ]);
 
         if (error) throw error;
-
         setSuccessMsg('Damage entry submitted.');
       }
 
@@ -282,15 +267,10 @@ export default function DamagedPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const { error } = await supabase
-        .from('linen_damage_log')
-        .delete()
-        .eq('id', rowId);
-
+      const { error } = await supabase.from('linen_damage_log').delete().eq('id', rowId);
       if (error) throw error;
 
       if (editingId === rowId) resetForm();
-
       setSuccessMsg('Damage entry deleted.');
       await loadDamageRows();
     } catch (err: any) {
@@ -301,11 +281,7 @@ export default function DamagedPage() {
   }
 
   if (authLoading) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.centerCard}>Loading...</div>
-      </main>
-    );
+    return <main style={styles.page}><div style={styles.centerCard}>Loading...</div></main>;
   }
 
   if (!profile) {
@@ -314,9 +290,7 @@ export default function DamagedPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Login required</div>
           <p style={styles.centerText}>Please log in first, then open this page again.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -328,9 +302,7 @@ export default function DamagedPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
           <p style={styles.centerText}>Only Supervisor, Manager, and Superuser can access Damaged.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -344,11 +316,8 @@ export default function DamagedPage() {
             <div style={styles.pageTitle}>Damaged</div>
             <div style={styles.pageSubTitle}>{profile.name} ({profile.role})</div>
           </div>
-
           <div style={styles.topBarActions}>
-            <Link href="/dashboard" style={styles.secondaryBtn}>
-              Back to Dashboard
-            </Link>
+            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
@@ -397,17 +366,17 @@ export default function DamagedPage() {
                 disabled={saving}
               />
             </div>
+          </div>
 
-            <div style={{ ...styles.fieldWrap, gridColumn: '1 / -1' }}>
-              <label style={styles.label}>Notes</label>
-              <textarea
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                placeholder="Optional notes"
-                style={styles.textarea}
-                disabled={saving}
-              />
-            </div>
+          <div style={{ ...styles.fieldWrap, marginTop: 14 }}>
+            <label style={styles.label}>Notes</label>
+            <textarea
+              value={formNotes}
+              onChange={(e) => setFormNotes(e.target.value)}
+              placeholder="Optional notes"
+              style={styles.textarea}
+              disabled={saving}
+            />
           </div>
 
           <div style={styles.actionRow}>
@@ -445,7 +414,7 @@ export default function DamagedPage() {
               {damageRows.map((row) => (
                 <article key={row.id} style={styles.logCard}>
                   <div style={styles.logHeader}>
-                    <div>
+                    <div style={styles.logInfo}>
                       <div style={styles.logTitle}>{row.linen_type}</div>
                       <div style={styles.logMeta}>Qty: {row.qty}</div>
                       <div style={styles.logMeta}>By: {row.updated_by_name || '-'}</div>
@@ -488,17 +457,17 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
     background: '#f8fafc',
-    padding: '20px 16px 40px',
+    padding: '20px 14px 40px',
   },
   shell: {
     width: '100%',
-    maxWidth: '1120px',
+    maxWidth: '980px',
     margin: '0 auto',
   },
   topBar: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '16px',
+    gap: '14px',
     alignItems: 'center',
     flexWrap: 'wrap',
     marginBottom: '18px',
@@ -524,7 +493,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
     borderRadius: '22px',
-    padding: '20px',
+    padding: '18px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
     marginBottom: '16px',
     overflow: 'hidden',
@@ -537,7 +506,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   formGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
     gap: '14px',
   },
   fieldWrap: {
@@ -562,6 +531,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     outline: 'none',
     boxSizing: 'border-box',
+    appearance: 'none',
+    WebkitAppearance: 'none',
   },
   textarea: {
     width: '100%',
@@ -625,9 +596,13 @@ const styles: Record<string, React.CSSProperties> = {
   logHeader: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '16px',
+    gap: '14px',
     alignItems: 'flex-start',
     flexWrap: 'wrap',
+  },
+  logInfo: {
+    minWidth: 0,
+    flex: 1,
   },
   logTitle: {
     fontSize: '20px',
@@ -635,12 +610,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     lineHeight: 1.2,
     marginBottom: '8px',
+    wordBreak: 'break-word',
   },
   logMeta: {
     fontSize: '13px',
     color: '#64748b',
     fontWeight: 600,
     marginTop: '3px',
+    wordBreak: 'break-word',
   },
   logActions: {
     display: 'flex',
@@ -674,6 +651,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#334155',
     fontSize: '14px',
     lineHeight: 1.5,
+    wordBreak: 'break-word',
   },
   errorBox: {
     marginBottom: '14px',
@@ -737,4 +715,3 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
   },
 };
-
