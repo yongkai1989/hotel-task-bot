@@ -640,15 +640,16 @@ export default function DashboardPage() {
   }
 
   async function loadProfile(token: string) {
-    const json = await fetchJson('/api/session-profile', {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  const json = await fetchJson('/api/session-profile', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
 
-    setProfile(json.user);
-  }
+  console.log('SESSION PROFILE', json.user);
+  setProfile(json.user);
+}
 
   async function loadTasks(
     showLoader = false,
