@@ -9,15 +9,13 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-
-  // ✅ NEW
   can_access_linen_admin?: boolean;
 };
 
 type LinenStockRow = {
   linen_type: string;
   in_room_par: number;
-  floor_store_stock: number; // supervisor store
+  floor_store_stock: number;
   contractor_stock: number;
 };
 
@@ -31,6 +29,15 @@ type LinenFloorStockRow = {
 type DamageRow = {
   linen_type: string;
   qty: number;
+};
+
+type LinenRoomEntryRow = {
+  bedsheet_king?: number | null;
+  pillow_case?: number | null;
+  bath_towel?: number | null;
+  bath_mat?: number | null;
+  duvet_cover_king?: number | null;
+  duvet_cover_single?: number | null;
 };
 
 type ViewMode = 'OVERALL' | 'FLOOR' | 'SUPERVISOR_STORE';
@@ -67,6 +74,8 @@ const LINEN_TYPES = [
   'Duvet Cover Single',
 ] as const;
 
+type ContractorTotals = Record<(typeof LINEN_TYPES)[number], number>;
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
 
@@ -88,6 +97,25 @@ function shortfallStyle(value: number): React.CSSProperties {
   return { color: '#166534', fontWeight: 800 };
 }
 
+function getTodayLocalDateString() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function emptyContractorTotals(): ContractorTotals {
+  return {
+    'Bedsheet King': 0,
+    'Pillow Case': 0,
+    'Bath Towel': 0,
+    'Bath Mat': 0,
+    'Duvet Cover King': 0,
+    'Duvet Cover Single': 0,
+  };
+}
+
 export default function StockCardPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -104,6 +132,7 @@ export default function StockCardPage() {
   const [draftFloorQty, setDraftFloorQty] = useState<Record<string, string>>({});
   const [draftSupervisorStoreQty, setDraftSupervisorStoreQty] = useState<Record<string, string>>({});
   const [damageRows, setDamageRows] = useState<DamageRow[]>([]);
+  const [contractorTotals, setContractorTotals] = useState<ContractorTotals>(emptyContractorTotals());
 
   useEffect(() => {
     let mounted = true;
@@ -137,12 +166,12 @@ export default function StockCardPage() {
         if (!mounted) return;
 
         setProfile({
-  user_id: session.user.id,
-  email: profileRow?.email || session.user.email || '',
-  name: profileRow?.name || session.user.email || 'User',
-  role: (profileRow?.role || 'HK') as DashboardUser['role'],
-  can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
-});
+          user_id: session.user.id,
+          email: profileRow?.email || session.user.email || '',
+          name: profileRow?.name || session.user.email || 'User',
+          role: (profileRow?.role || 'HK') as DashboardUser['role'],
+          can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+        });
       } catch (err: any) {
         if (!mounted) return;
         setErrorMsg(err?.message || 'Failed to load session');
@@ -154,25 +183,23 @@ export default function StockCardPage() {
     void bootstrap();
 
     return () => {
-      mounted = false
+      mounted = false;
     };
   }, []);
 
   const canAccess = useMemo(() => {
-  if (!profile) return false;
+    if (!profile) return false;
 
-  // ✅ Admin roles always allowed
-  if (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER' ||
-    profile.role === 'SUPERVISOR'
-  ) {
-    return true;
-  }
+    if (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR'
+    ) {
+      return true;
+    }
 
-  // ✅ fallback to permission flag
-  return profile.can_access_linen_admin === true;
-}, [profile]);
+    return profile.can_access_linen_admin === true;
+  }, [profile]);
 
   async function loadData() {
     const supabase = getSupabaseSafe();
@@ -186,7 +213,9 @@ export default function StockCardPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const [stockRes, floorRes, damageRes] = await Promise.all([
+      const today = getTodayLocalDateString();
+
+      const [stockRes, floorRes, damageRes, chamberRes] = await Promise.all([
         supabase
           .from('linen_stock')
           .select('linen_type, in_room_par, floor_store_stock, contractor_stock')
@@ -197,19 +226,37 @@ export default function StockCardPage() {
         supabase
           .from('linen_damage_log')
           .select('linen_type, qty'),
+        supabase
+          .from('linen_room_entry')
+          .select('bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', today),
       ]);
 
       if (stockRes.error) throw stockRes.error;
       if (floorRes.error) throw floorRes.error;
       if (damageRes.error) throw damageRes.error;
+      if (chamberRes.error) throw chamberRes.error;
 
       const stockRows = (stockRes.data || []) as LinenStockRow[];
       const floorRows = (floorRes.data || []) as LinenFloorStockRow[];
       const damage = (damageRes.data || []) as DamageRow[];
+      const chamberRows = (chamberRes.data || []) as LinenRoomEntryRow[];
+
+      const nextContractorTotals = emptyContractorTotals();
+
+      chamberRows.forEach((row) => {
+        nextContractorTotals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+        nextContractorTotals['Pillow Case'] += safeNumber(row.pillow_case);
+        nextContractorTotals['Bath Towel'] += safeNumber(row.bath_towel);
+        nextContractorTotals['Bath Mat'] += safeNumber(row.bath_mat);
+        nextContractorTotals['Duvet Cover King'] += safeNumber(row.duvet_cover_king);
+        nextContractorTotals['Duvet Cover Single'] += safeNumber(row.duvet_cover_single);
+      });
 
       setLinenStock(stockRows);
       setFloorStock(floorRows);
       setDamageRows(damage);
+      setContractorTotals(nextContractorTotals);
 
       const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
       const nextDraftFloor: Record<string, string> = {};
@@ -288,7 +335,7 @@ export default function StockCardPage() {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
       const inRoomPar = safeNumber(stockRow?.in_room_par);
-      const contractorStock = safeNumber(stockRow?.contractor_stock);
+      const contractorStock = safeNumber(contractorTotals[linenType] || 0);
       const supervisorStore = safeNumber(stockRow?.floor_store_stock);
       const damaged = safeNumber(damageMap.get(linenType));
 
@@ -314,7 +361,7 @@ export default function StockCardPage() {
     });
 
     return items;
-  }, [linenStock, floorStock, damageRows, viewMode, selectedFloorKey]);
+  }, [linenStock, floorStock, damageRows, contractorTotals, viewMode, selectedFloorKey]);
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
