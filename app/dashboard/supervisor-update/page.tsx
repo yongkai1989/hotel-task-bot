@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import DashboardSidebar from '../../../components/DashboardSidebar';
 
 type DashboardUser = {
   user_id?: string;
@@ -105,6 +106,20 @@ export default function SupervisorUpdatePage() {
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, StatusValue>>({});
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+const [isMobile, setIsMobile] = useState(false);
+
+useEffect(() => {
+  const handleResize = () => {
+    const mobile = window.innerWidth <= 920;
+    setIsMobile(mobile);
+    if (!mobile) setSidebarOpen(false);
+  };
+
+  handleResize();
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, []);
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -483,7 +498,21 @@ export default function SupervisorUpdatePage() {
   }
 
   return (
-    <main style={styles.page}>
+  <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>
+    <DashboardSidebar
+      profile={profile}
+      sidebarOpen={sidebarOpen}
+      setSidebarOpen={setSidebarOpen}
+      isMobile={isMobile}
+    />
+
+    <main
+      style={{
+        flex: 1,
+        minWidth: 0,
+        padding: '20px',
+      }}
+    >
       <div style={styles.shell}>
         <div style={styles.topBar}>
           <div>
@@ -495,7 +524,15 @@ export default function SupervisorUpdatePage() {
           </div>
 
           <div style={styles.topBarActions}>
-            <Link href="/dashboard" style={styles.secondaryBtn}>
+  <button
+    type="button"
+    onClick={() => setSidebarOpen(true)}
+    style={styles.secondaryBtn}
+  >
+    ☰ Menu
+  </button>
+
+  <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
           </div>
@@ -631,9 +668,10 @@ export default function SupervisorUpdatePage() {
             </div>
           )}
         </div>
-      </div>
+         </div>
     </main>
-  );
+  </div>
+);
 }
 
 const styles: Record<string, React.CSSProperties> = {
