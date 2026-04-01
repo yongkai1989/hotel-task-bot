@@ -32,6 +32,26 @@ type DamageRow = {
 };
 
 type LinenRoomEntryRow = {
+  block_no?: number | null;
+  floor_no?: number | null;
+  bedsheet_king?: number | null;
+  pillow_case?: number | null;
+  bath_towel?: number | null;
+  bath_mat?: number | null;
+  duvet_cover_king?: number | null;
+  duvet_cover_single?: number | null;
+};
+
+type RoomMasterRow = {
+  room_number: string;
+  block_no: number;
+  floor_no: number;
+  room_type: string;
+  is_active?: boolean | null;
+};
+
+type LinenRoomTypeMapRow = {
+  room_type: string;
   bedsheet_king?: number | null;
   pillow_case?: number | null;
   bath_towel?: number | null;
@@ -44,10 +64,13 @@ type ViewMode = 'OVERALL' | 'FLOOR' | 'SUPERVISOR_STORE';
 
 type StockItem = {
   linenType: string;
-  inRoomPar: number;
-  floorStock: number;
+  overallInRoomPar: number;
+  floorInRoomPar: number;
+  overallFloorStock: number;
+  selectedFloorStock: number;
   supervisorStore: number;
-  contractorStock: number;
+  overallContractorStock: number;
+  floorContractorStock: number;
   damaged: number;
   totalUsable: number;
   threeParTarget: number;
@@ -75,6 +98,7 @@ const LINEN_TYPES = [
 ] as const;
 
 type ContractorTotals = Record<(typeof LINEN_TYPES)[number], number>;
+type InRoomTotals = Record<(typeof LINEN_TYPES)[number], number>;
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -116,6 +140,27 @@ function emptyContractorTotals(): ContractorTotals {
   };
 }
 
+function emptyInRoomTotals(): InRoomTotals {
+  return {
+    'Bedsheet King': 0,
+    'Pillow Case': 0,
+    'Bath Towel': 0,
+    'Bath Mat': 0,
+    'Duvet Cover King': 0,
+    'Duvet Cover Single': 0,
+  };
+}
+
+function addRoomTypeLinen(totals: InRoomTotals, row?: LinenRoomTypeMapRow | null) {
+  if (!row) return;
+  totals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+  totals['Pillow Case'] += safeNumber(row.pillow_case);
+  totals['Bath Towel'] += safeNumber(row.bath_towel);
+  totals['Bath Mat'] += safeNumber(row.bath_mat);
+  totals['Duvet Cover King'] += safeNumber(row.duvet_cover_king);
+  totals['Duvet Cover Single'] += safeNumber(row.duvet_cover_single);
+}
+
 export default function StockCardPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -133,6 +178,14 @@ export default function StockCardPage() {
   const [draftSupervisorStoreQty, setDraftSupervisorStoreQty] = useState<Record<string, string>>({});
   const [damageRows, setDamageRows] = useState<DamageRow[]>([]);
   const [contractorTotals, setContractorTotals] = useState<ContractorTotals>(emptyContractorTotals());
+  const [floorContractorTotals, setFloorContractorTotals] = useState<ContractorTotals>(emptyContractorTotals());
+  const [roomMasterRows, setRoomMasterRows] = useState<RoomMasterRow[]>([]);
+  const [roomTypeMapRows, setRoomTypeMapRows] = useState<LinenRoomTypeMapRow[]>([]);
+
+  const selectedFloor = useMemo(
+    () => FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0],
+    [selectedFloorKey]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -162,7 +215,6 @@ export default function StockCardPage() {
           .maybeSingle();
 
         if (profileError) throw profileError;
-
         if (!mounted) return;
 
         setProfile({
@@ -215,7 +267,7 @@ export default function StockCardPage() {
 
       const today = getTodayLocalDateString();
 
-      const [stockRes, floorRes, damageRes, chamberRes] = await Promise.all([
+      const [stockRes, floorRes, damageRes, chamberRes, roomRes, typeMapRes] = await Promise.all([
         supabase
           .from('linen_stock')
           .select('linen_type, in_room_par, floor_store_stock, contractor_stock')
@@ -228,37 +280,63 @@ export default function StockCardPage() {
           .select('linen_type, qty'),
         supabase
           .from('linen_room_entry')
-          .select('bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .select('block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', today),
+        supabase
+          .from('room_master')
+          .select('room_number, block_no, floor_no, room_type, is_active')
+          .eq('is_active', true),
+        supabase
+          .from('linen_room_type_map')
+          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
       ]);
 
       if (stockRes.error) throw stockRes.error;
       if (floorRes.error) throw floorRes.error;
       if (damageRes.error) throw damageRes.error;
       if (chamberRes.error) throw chamberRes.error;
+      if (roomRes.error) throw roomRes.error;
+      if (typeMapRes.error) throw typeMapRes.error;
 
       const stockRows = (stockRes.data || []) as LinenStockRow[];
       const floorRows = (floorRes.data || []) as LinenFloorStockRow[];
       const damage = (damageRes.data || []) as DamageRow[];
       const chamberRows = (chamberRes.data || []) as LinenRoomEntryRow[];
+      const rooms = (roomRes.data || []) as RoomMasterRow[];
+      const typeMapRows = (typeMapRes.data || []) as LinenRoomTypeMapRow[];
 
-      const nextContractorTotals = emptyContractorTotals();
+      const nextOverallContractorTotals = emptyContractorTotals();
+      const nextFloorContractorTotals = emptyContractorTotals();
 
       chamberRows.forEach((row) => {
-        nextContractorTotals['Bedsheet King'] += safeNumber(row.bedsheet_king);
-        nextContractorTotals['Pillow Case'] += safeNumber(row.pillow_case);
-        nextContractorTotals['Bath Towel'] += safeNumber(row.bath_towel);
-        nextContractorTotals['Bath Mat'] += safeNumber(row.bath_mat);
-        nextContractorTotals['Duvet Cover King'] += safeNumber(row.duvet_cover_king);
-        nextContractorTotals['Duvet Cover Single'] += safeNumber(row.duvet_cover_single);
+        nextOverallContractorTotals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+        nextOverallContractorTotals['Pillow Case'] += safeNumber(row.pillow_case);
+        nextOverallContractorTotals['Bath Towel'] += safeNumber(row.bath_towel);
+        nextOverallContractorTotals['Bath Mat'] += safeNumber(row.bath_mat);
+        nextOverallContractorTotals['Duvet Cover King'] += safeNumber(row.duvet_cover_king);
+        nextOverallContractorTotals['Duvet Cover Single'] += safeNumber(row.duvet_cover_single);
+
+        if (
+          safeNumber(row.block_no) === selectedFloor.block &&
+          safeNumber(row.floor_no) === selectedFloor.floor
+        ) {
+          nextFloorContractorTotals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+          nextFloorContractorTotals['Pillow Case'] += safeNumber(row.pillow_case);
+          nextFloorContractorTotals['Bath Towel'] += safeNumber(row.bath_towel);
+          nextFloorContractorTotals['Bath Mat'] += safeNumber(row.bath_mat);
+          nextFloorContractorTotals['Duvet Cover King'] += safeNumber(row.duvet_cover_king);
+          nextFloorContractorTotals['Duvet Cover Single'] += safeNumber(row.duvet_cover_single);
+        }
       });
 
       setLinenStock(stockRows);
       setFloorStock(floorRows);
       setDamageRows(damage);
-      setContractorTotals(nextContractorTotals);
+      setContractorTotals(nextOverallContractorTotals);
+      setFloorContractorTotals(nextFloorContractorTotals);
+      setRoomMasterRows(rooms);
+      setRoomTypeMapRows(typeMapRows);
 
-      const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
       const nextDraftFloor: Record<string, string> = {};
       const nextSupervisorStoreDraft: Record<string, string> = {};
 
@@ -293,10 +371,9 @@ export default function StockCardPage() {
     }
 
     void loadData();
-  }, [profile, canAccess]);
+  }, [profile, canAccess, selectedFloorKey]);
 
   useEffect(() => {
-    const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
     const nextDraft: Record<string, string> = {};
 
     floorStock
@@ -310,7 +387,24 @@ export default function StockCardPage() {
     });
 
     setDraftFloorQty(nextDraft);
-  }, [selectedFloorKey, floorStock]);
+  }, [selectedFloor, floorStock]);
+
+  const floorInRoomTotals = useMemo(() => {
+    const roomTypeMap = new Map<string, LinenRoomTypeMapRow>();
+    roomTypeMapRows.forEach((row) => {
+      roomTypeMap.set(row.room_type, row);
+    });
+
+    const totals = emptyInRoomTotals();
+
+    roomMasterRows
+      .filter((room) => room.block_no === selectedFloor.block && room.floor_no === selectedFloor.floor)
+      .forEach((room) => {
+        addRoomTypeLinen(totals, roomTypeMap.get(room.room_type));
+      });
+
+    return totals;
+  }, [roomMasterRows, roomTypeMapRows, selectedFloor]);
 
   const stockItems = useMemo(() => {
     const damageMap = new Map<string, number>();
@@ -323,7 +417,6 @@ export default function StockCardPage() {
       overallFloorMap.set(row.linen_type, safeNumber(overallFloorMap.get(row.linen_type)) + safeNumber(row.qty));
     });
 
-    const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
     const selectedFloorMap = new Map<string, number>();
     floorStock
       .filter((row) => row.block_no === selectedFloor.block && row.floor_no === selectedFloor.floor)
@@ -331,37 +424,38 @@ export default function StockCardPage() {
         selectedFloorMap.set(row.linen_type, safeNumber(row.qty));
       });
 
-    const items: StockItem[] = LINEN_TYPES.map((linenType) => {
+    return LINEN_TYPES.map((linenType) => {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
-      const inRoomPar = safeNumber(stockRow?.in_room_par);
-      const contractorStock = safeNumber(contractorTotals[linenType] || 0);
+      const overallInRoomPar = safeNumber(stockRow?.in_room_par);
+      const floorInRoomPar = safeNumber(floorInRoomTotals[linenType]);
+      const overallContractorStock = safeNumber(contractorTotals[linenType] || 0);
+      const floorContractorStock = safeNumber(floorContractorTotals[linenType] || 0);
       const supervisorStore = safeNumber(stockRow?.floor_store_stock);
       const damaged = safeNumber(damageMap.get(linenType));
+      const overallFloorStock = safeNumber(overallFloorMap.get(linenType));
+      const selectedFloorStock = safeNumber(selectedFloorMap.get(linenType));
 
-      let floorValue = 0;
-      if (viewMode === 'OVERALL') floorValue = safeNumber(overallFloorMap.get(linenType));
-      if (viewMode === 'FLOOR') floorValue = safeNumber(selectedFloorMap.get(linenType));
-
-      const totalUsable = Math.max(0, inRoomPar + floorValue + supervisorStore + contractorStock - damaged);
-      const threeParTarget = inRoomPar * 3;
+      const totalUsable = Math.max(0, overallInRoomPar + overallFloorStock + supervisorStore + overallContractorStock - damaged);
+      const threeParTarget = overallInRoomPar * 3;
       const shortfall = Math.max(0, threeParTarget - totalUsable);
 
       return {
         linenType,
-        inRoomPar,
-        floorStock: floorValue,
+        overallInRoomPar,
+        floorInRoomPar,
+        overallFloorStock,
+        selectedFloorStock,
         supervisorStore,
-        contractorStock,
+        overallContractorStock,
+        floorContractorStock,
         damaged,
         totalUsable,
         threeParTarget,
         shortfall,
-      };
+      } as StockItem;
     });
-
-    return items;
-  }, [linenStock, floorStock, damageRows, contractorTotals, viewMode, selectedFloorKey]);
+  }, [linenStock, floorStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals, selectedFloor]);
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
@@ -375,8 +469,6 @@ export default function StockCardPage() {
       setErrorMsg('Supabase is not configured.');
       return;
     }
-
-    const selectedFloor = FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey) || FLOOR_OPTIONS[0];
 
     try {
       setSaving(true);
@@ -575,72 +667,91 @@ export default function StockCardPage() {
                 <article key={item.linenType} style={styles.itemCard}>
                   <div style={styles.itemTitle}>{item.linenType}</div>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>1 Par in Room</span>
-                    <span style={styles.metricValue}>{item.inRoomPar}</span>
-                  </div>
+                  {viewMode === 'OVERALL' ? (
+                    <>
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>1 Par in Room</span>
+                        <span style={styles.metricValue}>{item.overallInRoomPar}</span>
+                      </div>
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>
-                      {viewMode === 'OVERALL' ? 'Floor Stock Total' : viewMode === 'FLOOR' ? 'Selected Floor Stock' : 'Supervisor Store'}
-                    </span>
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Floor Stock Total</span>
+                        <span style={styles.metricValue}>{item.overallFloorStock}</span>
+                      </div>
 
-                    {viewMode === 'OVERALL' ? (
-                      <span style={styles.metricValue}>{item.floorStock}</span>
-                    ) : viewMode === 'FLOOR' ? (
-                      renderEditableField(
-                        draftFloorQty[item.linenType] ?? '0',
-                        (value) =>
-                          setDraftFloorQty((prev) => ({
-                            ...prev,
-                            [item.linenType]: value,
-                          }))
-                      )
-                    ) : (
-                      renderEditableField(
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Supervisor Store</span>
+                        <span style={styles.metricValue}>{item.supervisorStore}</span>
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>With Laundry Contractor</span>
+                        <span style={styles.metricValue}>{item.overallContractorStock}</span>
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Damaged</span>
+                        <span style={styles.metricValue}>{item.damaged}</span>
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Total Usable</span>
+                        <span style={styles.metricValue}>{item.totalUsable}</span>
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>3 Par Target</span>
+                        <span style={styles.metricValue}>{item.threeParTarget}</span>
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Shortfall to 3 Par</span>
+                        <span style={{ ...styles.metricValue, ...shortfallStyle(item.shortfall) }}>
+                          {item.shortfall}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {viewMode === 'FLOOR' ? (
+                    <>
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>1 Par in Room</span>
+                        <span style={styles.metricValue}>{item.floorInRoomPar}</span>
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Selected Floor Stock</span>
+                        {renderEditableField(
+                          draftFloorQty[item.linenType] ?? String(item.selectedFloorStock),
+                          (value) =>
+                            setDraftFloorQty((prev) => ({
+                              ...prev,
+                              [item.linenType]: value,
+                            }))
+                        )}
+                      </div>
+
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>With Laundry Contractor</span>
+                        <span style={styles.metricValue}>{item.floorContractorStock}</span>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {viewMode === 'SUPERVISOR_STORE' ? (
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Supervisor Store</span>
+                      {renderEditableField(
                         draftSupervisorStoreQty[item.linenType] ?? '0',
                         (value) =>
                           setDraftSupervisorStoreQty((prev) => ({
                             ...prev,
                             [item.linenType]: value,
                           }))
-                      )
-                    )}
-                  </div>
-
-                  {viewMode === 'OVERALL' ? (
-                    <div style={styles.metricRow}>
-                      <span style={styles.metricLabel}>Supervisor Store</span>
-                      <span style={styles.metricValue}>{item.supervisorStore}</span>
+                      )}
                     </div>
                   ) : null}
-
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>With Laundry Contractor</span>
-                    <span style={styles.metricValue}>{item.contractorStock}</span>
-                  </div>
-
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Damaged</span>
-                    <span style={styles.metricValue}>{item.damaged}</span>
-                  </div>
-
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Total Usable</span>
-                    <span style={styles.metricValue}>{item.totalUsable}</span>
-                  </div>
-
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>3 Par Target</span>
-                    <span style={styles.metricValue}>{item.threeParTarget}</span>
-                  </div>
-
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Shortfall to 3 Par</span>
-                    <span style={{ ...styles.metricValue, ...shortfallStyle(item.shortfall) }}>
-                      {item.shortfall}
-                    </span>
-                  </div>
                 </article>
               ))}
             </div>
