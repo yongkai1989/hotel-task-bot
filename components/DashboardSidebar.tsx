@@ -30,6 +30,12 @@ export default function DashboardSidebar({
 }) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
 
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState('');
@@ -106,6 +112,47 @@ export default function DashboardSidebar({
       throw error;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  function openLoginModal() {
+    setLoginError('');
+    setLoginEmail('');
+    setLoginPassword('');
+    setLoginModalOpen(true);
+    closeSidebar();
+  }
+
+  function closeLoginModal() {
+    if (loginBusy) return;
+    setLoginModalOpen(false);
+    setLoginError('');
+    setLoginEmail('');
+    setLoginPassword('');
+  }
+
+  async function handleLogin() {
+    try {
+      const email = loginEmail.trim();
+      if (!email) throw new Error('Please enter email');
+      if (!loginPassword) throw new Error('Please enter password');
+
+      setLoginBusy(true);
+      setLoginError('');
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: loginPassword,
+      });
+
+      if (error) throw error;
+
+      closeLoginModal();
+      window.location.href = '/dashboard';
+    } catch (error: any) {
+      setLoginError(error?.message || 'Login failed');
+    } finally {
+      setLoginBusy(false);
     }
   }
 
@@ -300,16 +347,73 @@ export default function DashboardSidebar({
             <>
               <div style={styles.userBox}>
                 <div style={styles.userName}>Not logged in</div>
-                <div style={styles.userEmail}>Please log in from Dashboard</div>
+                <div style={styles.userEmail}>Use the button below to sign in.</div>
               </div>
 
-              <Link href="/dashboard" onClick={closeSidebar} style={styles.primaryLink}>
-                Go to Dashboard
-              </Link>
+              <button
+                type="button"
+                onClick={openLoginModal}
+                style={styles.primaryAction}
+              >
+                Log In
+              </button>
             </>
           )}
         </div>
       </aside>
+
+      {loginModalOpen ? (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalCard}>
+            <div style={styles.modalTitle}>Log In</div>
+
+            <div style={styles.modalLabel}>Email</div>
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              placeholder="Enter email"
+              style={styles.input}
+              disabled={loginBusy}
+            />
+
+            <div style={{ ...styles.modalLabel, marginTop: 12 }}>Password</div>
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              placeholder="Enter password"
+              style={styles.input}
+              disabled={loginBusy}
+            />
+
+            {loginError ? <div style={styles.errorBox}>{loginError}</div> : null}
+
+            <div style={styles.modalActions}>
+              <button
+                type="button"
+                onClick={closeLoginModal}
+                style={styles.modalSecondaryBtn}
+                disabled={loginBusy}
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogin}
+                style={{
+                  ...styles.modalPrimaryBtn,
+                  opacity: loginBusy ? 0.7 : 1,
+                }}
+                disabled={loginBusy}
+              >
+                {loginBusy ? 'Logging in...' : 'Log In'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {passwordModalOpen ? (
         <div style={styles.modalOverlay}>
@@ -490,18 +594,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 14px',
     fontWeight: 700,
     cursor: 'pointer',
-  },
-  primaryLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 700,
   },
   modalOverlay: {
     position: 'fixed',
