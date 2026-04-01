@@ -217,7 +217,6 @@ export default function LaundryCountPage() {
   const canAccess = useMemo(() => {
   if (!profile) return false;
 
-  // ✅ Admin roles always allowed
   if (
     profile.role === 'SUPERUSER' ||
     profile.role === 'MANAGER' ||
@@ -226,8 +225,16 @@ export default function LaundryCountPage() {
     return true;
   }
 
-  // ✅ fallback to permission flag
   return profile.can_access_linen_admin === true;
+}, [profile]);
+
+const canRunNewDay = useMemo(() => {
+  if (!profile) return false;
+
+  return (
+    profile.role === 'SUPERUSER' ||
+    profile.role === 'MANAGER'
+  );
 }, [profile]);
 
   async function checkAlreadyRanToday() {
