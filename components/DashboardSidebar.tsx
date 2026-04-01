@@ -52,7 +52,6 @@ export default function DashboardSidebar({
     return {
       display: 'flex',
       alignItems: 'center',
-      gap: '10px',
       width: '100%',
       textDecoration: 'none',
       border: '1px solid',
@@ -64,13 +63,13 @@ export default function DashboardSidebar({
       fontWeight: 700,
       fontSize: '14px',
       marginBottom: '8px',
-      boxSizing: 'border-box',
     };
   }
 
   return (
     <>
-      {isMobile && sidebarOpen ? (
+      {/* Overlay */}
+      {isMobile && sidebarOpen && (
         <div
           onClick={() => setSidebarOpen(false)}
           style={{
@@ -80,8 +79,9 @@ export default function DashboardSidebar({
             zIndex: 40,
           }}
         />
-      ) : null}
+      )}
 
+      {/* Sidebar */}
       <aside
         style={{
           position: isMobile ? 'fixed' : 'sticky',
@@ -93,7 +93,6 @@ export default function DashboardSidebar({
           background: '#ffffff',
           borderRight: '1px solid #e5e7eb',
           padding: '18px 14px',
-          boxSizing: 'border-box',
           overflowY: 'auto',
           zIndex: 50,
           transform: isMobile
@@ -102,32 +101,19 @@ export default function DashboardSidebar({
               : 'translateX(-100%)'
             : 'translateX(0)',
           transition: 'transform 0.22s ease',
-          boxShadow: isMobile ? '0 10px 30px rgba(15,23,42,0.18)' : 'none',
         }}
       >
+        {/* LOGO + HEADER */}
         <div style={{ marginBottom: '18px' }}>
-          <div
-            style={{
-              fontSize: '18px',
-              fontWeight: 800,
-              color: '#0f172a',
-              lineHeight: 1.2,
-            }}
-          >
-            Hallmark Dashboard
+          <div style={{ fontSize: '20px', fontWeight: 900 }}>
+            Hallmark Crown Hotel
           </div>
-          <div
-            style={{
-              fontSize: '12px',
-              color: '#64748b',
-              marginTop: '4px',
-              fontWeight: 600,
-            }}
-          >
-            {profile ? `${profile.name} (${profile.role})` : 'Navigation'}
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            Operations PMS
           </div>
         </div>
 
+        {/* NAV */}
         <nav>
           <Link
             href="/dashboard"
@@ -145,7 +131,7 @@ export default function DashboardSidebar({
             Past Task
           </Link>
 
-          {canSeeChambermaid ? (
+          {canSeeChambermaid && (
             <Link
               href="/dashboard/chambermaid-entry"
               onClick={closeMobileSidebar}
@@ -153,9 +139,9 @@ export default function DashboardSidebar({
             >
               Chambermaid Entry
             </Link>
-          ) : null}
+          )}
 
-          {canSeeLinenAdmin ? (
+          {canSeeLinenAdmin && (
             <>
               <Link
                 href="/dashboard/supervisor-update"
@@ -197,8 +183,24 @@ export default function DashboardSidebar({
                 Linen History
               </Link>
             </>
-          ) : null}
+          )}
         </nav>
+
+        {/* USER PANEL */}
+        <div style={{ marginTop: '20px', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
+          <div style={{ fontWeight: 700 }}>{profile?.name}</div>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            {profile?.role}
+          </div>
+
+          <button style={{ marginTop: '10px', width: '100%' }}>
+            Change Password
+          </button>
+
+          <button style={{ marginTop: '8px', width: '100%' }}>
+            Logout
+          </button>
+        </div>
       </aside>
     </>
   );
