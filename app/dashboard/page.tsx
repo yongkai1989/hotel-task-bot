@@ -1473,6 +1473,17 @@ async function handleDeleteTask(taskId: string) {
     <span>Damaged</span>
   </Link>
 ) : null}
+
+           {(profile?.role === 'SUPERUSER' ||
+  profile?.role === 'MANAGER') ? (
+  <Link
+    href="/dashboard/linen-history"
+    onClick={() => setSidebarOpen(false)}
+    style={sidebarItemStyle(false)}
+  >
+    <span>Linen History</span>
+  </Link>
+) : null}
            
 </div>
           <div style={styles.sidebarDivider} />
