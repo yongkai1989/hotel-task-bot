@@ -65,28 +65,10 @@ type GroupSummary = {
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
 
-const FLOORS_BY_BLOCK: Record<number, number[]> = {
-  1: [1, 2, 3, 5],
-  2: [3, 5, 6, 7],
-};
-
-const FLOOR_KEYS = [
-  'B1F1',
-  'B1F2',
-  'B1F3',
-  'B1F5',
-  'B2F3',
-  'B2F5',
-  'B2F6',
-  'B2F7',
-] as const;
-
+const FLOOR_KEYS = ['B1F1', 'B1F2', 'B1F3', 'B1F5', 'B2F3', 'B2F5', 'B2F6', 'B2F7'] as const;
 const BLOCK_KEYS = ['B1', 'B2'] as const;
 
-const ITEM_DEFS: Array<{
-  key: keyof LinenTotals;
-  label: string;
-}> = [
+const ITEM_DEFS: Array<{ key: keyof LinenTotals; label: string }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
   { key: 'pillow_case', label: 'Pillow Case' },
   { key: 'bath_towel', label: 'Bath Towel' },
@@ -97,12 +79,9 @@ const ITEM_DEFS: Array<{
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
-
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
   if (!url || !anon) return null;
-
   return createBrowserSupabaseClient();
 }
 
@@ -169,7 +148,9 @@ export default function LaundryCountPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [runningNewDay, setRunningNewDay] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const [rooms, setRooms] = useState<RoomMasterRow[]>([]);
   const [statuses, setStatuses] = useState<StatusRow[]>([]);
@@ -190,11 +171,7 @@ export default function LaundryCountPage() {
         const supabase = getSupabaseSafe();
         if (!supabase) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
 
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
 
         if (!session?.user) {
@@ -210,7 +187,6 @@ export default function LaundryCountPage() {
           .maybeSingle();
 
         if (profileError) throw profileError;
-
         if (!mounted) return;
 
         setProfile({
@@ -228,7 +204,6 @@ export default function LaundryCountPage() {
     }
 
     void bootstrap();
-
     return () => {
       mounted = false;
     };
@@ -236,73 +211,65 @@ export default function LaundryCountPage() {
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    return (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR'
-    );
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'SUPERVISOR';
   }, [profile]);
 
-  useEffect(() => {
+  const canRunNewDay = useMemo(() => {
+    if (!profile) return false;
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
+  }, [profile]);
+
+  async function loadData() {
     if (!profile || !canAccess) {
       setLoading(false);
       return;
     }
 
-    let mounted = true;
+    try {
+      setLoading(true);
+      setErrorMsg('');
 
-    async function loadData() {
-      try {
-        setLoading(true);
-        setErrorMsg('');
+      const supabase = getSupabaseSafe();
+      if (!supabase) throw new Error('Supabase is not configured.');
 
-        const supabase = getSupabaseSafe();
-        if (!supabase) throw new Error('Supabase is not configured.');
+      const [roomRes, statusRes, entryRes, mapRes] = await Promise.all([
+        supabase
+          .from('room_master')
+          .select('room_number, block_no, floor_no, room_type')
+          .eq('is_active', true)
+          .order('room_number', { ascending: true }),
+        supabase
+          .from('linen_room_status')
+          .select('room_number, status')
+          .eq('service_date', serviceDate)
+          .in('status', ['CHECKOUT', 'STAYOVER']),
+        supabase
+          .from('linen_room_entry')
+          .select('room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', serviceDate),
+        supabase
+          .from('linen_room_type_map')
+          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+      ]);
 
-        const [roomRes, statusRes, entryRes, mapRes] = await Promise.all([
-          supabase
-            .from('room_master')
-            .select('room_number, block_no, floor_no, room_type')
-            .eq('is_active', true)
-            .order('room_number', { ascending: true }),
-          supabase
-            .from('linen_room_status')
-            .select('room_number, status')
-            .eq('service_date', serviceDate)
-            .in('status', ['CHECKOUT', 'STAYOVER']),
-          supabase
-            .from('linen_room_entry')
-            .select('room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-            .eq('service_date', serviceDate),
-          supabase
-            .from('linen_room_type_map')
-            .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
-        ]);
+      if (roomRes.error) throw roomRes.error;
+      if (statusRes.error) throw statusRes.error;
+      if (entryRes.error) throw entryRes.error;
+      if (mapRes.error) throw mapRes.error;
 
-        if (roomRes.error) throw roomRes.error;
-        if (statusRes.error) throw statusRes.error;
-        if (entryRes.error) throw entryRes.error;
-        if (mapRes.error) throw mapRes.error;
-
-        if (!mounted) return;
-
-        setRooms((roomRes.data || []) as RoomMasterRow[]);
-        setStatuses((statusRes.data || []) as StatusRow[]);
-        setEntries((entryRes.data || []) as EntryRow[]);
-        setLinenMap((mapRes.data || []) as LinenMapRow[]);
-      } catch (err: any) {
-        if (!mounted) return;
-        setErrorMsg(err?.message || 'Failed to load laundry count');
-      } finally {
-        if (mounted) setLoading(false);
-      }
+      setRooms((roomRes.data || []) as RoomMasterRow[]);
+      setStatuses((statusRes.data || []) as StatusRow[]);
+      setEntries((entryRes.data || []) as EntryRow[]);
+      setLinenMap((mapRes.data || []) as LinenMapRow[]);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to load laundry count');
+    } finally {
+      setLoading(false);
     }
+  }
 
+  useEffect(() => {
     void loadData();
-
-    return () => {
-      mounted = false;
-    };
   }, [profile, canAccess, serviceDate]);
 
   const summaries = useMemo(() => {
@@ -325,7 +292,6 @@ export default function LaundryCountPage() {
       const key = floorKey(blockNo, floorNo);
       const existing = floorGroups.get(key);
       if (existing) return existing;
-
       const next: GroupSummary = {
         key,
         label: `Block ${blockNo} · Floor ${floorNo}`,
@@ -343,7 +309,6 @@ export default function LaundryCountPage() {
       const key = `B${blockNo}`;
       const existing = blockGroups.get(key);
       if (existing) return existing;
-
       const next: GroupSummary = {
         key,
         label: `Block ${blockNo}`,
@@ -406,18 +371,12 @@ export default function LaundryCountPage() {
     floorGroups.forEach((group) => {
       group.difference = subtractTotals(group.actual, group.expected);
     });
-
     blockGroups.forEach((group) => {
       group.difference = subtractTotals(group.actual, group.expected);
     });
 
-    const floorList = FLOOR_KEYS
-      .map((key) => floorGroups.get(key))
-      .filter(Boolean) as GroupSummary[];
-
-    const blockList = BLOCK_KEYS
-      .map((key) => blockGroups.get(key))
-      .filter(Boolean) as GroupSummary[];
+    const floorList = FLOOR_KEYS.map((key) => floorGroups.get(key)).filter(Boolean) as GroupSummary[];
+    const blockList = BLOCK_KEYS.map((key) => blockGroups.get(key)).filter(Boolean) as GroupSummary[];
 
     const grand: GroupSummary = {
       key: 'GRAND',
@@ -450,6 +409,35 @@ export default function LaundryCountPage() {
     }
     return summaries.grand;
   }, [viewMode, selectedFloorKey, selectedBlockKey, summaries]);
+
+  async function handleNewDay() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Run New Day now? This will snapshot yesterday, clean old history, and reset today\\'s live linen data.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setRunningNewDay(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase.rpc('run_linen_daily_automation');
+      if (error) throw error;
+
+      setSuccessMsg('New Day completed successfully.');
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to run New Day');
+    } finally {
+      setRunningNewDay(false);
+    }
+  }
 
   if (authLoading) {
     return (
@@ -492,11 +480,22 @@ export default function LaundryCountPage() {
             <div style={styles.pageSubTitle}>Service Date: {serviceDate} · {profile.name} ({profile.role})</div>
           </div>
           <div style={styles.topBarActions}>
+            {canRunNewDay ? (
+              <button
+                type="button"
+                onClick={handleNewDay}
+                disabled={runningNewDay}
+                style={{ ...styles.newDayBtn, opacity: runningNewDay ? 0.6 : 1 }}
+              >
+                {runningNewDay ? 'Running...' : 'New Day'}
+              </button>
+            ) : null}
             <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+        {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
         <div style={styles.summaryRow}>
           <div style={styles.summaryCard}>
@@ -551,10 +550,7 @@ export default function LaundryCountPage() {
                   key={group.key}
                   type="button"
                   onClick={() => setSelectedFloorKey(group.key)}
-                  style={{
-                    ...styles.selectorBtn,
-                    ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}),
-                  }}
+                  style={{ ...styles.selectorBtn, ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}) }}
                 >
                   {group.label}
                 </button>
@@ -569,10 +565,7 @@ export default function LaundryCountPage() {
                   key={group.key}
                   type="button"
                   onClick={() => setSelectedBlockKey(group.key)}
-                  style={{
-                    ...styles.selectorBtn,
-                    ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}),
-                  }}
+                  style={{ ...styles.selectorBtn, ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}) }}
                 >
                   {group.label}
                 </button>
@@ -592,9 +585,7 @@ export default function LaundryCountPage() {
         ) : (
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>{selectedSummary.label}</div>
-            <div style={styles.groupMeta}>
-              Rooms: {selectedSummary.roomCount} · DND: {selectedSummary.dndCount}
-            </div>
+            <div style={styles.groupMeta}>Rooms: {selectedSummary.roomCount} · DND: {selectedSummary.dndCount}</div>
 
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => {
@@ -612,9 +603,7 @@ export default function LaundryCountPage() {
                     </div>
                     <div style={styles.metricRow}>
                       <span style={styles.metricLabel}>Difference</span>
-                      <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
-                        {formatDiff(diffValue)}
-                      </span>
+                      <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>{formatDiff(diffValue)}</span>
                     </div>
                   </div>
                 );
@@ -783,6 +772,15 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     fontWeight: 800,
   },
+  newDayBtn: {
+    border: 'none',
+    background: '#16a34a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
   secondaryBtn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -800,6 +798,15 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fef2f2',
     color: '#b91c1c',
     border: '1px solid #fecaca',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontWeight: 600,
+  },
+  successBox: {
+    marginBottom: '14px',
+    background: '#ecfdf5',
+    color: '#166534',
+    border: '1px solid #bbf7d0',
     borderRadius: '12px',
     padding: '12px 14px',
     fontWeight: 600,
