@@ -149,6 +149,7 @@ export default function LaundryCountPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [runningNewDay, setRunningNewDay] = useState(false);
+  const [alreadyRanToday, setAlreadyRanToday] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -219,6 +220,21 @@ export default function LaundryCountPage() {
     return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
   }, [profile]);
 
+  async function checkAlreadyRanToday() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+
+    const { data, error } = await supabase
+      .from('linen_daily_snapshot')
+      .select('service_date')
+      .eq('service_date', serviceDate)
+      .maybeSingle();
+
+    if (!error) {
+      setAlreadyRanToday(!!data);
+    }
+  }
+
   async function loadData() {
     if (!profile || !canAccess) {
       setLoading(false);
@@ -261,6 +277,7 @@ export default function LaundryCountPage() {
       setStatuses((statusRes.data || []) as StatusRow[]);
       setEntries((entryRes.data || []) as EntryRow[]);
       setLinenMap((mapRes.data || []) as LinenMapRow[]);
+      await checkAlreadyRanToday();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load laundry count');
     } finally {
@@ -417,6 +434,18 @@ export default function LaundryCountPage() {
       return;
     }
 
+    const { data: existing } = await supabase
+      .from('linen_daily_snapshot')
+      .select('service_date')
+      .eq('service_date', serviceDate)
+      .maybeSingle();
+
+    if (existing) {
+      setAlreadyRanToday(true);
+      window.alert('New Day already run today.');
+      return;
+    }
+
     const confirmed = window.confirm(
       "Run New Day now? This will snapshot yesterday, clean old history, and reset today's live linen data."
     );
@@ -430,6 +459,7 @@ export default function LaundryCountPage() {
       const { error } = await supabase.rpc('run_linen_daily_automation');
       if (error) throw error;
 
+      setAlreadyRanToday(true);
       setSuccessMsg('New Day completed successfully.');
       await loadData();
     } catch (err: any) {
@@ -484,10 +514,10 @@ export default function LaundryCountPage() {
               <button
                 type="button"
                 onClick={handleNewDay}
-                disabled={runningNewDay}
-                style={{ ...styles.newDayBtn, opacity: runningNewDay ? 0.6 : 1 }}
+                disabled={runningNewDay || alreadyRanToday}
+                style={{ ...styles.newDayBtn, opacity: runningNewDay || alreadyRanToday ? 0.55 : 1 }}
               >
-                {runningNewDay ? 'Running...' : 'New Day'}
+                {alreadyRanToday ? 'Already Ran Today' : runningNewDay ? 'Running...' : 'New Day'}
               </button>
             ) : null}
             <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
