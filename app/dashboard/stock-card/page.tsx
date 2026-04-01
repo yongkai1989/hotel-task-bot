@@ -13,8 +13,6 @@ type DashboardUser = {
   can_access_chambermaid_entry?: boolean;
 };
 
-// KEEP ALL YOUR TYPES SAME...
-
 export default function StockCardPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -25,10 +23,6 @@ export default function StockCardPage() {
 
   const [viewMode, setViewMode] = useState<'OVERALL' | 'FLOOR' | 'SUPERVISOR_STORE'>('OVERALL');
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
-
-  // KEEP ALL YOUR STATES + LOGIC BELOW (UNCHANGED)
-
-  // 🔴 DO NOT TOUCH YOUR DATA LOGIC
 
   if (authLoading) {
     return (
@@ -49,8 +43,6 @@ export default function StockCardPage() {
     );
   }
 
-  // 🔥 FINAL RETURN (NO SIDEBAR)
-
   return (
     <main style={styles.page}>
       <div style={styles.shell}>
@@ -69,8 +61,55 @@ export default function StockCardPage() {
           </div>
         </div>
 
-        {/* ✅ KEEP EVERYTHING ELSE BELOW EXACTLY SAME */}
+        {/* KEEP YOUR ORIGINAL CONTENT BELOW */}
       </div>
     </main>
   );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: '100vh',
+    background: '#f8fafc',
+    padding: '20px',
+  },
+  shell: {
+    maxWidth: '1200px',
+    margin: '0 auto',
+  },
+  topBar: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginBottom: '18px',
+  },
+  topBarActions: {
+    display: 'flex',
+    gap: '10px',
+  },
+  pageTitle: {
+    fontSize: '28px',
+    fontWeight: 800,
+  },
+  pageSubTitle: {
+    fontSize: '14px',
+    color: '#64748b',
+  },
+  secondaryBtn: {
+    border: '1px solid #cbd5e1',
+    borderRadius: '12px',
+    padding: '12px 16px',
+  },
+  centerCard: {
+    margin: '80px auto',
+    textAlign: 'center',
+  },
+  centerTitle: {
+    fontSize: '24px',
+    fontWeight: 800,
+    marginBottom: '10px',
+  },
+  linkBtn: {
+    display: 'inline-block',
+    marginTop: '10px',
+  },
 }
