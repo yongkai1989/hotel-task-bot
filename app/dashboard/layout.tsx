@@ -31,14 +31,6 @@ export default function DashboardLayout({
 }) {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth <= 920;
-      setIsMobile(mobile);
-      if (!mobile) setSidebarOpen(false);
-    };
 
     handleResize();
     window.addEventListener('resize', handleResize);
