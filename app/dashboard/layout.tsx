@@ -100,11 +100,10 @@ export default function DashboardLayout({
       }}
     >
       <DashboardSidebar
-        profile={profile}
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        isMobile={isMobile}
-      />
+  profile={profile}
+  sidebarOpen={sidebarOpen}
+  setSidebarOpen={setSidebarOpen}
+/>
 
       <main
         style={{
