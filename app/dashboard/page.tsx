@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 type TaskImage = {
   id: string | number;
@@ -344,6 +345,10 @@ export default function DashboardPage() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   const [envError, setEnvError] = useState('');
+
+  const searchParams = useSearchParams();
+  const sidebarView: SidebarView =
+    searchParams.get('view') === 'past' ? 'PAST_TASK' : 'DASHBOARD';
 
   const lastTasksFingerprintRef = useRef('');
   const hasHydratedFromCacheRef = useRef(false);
@@ -729,7 +734,6 @@ export default function DashboardPage() {
 
       setProfile(null);
       setTasks([]);
-      setSidebarOpen(false);
       setLoginOpen(false);
       setPasswordModalOpen(false);
       sessionStorage.removeItem('dashboard_tasks_cache');
@@ -1317,430 +1321,344 @@ async function handleDeleteTask(taskId: string) {
       ? 'Live task board for housekeeping, maintenance, and front office'
       : 'Browse previously completed tasks by completed date';
 
-  const sidebarStyle: React.CSSProperties = isMobile
-    ? {
-        ...styles.sidebar,
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        bottom: 0,
-        zIndex: 1002,
-        transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-        transition: 'transform 0.24s ease',
-        width: 270,
-        minWidth: 270,
-      }
-    : {
-        ...styles.sidebar,
-        position: 'sticky',
-        top: 0,
-        height: '100vh',
-      };
+  const taskMainRowStyle: React.CSSProperties = styles.taskMainRow;
 
-  const taskMainRowStyle: React.CSSProperties = isMobile
-    ? {
-        ...styles.taskMainRow,
-        flexDirection: 'column',
-        width: '100%',
-        minWidth: 0,
-      }
-    : styles.taskMainRow;
+  return (
+    <main style={styles.page}>
+      <section style={styles.content}>
+        <div style={styles.headerCard}>
+          <div style={styles.headerTop}>
+            <div style={styles.logoWrap}>
+              <Image
+                src="/logo.png"
+                alt="Hallmark Crown Hotel logo"
+                width={56}
+                height={56}
+                style={styles.logo as React.CSSProperties}
+              />
+            </div>
 
-  {profile?.can_access_linen_admin ? (
-    <Link
-      href="/dashboard/supervisor-update"
-      onClick={() => setSidebarOpen(false)}
-      style={sidebarItemStyle(false)}
-    >
-      <span>Supervisor Update</span>
-    </Link>
-  ) : null}
-           
-           {profile?.can_access_chambermaid_entry ? (
-  <Link
-    href="/dashboard/chambermaid-entry"
-    onClick={() => setSidebarOpen(false)}
-    style={sidebarItemStyle(false)}
-  >
-    <span>Chambermaid Entry</span>
-  </Link>
-) : null}
-        
-           {profile?.can_access_linen_admin ? (
-  <Link
-    href="/dashboard/laundry-count"
-    onClick={() => setSidebarOpen(false)}
-    style={sidebarItemStyle(false)}
-  >
-    <span>Laundry Count</span>
-  </Link>
-) : null}
-
-          {profile?.can_access_linen_admin ? (
-  <Link
-    href="/dashboard/stock-card"
-    onClick={() => setSidebarOpen(false)}
-    style={sidebarItemStyle(false)}
-  >
-    <span>Stock Card</span>
-  </Link>
-) : null}
-
-           {profile?.can_access_linen_admin ? (
-  <Link
-    href="/dashboard/damaged"
-    onClick={() => setSidebarOpen(false)}
-    style={sidebarItemStyle(false)}
-  >
-    <span>Damaged</span>
-  </Link>
-) : null}
-
-           {profile?.can_access_linen_admin ? (
-  <Link
-    href="/dashboard/linen-history"
-    onClick={() => setSidebarOpen(false)}
-    style={sidebarItemStyle(false)}
-  >
-    <span>Linen History</span>
-  </Link>
-
-        <section style={styles.content}>
-
-          <div style={styles.headerCard}>
-            <div style={styles.headerTop}>
-              <div style={styles.logoWrap}>
-                <Image
-                  src="/logo.png"
-                  alt="Hallmark Crown Hotel logo"
-                  width={56}
-                  height={56}
-                  style={styles.logo as React.CSSProperties}
-                />
-              </div>
-
-              <div style={styles.headerTextWrap}>
-                <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
-                <h1 style={styles.title}>{pageTitle}</h1>
-                <p style={styles.subtitle}>{pageSubtitle}</p>
-              </div>
+            <div style={styles.headerTextWrap}>
+              <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
+              <h1 style={styles.title}>{pageTitle}</h1>
+              <p style={styles.subtitle}>{pageSubtitle}</p>
             </div>
           </div>
+        </div>
 
-          {envError ? <div style={styles.errorBox}>{envError}</div> : null}
-          {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+        {envError ? <div style={styles.errorBox}>{envError}</div> : null}
+        {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
-          {authLoading ? (
-            <div style={styles.emptyState}>Checking login...</div>
-          ) : !profile ? (
-            <div style={styles.emptyState}>
-              Please log in from the sidebar to use the dashboard.
-            </div>
-          ) : (
-            <>
-              {sidebarView === 'DASHBOARD' ? (
-                <section style={styles.summaryGrid}>
-                  <SummaryCard title="Open" value={summary.open} tone="open" />
-                  <SummaryCard title="DOING" value={summary.doing} tone="doing" />
-                  <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
-                </section>
-              ) : null}
+        {authLoading ? (
+          <div style={styles.emptyState}>Checking login...</div>
+        ) : !profile ? (
+          <div style={styles.emptyState}>
+            Please log in to use the dashboard.
+          </div>
+        ) : (
+          <>
+            {sidebarView === 'DASHBOARD' ? (
+              <section style={styles.summaryGrid}>
+                <SummaryCard title="Open" value={summary.open} tone="open" />
+                <SummaryCard title="DOING" value={summary.doing} tone="doing" />
+                <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
+              </section>
+            ) : null}
 
-              <section style={styles.filterPanel}>
-                <div style={styles.filterHeader}>
-                  <div style={styles.filterHeaderText}>
-                    <div style={styles.filterPanelTitle}>
-                      {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
-                    </div>
-                    <div style={styles.filterPanelSubtitle}>
-                      {sidebarView === 'DASHBOARD'
-                        ? 'Filter active and today-completed tasks'
-                        : 'Search older completed tasks by department and date'}
-                    </div>
+            <section style={styles.filterPanel}>
+              <div style={styles.filterHeader}>
+                <div style={styles.filterHeaderText}>
+                  <div style={styles.filterPanelTitle}>
+                    {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
                   </div>
-
-                  <div style={styles.filterHeaderButtons}>
-                    <button
-                      onClick={() => loadTasks(false)}
-                      style={styles.refreshBtn}
-                      disabled={refreshing || loading}
-                      title="Refresh tasks"
-                    >
-                      ↻
-                    </button>
-
-                    {sidebarView === 'DASHBOARD' && canCreateTask() ? (
-                      <button
-                        onClick={openCreateModal}
-                        style={styles.addTaskBtn}
-                        aria-label="Add task"
-                        title="Add new task"
-                      >
-                        +
-                      </button>
-                    ) : null}
+                  <div style={styles.filterPanelSubtitle}>
+                    {sidebarView === 'DASHBOARD'
+                      ? 'Filter active and today-completed tasks'
+                      : 'Search older completed tasks by department and date'}
                   </div>
                 </div>
 
+                <div style={styles.filterHeaderButtons}>
+                  <button
+                    onClick={() => loadTasks(false)}
+                    style={styles.refreshBtn}
+                    disabled={refreshing || loading}
+                    title="Refresh tasks"
+                  >
+                    ↻
+                  </button>
+
+                  {sidebarView === 'DASHBOARD' && canCreateTask() ? (
+                    <button
+                      onClick={openCreateModal}
+                      style={styles.addTaskBtn}
+                      aria-label="Add task"
+                      title="Add new task"
+                    >
+                      +
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div style={styles.filterBlock}>
+                <div style={styles.filterLabel}>Department</div>
+                <div style={styles.pillRow}>
+                  {departments.map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setDept(d)}
+                      style={departmentFilterStyle(d, dept === d)}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {sidebarView === 'DASHBOARD' ? (
                 <div style={styles.filterBlock}>
-                  <div style={styles.filterLabel}>Department</div>
+                  <div style={styles.filterLabel}>Status</div>
                   <div style={styles.pillRow}>
-                    {departments.map((d) => (
+                    {liveStatuses.map((s) => (
                       <button
-                        key={d}
-                        onClick={() => setDept(d)}
-                        style={departmentFilterStyle(d, dept === d)}
+                        key={s}
+                        onClick={() => setStatus(s)}
+                        style={statusFilterStyle(status === s)}
                       >
-                        {d}
+                        {labelForStatus(s)}
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {sidebarView === 'DASHBOARD' ? (
-                  <div style={styles.filterBlock}>
-                    <div style={styles.filterLabel}>Status</div>
-                    <div style={styles.pillRow}>
-                      {liveStatuses.map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setStatus(s)}
-                          style={statusFilterStyle(status === s)}
-                        >
-                          {labelForStatus(s)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={styles.filterBlock}>
-                    <div style={styles.filterLabel}>Completed Date</div>
-                    <div style={styles.dateFilterRow}>
-                      <input
-                        type="date"
-                        value={pastTaskDate}
-                        max={getYesterdayLocalDateString()}
-                        onChange={(e) => setPastTaskDate(e.target.value)}
-                        style={styles.dateInput}
-                      />
-                      <div style={styles.dateHint}>
-                        Tasks here are filtered using completion date
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              <section style={styles.resultBar}>
-                <div style={styles.resultText}>
-                  {loading
-                    ? 'Loading tasks…'
-                    : sidebarView === 'DASHBOARD'
-                    ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
-                    : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
-                        pastTaskDate
-                      )}`}
-                </div>
-                {refreshing ? <div style={styles.updatingText}>Refreshing…</div> : null}
-              </section>
-
-              {loading ? (
-                <div style={styles.emptyState}>Loading...</div>
-              ) : filtered.length === 0 ? (
-                <div style={styles.emptyState}>
-                  {sidebarView === 'DASHBOARD'
-                    ? 'No tasks found for this filter.'
-                    : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
-                </div>
               ) : (
-                <div style={styles.cardList}>
-                  {filtered.map((task) => {
-                    const images = Array.isArray(task.task_images) ? task.task_images : [];
-                    const thumb =
-                      images.length > 0
-                        ? images[images.length - 1].image_url
-                        : task.image_url || null;
-
-                    return (
-                      <article key={task.id} style={styles.taskCard}>
-                        <div style={taskMainRowStyle}>
-                          <div style={styles.taskMainContent}>
-                            <div style={styles.cardTopRow}>
-                              <div style={styles.cardTopLeft}>
-                                <div style={styles.taskCodeRow}>
-                                  <div style={styles.taskCode}>{task.task_code}</div>
-                                  <div style={statusBadgeStyle(task.status)}>
-                                    {labelForStatus(task.status)}
-                                  </div>
-                                </div>
-
-                                <div style={styles.roomLine}>
-                                  <span style={styles.roomText}>Room</span>
-                                  <span style={styles.roomNo}>{task.room}</span>
-                                  <span style={styles.dot}>•</span>
-                                  <span style={deptBadgeStyle(task.department)}>
-                                    {task.department}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div style={styles.taskText}>{task.task_text}</div>
-
-                            <div style={styles.metaGrid}>
-                              <div style={styles.metaCard}>
-                                <div style={styles.metaCardLabel}>Created</div>
-                                <div style={styles.metaCardValue}>
-                                  {new Date(task.created_at).toLocaleString()}
-                                </div>
-                              </div>
-
-                              <div style={styles.metaCard}>
-                                <div style={styles.metaCardLabel}>Created by</div>
-                                <div style={styles.metaCardValueStrong}>
-                                  {task.created_by_name || 'Unknown'}
-                                </div>
-                              </div>
-
-                              {task.status === 'DONE' && task.done_at ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Completed</div>
-                                  <div style={styles.metaCardValue}>
-                                    {new Date(task.done_at).toLocaleString()}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {task.status === 'DONE' && task.done_by_name ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Done by</div>
-                                  <div style={styles.metaCardValueStrong}>
-                                    {task.done_by_name}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {task.status !== 'DONE' && task.last_updated_by_name ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Last updated by</div>
-                                  <div style={styles.metaCardValue}>
-                                    {task.last_updated_by_name}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {task.edited_at ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Edited</div>
-                                  <div style={styles.metaCardValue}>
-                                    {new Date(task.edited_at).toLocaleString()}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {task.edited_at && task.edited_by_name ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Edited by</div>
-                                  <div style={styles.metaCardValue}>
-                                    {task.edited_by_name}
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {sidebarView === 'DASHBOARD' ? (
-                              <>
-                                <div style={styles.buttonRow}>
-                                  <button
-                                    style={actionBtn(task.status === 'OPEN', 'open')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task)}
-                                    onClick={() => setTaskStatus(task.id, 'OPEN')}
-                                  >
-                                    Open
-                                  </button>
-
-                                  <button
-                                    style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task)}
-                                    onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                                  >
-                                    DOING
-                                  </button>
-
-                                  <button
-                                    style={actionBtn(task.status === 'DONE', 'done')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task)}
-                                    onClick={() => setTaskStatus(task.id, 'DONE')}
-                                  >
-                                    Done
-                                  </button>
-
-                                  {task.status === 'OPEN' && canEditTaskDetails(task) ? (
-  <button
-    style={styles.editTaskBtn}
-    disabled={busyTaskId === task.id}
-    onClick={() => openEditModal(task)}
-  >
-    Edit
-  </button>
-) : null}
-{profile?.role === 'SUPERUSER' ? (
-  <button
-    style={styles.deleteTaskBtn}
-    onClick={() => handleDeleteTask(task.id)}
-  >
-    Delete
-  </button>
-) : null}
-                                </div>
-
-                                {!canEditTask(task) ? (
-                                  <div style={styles.permissionText}>
-                                    You do not have permission to edit this department’s task
-                                  </div>
-                                ) : null}
-
-                                {busyTaskId === task.id ? (
-                                  <div style={styles.updatingText}>Updating…</div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <div style={styles.pastTaskNote}>
-                                Archived record based on completion date
-                              </div>
-                            )}
-                          </div>
-
-                          {thumb ? (
-                            <div style={styles.thumbWrap}>
-                              <button
-                                onClick={() => openImageModal(task)}
-                                style={styles.thumbButton}
-                                title="Open task images"
-                              >
-                                <img
-                                  src={thumb}
-                                  alt="Task thumbnail"
-                                  style={styles.thumbImage}
-                                />
-                              </button>
-
-                              <div style={styles.imageCountBadge}>
-                                {images.length > 0 ? `${images.length} img` : '1 img'}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </article>
-                    );
-                  })}
+                <div style={styles.filterBlock}>
+                  <div style={styles.filterLabel}>Completed Date</div>
+                  <div style={styles.dateFilterRow}>
+                    <input
+                      type="date"
+                      value={pastTaskDate}
+                      max={getYesterdayLocalDateString()}
+                      onChange={(e) => setPastTaskDate(e.target.value)}
+                      style={styles.dateInput}
+                    />
+                    <div style={styles.dateHint}>
+                      Tasks here are filtered using completion date
+                    </div>
+                  </div>
                 </div>
               )}
-            </>
-          )}
-        </section>
-      </div>
+            </section>
 
+            <section style={styles.resultBar}>
+              <div style={styles.resultText}>
+                {loading
+                  ? 'Loading tasks…'
+                  : sidebarView === 'DASHBOARD'
+                  ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
+                  : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
+                      pastTaskDate
+                    )}`}
+              </div>
+              {refreshing ? <div style={styles.updatingText}>Refreshing…</div> : null}
+            </section>
+
+            {loading ? (
+              <div style={styles.emptyState}>Loading...</div>
+            ) : filtered.length === 0 ? (
+              <div style={styles.emptyState}>
+                {sidebarView === 'DASHBOARD'
+                  ? 'No tasks found for this filter.'
+                  : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
+              </div>
+            ) : (
+              <div style={styles.cardList}>
+                {filtered.map((task) => {
+                  const images = Array.isArray(task.task_images) ? task.task_images : [];
+                  const thumb =
+                    images.length > 0
+                      ? images[images.length - 1].image_url
+                      : task.image_url || null;
+
+                  return (
+                    <article key={task.id} style={styles.taskCard}>
+                      <div style={taskMainRowStyle}>
+                        <div style={styles.taskMainContent}>
+                          <div style={styles.cardTopRow}>
+                            <div style={styles.cardTopLeft}>
+                              <div style={styles.taskCodeRow}>
+                                <div style={styles.taskCode}>{task.task_code}</div>
+                                <div style={statusBadgeStyle(task.status)}>
+                                  {labelForStatus(task.status)}
+                                </div>
+                              </div>
+
+                              <div style={styles.roomLine}>
+                                <span style={styles.roomText}>Room</span>
+                                <span style={styles.roomNo}>{task.room}</span>
+                                <span style={styles.dot}>•</span>
+                                <span style={deptBadgeStyle(task.department)}>
+                                  {task.department}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={styles.taskText}>{task.task_text}</div>
+
+                          <div style={styles.metaGrid}>
+                            <div style={styles.metaCard}>
+                              <div style={styles.metaCardLabel}>Created</div>
+                              <div style={styles.metaCardValue}>
+                                {new Date(task.created_at).toLocaleString()}
+                              </div>
+                            </div>
+
+                            <div style={styles.metaCard}>
+                              <div style={styles.metaCardLabel}>Created by</div>
+                              <div style={styles.metaCardValueStrong}>
+                                {task.created_by_name || 'Unknown'}
+                              </div>
+                            </div>
+
+                            {task.status === 'DONE' && task.done_at ? (
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Completed</div>
+                                <div style={styles.metaCardValue}>
+                                  {new Date(task.done_at).toLocaleString()}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {task.status === 'DONE' && task.done_by_name ? (
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Done by</div>
+                                <div style={styles.metaCardValueStrong}>
+                                  {task.done_by_name}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {task.status !== 'DONE' && task.last_updated_by_name ? (
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Last updated by</div>
+                                <div style={styles.metaCardValue}>
+                                  {task.last_updated_by_name}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {task.edited_at ? (
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Edited</div>
+                                <div style={styles.metaCardValue}>
+                                  {new Date(task.edited_at).toLocaleString()}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {task.edited_at && task.edited_by_name ? (
+                              <div style={styles.metaCard}>
+                                <div style={styles.metaCardLabel}>Edited by</div>
+                                <div style={styles.metaCardValue}>
+                                  {task.edited_by_name}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {sidebarView === 'DASHBOARD' ? (
+                            <>
+                              <div style={styles.buttonRow}>
+                                <button
+                                  style={actionBtn(task.status === 'OPEN', 'open')}
+                                  disabled={busyTaskId === task.id || !canEditTask(task)}
+                                  onClick={() => setTaskStatus(task.id, 'OPEN')}
+                                >
+                                  Open
+                                </button>
+
+                                <button
+                                  style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
+                                  disabled={busyTaskId === task.id || !canEditTask(task)}
+                                  onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                                >
+                                  DOING
+                                </button>
+
+                                <button
+                                  style={actionBtn(task.status === 'DONE', 'done')}
+                                  disabled={busyTaskId === task.id || !canEditTask(task)}
+                                  onClick={() => setTaskStatus(task.id, 'DONE')}
+                                >
+                                  Done
+                                </button>
+
+                                {task.status === 'OPEN' && canEditTaskDetails(task) ? (
+                                  <button
+                                    style={styles.editTaskBtn}
+                                    disabled={busyTaskId === task.id}
+                                    onClick={() => openEditModal(task)}
+                                  >
+                                    Edit
+                                  </button>
+                                ) : null}
+
+                                {profile?.role === 'SUPERUSER' ? (
+                                  <button
+                                    style={styles.deleteTaskBtn}
+                                    onClick={() => handleDeleteTask(task.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                ) : null}
+                              </div>
+
+                              {!canEditTask(task) ? (
+                                <div style={styles.permissionText}>
+                                  You do not have permission to edit this department’s task
+                                </div>
+                              ) : null}
+
+                              {busyTaskId === task.id ? (
+                                <div style={styles.updatingText}>Updating…</div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div style={styles.pastTaskNote}>
+                              Archived record based on completion date
+                            </div>
+                          )}
+                        </div>
+
+                        {thumb ? (
+                          <div style={styles.thumbWrap}>
+                            <button
+                              onClick={() => openImageModal(task)}
+                              style={styles.thumbButton}
+                              title="Open task images"
+                            >
+                              <img
+                                src={thumb}
+                                alt="Task thumbnail"
+                                style={styles.thumbImage}
+                              />
+                            </button>
+
+                            <div style={styles.imageCountBadge}>
+                              {images.length > 0 ? `${images.length} img` : '1 img'}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </section>
       {imageModalOpen && selectedTaskImages.length > 0 ? (
         <div style={styles.modalOverlay} onClick={closeImageModal}>
           <div style={styles.modalInner} onClick={(e) => e.stopPropagation()}>
