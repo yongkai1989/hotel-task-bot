@@ -293,7 +293,6 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
-  const [isMobile, setIsMobile] = useState(false);
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
@@ -466,18 +465,6 @@ export default function DashboardPage() {
       styleEl.remove();
     };
   }, []);
-
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth <= 920;
-      setIsMobile(mobile);
-    };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -490,31 +477,15 @@ export default function DashboardPage() {
     syncViewFromUrl();
 
     const handleUrlChange = () => syncViewFromUrl();
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
-
-    window.history.pushState = function (...args) {
-      const result = originalPushState.apply(this, args as any);
-      window.dispatchEvent(new Event('dashboard-url-change'));
-      return result;
-    };
-
-    window.history.replaceState = function (...args) {
-      const result = originalReplaceState.apply(this, args as any);
-      window.dispatchEvent(new Event('dashboard-url-change'));
-      return result;
-    };
-
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('dashboard-url-change', handleUrlChange);
 
     return () => {
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('dashboard-url-change', handleUrlChange);
     };
   }, []);
+
 
   useEffect(() => {
     let mounted = true;
@@ -1344,19 +1315,12 @@ async function handleDeleteTask(taskId: string) {
       ? 'Live task board for housekeeping, maintenance, and front office'
       : 'Browse previously completed tasks by completed date';
 
-  const taskMainRowStyle: React.CSSProperties = isMobile
-    ? {
-        ...styles.taskMainRow,
-        flexDirection: 'column',
-        width: '100%',
-        minWidth: 0,
-      }
-    : styles.taskMainRow;
+  const taskMainRowStyle: React.CSSProperties = styles.taskMainRow;
 
   return (
     <main style={styles.page}>
-      <div style={styles.content}>
-<div style={styles.headerCard}>
+      <section style={styles.content}>
+          <div style={styles.headerCard}>
             <div style={styles.headerTop}>
               <div style={styles.logoWrap}>
                 <Image
@@ -1383,7 +1347,7 @@ async function handleDeleteTask(taskId: string) {
             <div style={styles.emptyState}>Checking login...</div>
           ) : !profile ? (
             <div style={styles.emptyState}>
-              Please log in to use the dashboard.
+              Please log in from the sidebar to use the dashboard.
             </div>
           ) : (
             <>
@@ -1688,8 +1652,6 @@ async function handleDeleteTask(taskId: string) {
             </>
           )}
         </section>
-      </div>
-
       {imageModalOpen && selectedTaskImages.length > 0 ? (
         <div style={styles.modalOverlay} onClick={closeImageModal}>
           <div style={styles.modalInner} onClick={(e) => e.stopPropagation()}>
@@ -2165,7 +2127,6 @@ async function handleDeleteTask(taskId: string) {
           </div>
         </div>
       ) : null}
-      </div>
     </main>
   );
 }
