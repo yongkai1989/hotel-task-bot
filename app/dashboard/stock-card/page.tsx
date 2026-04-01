@@ -9,6 +9,9 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+
+  // ✅ NEW
+  can_access_linen_admin?: boolean;
 };
 
 type LinenStockRow = {
@@ -125,7 +128,7 @@ export default function StockCardPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_linen_admin')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -134,11 +137,12 @@ export default function StockCardPage() {
         if (!mounted) return;
 
         setProfile({
-          user_id: session.user.id,
-          email: profileRow?.email || session.user.email || '',
-          name: profileRow?.name || session.user.email || 'User',
-          role: (profileRow?.role || 'HK') as DashboardUser['role'],
-        });
+  user_id: session.user.id,
+  email: profileRow?.email || session.user.email || '',
+  name: profileRow?.name || session.user.email || 'User',
+  role: (profileRow?.role || 'HK') as DashboardUser['role'],
+  can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+});
       } catch (err: any) {
         if (!mounted) return;
         setErrorMsg(err?.message || 'Failed to load session');
@@ -155,13 +159,20 @@ export default function StockCardPage() {
   }, []);
 
   const canAccess = useMemo(() => {
-    if (!profile) return false;
-    return (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR'
-    );
-  }, [profile]);
+  if (!profile) return false;
+
+  // ✅ Admin roles always allowed
+  if (
+    profile.role === 'SUPERUSER' ||
+    profile.role === 'MANAGER' ||
+    profile.role === 'SUPERVISOR'
+  ) {
+    return true;
+  }
+
+  // ✅ fallback to permission flag
+  return profile.can_access_linen_admin === true;
+}, [profile]);
 
   async function loadData() {
     const supabase = getSupabaseSafe();
@@ -434,7 +445,7 @@ export default function StockCardPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>Only Supervisor, Manager, and Superuser can access Stock Card.</p>
+          <p style={styles.centerText}>You do not have permission to access Stock Card.</p>
           <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
