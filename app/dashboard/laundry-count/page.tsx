@@ -418,7 +418,7 @@ export default function LaundryCountPage() {
     }
 
     const confirmed = window.confirm(
-      'Run New Day now? This will snapshot yesterday, clean old history, and reset today\\'s live linen data.'
+      "Run New Day now? This will snapshot yesterday, clean old history, and reset today's live linen data."
     );
     if (!confirmed) return;
 
