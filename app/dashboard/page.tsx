@@ -44,7 +44,10 @@ type CreatePhotoItem = {
 type DashboardUser = {
   email: string;
   name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
+  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
+  can_create_task?: boolean;
+  can_access_chambermaid_entry?: boolean;
+  can_access_linen_admin?: boolean;
 };
 
 type AdminUser = {
@@ -751,7 +754,8 @@ export default function DashboardPage() {
   }
 
   function canCreateTask() {
-    return !!profile;
+    if (!profile) return false;
+    return profile.can_create_task === true;
   }
 
   function canEditTask(task: Task) {
@@ -864,8 +868,13 @@ function canEditTaskDetails(task: Task) {
   }
 
   function openCreateModal() {
-    if (!canCreateTask()) {
+    if (!profile) {
       setLoginOpen(true);
+      return;
+    }
+
+    if (!canCreateTask()) {
+      alert('You are not allowed to create tasks');
       return;
     }
 
@@ -1052,6 +1061,10 @@ async function handleDeleteTask(taskId: string) {
       }
 
       setCreateError('');
+
+      if (!profile?.can_create_task) {
+        throw new Error('You are not allowed to create tasks');
+      }
 
       const room = createRoom.trim();
       const taskText = createTaskText.trim();
@@ -1417,9 +1430,7 @@ async function handleDeleteTask(taskId: string) {
     ) : null}
   </button>
 
-  {(profile?.role === 'SUPERUSER' ||
-  profile?.role === 'MANAGER') ? (
-      
+  {profile?.can_access_linen_admin ? (
     <Link
       href="/dashboard/supervisor-update"
       onClick={() => setSidebarOpen(false)}
@@ -1429,9 +1440,7 @@ async function handleDeleteTask(taskId: string) {
     </Link>
   ) : null}
            
-           {(profile?.role === 'SUPERUSER' ||
-  profile?.role === 'MANAGER' ||
-  profile?.role === 'HK') ? (
+           {profile?.can_access_chambermaid_entry ? (
   <Link
     href="/dashboard/chambermaid-entry"
     onClick={() => setSidebarOpen(false)}
@@ -1441,8 +1450,7 @@ async function handleDeleteTask(taskId: string) {
   </Link>
 ) : null}
            
-           {(profile?.role === 'SUPERUSER' ||
-  profile?.role === 'MANAGER') ? (
+           {profile?.can_access_linen_admin ? (
   <Link
     href="/dashboard/laundry-count"
     onClick={() => setSidebarOpen(false)}
@@ -1452,8 +1460,7 @@ async function handleDeleteTask(taskId: string) {
   </Link>
 ) : null}
 
-          {(profile?.role === 'SUPERUSER' ||
-  profile?.role === 'MANAGER') ? (
+          {profile?.can_access_linen_admin ? (
   <Link
     href="/dashboard/stock-card"
     onClick={() => setSidebarOpen(false)}
@@ -1463,8 +1470,7 @@ async function handleDeleteTask(taskId: string) {
   </Link>
 ) : null}
 
-           {(profile?.role === 'SUPERUSER' ||
-  profile?.role === 'MANAGER') ? (
+           {profile?.can_access_linen_admin ? (
   <Link
     href="/dashboard/damaged"
     onClick={() => setSidebarOpen(false)}
@@ -1474,8 +1480,7 @@ async function handleDeleteTask(taskId: string) {
   </Link>
 ) : null}
 
-           {(profile?.role === 'SUPERUSER' ||
-  profile?.role === 'MANAGER') ? (
+           {profile?.can_access_linen_admin ? (
   <Link
     href="/dashboard/linen-history"
     onClick={() => setSidebarOpen(false)}
@@ -1595,7 +1600,7 @@ async function handleDeleteTask(taskId: string) {
                       ↻
                     </button>
 
-                    {sidebarView === 'DASHBOARD' ? (
+                    {sidebarView === 'DASHBOARD' && canCreateTask() ? (
                       <button
                         onClick={openCreateModal}
                         style={styles.addTaskBtn}
@@ -3257,4 +3262,3 @@ deleteTaskBtn: {
     fontWeight: 700,
   },
 };
-
