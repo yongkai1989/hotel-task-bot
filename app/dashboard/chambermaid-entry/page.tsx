@@ -456,11 +456,30 @@ entryRows.forEach((row: any) => {
         updated_by_name: profile.name || profile.email,
       };
 
-      const { error } = await supabase.from('linen_room_entry').upsert([payload], {
-        onConflict: 'service_date,room_number',
-      });
+      const { data: existingEntry, error: existingEntryError } = await supabase
+        .from('linen_room_entry')
+        .select('room_number')
+        .eq('service_date', serviceDate)
+        .eq('room_number', roomNumber)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (existingEntryError) throw existingEntryError;
+
+      if (existingEntry) {
+        const { error: updateError } = await supabase
+          .from('linen_room_entry')
+          .update(payload)
+          .eq('service_date', serviceDate)
+          .eq('room_number', roomNumber);
+
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from('linen_room_entry')
+          .insert(payload);
+
+        if (insertError) throw insertError;
+      }
 
       const savedAt = new Date().toISOString();
       setEntryMap((prev) => {
@@ -493,6 +512,7 @@ entryRows.forEach((row: any) => {
           },
         };
       });
+      console.error('Failed to save chambermaid entry', err);
       setErrorMsg(err?.message || `Failed to save ${roomNumber}`);
     }
   }
