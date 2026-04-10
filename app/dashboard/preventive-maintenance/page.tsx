@@ -245,57 +245,60 @@ export default function PreventiveMaintenancePage() {
   }
 
   async function loadAllData() {
-    if (!profile || !canAccess) {
-      setPageLoading(false);
-      return;
-    }
-
-    try {
-      setPageLoading(true);
-      setErrorMsg('');
-      setSuccessMsg('');
-
-      const supabase = getSupabaseSafe();
-      if (!supabase) throw new Error('Supabase is not configured.');
-
-      await markOverdueRuns();
-
-      const [roomRes, taskRes, runRes, roomChecklistRes] = await Promise.all([
-        supabase
-          .from('room_master')
-          .select('room_number, block_no, floor_no, room_type, is_active')
-          .eq('is_active', true)
-          .order('room_number', { ascending: true }),
-        supabase
-          .from('pm_tasks')
-          .select('*')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('pm_task_runs')
-          .select('*')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('pm_task_run_rooms')
-          .select('*')
-          .order('room_number', { ascending: true }),
-      ]);
-
-      if (roomRes.error) throw roomRes.error;
-      if (taskRes.error) throw taskRes.error;
-      if (runRes.error) throw runRes.error;
-      if (roomChecklistRes.error) throw roomChecklistRes.error;
-
-      setAllRooms((roomRes.data || []) as RoomRow[]);
-      setTasks((taskRes.data || []) as PmTask[]);
-      setRuns((runRes.data || []) as PmTaskRun[]);
-      setRunRooms((roomChecklistRes.data || []) as PmTaskRunRoom[]);
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to load preventive maintenance data');
-    } finally {
-      setPageLoading(false);
-    }
+  if (!profile || !canAccess) {
+    setPageLoading(false);
+    return;
   }
+
+  try {
+    setPageLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const supabase = getSupabaseSafe();
+    if (!supabase) throw new Error('Supabase is not configured.');
+
+    const { error: recurrenceError } = await supabase.rpc('run_pm_recurrence');
+    if (recurrenceError) {
+      console.error('run_pm_recurrence error:', recurrenceError);
+    }
+
+    const [roomRes, taskRes, runRes, roomChecklistRes] = await Promise.all([
+      supabase
+        .from('room_master')
+        .select('room_number, block_no, floor_no, room_type, is_active')
+        .eq('is_active', true)
+        .order('room_number', { ascending: true }),
+      supabase
+        .from('pm_tasks')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('pm_task_runs')
+        .select('*')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('pm_task_run_rooms')
+        .select('*')
+        .order('room_number', { ascending: true }),
+    ]);
+
+    if (roomRes.error) throw roomRes.error;
+    if (taskRes.error) throw taskRes.error;
+    if (runRes.error) throw runRes.error;
+    if (roomChecklistRes.error) throw roomChecklistRes.error;
+
+    setAllRooms((roomRes.data || []) as RoomRow[]);
+    setTasks((taskRes.data || []) as PmTask[]);
+    setRuns((runRes.data || []) as PmTaskRun[]);
+    setRunRooms((roomChecklistRes.data || []) as PmTaskRunRoom[]);
+  } catch (err: any) {
+    setErrorMsg(err?.message || 'Failed to load preventive maintenance data');
+  } finally {
+    setPageLoading(false);
+  }
+}
 
   useEffect(() => {
     void loadAllData();
