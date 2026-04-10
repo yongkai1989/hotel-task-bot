@@ -107,11 +107,6 @@ function formatDateTime(value?: string | null) {
   return d.toLocaleString();
 }
 
-function isPastDate(dateStr: string) {
-  const today = getTodayLocalDateString();
-  return dateStr < today;
-}
-
 function addDaysToDate(dateStr: string, days: number) {
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + days);
@@ -142,7 +137,7 @@ export default function PreventiveMaintenancePage() {
   const [newDueInDays, setNewDueInDays] = useState(7);
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
 
-  const [selectedRun, setSelectedRun] = useState<TaskCardData | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [roomSearch, setRoomSearch] = useState('');
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
@@ -226,6 +221,29 @@ export default function PreventiveMaintenancePage() {
     return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
   }, [profile]);
 
+  async function markOverdueRuns() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+
+    const today = getTodayLocalDateString();
+
+    const { data: overdueRuns, error } = await supabase
+      .from('pm_task_runs')
+      .select('id')
+      .eq('status', 'OPEN')
+      .lt('due_date', today);
+
+    if (error) return;
+
+    const ids = (overdueRuns || []).map((row: any) => row.id);
+    if (ids.length === 0) return;
+
+    await supabase
+      .from('pm_task_runs')
+      .update({ status: 'OVERDUE' })
+      .in('id', ids);
+  }
+
   async function loadAllData() {
     if (!profile || !canAccess) {
       setPageLoading(false);
@@ -279,29 +297,6 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
-  async function markOverdueRuns() {
-    const supabase = getSupabaseSafe();
-    if (!supabase) return;
-
-    const today = getTodayLocalDateString();
-
-    const { data: overdueRuns, error } = await supabase
-      .from('pm_task_runs')
-      .select('id, status, due_date')
-      .eq('status', 'OPEN')
-      .lt('due_date', today);
-
-    if (error) return;
-
-    const ids = (overdueRuns || []).map((row: any) => row.id);
-    if (ids.length === 0) return;
-
-    await supabase
-      .from('pm_task_runs')
-      .update({ status: 'OVERDUE' })
-      .in('id', ids);
-  }
-
   useEffect(() => {
     void loadAllData();
   }, [profile, canAccess]);
@@ -317,7 +312,7 @@ export default function PreventiveMaintenancePage() {
       roomsByRunId.set(row.pm_task_run_id, list);
     });
 
-    const result: TaskCardData[] = runs
+    return runs
       .map((run) => {
         const task = taskMap.get(run.pm_task_id);
         if (!task) return null;
@@ -331,12 +326,15 @@ export default function PreventiveMaintenancePage() {
           rooms: attachedRooms,
           totalRooms: attachedRooms.length,
           doneRooms,
-        };
+        } satisfies TaskCardData;
       })
       .filter(Boolean) as TaskCardData[];
-
-    return result;
   }, [tasks, runs, runRooms]);
+
+  const selectedRun = useMemo(() => {
+    if (!selectedRunId) return null;
+    return taskCards.find((card) => card.run.id === selectedRunId) || null;
+  }, [selectedRunId, taskCards]);
 
   const visibleDoneCards = useMemo(() => {
     return taskCards.filter((card) => {
@@ -354,22 +352,14 @@ export default function PreventiveMaintenancePage() {
     });
   }, [taskCards]);
 
-  const openCards = useMemo(() => {
-    return taskCards.filter((card) => card.run.status === 'OPEN');
-  }, [taskCards]);
-
-  const overdueCards = useMemo(() => {
-    return taskCards.filter((card) => card.run.status === 'OVERDUE');
-  }, [taskCards]);
+  const openCards = useMemo(() => taskCards.filter((card) => card.run.status === 'OPEN'), [taskCards]);
+  const overdueCards = useMemo(() => taskCards.filter((card) => card.run.status === 'OVERDUE'), [taskCards]);
 
   const filteredSelectedRooms = useMemo(() => {
     if (!selectedRun) return [];
     const keyword = roomSearch.trim();
     if (!keyword) return selectedRun.rooms;
-
-    return selectedRun.rooms.filter((room) =>
-      room.room_number.includes(keyword)
-    );
+    return selectedRun.rooms.filter((room) => room.room_number.includes(keyword));
   }, [selectedRun, roomSearch]);
 
   async function handleCreateTask() {
@@ -496,20 +486,34 @@ export default function PreventiveMaintenancePage() {
       setErrorMsg('');
       setSuccessMsg('');
 
+      const completedAt = new Date().toISOString();
+      const completedByName = profile.name || profile.email;
+
       const { error } = await supabase
         .from('pm_task_runs')
         .update({
           status: 'DONE',
-          completed_at: new Date().toISOString(),
+          completed_at: completedAt,
           completed_by_user_id: profile.user_id,
-          completed_by_name: profile.name || profile.email,
+          completed_by_name: completedByName,
         })
         .eq('id', card.run.id);
 
       if (error) throw error;
 
+      setRuns((prev) => prev.map((run) => (
+        run.id === card.run.id
+          ? {
+              ...run,
+              status: 'DONE',
+              completed_at: completedAt,
+              completed_by_user_id: profile.user_id || null,
+              completed_by_name: completedByName,
+            }
+          : run
+      )));
+
       setSuccessMsg(`Task "${card.task.title}" marked as done.`);
-      await loadAllData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to mark task as done');
     } finally {
@@ -535,7 +539,9 @@ export default function PreventiveMaintenancePage() {
       setSuccessMsg('');
 
       const today = getTodayLocalDateString();
-      const nextStatus = card.run.due_date < today ? 'OVERDUE' : 'OPEN';
+      const nextStatus: PmTaskRun['status'] = card.run.due_date < today ? 'OVERDUE' : 'OPEN';
+      const reopenedAt = new Date().toISOString();
+      const reopenedByName = profile.name || profile.email;
 
       const { error } = await supabase
         .from('pm_task_runs')
@@ -544,16 +550,30 @@ export default function PreventiveMaintenancePage() {
           completed_at: null,
           completed_by_user_id: null,
           completed_by_name: null,
-          reopened_at: new Date().toISOString(),
+          reopened_at: reopenedAt,
           reopened_by_user_id: profile.user_id,
-          reopened_by_name: profile.name || profile.email,
+          reopened_by_name: reopenedByName,
         })
         .eq('id', card.run.id);
 
       if (error) throw error;
 
+      setRuns((prev) => prev.map((run) => (
+        run.id === card.run.id
+          ? {
+              ...run,
+              status: nextStatus,
+              completed_at: null,
+              completed_by_user_id: null,
+              completed_by_name: null,
+              reopened_at: reopenedAt,
+              reopened_by_user_id: profile.user_id || null,
+              reopened_by_name: reopenedByName,
+            }
+          : run
+      )));
+
       setSuccessMsg(`Task "${card.task.title}" reopened.`);
-      await loadAllData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to reopen task');
     } finally {
@@ -573,55 +593,42 @@ export default function PreventiveMaintenancePage() {
       return;
     }
 
+    const nextDone = !room.is_done;
+    const doneAt = nextDone ? new Date().toISOString() : null;
+    const doneByName = nextDone ? (profile.name || profile.email) : null;
+
     try {
       setBusyRoomId(room.id);
       setErrorMsg('');
       setSuccessMsg('');
 
-      const nextDone = !room.is_done;
+      setRunRooms((prev) => prev.map((row) => (
+        row.id === room.id
+          ? {
+              ...row,
+              is_done: nextDone,
+              done_at: doneAt,
+              done_by_user_id: nextDone ? profile.user_id || null : null,
+              done_by_name: doneByName,
+            }
+          : row
+      )));
 
       const { error } = await supabase
         .from('pm_task_run_rooms')
         .update({
           is_done: nextDone,
-          done_at: nextDone ? new Date().toISOString() : null,
+          done_at: doneAt,
           done_by_user_id: nextDone ? profile.user_id : null,
-          done_by_name: nextDone ? (profile.name || profile.email) : null,
+          done_by_name: doneByName,
         })
         .eq('id', room.id);
 
       if (error) throw error;
-
-      await loadAllData();
-
-      const refreshed = taskCards.find((card) => card.run.id === room.pm_task_run_id);
-      if (refreshed) {
-        setSelectedRun(refreshed);
-      } else {
-        const supabase2 = getSupabaseSafe();
-        if (supabase2) {
-          const [taskRes, runRes, roomsRes] = await Promise.all([
-            supabase2.from('pm_tasks').select('*').eq('is_active', true),
-            supabase2.from('pm_task_runs').select('*').eq('id', room.pm_task_run_id).maybeSingle(),
-            supabase2.from('pm_task_run_rooms').select('*').eq('pm_task_run_id', room.pm_task_run_id).order('room_number', { ascending: true }),
-          ]);
-
-          if (!taskRes.error && !runRes.error && !roomsRes.error && runRes.data) {
-            const task = (taskRes.data || []).find((t: any) => t.id === runRes.data.pm_task_id) as PmTask | undefined;
-            if (task) {
-              const roomsForRun = (roomsRes.data || []) as PmTaskRunRoom[];
-              setSelectedRun({
-                task,
-                run: runRes.data as PmTaskRun,
-                rooms: roomsForRun,
-                totalRooms: roomsForRun.length,
-                doneRooms: roomsForRun.filter((r) => r.is_done).length,
-              });
-            }
-          }
-        }
-      }
     } catch (err: any) {
+      setRunRooms((prev) => prev.map((row) => (
+        row.id === room.id ? room : row
+      )));
       setErrorMsg(err?.message || 'Failed to update room checklist');
     } finally {
       setBusyRoomId(null);
@@ -629,12 +636,12 @@ export default function PreventiveMaintenancePage() {
   }
 
   function openRoomChecklist(card: TaskCardData) {
-    setSelectedRun(card);
+    setSelectedRunId(card.run.id);
     setRoomSearch('');
   }
 
   function closeRoomChecklist() {
-    setSelectedRun(null);
+    setSelectedRunId(null);
     setRoomSearch('');
   }
 
@@ -659,8 +666,8 @@ export default function PreventiveMaintenancePage() {
               ...(section === 'OPEN'
                 ? styles.statusOpen
                 : section === 'OVERDUE'
-                ? styles.statusOverdue
-                : styles.statusDone),
+                  ? styles.statusOverdue
+                  : styles.statusDone),
             }}
           >
             {section}
