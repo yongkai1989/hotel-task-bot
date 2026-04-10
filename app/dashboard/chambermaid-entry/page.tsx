@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
@@ -43,10 +43,12 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
   2: [3, 5, 6, 7],
 };
 
+const AUTO_SAVE_DELAY_MS = 600;
+
 const LINEN_FIELDS: Array<{
   key: keyof Omit<
     RoomEntryState,
-    'is_dnd' | 'isSaving' | 'savedAt'
+    'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'
   >;
   label: string;
 }> = [
@@ -113,6 +115,8 @@ export default function ChambermaidEntryPage() {
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
+  const autoSaveTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const saveRequestSeqRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -120,6 +124,14 @@ export default function ChambermaidEntryPage() {
       setSelectedFloor(validFloors[0] || 1);
     }
   }, [selectedBlock, selectedFloor]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(autoSaveTimeoutsRef.current).forEach((timeoutId) => {
+        if (timeoutId) clearTimeout(timeoutId);
+      });
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -204,6 +216,13 @@ setProfile(nextProfile);
   // ✅ Floor users only if allowed
   return profile.can_access_chambermaid_entry === true;
 }, [profile]);
+
+  const roomMap = useMemo(() => {
+    return rooms.reduce<Record<string, RoomRow>>((acc, room) => {
+      acc[room.room_number] = room;
+      return acc;
+    }, {});
+  }, [rooms]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
     const supabase = getSupabaseSafe();
@@ -294,11 +313,49 @@ entryRows.forEach((row: any) => {
     void loadFloorData(selectedBlock, selectedFloor);
   }, [profile, canAccess, selectedBlock, selectedFloor, serviceDate]);
 
+  function queueAutoSave(room: RoomRow, entry: RoomEntryState) {
+    const roomNumber = room.room_number;
+
+    const existingTimeout = autoSaveTimeoutsRef.current[roomNumber];
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    setEntryMap((prev) => ({
+      ...prev,
+      [roomNumber]: {
+        ...entry,
+        isSaving: true,
+      },
+    }));
+
+    autoSaveTimeoutsRef.current[roomNumber] = setTimeout(() => {
+      autoSaveTimeoutsRef.current[roomNumber] = null;
+      void saveRoom(room, entry);
+    }, AUTO_SAVE_DELAY_MS);
+  }
+
+  function flushAutoSave(room: RoomRow) {
+    const roomNumber = room.room_number;
+    const existingTimeout = autoSaveTimeoutsRef.current[roomNumber];
+
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      autoSaveTimeoutsRef.current[roomNumber] = null;
+    }
+
+    const currentEntry = entryMap[roomNumber] || emptyEntry();
+    void saveRoom(room, currentEntry);
+  }
+
   function updateRoomField(
     roomNumber: string,
-    field: keyof Omit<RoomEntryState, 'isSaving' | 'savedAt'>,
+    field: keyof Omit<RoomEntryState, 'isSaving' | 'savedAt' | 'updatedByName'>,
     value: boolean | number
   ) {
+    const room = roomMap[roomNumber];
+    let nextEntry: RoomEntryState | null = null;
+
     setEntryMap((prev) => {
       const current = prev[roomNumber] || emptyEntry();
       const next = {
@@ -315,6 +372,8 @@ entryRows.forEach((row: any) => {
         next.duvet_cover_single = 0;
       }
 
+      nextEntry = next;
+
       return {
         ...prev,
         [roomNumber]: next,
@@ -322,31 +381,49 @@ entryRows.forEach((row: any) => {
     });
 
     setSuccessMsg('');
+
+    if (room && nextEntry) {
+      queueAutoSave(room, nextEntry);
+    }
   }
 
   function adjustQty(
     roomNumber: string,
-    field: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt'>,
+    field: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'>,
     delta: number
   ) {
+    const room = roomMap[roomNumber];
+    let nextEntry: RoomEntryState | null = null;
+
     setEntryMap((prev) => {
       const current = prev[roomNumber] || emptyEntry();
-      if (current.is_dnd) return prev;
+      if (current.is_dnd) {
+        nextEntry = current;
+        return prev;
+      }
 
       const nextValue = Math.max(0, (current[field] as number) + delta);
+      const next = {
+        ...current,
+        [field]: nextValue,
+      };
+
+      nextEntry = next;
+
       return {
         ...prev,
-        [roomNumber]: {
-          ...current,
-          [field]: nextValue,
-        },
+        [roomNumber]: next,
       };
     });
 
     setSuccessMsg('');
+
+    if (room && nextEntry && !nextEntry.is_dnd) {
+      queueAutoSave(room, nextEntry);
+    }
   }
 
-  async function saveRoom(room: RoomRow) {
+  async function saveRoom(room: RoomRow, entryOverride?: RoomEntryState) {
     const supabase = getSupabaseSafe();
     if (!supabase) {
       setErrorMsg('Supabase is not configured.');
@@ -358,11 +435,14 @@ entryRows.forEach((row: any) => {
       return;
     }
 
-    const entry = entryMap[room.room_number] || emptyEntry();
+    const entry = entryOverride || entryMap[room.room_number] || emptyEntry();
+    const roomNumber = room.room_number;
+    const requestId = (saveRequestSeqRef.current[roomNumber] || 0) + 1;
+    saveRequestSeqRef.current[roomNumber] = requestId;
 
     setEntryMap((prev) => ({
       ...prev,
-      [room.room_number]: {
+      [roomNumber]: {
         ...entry,
         isSaving: true,
       },
@@ -373,7 +453,7 @@ entryRows.forEach((row: any) => {
     try {
       const payload = {
         service_date: serviceDate,
-        room_number: room.room_number,
+        room_number: roomNumber,
         block_no: room.block_no,
         floor_no: room.floor_no,
         is_dnd: entry.is_dnd,
@@ -394,31 +474,37 @@ entryRows.forEach((row: any) => {
       if (error) throw error;
 
       const savedAt = new Date().toISOString();
-   setEntryMap((prev) => ({
-  ...prev,
-  [room.room_number]: {
-    is_dnd: payload.is_dnd,
-    bedsheet_king: payload.bedsheet_king,
-    pillow_case: payload.pillow_case,
-    bath_towel: payload.bath_towel,
-    bath_mat: payload.bath_mat,
-    duvet_cover_king: payload.duvet_cover_king,
-    duvet_cover_single: payload.duvet_cover_single,
-    isSaving: false,
-    savedAt,
-    updatedByName: payload.updated_by_name, // ✅ NEW
-  },
-}));
-      setSuccessMsg(`Saved room ${room.room_number}.`);
+      setEntryMap((prev) => {
+        const current = prev[roomNumber] || emptyEntry();
+        const isLatestRequest = saveRequestSeqRef.current[roomNumber] === requestId;
+        const hasPendingTimeout = !!autoSaveTimeoutsRef.current[roomNumber];
+
+        return {
+          ...prev,
+          [roomNumber]: {
+            ...current,
+            isSaving: !isLatestRequest ? current.isSaving : hasPendingTimeout,
+            savedAt,
+            updatedByName: payload.updated_by_name,
+          },
+        };
+      });
+      setSuccessMsg(`Saved room ${roomNumber}.`);
     } catch (err: any) {
-      setEntryMap((prev) => ({
-        ...prev,
-        [room.room_number]: {
-          ...(prev[room.room_number] || emptyEntry()),
-          isSaving: false,
-        },
-      }));
-      setErrorMsg(err?.message || `Failed to save ${room.room_number}`);
+      setEntryMap((prev) => {
+        const current = prev[roomNumber] || emptyEntry();
+        const isLatestRequest = saveRequestSeqRef.current[roomNumber] === requestId;
+        const hasPendingTimeout = !!autoSaveTimeoutsRef.current[roomNumber];
+
+        return {
+          ...prev,
+          [roomNumber]: {
+            ...current,
+            isSaving: isLatestRequest ? hasPendingTimeout : current.isSaving,
+          },
+        };
+      });
+      setErrorMsg(err?.message || `Failed to save ${roomNumber}`);
     }
   }
 
@@ -580,8 +666,6 @@ entryRows.forEach((row: any) => {
           <div style={styles.cardsWrap}>
             {filteredRooms.map((room) => {
               const entry = entryMap[room.room_number] || emptyEntry();
-              const isSaving = !!entry.isSaving;
-
               return (
                 <div key={room.room_number} style={styles.roomCard}>
                   <div style={styles.roomCardHeader}>
@@ -613,12 +697,13 @@ entryRows.forEach((row: any) => {
                       />
                       <span>Mark as DND</span>
                     </label>
-                    {entry.savedAt ? (
-  <div style={styles.savedAtText}>
-    Last saved {formatTime(entry.savedAt)}
-    {entry.updatedByName ? ` · ${entry.updatedByName}` : ''}
-  </div>
-) : null}
+                    <div style={styles.savedAtText}>
+                      {entry.isSaving
+                        ? 'Saving...'
+                        : entry.savedAt
+                        ? `Last saved ${formatTime(entry.savedAt)}${entry.updatedByName ? ` · ${entry.updatedByName}` : ''}`
+                        : 'Not yet saved'}
+                    </div>
                   </div>
 
                   <div style={styles.linenList}>
@@ -628,7 +713,7 @@ entryRows.forEach((row: any) => {
                         <div style={styles.counterWrap}>
                           <button
                             type="button"
-                            disabled={entry.is_dnd || isSaving}
+                            disabled={entry.is_dnd}
                             onClick={() => adjustQty(room.room_number, item.key, -1)}
                             style={styles.counterBtn}
                           >
@@ -638,7 +723,7 @@ entryRows.forEach((row: any) => {
                             type="number"
                             min={0}
                             value={entry[item.key]}
-                            disabled={entry.is_dnd || isSaving}
+                            disabled={entry.is_dnd}
                             onChange={(e) =>
                               updateRoomField(
                                 room.room_number,
@@ -646,11 +731,12 @@ entryRows.forEach((row: any) => {
                                 Math.max(0, Number(e.target.value || 0))
                               )
                             }
+                            onBlur={() => flushAutoSave(room)}
                             style={styles.counterInput}
                           />
                           <button
                             type="button"
-                            disabled={entry.is_dnd || isSaving}
+                            disabled={entry.is_dnd}
                             onClick={() => adjustQty(room.room_number, item.key, 1)}
                             style={styles.counterBtn}
                           >
@@ -660,18 +746,6 @@ entryRows.forEach((row: any) => {
                       </div>
                     ))}
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => void saveRoom(room)}
-                    disabled={isSaving}
-                    style={{
-                      ...styles.submitBtn,
-                      opacity: isSaving ? 0.6 : 1,
-                    }}
-                  >
-                    {isSaving ? 'Submitting...' : `Submit ${room.room_number}`}
-                  </button>
                 </div>
               );
             })}
@@ -937,16 +1011,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     fontWeight: 700,
     color: '#0f172a',
-  },
-  submitBtn: {
-    width: '100%',
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
   },
   gridCard: {
     background: '#ffffff',
