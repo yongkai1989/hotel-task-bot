@@ -274,7 +274,7 @@ function SummaryCard({
     tone === 'open' ? '#c2410c' : tone === 'doing' ? '#1d4ed8' : '#15803d';
 
   return (
-    <article style={{ ...styles.summaryCard, borderTop: `4px solid ${accent}` }}>
+    <article style={{ ...styles.summaryCard, boxShadow: `inset 0 3px 0 ${accent}, 0 10px 24px rgba(15, 23, 42, 0.05)` }}>
       <div style={styles.summaryTitle}>{title}</div>
       <div style={{ ...styles.summaryValue, color: accent }}>{value}</div>
     </article>
@@ -2155,7 +2155,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     maxWidth: '100vw',
     overflowX: 'hidden',
-    background: '#f6f8fb',
+    background: 'linear-gradient(180deg, #f4f7fb 0%, #eef3f8 100%)',
+
   },
   layout: {
     display: 'flex',
@@ -2338,8 +2339,9 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     maxWidth: '100%',
     overflowX: 'hidden',
-    padding: 20,
+    padding: 12,
     boxSizing: 'border-box',
+
   },
   mobileTopBar: {
     display: 'flex',
@@ -2368,22 +2370,25 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
-    background: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 18,
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    border: '1px solid #e6edf5',
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 14,
     overflow: 'hidden',
+    boxShadow: '0 12px 28px rgba(15, 23, 42, 0.06)',
+
   },
   headerTop: {
     display: 'flex',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     minWidth: 0,
+
   },
   logoWrap: {
-    width: 64,
-    height: 64,
+    width: 54,
+    height: 54,
     borderRadius: 16,
     background: '#f8fafc',
     display: 'flex',
@@ -2391,55 +2396,66 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     flexShrink: 0,
     overflow: 'hidden',
+    border: '1px solid #e8eef5',
+
   },
   headerTextWrap: {
     minWidth: 0,
   },
   eyebrow: {
-    fontSize: 12,
-    fontWeight: 700,
+    fontSize: 11,
+    fontWeight: 800,
     color: '#64748b',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
+
   },
   title: {
-    fontSize: 28,
-    lineHeight: 1.15,
-    margin: '6px 0 0',
+    fontSize: 24,
+    lineHeight: 1.12,
+    margin: '4px 0 0',
     color: '#0f172a',
+    fontWeight: 800,
     wordBreak: 'break-word',
+
   },
   subtitle: {
-    margin: '8px 0 0',
+    margin: '6px 0 0',
     color: '#64748b',
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 1.5,
     wordBreak: 'break-word',
+
   },
   summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: 14,
-    marginBottom: 18,
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 10,
+    marginBottom: 14,
+
   },
   summaryCard: {
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
+    border: '1px solid #e7edf5',
     borderRadius: 18,
-    padding: 16,
-    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+    padding: 14,
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+
   },
   summaryTitle: {
-    fontSize: 12,
-    fontWeight: 700,
+    fontSize: 11,
     color: '#64748b',
+    fontWeight: 800,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginBottom: 8,
+
   },
   summaryValue: {
-    fontSize: 30,
-    fontWeight: 800,
-    marginTop: 10,
+    fontSize: 28,
+    fontWeight: 900,
+    lineHeight: 1,
+
   },
   filterPanel: {
     width: '100%',
@@ -2447,19 +2463,22 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     boxSizing: 'border-box',
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
+    border: '1px solid #e7edf5',
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 12,
     overflow: 'hidden',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+
   },
   filterHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: 12,
-    marginBottom: 14,
+    gap: 10,
+    marginBottom: 12,
     flexWrap: 'wrap',
+
   },
   filterHeaderText: {
     minWidth: 0,
@@ -2470,76 +2489,102 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
   },
   filterPanelSubtitle: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: 24,
+    lineHeight: 1.12,
+    margin: '4px 0 0',
+    color: '#0f172a',
+    fontWeight: 800,
+    wordBreak: 'break-word',
+
   },
   filterHeaderButtons: {
     display: 'flex',
     gap: 8,
     flexWrap: 'wrap',
+    alignItems: 'center',
+
   },
   refreshBtn: {
-    width: 42,
-    height: 42,
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    border: '1px solid #dbe3ee',
+    border: '1px solid #dfe7f0',
     background: '#ffffff',
     color: '#0f172a',
     cursor: 'pointer',
+    boxShadow: '0 4px 10px rgba(15, 23, 42, 0.04)',
+
   },
   addTaskBtn: {
-    width: 42,
-    height: 42,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     border: 'none',
     background: '#0f172a',
     color: '#ffffff',
     cursor: 'pointer',
-    fontSize: 24,
+    fontSize: 22,
+    fontWeight: 800,
     lineHeight: 1,
+    boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
+
   },
   filterBlock: {
-    marginTop: 12,
+    marginTop: 10,
+
   },
   filterLabel: {
-    fontSize: 12,
-    fontWeight: 700,
+    fontSize: 11,
+    fontWeight: 800,
     color: '#64748b',
     textTransform: 'uppercase',
+    letterSpacing: 0.7,
     marginBottom: 8,
+
   },
   pillRow: {
     display: 'flex',
-    gap: 8,
+    gap: 6,
     flexWrap: 'wrap',
+    background: '#f8fafc',
+    padding: 6,
+    borderRadius: 14,
+    border: '1px solid #eef2f7',
+
   },
   filterPill: {
     border: '1px solid #dbe3ee',
-    borderRadius: 999,
-    padding: '10px 14px',
+    borderRadius: 10,
+    padding: '9px 12px',
     background: '#ffffff',
     cursor: 'pointer',
-    fontWeight: 700,
-    fontSize: 13,
+    fontWeight: 800,
+    fontSize: 12,
+    boxShadow: '0 1px 2px rgba(15,23,42,0.02)',
+
   },
   dateFilterRow: {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
+
   },
   dateInput: {
     width: '100%',
-    maxWidth: 240,
-    padding: '12px 14px',
+    maxWidth: 260,
+    padding: '11px 14px',
     borderRadius: 12,
     border: '1px solid #dbe3ee',
     background: '#ffffff',
     boxSizing: 'border-box',
+    fontWeight: 700,
+
   },
   dateHint: {
     fontSize: 12,
     color: '#64748b',
+    fontWeight: 600,
+
   },
   resultBar: {
     width: '100%',
@@ -2552,16 +2597,22 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     marginBottom: 12,
     flexWrap: 'wrap',
+    background: 'transparent',
+    padding: '0 2px',
+
   },
   resultText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#475569',
-    fontWeight: 700,
+    fontWeight: 800,
+    letterSpacing: 0.2,
+
   },
   updatingText: {
     fontSize: 12,
     color: '#1d4ed8',
-    fontWeight: 700,
+    fontWeight: 800,
+
   },
   cardList: {
     width: '100%',
@@ -2571,7 +2622,8 @@ const styles: Record<string, React.CSSProperties> = {
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 10,
+
   },
   taskCard: {
     width: '100%',
@@ -2580,16 +2632,19 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     boxSizing: 'border-box',
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 18,
-    padding: 16,
+    border: '1px solid #e7edf5',
+    borderRadius: 20,
+    padding: 14,
+    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.05)',
+
   },
   taskMainRow: {
     display: 'flex',
-    gap: 14,
+    gap: 12,
     alignItems: 'stretch',
     width: '100%',
     minWidth: 0,
+
   },
   taskMainContent: {
     flex: 1,
@@ -2600,6 +2655,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: 12,
     alignItems: 'flex-start',
+
   },
   cardTopLeft: {
     minWidth: 0,
@@ -2607,130 +2663,164 @@ const styles: Record<string, React.CSSProperties> = {
   },
   taskCodeRow: {
     display: 'flex',
-    gap: 10,
+    gap: 8,
     alignItems: 'center',
     flexWrap: 'wrap',
+
   },
   taskCode: {
-    fontSize: 16,
-    fontWeight: 800,
+    fontSize: 12,
+    fontWeight: 900,
     color: '#0f172a',
-    wordBreak: 'break-word',
-    overflowWrap: 'anywhere',
+    letterSpacing: 0.4,
+
   },
   statusBadge: {
     borderRadius: 999,
     padding: '6px 10px',
-    fontSize: 12,
-    fontWeight: 800,
+    fontSize: 11,
+    fontWeight: 900,
+    letterSpacing: 0.3,
+
   },
   roomLine: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
     marginTop: 8,
     flexWrap: 'wrap',
+
   },
   roomText: {
     fontSize: 12,
     color: '#64748b',
     fontWeight: 700,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
+
   },
   roomNo: {
-    fontSize: 16,
-    fontWeight: 800,
+    fontSize: 20,
     color: '#0f172a',
+    fontWeight: 900,
+    letterSpacing: 0.2,
+
   },
   dot: {
     color: '#94a3b8',
+    fontWeight: 900,
+
   },
   deptBadge: {
     borderRadius: 999,
-    padding: '6px 10px',
-    fontSize: 12,
-    fontWeight: 800,
+    padding: '5px 10px',
+    fontSize: 11,
+    fontWeight: 900,
+
   },
   taskText: {
-    marginTop: 14,
+    marginTop: 12,
     color: '#334155',
-    lineHeight: 1.6,
+    lineHeight: 1.55,
+    fontSize: 15,
+    fontWeight: 600,
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
     overflowWrap: 'anywhere',
+
   },
   metaGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-    gap: 10,
-    marginTop: 14,
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 8,
+    marginTop: 12,
+
   },
   metaCard: {
     background: '#f8fafc',
-    border: '1px solid #e5e7eb',
+    border: '1px solid #eef2f7',
     borderRadius: 12,
-    padding: 12,
+    padding: 10,
     minWidth: 0,
+
   },
   metaCardLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#64748b',
-    fontWeight: 700,
+    fontWeight: 800,
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 6,
+    letterSpacing: 0.6,
+    marginBottom: 5,
+
   },
   metaCardValue: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#334155',
+    fontWeight: 700,
     wordBreak: 'break-word',
     overflowWrap: 'anywhere',
+
   },
   metaCardValueStrong: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#0f172a',
-    fontWeight: 800,
+    fontWeight: 900,
     wordBreak: 'break-word',
     overflowWrap: 'anywhere',
+
   },
   buttonRow: {
     display: 'flex',
     gap: 8,
     flexWrap: 'wrap',
     width: '100%',
-    marginTop: 14,
+    marginTop: 12,
+
   },
   actionButton: {
     border: '1px solid',
     background: '#ffffff',
-    borderRadius: 10,
-    padding: '10px 14px',
-    fontWeight: 800,
+    borderRadius: 12,
+    padding: '11px 14px',
+    fontWeight: 900,
+    fontSize: 12,
     cursor: 'pointer',
+    flex: 1,
+    minWidth: 90,
+
   },
   editTaskBtn: {
-    border: '1px solid #d6dae1',
+    border: '1px solid #dbe3ee',
     background: '#ffffff',
     color: '#1f2937',
-    borderRadius: 10,
-    padding: '10px 14px',
-    fontWeight: 700,
+    borderRadius: 12,
+    padding: '11px 14px',
+    fontWeight: 800,
+    fontSize: 12,
     cursor: 'pointer',
+    flex: 1,
+    minWidth: 90,
+
   },
 deleteTaskBtn: {
-  border: '1px solid #ef4444',
-  background: '#fff',
-  color: '#ef4444',
-  borderRadius: 10,
-  padding: '10px 14px',
-  fontWeight: 700,
-  cursor: 'pointer',
-},
+    border: '1px solid #ef4444',
+    background: '#fff',
+    color: '#ef4444',
+    borderRadius: 12,
+    padding: '11px 14px',
+    fontWeight: 800,
+    fontSize: 12,
+    cursor: 'pointer',
+    flex: 1,
+    minWidth: 90,
+
+  },
   permissionText: {
     marginTop: 10,
-    fontSize: 12,
-    color: '#b45309',
+    fontSize: 11,
+    color: '#64748b',
     fontWeight: 700,
+
   },
   pastTaskNote: {
     marginTop: 12,
@@ -2740,9 +2830,10 @@ deleteTaskBtn: {
   },
   thumbWrap: {
     flexShrink: 0,
-    width: 96,
-    maxWidth: 96,
+    width: 88,
+    maxWidth: 88,
     position: 'relative',
+
   },
   thumbButton: {
     display: 'block',
@@ -2755,21 +2846,24 @@ deleteTaskBtn: {
   thumbImage: {
     display: 'block',
     width: '100%',
-    height: 96,
+    height: 88,
     objectFit: 'cover',
     borderRadius: 14,
-    border: '1px solid #e5e7eb',
+    border: '1px solid #e7edf5',
+    boxShadow: '0 6px 18px rgba(15,23,42,0.05)',
+
   },
   imageCountBadge: {
     position: 'absolute',
     right: 6,
     bottom: 6,
-    background: 'rgba(15,23,42,0.78)',
+    background: 'rgba(15,23,42,0.82)',
     color: '#ffffff',
     borderRadius: 999,
     padding: '4px 8px',
-    fontSize: 11,
-    fontWeight: 700,
+    fontSize: 10,
+    fontWeight: 800,
+
   },
   mobileOverlay: {
     position: 'fixed',
@@ -2875,17 +2969,21 @@ deleteTaskBtn: {
     maxHeight: '88vh',
     overflowY: 'auto',
     background: '#ffffff',
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 24,
+    padding: 18,
     boxSizing: 'border-box',
+    boxShadow: '0 26px 60px rgba(15,23,42,0.22)',
+
   },
   authCard: {
     width: '100%',
     maxWidth: 520,
     background: '#ffffff',
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 24,
+    padding: 18,
     boxSizing: 'border-box',
+    boxShadow: '0 26px 60px rgba(15,23,42,0.22)',
+
   },
   createModalTop: {
     display: 'flex',
@@ -2895,14 +2993,17 @@ deleteTaskBtn: {
     marginBottom: 12,
   },
   createModalTitle: {
-    fontSize: 20,
-    fontWeight: 800,
+    fontSize: 22,
+    fontWeight: 900,
     color: '#0f172a',
+
   },
   createModalSubtitle: {
-    marginTop: 4,
+    fontSize: 12,
     color: '#64748b',
-    fontSize: 13,
+    marginTop: 4,
+    fontWeight: 600,
+
   },
   createModalCloseBtn: {
     width: 38,
@@ -2947,32 +3048,37 @@ deleteTaskBtn: {
   textInput: {
     width: '100%',
     padding: '12px 14px',
-    borderRadius: 10,
-    border: '1px solid #d6dae1',
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
     fontSize: 14,
     outline: 'none',
     boxSizing: 'border-box',
+    background: '#ffffff',
+
   },
   selectInput: {
     width: '100%',
     padding: '12px 14px',
-    borderRadius: 10,
-    border: '1px solid #d6dae1',
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
     fontSize: 14,
     outline: 'none',
     background: '#fff',
     boxSizing: 'border-box',
+
   },
   textArea: {
     width: '100%',
     minHeight: 110,
     padding: '12px 14px',
-    borderRadius: 10,
-    border: '1px solid #d6dae1',
+    borderRadius: 12,
+    border: '1px solid #dbe3ee',
     fontSize: 14,
     outline: 'none',
     resize: 'vertical',
     boxSizing: 'border-box',
+    background: '#ffffff',
+
   },
   photoPreviewGrid: {
     display: 'grid',
@@ -3019,22 +3125,25 @@ deleteTaskBtn: {
     flexWrap: 'wrap',
   },
   secondaryBtn: {
-    border: '1px solid #d6dae1',
+    border: '1px solid #dbe3ee',
     background: '#fff',
     color: '#344054',
-    borderRadius: 10,
-    padding: '10px 16px',
-    fontWeight: 700,
+    borderRadius: 12,
+    padding: '11px 16px',
+    fontWeight: 800,
     cursor: 'pointer',
+
   },
   primaryBtn: {
     border: 'none',
     background: '#0f172a',
     color: '#fff',
-    borderRadius: 10,
-    padding: '10px 16px',
-    fontWeight: 700,
+    borderRadius: 12,
+    padding: '11px 16px',
+    fontWeight: 800,
     cursor: 'pointer',
+    boxShadow: '0 10px 20px rgba(15,23,42,0.16)',
+
   },
   uploadHint: {
     color: '#667085',
@@ -3052,11 +3161,13 @@ deleteTaskBtn: {
   },
   emptyState: {
     background: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 18,
-    padding: '28px 20px',
+    border: '1px solid #e7edf5',
+    borderRadius: 20,
+    padding: '24px 18px',
     color: '#64748b',
     textAlign: 'center',
     fontWeight: 700,
+    boxShadow: '0 10px 24px rgba(15,23,42,0.04)',
+
   },
 };
