@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     const { title, startDate, dueDate, hasChecklist } = await req.json();
 
     const text = [
-      '🔧 PREVENTIVE MAINTENANCE',
+      'PREVENTIVE MAINTENANCE',
       `Task: ${title}`,
       `Start: ${startDate}`,
       `Due: ${dueDate}`,
