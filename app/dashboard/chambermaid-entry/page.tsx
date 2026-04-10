@@ -43,7 +43,6 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
   2: [3, 5, 6, 7],
 };
 
-const AUTO_SAVE_DELAY_MS = 600;
 
 const LINEN_FIELDS: Array<{
   key: keyof Omit<
@@ -319,20 +318,10 @@ entryRows.forEach((row: any) => {
     const existingTimeout = autoSaveTimeoutsRef.current[roomNumber];
     if (existingTimeout) {
       clearTimeout(existingTimeout);
+      autoSaveTimeoutsRef.current[roomNumber] = null;
     }
 
-    setEntryMap((prev) => ({
-      ...prev,
-      [roomNumber]: {
-        ...entry,
-        isSaving: true,
-      },
-    }));
-
-    autoSaveTimeoutsRef.current[roomNumber] = setTimeout(() => {
-      autoSaveTimeoutsRef.current[roomNumber] = null;
-      void saveRoom(room, entry);
-    }, AUTO_SAVE_DELAY_MS);
+    void saveRoom(room, entry);
   }
 
   function flushAutoSave(room: RoomRow) {
