@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
@@ -9,8 +9,6 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-
-  // ✅ NEW
   can_access_chambermaid_entry?: boolean;
 };
 
@@ -32,8 +30,6 @@ type RoomEntryState = {
   duvet_cover_single: number;
   isSaving?: boolean;
   savedAt?: string;
-
-  // ✅ NEW
   updatedByName?: string;
 };
 
@@ -43,12 +39,8 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
   2: [3, 5, 6, 7],
 };
 
-
 const LINEN_FIELDS: Array<{
-  key: keyof Omit<
-    RoomEntryState,
-    'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'
-  >;
+  key: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'>;
   label: string;
 }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
@@ -114,8 +106,6 @@ export default function ChambermaidEntryPage() {
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
-  const autoSaveTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
-  const saveRequestSeqRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -123,14 +113,6 @@ export default function ChambermaidEntryPage() {
       setSelectedFloor(validFloors[0] || 1);
     }
   }, [selectedBlock, selectedFloor]);
-
-  useEffect(() => {
-    return () => {
-      Object.values(autoSaveTimeoutsRef.current).forEach((timeoutId) => {
-        if (timeoutId) clearTimeout(timeoutId);
-      });
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -166,23 +148,23 @@ export default function ChambermaidEntryPage() {
         const email = session.user.email || '';
 
         const { data: profileRow, error: profileError } = await supabase
-  .from('user_profiles')
-  .select('user_id, email, name, role, can_access_chambermaid_entry')
-  .eq('user_id', userId)
-  .maybeSingle();
+          .from('user_profiles')
+          .select('user_id, email, name, role, can_access_chambermaid_entry')
+          .eq('user_id', userId)
+          .maybeSingle();
 
-if (profileError) throw profileError;
+        if (profileError) throw profileError;
 
-const nextProfile: DashboardUser = {
-  user_id: userId,
-  email: profileRow?.email || email,
-  name: profileRow?.name || email || 'User',
-  role: (profileRow?.role || 'HK') as DashboardUser['role'],
-  can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
-};
+        const nextProfile: DashboardUser = {
+          user_id: userId,
+          email: profileRow?.email || email,
+          name: profileRow?.name || email || 'User',
+          role: (profileRow?.role || 'HK') as DashboardUser['role'],
+          can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
+        };
 
-if (!mounted) return;
-setProfile(nextProfile);
+        if (!mounted) return;
+        setProfile(nextProfile);
       } catch (err: any) {
         if (!mounted) return;
         setErrorMsg(err?.message || 'Failed to load session');
@@ -193,7 +175,7 @@ setProfile(nextProfile);
       }
     }
 
-    bootstrap();
+    void bootstrap();
 
     return () => {
       mounted = false;
@@ -201,26 +183,25 @@ setProfile(nextProfile);
   }, []);
 
   const canAccess = useMemo(() => {
-  if (!profile) return false;
+    if (!profile) return false;
 
-  // ✅ Admin always allowed
-  if (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER' ||
-    profile.role === 'SUPERVISOR'
-  ) {
-    return true;
-  }
+    if (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR'
+    ) {
+      return true;
+    }
 
-  // ✅ Floor users only if allowed
-  return profile.can_access_chambermaid_entry === true;
-}, [profile]);
+    return profile.can_access_chambermaid_entry === true;
+  }, [profile]);
 
   const roomMap = useMemo(() => {
-    return rooms.reduce<Record<string, RoomRow>>((acc, room) => {
-      acc[room.room_number] = room;
-      return acc;
-    }, {});
+    const map: Record<string, RoomRow> = {};
+    rooms.forEach((room) => {
+      map[room.room_number] = room;
+    });
+    return map;
   }, [rooms]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
@@ -276,19 +257,19 @@ setProfile(nextProfile);
         nextEntryMap[room.room_number] = emptyEntry();
       });
 
-entryRows.forEach((row: any) => {
-  nextEntryMap[row.room_number] = {
-    is_dnd: !!row.is_dnd,
-    bedsheet_king: row.bedsheet_king || 0,
-    pillow_case: row.pillow_case || 0,
-    bath_towel: row.bath_towel || 0,
-    bath_mat: row.bath_mat || 0,
-    duvet_cover_king: row.duvet_cover_king || 0,
-    duvet_cover_single: row.duvet_cover_single || 0,
-    savedAt: row.updated_at || '',
-    updatedByName: row.updated_by_name || '',
-  };
-});
+      entryRows.forEach((row: any) => {
+        nextEntryMap[row.room_number] = {
+          is_dnd: !!row.is_dnd,
+          bedsheet_king: row.bedsheet_king || 0,
+          pillow_case: row.pillow_case || 0,
+          bath_towel: row.bath_towel || 0,
+          bath_mat: row.bath_mat || 0,
+          duvet_cover_king: row.duvet_cover_king || 0,
+          duvet_cover_single: row.duvet_cover_single || 0,
+          savedAt: row.updated_at || '',
+          updatedByName: row.updated_by_name || '',
+        };
+      });
 
       setRooms(nextRooms);
       setEntryMap(nextEntryMap);
@@ -312,106 +293,6 @@ entryRows.forEach((row: any) => {
     void loadFloorData(selectedBlock, selectedFloor);
   }, [profile, canAccess, selectedBlock, selectedFloor, serviceDate]);
 
-  function queueAutoSave(room: RoomRow, entry: RoomEntryState) {
-    const roomNumber = room.room_number;
-
-    const existingTimeout = autoSaveTimeoutsRef.current[roomNumber];
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-      autoSaveTimeoutsRef.current[roomNumber] = null;
-    }
-
-    void saveRoom(room, entry);
-  }
-
-  function flushAutoSave(room: RoomRow) {
-    const roomNumber = room.room_number;
-    const existingTimeout = autoSaveTimeoutsRef.current[roomNumber];
-
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
-      autoSaveTimeoutsRef.current[roomNumber] = null;
-    }
-
-    const currentEntry = entryMap[roomNumber] || emptyEntry();
-    void saveRoom(room, currentEntry);
-  }
-
-  function updateRoomField(
-    roomNumber: string,
-    field: keyof Omit<RoomEntryState, 'isSaving' | 'savedAt' | 'updatedByName'>,
-    value: boolean | number
-  ) {
-    const room = roomMap[roomNumber];
-    let nextEntry: RoomEntryState | null = null;
-
-    setEntryMap((prev) => {
-      const current = prev[roomNumber] || emptyEntry();
-      const next = {
-        ...current,
-        [field]: value,
-      } as RoomEntryState;
-
-      if (field === 'is_dnd' && value === true) {
-        next.bedsheet_king = 0;
-        next.pillow_case = 0;
-        next.bath_towel = 0;
-        next.bath_mat = 0;
-        next.duvet_cover_king = 0;
-        next.duvet_cover_single = 0;
-      }
-
-      nextEntry = next;
-
-      return {
-        ...prev,
-        [roomNumber]: next,
-      };
-    });
-
-    setSuccessMsg('');
-
-    if (room && nextEntry) {
-      queueAutoSave(room, nextEntry);
-    }
-  }
-
-  function adjustQty(
-    roomNumber: string,
-    field: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'>,
-    delta: number
-  ) {
-    const room = roomMap[roomNumber];
-    let nextEntry: RoomEntryState | null = null;
-
-    setEntryMap((prev) => {
-      const current = prev[roomNumber] || emptyEntry();
-      if (current.is_dnd) {
-        nextEntry = current;
-        return prev;
-      }
-
-      const nextValue = Math.max(0, (current[field] as number) + delta);
-      const next = {
-        ...current,
-        [field]: nextValue,
-      };
-
-      nextEntry = next;
-
-      return {
-        ...prev,
-        [roomNumber]: next,
-      };
-    });
-
-    setSuccessMsg('');
-
-    if (room && nextEntry && !nextEntry.is_dnd) {
-      queueAutoSave(room, nextEntry);
-    }
-  }
-
   async function saveRoom(room: RoomRow, entryOverride?: RoomEntryState) {
     const supabase = getSupabaseSafe();
     if (!supabase) {
@@ -425,13 +306,10 @@ entryRows.forEach((row: any) => {
     }
 
     const entry = entryOverride || entryMap[room.room_number] || emptyEntry();
-    const roomNumber = room.room_number;
-    const requestId = (saveRequestSeqRef.current[roomNumber] || 0) + 1;
-    saveRequestSeqRef.current[roomNumber] = requestId;
 
     setEntryMap((prev) => ({
       ...prev,
-      [roomNumber]: {
+      [room.room_number]: {
         ...entry,
         isSaving: true,
       },
@@ -442,7 +320,7 @@ entryRows.forEach((row: any) => {
     try {
       const payload = {
         service_date: serviceDate,
-        room_number: roomNumber,
+        room_number: room.room_number,
         block_no: room.block_no,
         floor_no: room.floor_no,
         is_dnd: entry.is_dnd,
@@ -456,68 +334,100 @@ entryRows.forEach((row: any) => {
         updated_by_name: profile.name || profile.email,
       };
 
-      const { data: existingEntry, error: existingEntryError } = await supabase
-        .from('linen_room_entry')
-        .select('room_number')
-        .eq('service_date', serviceDate)
-        .eq('room_number', roomNumber)
-        .maybeSingle();
+      const { error } = await supabase.from('linen_room_entry').upsert([payload], {
+        onConflict: 'service_date,room_number',
+      });
 
-      if (existingEntryError) throw existingEntryError;
-
-      if (existingEntry) {
-        const { error: updateError } = await supabase
-          .from('linen_room_entry')
-          .update(payload)
-          .eq('service_date', serviceDate)
-          .eq('room_number', roomNumber);
-
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertError } = await supabase
-          .from('linen_room_entry')
-          .insert(payload);
-
-        if (insertError) throw insertError;
-      }
+      if (error) throw error;
 
       const savedAt = new Date().toISOString();
-      setEntryMap((prev) => {
-        const current = prev[roomNumber] || emptyEntry();
-        const isLatestRequest = saveRequestSeqRef.current[roomNumber] === requestId;
-        const hasPendingTimeout = !!autoSaveTimeoutsRef.current[roomNumber];
-
-        return {
-          ...prev,
-          [roomNumber]: {
-            ...current,
-            isSaving: !isLatestRequest ? current.isSaving : hasPendingTimeout,
-            savedAt,
-            updatedByName: payload.updated_by_name,
-          },
-        };
-      });
-      setSuccessMsg(`Saved room ${roomNumber}.`);
+      setEntryMap((prev) => ({
+        ...prev,
+        [room.room_number]: {
+          is_dnd: payload.is_dnd,
+          bedsheet_king: payload.bedsheet_king,
+          pillow_case: payload.pillow_case,
+          bath_towel: payload.bath_towel,
+          bath_mat: payload.bath_mat,
+          duvet_cover_king: payload.duvet_cover_king,
+          duvet_cover_single: payload.duvet_cover_single,
+          isSaving: false,
+          savedAt,
+          updatedByName: payload.updated_by_name,
+        },
+      }));
+      setSuccessMsg(`Saved room ${room.room_number}.`);
     } catch (err: any) {
-      setEntryMap((prev) => {
-        const current = prev[roomNumber] || emptyEntry();
-        const isLatestRequest = saveRequestSeqRef.current[roomNumber] === requestId;
-        const hasPendingTimeout = !!autoSaveTimeoutsRef.current[roomNumber];
-
-        return {
-          ...prev,
-          [roomNumber]: {
-            ...current,
-            isSaving: isLatestRequest ? hasPendingTimeout : current.isSaving,
-          },
-        };
-      });
       console.error('Failed to save chambermaid entry', err);
-      setErrorMsg(err?.message || `Failed to save ${roomNumber}`);
+      setEntryMap((prev) => ({
+        ...prev,
+        [room.room_number]: {
+          ...(prev[room.room_number] || emptyEntry()),
+          isSaving: false,
+        },
+      }));
+      setErrorMsg(err?.message || `Failed to save ${room.room_number}`);
     }
   }
 
-  const roomCount = rooms.length;  const filteredRooms = useMemo(() => {
+  function updateRoomField(
+    roomNumber: string,
+    field: keyof Omit<RoomEntryState, 'isSaving' | 'savedAt' | 'updatedByName'>,
+    value: boolean | number
+  ) {
+    const room = roomMap[roomNumber];
+    if (!room) return;
+
+    const current = entryMap[roomNumber] || emptyEntry();
+    const next: RoomEntryState = {
+      ...current,
+      [field]: value,
+    } as RoomEntryState;
+
+    if (field === 'is_dnd' && value === true) {
+      next.bedsheet_king = 0;
+      next.pillow_case = 0;
+      next.bath_towel = 0;
+      next.bath_mat = 0;
+      next.duvet_cover_king = 0;
+      next.duvet_cover_single = 0;
+    }
+
+    setEntryMap((prev) => ({
+      ...prev,
+      [roomNumber]: next,
+    }));
+    setSuccessMsg('');
+    void saveRoom(room, next);
+  }
+
+  function adjustQty(
+    roomNumber: string,
+    field: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'>,
+    delta: number
+  ) {
+    const room = roomMap[roomNumber];
+    if (!room) return;
+
+    const current = entryMap[roomNumber] || emptyEntry();
+    if (current.is_dnd) return;
+
+    const next: RoomEntryState = {
+      ...current,
+      [field]: Math.max(0, Number(current[field] || 0) + delta),
+    } as RoomEntryState;
+
+    setEntryMap((prev) => ({
+      ...prev,
+      [roomNumber]: next,
+    }));
+    setSuccessMsg('');
+    void saveRoom(room, next);
+  }
+
+  const roomCount = rooms.length;
+
+  const filteredRooms = useMemo(() => {
     const keyword = roomSearch.trim();
     if (!keyword) return rooms;
     return rooms.filter((room) => room.room_number === keyword);
@@ -663,6 +573,9 @@ entryRows.forEach((row: any) => {
           <div style={styles.cardsWrap}>
             {filteredRooms.map((room) => {
               const entry = entryMap[room.room_number] || emptyEntry();
+              const isSaving = !!entry.isSaving;
+              const showDnd = room.supervisor_status === 'STAYOVER';
+
               return (
                 <div key={room.room_number} style={styles.roomCard}>
                   <div style={styles.roomCardHeader}>
@@ -684,11 +597,12 @@ entryRows.forEach((row: any) => {
                   </div>
 
                   <div style={styles.dndRow}>
-                    {room.supervisor_status === 'STAYOVER' ? (
+                    {showDnd ? (
                       <label style={styles.dndLabel}>
                         <input
                           type="checkbox"
                           checked={entry.is_dnd}
+                          disabled={isSaving}
                           onChange={(e) =>
                             updateRoomField(room.room_number, 'is_dnd', e.target.checked)
                           }
@@ -698,13 +612,14 @@ entryRows.forEach((row: any) => {
                     ) : (
                       <div />
                     )}
-                    <div style={styles.savedAtText}>
-                      {entry.isSaving
-                        ? 'Saving...'
-                        : entry.savedAt
-                        ? `Last saved ${formatTime(entry.savedAt)}${entry.updatedByName ? ` · ${entry.updatedByName}` : ''}`
-                        : 'Not yet saved'}
-                    </div>
+                    {entry.savedAt ? (
+                      <div style={styles.savedAtText}>
+                        {isSaving ? 'Saving...' : `Last saved ${formatTime(entry.savedAt)}`}
+                        {entry.updatedByName ? ` · ${entry.updatedByName}` : ''}
+                      </div>
+                    ) : (
+                      <div style={styles.savedAtText}>{isSaving ? 'Saving...' : 'Not yet saved'}</div>
+                    )}
                   </div>
 
                   <div style={styles.linenList}>
@@ -714,7 +629,7 @@ entryRows.forEach((row: any) => {
                         <div style={styles.counterWrap}>
                           <button
                             type="button"
-                            disabled={entry.is_dnd}
+                            disabled={entry.is_dnd || isSaving}
                             onClick={() => adjustQty(room.room_number, item.key, -1)}
                             style={styles.counterBtn}
                           >
@@ -724,7 +639,7 @@ entryRows.forEach((row: any) => {
                             type="number"
                             min={0}
                             value={entry[item.key]}
-                            disabled={entry.is_dnd}
+                            disabled={entry.is_dnd || isSaving}
                             onChange={(e) =>
                               updateRoomField(
                                 room.room_number,
@@ -732,12 +647,11 @@ entryRows.forEach((row: any) => {
                                 Math.max(0, Number(e.target.value || 0))
                               )
                             }
-                            onBlur={() => flushAutoSave(room)}
                             style={styles.counterInput}
                           />
                           <button
                             type="button"
-                            disabled={entry.is_dnd}
+                            disabled={entry.is_dnd || isSaving}
                             onClick={() => adjustQty(room.room_number, item.key, 1)}
                             style={styles.counterBtn}
                           >
