@@ -8,24 +8,16 @@ import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 const TELEGRAM_CHAT_ID = -1003784764929; // replace
 
 async function sendPMTaskMessage({ title, startDate, dueDate, hasChecklist }) {
-  await fetch(`https://api.telegram.org/bot${process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text:
-        `🔧 PREVENTIVE MAINTENANCE
-` +
-        `Task: ${title}
-` +
-        `Start: ${startDate}
-` +
-        `Due: ${dueDate}
-` +
-        `Checklist: ${hasChecklist ? 'Yes' : 'No'}`
-    })
-  });
-}
+  await fetch('/api/pm-telegram', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    title: r.pm_tasks.title,
+    startDate: r.run_start_date,
+    dueDate: r.due_date,
+    hasChecklist: r.pm_tasks.has_room_checklist
+  })
+});
 
 export default function Page() {
   const supabase = createBrowserSupabaseClient();
