@@ -297,9 +297,52 @@ export default function PreventiveMaintenancePage() {
     setErrorMsg(err?.message || 'Failed to load preventive maintenance data');
   } finally {
     setPageLoading(false);
+    
+  await sendPMNotifications(supabase);
   }
 }
+async function sendPMNotifications(supabase: any) {
+  try {
+    const CHAT_ID = -1003784764929; // replace this
 
+    const { data: newRuns, error } = await supabase
+      .from('pm_task_runs')
+      .select(`
+        id,
+        run_start_date,
+        due_date,
+        telegram_sent_at,
+        pm_tasks (
+          title,
+          has_room_checklist
+        )
+      `)
+      .is('telegram_sent_at', null);
+
+    if (error || !newRuns || newRuns.length === 0) return;
+
+    for (const run of newRuns) {
+      const messageId = await sendPMTaskMessage({
+        chatId: CHAT_ID,
+        title: run.pm_tasks.title,
+        startDate: run.run_start_date,
+        dueDate: run.due_date,
+        hasChecklist: run.pm_tasks.has_room_checklist
+      });
+
+      if (messageId) {
+        await supabase
+          .from('pm_task_runs')
+          .update({
+            telegram_sent_at: new Date().toISOString()
+          })
+          .eq('id', run.id);
+      }
+    }
+  } catch (err) {
+    console.error('PM Telegram error:', err);
+  }
+}
   useEffect(() => {
     void loadAllData();
   }, [profile, canAccess]);
