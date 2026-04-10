@@ -141,6 +141,7 @@ export default function PreventiveMaintenancePage() {
   const [roomSearch, setRoomSearch] = useState('');
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
+  const [busyDeleteTaskId, setBusyDeleteTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -215,6 +216,11 @@ export default function PreventiveMaintenancePage() {
   }, [profile, isMtSupervisorByEmail]);
 
   const canCreate = useMemo(() => {
+    if (!profile) return false;
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
+  }, [profile]);
+
+  const canDelete = useMemo(() => {
     if (!profile) return false;
     return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
   }, [profile]);
@@ -589,6 +595,54 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
+  async function handleDeleteTask(taskId: string, taskTitle: string) {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    if (!profile) {
+      setErrorMsg('User not found.');
+      return;
+    }
+
+    if (!(profile.role === 'SUPERUSER' || profile.role === 'MANAGER')) {
+      setErrorMsg('You do not have permission to delete routine tasks.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete routine task "${taskTitle}" and all related runs? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setBusyDeleteTaskId(taskId);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase
+        .from('pm_tasks')
+        .delete()
+        .eq('id', taskId);
+
+      if (error) throw error;
+
+      if (selectedRun?.task.id === taskId) {
+        setSelectedRunId(null);
+        setRoomSearch('');
+      }
+
+      setSuccessMsg(`Routine task "${taskTitle}" deleted successfully.`);
+      await loadAllData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to delete routine task');
+    } finally {
+      setBusyDeleteTaskId(null);
+    }
+  }
+
   async function handleToggleRoom(room: PmTaskRunRoom) {
     const supabase = getSupabaseSafe();
     if (!supabase) {
@@ -764,6 +818,20 @@ export default function PreventiveMaintenancePage() {
               {busyRunId === card.run.id ? 'Saving...' : 'Reopen'}
             </button>
           )}
+
+          {canDelete ? (
+            <button
+              type="button"
+              onClick={() => void handleDeleteTask(card.task.id, card.task.title)}
+              disabled={busyDeleteTaskId === card.task.id}
+              style={{
+                ...styles.deleteBtn,
+                opacity: busyDeleteTaskId === card.task.id ? 0.5 : 1,
+              }}
+            >
+              {busyDeleteTaskId === card.task.id ? 'Deleting...' : 'Delete'}
+            </button>
+          ) : null}
         </div>
 
         {card.task.has_room_checklist && section !== 'DONE' && card.doneRooms !== card.totalRooms ? (
@@ -827,7 +895,7 @@ export default function PreventiveMaintenancePage() {
                 onClick={() => setShowCreateModal(true)}
                 style={styles.primaryHeaderBtn}
               >
-                + Add Routine Task
+                Add Routine Task
               </button>
             ) : null}
 
@@ -1254,6 +1322,15 @@ const styles: Record<string, React.CSSProperties> = {
   reopenBtn: {
     border: 'none',
     background: '#166534',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  deleteBtn: {
+    border: 'none',
+    background: '#b91c1c',
     color: '#ffffff',
     borderRadius: '12px',
     padding: '10px 14px',
