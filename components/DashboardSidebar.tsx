@@ -19,6 +19,11 @@ type AdminUser = {
   role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
 };
 
+const MT_SUPERVISOR_EMAILS = [
+  'mtsup1@hotelhallmark.com',
+  'mtsup2@hotelhallmark.com',
+];
+
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
@@ -59,6 +64,16 @@ export default function DashboardSidebar({
       profile.role === 'MANAGER' ||
       profile.role === 'SUPERVISOR' ||
       profile.can_access_linen_admin === true);
+
+  const canSeePM =
+  !!profile &&
+  (
+    profile.role === 'SUPERUSER' ||
+    profile.role === 'MANAGER' ||
+    profile.role === 'MT' ||
+    (profile.role === 'SUPERVISOR' &&
+      MT_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
+  );
 
   const canOpenPasswordModal = !!profile;
   const isManager = profile?.role === 'MANAGER';
@@ -290,6 +305,16 @@ export default function DashboardSidebar({
           <Link href="/dashboard?view=past" onClick={closeSidebar} style={styles.navBtn}>
             Past Task
           </Link>
+
+          {canSeePM ? (
+  <Link
+    href="/dashboard/preventive-maintenance"
+    onClick={closeSidebar}
+    style={styles.navBtn}
+  >
+    Preventive Maintenance
+  </Link>
+) : null}
 
           {canSeeChambermaid ? (
             <Link href="/dashboard/chambermaid-entry" onClick={closeSidebar} style={styles.navBtn}>
