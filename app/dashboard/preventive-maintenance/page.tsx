@@ -1,4 +1,4 @@
-\'use client\';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -536,7 +536,7 @@ export default function PreventiveMaintenancePage() {
 
       if (error) throw error;
 
-      setSuccessMsg(`Task \"${card.task.title}\" marked as done.`);
+      setSuccessMsg(`Task "${card.task.title}" marked as done.`);
       await loadAllData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to mark task as done');
@@ -580,7 +580,7 @@ export default function PreventiveMaintenancePage() {
 
       if (error) throw error;
 
-      setSuccessMsg(`Task \"${card.task.title}\" reopened.`);
+      setSuccessMsg(`Task "${card.task.title}" reopened.`);
       await loadAllData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to reopen task');
@@ -603,6 +603,9 @@ export default function PreventiveMaintenancePage() {
 
     const previous = room.is_done;
     const nextDone = !previous;
+    const nextDoneAt = nextDone ? new Date().toISOString() : null;
+    const nextDoneByUserId = nextDone ? profile.user_id || null : null;
+    const nextDoneByName = nextDone ? (profile.name || profile.email) : null;
 
     setBusyRoomId(room.id);
     setRunRooms((prev) =>
@@ -611,9 +614,9 @@ export default function PreventiveMaintenancePage() {
           ? {
               ...r,
               is_done: nextDone,
-              done_at: nextDone ? new Date().toISOString() : null,
-              done_by_user_id: nextDone ? profile.user_id || null : null,
-              done_by_name: nextDone ? (profile.name || profile.email) : null,
+              done_at: nextDoneAt,
+              done_by_user_id: nextDoneByUserId,
+              done_by_name: nextDoneByName,
             }
           : r
       )
@@ -624,9 +627,9 @@ export default function PreventiveMaintenancePage() {
         .from('pm_task_run_rooms')
         .update({
           is_done: nextDone,
-          done_at: nextDone ? new Date().toISOString() : null,
-          done_by_user_id: nextDone ? profile.user_id : null,
-          done_by_name: nextDone ? (profile.name || profile.email) : null,
+          done_at: nextDoneAt,
+          done_by_user_id: nextDoneByUserId,
+          done_by_name: nextDoneByName,
         })
         .eq('id', room.id);
 
@@ -638,9 +641,9 @@ export default function PreventiveMaintenancePage() {
             ? {
                 ...r,
                 is_done: previous,
-                done_at: previous ? r.done_at : null,
-                done_by_user_id: previous ? r.done_by_user_id : null,
-                done_by_name: previous ? r.done_by_name : null,
+                done_at: room.done_at,
+                done_by_user_id: room.done_by_user_id,
+                done_by_name: room.done_by_name,
               }
             : r
         )
