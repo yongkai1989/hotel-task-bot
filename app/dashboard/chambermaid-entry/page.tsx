@@ -508,15 +508,7 @@ entryRows.forEach((row: any) => {
     }
   }
 
-  const roomCount = rooms.length;
-  const savedCount = useMemo(() => {
-    return rooms.filter((room) => {
-      const entry = entryMap[room.room_number];
-      return !!entry?.savedAt;
-    }).length;
-  }, [rooms, entryMap]);
-
-  const filteredRooms = useMemo(() => {
+  const roomCount = rooms.length;  const filteredRooms = useMemo(() => {
     const keyword = roomSearch.trim();
     if (!keyword) return rooms;
     return rooms.filter((room) => room.room_number === keyword);
@@ -622,10 +614,6 @@ entryRows.forEach((row: any) => {
               <div style={styles.summaryLabel}>Rooms to Service</div>
               <div style={styles.summaryValue}>{roomCount}</div>
             </div>
-            <div style={styles.summaryCard}>
-              <div style={styles.summaryLabel}>Rooms Submitted</div>
-              <div style={{ ...styles.summaryValue, color: '#166534' }}>{savedCount}</div>
-            </div>
           </div>
 
           {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
@@ -687,16 +675,20 @@ entryRows.forEach((row: any) => {
                   </div>
 
                   <div style={styles.dndRow}>
-                    <label style={styles.dndLabel}>
-                      <input
-                        type="checkbox"
-                        checked={entry.is_dnd}
-                        onChange={(e) =>
-                          updateRoomField(room.room_number, 'is_dnd', e.target.checked)
-                        }
-                      />
-                      <span>Mark as DND</span>
-                    </label>
+                    {room.supervisor_status === 'STAYOVER' ? (
+                      <label style={styles.dndLabel}>
+                        <input
+                          type="checkbox"
+                          checked={entry.is_dnd}
+                          onChange={(e) =>
+                            updateRoomField(room.room_number, 'is_dnd', e.target.checked)
+                          }
+                        />
+                        <span>Mark as DND</span>
+                      </label>
+                    ) : (
+                      <div />
+                    )}
                     <div style={styles.savedAtText}>
                       {entry.isSaving
                         ? 'Saving...'
