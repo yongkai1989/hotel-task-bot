@@ -867,18 +867,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    await telegram('sendMessage', {
-      chat_id: chatId,
-      text:
-        `Invalid format.\n\n` +
-        `Examples:\n` +
-        `1234 hk extra towel\n` +
-        `1309 mt tv problem\n` +
-        `1301 fo call guest\n\n` +
-        `If department is missing:\n` +
-        `1308 extra towel`
-    });
-
     await supabase
       .from('telegram_updates')
       .update({ processed: true, processed_at: new Date().toISOString() })
