@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -20,7 +21,7 @@ type RoomRow = {
   supervisor_status: 'CHECKOUT' | 'STAYOVER';
 };
 
-type RoomEntryState = {
+type LinenValues = {
   is_dnd: boolean;
   bedsheet_king: number;
   pillow_case: number;
@@ -28,9 +29,25 @@ type RoomEntryState = {
   bath_mat: number;
   duvet_cover_king: number;
   duvet_cover_single: number;
+};
+
+type RoomEntryState = LinenValues & {
   isSaving?: boolean;
   savedAt?: string;
   updatedByName?: string;
+  wasEverSaved?: boolean;
+  defaultValues: LinenValues;
+  lastSavedValues?: LinenValues | null;
+};
+
+type LinenMapRow = {
+  room_type: string;
+  bedsheet_king: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
 };
 
 const BLOCKS = [1, 2];
@@ -40,7 +57,7 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
 };
 
 const LINEN_FIELDS: Array<{
-  key: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'>;
+  key: keyof Omit<LinenValues, 'is_dnd'>;
   label: string;
 }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
@@ -70,7 +87,7 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
-function emptyEntry(): RoomEntryState {
+function zeroLinenValues(): LinenValues {
   return {
     is_dnd: false,
     bedsheet_king: 0,
@@ -80,6 +97,67 @@ function emptyEntry(): RoomEntryState {
     duvet_cover_king: 0,
     duvet_cover_single: 0,
   };
+}
+
+function linenValuesEqual(a?: LinenValues | null, b?: LinenValues | null) {
+  if (!a || !b) return false;
+  return (
+    a.is_dnd === b.is_dnd &&
+    a.bedsheet_king === b.bedsheet_king &&
+    a.pillow_case === b.pillow_case &&
+    a.bath_towel === b.bath_towel &&
+    a.bath_mat === b.bath_mat &&
+    a.duvet_cover_king === b.duvet_cover_king &&
+    a.duvet_cover_single === b.duvet_cover_single
+  );
+}
+
+function cloneLinenValues(values: LinenValues): LinenValues {
+  return {
+    is_dnd: values.is_dnd,
+    bedsheet_king: values.bedsheet_king,
+    pillow_case: values.pillow_case,
+    bath_towel: values.bath_towel,
+    bath_mat: values.bath_mat,
+    duvet_cover_king: values.duvet_cover_king,
+    duvet_cover_single: values.duvet_cover_single,
+  };
+}
+
+function buildDefaultValuesFromMap(roomType: string, mapByType: Record<string, LinenMapRow>): LinenValues {
+  const row = mapByType[roomType];
+  return {
+    is_dnd: false,
+    bedsheet_king: Number(row?.bedsheet_king || 0),
+    pillow_case: Number(row?.pillow_case || 0),
+    bath_towel: Number(row?.bath_towel || 0),
+    bath_mat: Number(row?.bath_mat || 0),
+    duvet_cover_king: Number(row?.duvet_cover_king || 0),
+    duvet_cover_single: Number(row?.duvet_cover_single || 0),
+  };
+}
+
+function buildRoomEntryState(defaultValues: LinenValues): RoomEntryState {
+  return {
+    ...cloneLinenValues(defaultValues),
+    defaultValues: cloneLinenValues(defaultValues),
+    lastSavedValues: null,
+    wasEverSaved: false,
+    savedAt: '',
+    updatedByName: '',
+    isSaving: false,
+  };
+}
+
+function getEntryUiState(entry: RoomEntryState): 'DEFAULT' | 'EDITED' | 'SAVED' | 'SAVING' {
+  if (entry.isSaving) return 'SAVING';
+  if (entry.wasEverSaved && entry.lastSavedValues && linenValuesEqual(entry, entry.lastSavedValues)) {
+    return 'SAVED';
+  }
+  if (!entry.wasEverSaved && linenValuesEqual(entry, entry.defaultValues)) {
+    return 'DEFAULT';
+  }
+  return 'EDITED';
 }
 
 function formatTime(value?: string) {
@@ -103,6 +181,7 @@ export default function ChambermaidEntryPage() {
   const [selectedBlock, setSelectedBlock] = useState<number>(1);
   const [selectedFloor, setSelectedFloor] = useState<number>(1);
   const [roomSearch, setRoomSearch] = useState('');
+  const [savingAll, setSavingAll] = useState(false);
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
@@ -237,38 +316,63 @@ export default function ChambermaidEntryPage() {
       }));
 
       const roomNumbers = nextRooms.map((room) => room.room_number);
-      let entryRows: any[] = [];
 
-      if (roomNumbers.length > 0) {
-        const { data, error: entryError } = await supabase
-          .from('linen_room_entry')
-          .select(
-            'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at, updated_by_name'
-          )
-          .eq('service_date', serviceDate)
-          .in('room_number', roomNumbers);
+      const [entryRes, mapRes] = await Promise.all([
+        roomNumbers.length > 0
+          ? supabase
+              .from('linen_room_entry')
+              .select(
+                'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at, updated_by_name'
+              )
+              .eq('service_date', serviceDate)
+              .in('room_number', roomNumbers)
+          : Promise.resolve({ data: [], error: null } as any),
+        supabase
+          .from('linen_room_type_map')
+          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+      ]);
 
-        if (entryError) throw entryError;
-        entryRows = data || [];
-      }
+      if (entryRes.error) throw entryRes.error;
+      if (mapRes.error) throw mapRes.error;
+
+      const mapByType: Record<string, LinenMapRow> = {};
+      (mapRes.data || []).forEach((row: LinenMapRow) => {
+        mapByType[row.room_type] = row;
+      });
+
+      const savedEntryByRoom: Record<string, any> = {};
+      (entryRes.data || []).forEach((row: any) => {
+        savedEntryByRoom[row.room_number] = row;
+      });
 
       const nextEntryMap: Record<string, RoomEntryState> = {};
       nextRooms.forEach((room) => {
-        nextEntryMap[room.room_number] = emptyEntry();
-      });
+        const defaultValues = buildDefaultValuesFromMap(room.room_type, mapByType);
+        const savedRow = savedEntryByRoom[room.room_number];
 
-      entryRows.forEach((row: any) => {
-        nextEntryMap[row.room_number] = {
-          is_dnd: !!row.is_dnd,
-          bedsheet_king: row.bedsheet_king || 0,
-          pillow_case: row.pillow_case || 0,
-          bath_towel: row.bath_towel || 0,
-          bath_mat: row.bath_mat || 0,
-          duvet_cover_king: row.duvet_cover_king || 0,
-          duvet_cover_single: row.duvet_cover_single || 0,
-          savedAt: row.updated_at || '',
-          updatedByName: row.updated_by_name || '',
-        };
+        if (savedRow) {
+          const savedValues: LinenValues = {
+            is_dnd: !!savedRow.is_dnd,
+            bedsheet_king: Number(savedRow.bedsheet_king || 0),
+            pillow_case: Number(savedRow.pillow_case || 0),
+            bath_towel: Number(savedRow.bath_towel || 0),
+            bath_mat: Number(savedRow.bath_mat || 0),
+            duvet_cover_king: Number(savedRow.duvet_cover_king || 0),
+            duvet_cover_single: Number(savedRow.duvet_cover_single || 0),
+          };
+
+          nextEntryMap[room.room_number] = {
+            ...cloneLinenValues(savedValues),
+            defaultValues: cloneLinenValues(defaultValues),
+            lastSavedValues: cloneLinenValues(savedValues),
+            wasEverSaved: true,
+            savedAt: savedRow.updated_at || '',
+            updatedByName: savedRow.updated_by_name || '',
+            isSaving: false,
+          };
+        } else {
+          nextEntryMap[room.room_number] = buildRoomEntryState(defaultValues);
+        }
       });
 
       setRooms(nextRooms);
@@ -297,15 +401,22 @@ export default function ChambermaidEntryPage() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
       setErrorMsg('Supabase is not configured.');
-      return;
+      return false;
     }
 
     if (!profile?.user_id) {
       setErrorMsg('User not found.');
-      return;
+      return false;
     }
 
-    const entry = entryOverride || entryMap[room.room_number] || emptyEntry();
+    const currentEntry = entryOverride || entryMap[room.room_number];
+    if (!currentEntry) return false;
+
+    const entry: RoomEntryState = {
+      ...currentEntry,
+      defaultValues: cloneLinenValues(currentEntry.defaultValues),
+      lastSavedValues: currentEntry.lastSavedValues ? cloneLinenValues(currentEntry.lastSavedValues) : null,
+    };
 
     setEntryMap((prev) => ({
       ...prev,
@@ -318,7 +429,14 @@ export default function ChambermaidEntryPage() {
     setSuccessMsg('');
 
     try {
-      const payload = {
+      const payload: LinenValues & {
+        service_date: string;
+        room_number: string;
+        block_no: number;
+        floor_no: number;
+        updated_by_user_id: string;
+        updated_by_name: string;
+      } = {
         service_date: serviceDate,
         room_number: room.room_number,
         block_no: room.block_no,
@@ -340,57 +458,74 @@ export default function ChambermaidEntryPage() {
 
       if (error) throw error;
 
+      const savedValues: LinenValues = {
+        is_dnd: payload.is_dnd,
+        bedsheet_king: payload.bedsheet_king,
+        pillow_case: payload.pillow_case,
+        bath_towel: payload.bath_towel,
+        bath_mat: payload.bath_mat,
+        duvet_cover_king: payload.duvet_cover_king,
+        duvet_cover_single: payload.duvet_cover_single,
+      };
+
       const savedAt = new Date().toISOString();
       setEntryMap((prev) => ({
         ...prev,
         [room.room_number]: {
-          is_dnd: payload.is_dnd,
-          bedsheet_king: payload.bedsheet_king,
-          pillow_case: payload.pillow_case,
-          bath_towel: payload.bath_towel,
-          bath_mat: payload.bath_mat,
-          duvet_cover_king: payload.duvet_cover_king,
-          duvet_cover_single: payload.duvet_cover_single,
+          ...prev[room.room_number],
+          ...cloneLinenValues(savedValues),
+          lastSavedValues: cloneLinenValues(savedValues),
+          wasEverSaved: true,
           isSaving: false,
           savedAt,
           updatedByName: payload.updated_by_name,
         },
       }));
-      setSuccessMsg(`Saved room ${room.room_number}.`);
+      return true;
     } catch (err: any) {
       console.error('Failed to save chambermaid entry', err);
       setEntryMap((prev) => ({
         ...prev,
         [room.room_number]: {
-          ...(prev[room.room_number] || emptyEntry()),
+          ...(prev[room.room_number] || buildRoomEntryState(zeroLinenValues())),
           isSaving: false,
         },
       }));
       setErrorMsg(err?.message || `Failed to save ${room.room_number}`);
+      return false;
     }
   }
 
   function updateRoomField(
     roomNumber: string,
-    field: keyof Omit<RoomEntryState, 'isSaving' | 'savedAt' | 'updatedByName'>,
+    field: keyof LinenValues,
     value: boolean | number
   ) {
-    const room = roomMap[roomNumber];
-    if (!room) return;
+    const current = entryMap[roomNumber];
+    if (!current) return;
 
-    const current = entryMap[roomNumber] || emptyEntry();
     const next: RoomEntryState = {
       ...current,
       [field]: value,
     } as RoomEntryState;
 
-    if (field === 'is_dnd' && value === true) {
-      next.bedsheet_king = 0;
-      next.pillow_case = 0;
-      next.bath_towel = 0;
-      next.bath_mat = 0;
-      next.duvet_cover_king = 0;
-      next.duvet_cover_single = 0;
+    if (field === 'is_dnd') {
+      if (value === true) {
+        next.bedsheet_king = 0;
+        next.pillow_case = 0;
+        next.bath_towel = 0;
+        next.bath_mat = 0;
+        next.duvet_cover_king = 0;
+        next.duvet_cover_single = 0;
+      } else {
+        const restore = current.lastSavedValues || current.defaultValues;
+        next.bedsheet_king = restore.bedsheet_king;
+        next.pillow_case = restore.pillow_case;
+        next.bath_towel = restore.bath_towel;
+        next.bath_mat = restore.bath_mat;
+        next.duvet_cover_king = restore.duvet_cover_king;
+        next.duvet_cover_single = restore.duvet_cover_single;
+      }
     }
 
     setEntryMap((prev) => ({
@@ -398,19 +533,15 @@ export default function ChambermaidEntryPage() {
       [roomNumber]: next,
     }));
     setSuccessMsg('');
-    void saveRoom(room, next);
   }
 
   function adjustQty(
     roomNumber: string,
-    field: keyof Omit<RoomEntryState, 'is_dnd' | 'isSaving' | 'savedAt' | 'updatedByName'>,
+    field: keyof Omit<LinenValues, 'is_dnd'>,
     delta: number
   ) {
-    const room = roomMap[roomNumber];
-    if (!room) return;
-
-    const current = entryMap[roomNumber] || emptyEntry();
-    if (current.is_dnd) return;
+    const current = entryMap[roomNumber];
+    if (!current || current.is_dnd || current.isSaving) return;
 
     const next: RoomEntryState = {
       ...current,
@@ -422,7 +553,34 @@ export default function ChambermaidEntryPage() {
       [roomNumber]: next,
     }));
     setSuccessMsg('');
-    void saveRoom(room, next);
+  }
+
+  async function handleSaveRoom(room: RoomRow) {
+    const ok = await saveRoom(room);
+    if (ok) {
+      setSuccessMsg(`Saved room ${room.room_number}.`);
+    }
+  }
+
+  async function handleSaveAll() {
+    if (savingAll || rooms.length === 0) return;
+
+    setSavingAll(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    let successCount = 0;
+
+    for (const room of rooms) {
+      const ok = await saveRoom(room);
+      if (ok) successCount += 1;
+    }
+
+    setSavingAll(false);
+
+    if (successCount > 0) {
+      setSuccessMsg(`Saved ${successCount} room${successCount > 1 ? 's' : ''} for this floor.`);
+    }
   }
 
   const roomCount = rooms.length;
@@ -432,6 +590,23 @@ export default function ChambermaidEntryPage() {
     if (!keyword) return rooms;
     return rooms.filter((room) => room.room_number === keyword);
   }, [rooms, roomSearch]);
+
+  const roomStateCounts = useMemo(() => {
+    let defaultCount = 0;
+    let editedCount = 0;
+    let savedCount = 0;
+
+    filteredRooms.forEach((room) => {
+      const entry = entryMap[room.room_number];
+      if (!entry) return;
+      const state = getEntryUiState(entry);
+      if (state === 'DEFAULT') defaultCount += 1;
+      if (state === 'EDITED') editedCount += 1;
+      if (state === 'SAVED') savedCount += 1;
+    });
+
+    return { defaultCount, editedCount, savedCount };
+  }, [filteredRooms, entryMap]);
 
   if (authLoading) {
     return (
@@ -481,6 +656,17 @@ export default function ChambermaidEntryPage() {
           </div>
 
           <div style={styles.topBarActions}>
+            <button
+              type="button"
+              onClick={() => void handleSaveAll()}
+              disabled={savingAll || pageLoading || rooms.length === 0}
+              style={{
+                ...styles.primaryBtn,
+                opacity: savingAll || pageLoading || rooms.length === 0 ? 0.6 : 1,
+              }}
+            >
+              {savingAll ? 'Saving All...' : 'Save All Rooms'}
+            </button>
             <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
@@ -533,6 +719,18 @@ export default function ChambermaidEntryPage() {
               <div style={styles.summaryLabel}>Rooms to Service</div>
               <div style={styles.summaryValue}>{roomCount}</div>
             </div>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryLabel}>Default Ready</div>
+              <div style={{ ...styles.summaryValue, color: '#64748b' }}>{roomStateCounts.defaultCount}</div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryLabel}>Edited Not Saved</div>
+              <div style={{ ...styles.summaryValue, color: '#b45309' }}>{roomStateCounts.editedCount}</div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryLabel}>Saved</div>
+              <div style={{ ...styles.summaryValue, color: '#15803d' }}>{roomStateCounts.savedCount}</div>
+            </div>
           </div>
 
           {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
@@ -572,12 +770,34 @@ export default function ChambermaidEntryPage() {
         ) : (
           <div style={styles.cardsWrap}>
             {filteredRooms.map((room) => {
-              const entry = entryMap[room.room_number] || emptyEntry();
+              const entry = entryMap[room.room_number];
+              if (!entry) return null;
+
+              const uiState = getEntryUiState(entry);
               const isSaving = !!entry.isSaving;
               const showDnd = room.supervisor_status === 'STAYOVER';
 
+              const stateText =
+                uiState === 'SAVING'
+                  ? 'Saving...'
+                  : uiState === 'SAVED'
+                  ? `Saved ${formatTime(entry.savedAt)}${entry.updatedByName ? ` · ${entry.updatedByName}` : ''}`
+                  : uiState === 'EDITED'
+                  ? 'Edited · not saved'
+                  : 'Default ready · not saved';
+
               return (
-                <div key={room.room_number} style={styles.roomCard}>
+                <div
+                  key={room.room_number}
+                  style={{
+                    ...styles.roomCard,
+                    ...(uiState === 'SAVED'
+                      ? styles.roomCardSaved
+                      : uiState === 'EDITED'
+                      ? styles.roomCardEdited
+                      : {}),
+                  }}
+                >
                   <div style={styles.roomCardHeader}>
                     <div>
                       <div style={styles.roomNo}>{room.room_number}</div>
@@ -596,13 +816,13 @@ export default function ChambermaidEntryPage() {
                     </div>
                   </div>
 
-                  <div style={styles.dndRow}>
+                  <div style={styles.stateRow}>
                     {showDnd ? (
                       <label style={styles.dndLabel}>
                         <input
                           type="checkbox"
                           checked={entry.is_dnd}
-                          disabled={isSaving}
+                          disabled={isSaving || savingAll}
                           onChange={(e) =>
                             updateRoomField(room.room_number, 'is_dnd', e.target.checked)
                           }
@@ -612,54 +832,83 @@ export default function ChambermaidEntryPage() {
                     ) : (
                       <div />
                     )}
-                    {entry.savedAt ? (
-                      <div style={styles.savedAtText}>
-                        {isSaving ? 'Saving...' : `Last saved ${formatTime(entry.savedAt)}`}
-                        {entry.updatedByName ? ` · ${entry.updatedByName}` : ''}
-                      </div>
-                    ) : (
-                      <div style={styles.savedAtText}>{isSaving ? 'Saving...' : 'Not yet saved'}</div>
-                    )}
+                    <div
+                      style={{
+                        ...styles.statePill,
+                        ...(uiState === 'SAVED'
+                          ? styles.statePillSaved
+                          : uiState === 'EDITED'
+                          ? styles.statePillEdited
+                          : uiState === 'SAVING'
+                          ? styles.statePillSaving
+                          : styles.statePillDefault),
+                      }}
+                    >
+                      {stateText}
+                    </div>
                   </div>
 
                   <div style={styles.linenList}>
-                    {LINEN_FIELDS.map((item) => (
-                      <div key={item.key} style={styles.linenRow}>
-                        <div style={styles.linenLabel}>{item.label}</div>
-                        <div style={styles.counterWrap}>
-                          <button
-                            type="button"
-                            disabled={entry.is_dnd || isSaving}
-                            onClick={() => adjustQty(room.room_number, item.key, -1)}
-                            style={styles.counterBtn}
-                          >
-                            -
-                          </button>
-                          <input
-                            type="number"
-                            min={0}
-                            value={entry[item.key]}
-                            disabled={entry.is_dnd || isSaving}
-                            onChange={(e) =>
-                              updateRoomField(
-                                room.room_number,
-                                item.key,
-                                Math.max(0, Number(e.target.value || 0))
-                              )
-                            }
-                            style={styles.counterInput}
-                          />
-                          <button
-                            type="button"
-                            disabled={entry.is_dnd || isSaving}
-                            onClick={() => adjustQty(room.room_number, item.key, 1)}
-                            style={styles.counterBtn}
-                          >
-                            +
-                          </button>
+                    {LINEN_FIELDS.map((item) => {
+                      const defaultQty = entry.defaultValues[item.key];
+                      const currentQty = entry[item.key];
+                      const changed = currentQty !== defaultQty;
+
+                      return (
+                        <div key={item.key} style={styles.linenRow}>
+                          <div style={styles.linenLabelWrap}>
+                            <div style={styles.linenLabel}>{item.label}</div>
+                            <div style={styles.defaultHint}>Default {defaultQty}</div>
+                          </div>
+                          <div style={styles.counterWrap}>
+                            <button
+                              type="button"
+                              disabled={entry.is_dnd || isSaving || savingAll}
+                              onClick={() => adjustQty(room.room_number, item.key, -1)}
+                              style={styles.counterBtn}
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              min={0}
+                              value={currentQty}
+                              disabled={entry.is_dnd || isSaving || savingAll}
+                              onChange={(e) => {
+                                const nextValue = Math.max(0, Number(e.target.value || 0));
+                                updateRoomField(room.room_number, item.key, nextValue);
+                              }}
+                              style={{
+                                ...styles.counterInput,
+                                ...(changed ? styles.counterInputChanged : {}),
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={entry.is_dnd || isSaving || savingAll}
+                              onClick={() => adjustQty(room.room_number, item.key, 1)}
+                              style={styles.counterBtn}
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+                  </div>
+
+                  <div style={styles.cardFooter}>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveRoom(room)}
+                      disabled={isSaving || savingAll}
+                      style={{
+                        ...styles.saveBtn,
+                        opacity: isSaving || savingAll ? 0.6 : 1,
+                      }}
+                    >
+                      {isSaving ? 'Saving...' : 'Save'}
+                    </button>
                   </div>
                 </div>
               );
@@ -708,6 +957,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     color: '#64748b',
     marginTop: '6px',
+  },
+  primaryBtn: {
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
   },
   controlCard: {
     background: '#ffffff',
@@ -769,6 +1027,24 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
     gap: '10px',
   },
+  summaryCard: {
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '14px',
+    padding: '14px',
+  },
+  summaryLabel: {
+    fontSize: '13px',
+    color: '#64748b',
+    fontWeight: 700,
+    marginBottom: '8px',
+  },
+  summaryValue: {
+    fontSize: '28px',
+    fontWeight: 800,
+    color: '#0f172a',
+    lineHeight: 1,
+  },
   searchCard: {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
@@ -803,27 +1079,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     outline: 'none',
   },
-  summaryCard: {
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: '14px',
-    padding: '14px',
-  },
-  summaryLabel: {
-    fontSize: '13px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '8px',
-  },
-  summaryValue: {
-    fontSize: '28px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1,
-  },
   cardsWrap: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 420px))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 420px))',
     gap: '16px',
     justifyContent: 'center',
     alignItems: 'start',
@@ -837,6 +1095,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '18px',
     padding: '16px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+  },
+  roomCardSaved: {
+    borderColor: '#bbf7d0',
+    boxShadow: '0 10px 24px rgba(21,128,61,0.08)',
+  },
+  roomCardEdited: {
+    borderColor: '#fcd34d',
+    boxShadow: '0 10px 24px rgba(180,83,9,0.08)',
   },
   roomCardHeader: {
     display: 'flex',
@@ -863,43 +1129,69 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-  dndRow: {
+  stateRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '10px',
+    gap: '12px',
     alignItems: 'center',
     flexWrap: 'wrap',
     marginBottom: '14px',
   },
   dndLabel: {
-    display: 'flex',
+    display: 'inline-flex',
     alignItems: 'center',
     gap: '8px',
+    fontSize: '14px',
     fontWeight: 700,
     color: '#334155',
   },
-  savedAtText: {
+  statePill: {
+    borderRadius: '999px',
+    padding: '7px 11px',
     fontSize: '12px',
-    color: '#64748b',
-    fontWeight: 700,
+    fontWeight: 800,
+    lineHeight: 1.3,
+  },
+  statePillDefault: {
+    background: '#f1f5f9',
+    color: '#475569',
+  },
+  statePillEdited: {
+    background: '#fff7ed',
+    color: '#b45309',
+  },
+  statePillSaved: {
+    background: '#ecfdf5',
+    color: '#15803d',
+  },
+  statePillSaving: {
+    background: '#eff6ff',
+    color: '#1d4ed8',
   },
   linenList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '10px',
-    marginBottom: '14px',
+    gap: '12px',
   },
   linenRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '10px',
+    gap: '12px',
     alignItems: 'center',
   },
+  linenLabelWrap: {
+    minWidth: 0,
+    flex: 1,
+  },
   linenLabel: {
-    fontSize: '13px',
+    fontSize: '14px',
     fontWeight: 700,
     color: '#334155',
-    flex: 1,
+  },
+  defaultHint: {
+    fontSize: '12px',
+    color: '#94a3b8',
+    marginTop: '4px',
   },
   counterWrap: {
     display: 'flex',
@@ -913,29 +1205,56 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
-    fontSize: '20px',
     fontWeight: 800,
+    fontSize: '18px',
     cursor: 'pointer',
   },
   counterInput: {
-    width: '58px',
+    width: '62px',
     height: '36px',
     borderRadius: '10px',
     border: '1px solid #cbd5e1',
-    textAlign: 'center',
-    fontSize: '14px',
-    fontWeight: 700,
+    background: '#ffffff',
     color: '#0f172a',
+    textAlign: 'center' as const,
+    fontWeight: 800,
+    fontSize: '15px',
+    outline: 'none',
+  },
+  counterInputChanged: {
+    borderColor: '#f59e0b',
+    background: '#fffbeb',
+    color: '#92400e',
+  },
+  cardFooter: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '16px',
+  },
+  saveBtn: {
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '10px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
+    minWidth: '92px',
   },
   gridCard: {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
-    padding: '16px',
+    padding: '20px',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
   },
+  emptyState: {
+    textAlign: 'center' as const,
+    color: '#64748b',
+    fontWeight: 600,
+  },
   errorBox: {
-    marginTop: '14px',
+    marginTop: '12px',
     background: '#fef2f2',
     color: '#b91c1c',
     border: '1px solid #fecaca',
@@ -944,21 +1263,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
   },
   successBox: {
-    marginTop: '14px',
+    marginTop: '12px',
     background: '#ecfdf5',
     color: '#166534',
     border: '1px solid #bbf7d0',
     borderRadius: '12px',
     padding: '12px 14px',
-    fontWeight: 600,
-  },
-  emptyState: {
-    border: '1px dashed #cbd5e1',
-    background: '#f8fafc',
-    borderRadius: '14px',
-    padding: '24px',
-    textAlign: 'center',
-    color: '#64748b',
     fontWeight: 600,
   },
   centerCard: {
@@ -968,7 +1278,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     padding: '24px',
-    textAlign: 'center',
+    textAlign: 'center' as const,
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
   },
   centerTitle: {
