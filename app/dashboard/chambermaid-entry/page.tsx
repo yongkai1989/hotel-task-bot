@@ -181,7 +181,6 @@ export default function ChambermaidEntryPage() {
   const [selectedBlock, setSelectedBlock] = useState<number>(1);
   const [selectedFloor, setSelectedFloor] = useState<number>(1);
   const [roomSearch, setRoomSearch] = useState('');
-  const [savingAll, setSavingAll] = useState(false);
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
@@ -562,27 +561,6 @@ export default function ChambermaidEntryPage() {
     }
   }
 
-  async function handleSaveAll() {
-    if (savingAll || rooms.length === 0) return;
-
-    setSavingAll(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    let successCount = 0;
-
-    for (const room of rooms) {
-      const ok = await saveRoom(room);
-      if (ok) successCount += 1;
-    }
-
-    setSavingAll(false);
-
-    if (successCount > 0) {
-      setSuccessMsg(`Saved ${successCount} room${successCount > 1 ? 's' : ''} for this floor.`);
-    }
-  }
-
   const roomCount = rooms.length;
 
   const filteredRooms = useMemo(() => {
@@ -656,17 +634,6 @@ export default function ChambermaidEntryPage() {
           </div>
 
           <div style={styles.topBarActions}>
-            <button
-              type="button"
-              onClick={() => void handleSaveAll()}
-              disabled={savingAll || pageLoading || rooms.length === 0}
-              style={{
-                ...styles.primaryBtn,
-                opacity: savingAll || pageLoading || rooms.length === 0 ? 0.6 : 1,
-              }}
-            >
-              {savingAll ? 'Saving All...' : 'Save All Rooms'}
-            </button>
             <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
@@ -822,7 +789,7 @@ export default function ChambermaidEntryPage() {
                         <input
                           type="checkbox"
                           checked={entry.is_dnd}
-                          disabled={isSaving || savingAll}
+                          disabled={isSaving}
                           onChange={(e) =>
                             updateRoomField(room.room_number, 'is_dnd', e.target.checked)
                           }
@@ -863,7 +830,7 @@ export default function ChambermaidEntryPage() {
                           <div style={styles.counterWrap}>
                             <button
                               type="button"
-                              disabled={entry.is_dnd || isSaving || savingAll}
+                              disabled={entry.is_dnd || isSaving}
                               onClick={() => adjustQty(room.room_number, item.key, -1)}
                               style={styles.counterBtn}
                             >
@@ -873,7 +840,7 @@ export default function ChambermaidEntryPage() {
                               type="number"
                               min={0}
                               value={currentQty}
-                              disabled={entry.is_dnd || isSaving || savingAll}
+                              disabled={entry.is_dnd || isSaving}
                               onChange={(e) => {
                                 const nextValue = Math.max(0, Number(e.target.value || 0));
                                 updateRoomField(room.room_number, item.key, nextValue);
@@ -885,7 +852,7 @@ export default function ChambermaidEntryPage() {
                             />
                             <button
                               type="button"
-                              disabled={entry.is_dnd || isSaving || savingAll}
+                              disabled={entry.is_dnd || isSaving}
                               onClick={() => adjustQty(room.room_number, item.key, 1)}
                               style={styles.counterBtn}
                             >
@@ -901,10 +868,10 @@ export default function ChambermaidEntryPage() {
                     <button
                       type="button"
                       onClick={() => void handleSaveRoom(room)}
-                      disabled={isSaving || savingAll}
+                      disabled={isSaving}
                       style={{
                         ...styles.saveBtn,
-                        opacity: isSaving || savingAll ? 0.6 : 1,
+                        opacity: isSaving ? 0.6 : 1,
                       }}
                     >
                       {isSaving ? 'Saving...' : 'Save'}
