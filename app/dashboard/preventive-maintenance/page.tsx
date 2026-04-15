@@ -987,9 +987,14 @@ export default function PreventiveMaintenancePage() {
       </div>
 
       {showCreateModal ? (
-        <div style={styles.modalOverlay} onClick={closeCreateModal}>
+        <div style={styles.modalOverlay}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalTitle}>Create Routine Task</div>
+            <div style={styles.modalTop}>
+              <div style={styles.modalTitle}>Create Routine Task</div>
+              <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTask}>
+                ×
+              </button>
+            </div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Task Title</label>
@@ -1025,7 +1030,7 @@ export default function PreventiveMaintenancePage() {
                       setNewRepeatEveryDaysInput('');
                       return;
                     }
-                    if (!isNaN(Number(val))) {
+                    if (!Number.isNaN(Number(val))) {
                       setNewRepeatEveryDaysInput(val);
                     }
                   }}
@@ -1046,7 +1051,7 @@ export default function PreventiveMaintenancePage() {
                       setNewDueInDaysInput('');
                       return;
                     }
-                    if (!isNaN(Number(val))) {
+                    if (!Number.isNaN(Number(val))) {
                       setNewDueInDaysInput(val);
                     }
                   }}
@@ -1507,12 +1512,14 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
-    flex: 1,
+    flex: '1 1 240px',
+    minWidth: 0,
   },
   formRow: {
     display: 'flex',
     gap: '12px',
     flexWrap: 'wrap',
+    alignItems: 'flex-start',
   },
   label: {
     fontSize: '14px',
@@ -1521,6 +1528,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
+    boxSizing: 'border-box',
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
@@ -1531,6 +1539,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   textarea: {
     width: '100%',
+    boxSizing: 'border-box',
     minHeight: '110px',
     border: '1px solid #cbd5e1',
     background: '#ffffff',
