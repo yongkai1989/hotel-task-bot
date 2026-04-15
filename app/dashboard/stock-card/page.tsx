@@ -386,11 +386,6 @@ export default function StockCardPage() {
       damageMap.set(row.linen_type, safeNumber(damageMap.get(row.linen_type)) + safeNumber(row.qty));
     });
 
-    const overallFloorMap = new Map<string, number>();
-    floorStock.forEach((row) => {
-      overallFloorMap.set(row.linen_type, safeNumber(overallFloorMap.get(row.linen_type)) + safeNumber(row.qty));
-    });
-
     return LINEN_TYPES.map((linenType) => {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
@@ -400,7 +395,7 @@ export default function StockCardPage() {
       const floorContractorStock = safeNumber(floorContractorTotals[linenType] || 0);
       const supervisorStore = safeNumber(stockRow?.floor_store_stock);
       const damaged = safeNumber(damageMap.get(linenType));
-      const overallFloorStock = safeNumber(overallFloorMap.get(linenType));
+      const overallFloorStock = Math.max(0, overallInRoomPar - overallContractorStock);
       const selectedFloorStock = Math.max(0, floorInRoomPar - floorContractorStock);
 
       const totalUsable = Math.max(0, overallInRoomPar + overallFloorStock + supervisorStore + overallContractorStock - damaged);
@@ -422,7 +417,7 @@ export default function StockCardPage() {
         shortfall,
       } as StockItem;
     });
-  }, [linenStock, floorStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals]);
+  }, [linenStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals]);
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
