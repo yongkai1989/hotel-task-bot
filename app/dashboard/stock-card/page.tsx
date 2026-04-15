@@ -174,7 +174,6 @@ export default function StockCardPage() {
 
   const [linenStock, setLinenStock] = useState<LinenStockRow[]>([]);
   const [floorStock, setFloorStock] = useState<LinenFloorStockRow[]>([]);
-  const [draftFloorQty, setDraftFloorQty] = useState<Record<string, string>>({});
   const [draftSupervisorStoreQty, setDraftSupervisorStoreQty] = useState<Record<string, string>>({});
   const [damageRows, setDamageRows] = useState<DamageRow[]>([]);
   const [contractorTotals, setContractorTotals] = useState<ContractorTotals>(emptyContractorTotals());
@@ -337,25 +336,16 @@ export default function StockCardPage() {
       setRoomMasterRows(rooms);
       setRoomTypeMapRows(typeMapRows);
 
-      const nextDraftFloor: Record<string, string> = {};
       const nextSupervisorStoreDraft: Record<string, string> = {};
-
-      floorRows
-        .filter((row) => row.block_no === selectedFloor.block && row.floor_no === selectedFloor.floor)
-        .forEach((row) => {
-          nextDraftFloor[row.linen_type] = String(safeNumber(row.qty));
-        });
 
       stockRows.forEach((row) => {
         nextSupervisorStoreDraft[row.linen_type] = String(safeNumber(row.floor_store_stock));
       });
 
       LINEN_TYPES.forEach((type) => {
-        if (typeof nextDraftFloor[type] === 'undefined') nextDraftFloor[type] = '0';
         if (typeof nextSupervisorStoreDraft[type] === 'undefined') nextSupervisorStoreDraft[type] = '0';
       });
 
-      setDraftFloorQty(nextDraftFloor);
       setDraftSupervisorStoreQty(nextSupervisorStoreDraft);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load stock card');
@@ -372,22 +362,6 @@ export default function StockCardPage() {
 
     void loadData();
   }, [profile, canAccess, selectedFloorKey]);
-
-  useEffect(() => {
-    const nextDraft: Record<string, string> = {};
-
-    floorStock
-      .filter((row) => row.block_no === selectedFloor.block && row.floor_no === selectedFloor.floor)
-      .forEach((row) => {
-        nextDraft[row.linen_type] = String(safeNumber(row.qty));
-      });
-
-    LINEN_TYPES.forEach((type) => {
-      if (typeof nextDraft[type] === 'undefined') nextDraft[type] = '0';
-    });
-
-    setDraftFloorQty(nextDraft);
-  }, [selectedFloor, floorStock]);
 
   const floorInRoomTotals = useMemo(() => {
     const roomTypeMap = new Map<string, LinenRoomTypeMapRow>();
@@ -417,13 +391,6 @@ export default function StockCardPage() {
       overallFloorMap.set(row.linen_type, safeNumber(overallFloorMap.get(row.linen_type)) + safeNumber(row.qty));
     });
 
-    const selectedFloorMap = new Map<string, number>();
-    floorStock
-      .filter((row) => row.block_no === selectedFloor.block && row.floor_no === selectedFloor.floor)
-      .forEach((row) => {
-        selectedFloorMap.set(row.linen_type, safeNumber(row.qty));
-      });
-
     return LINEN_TYPES.map((linenType) => {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
@@ -434,7 +401,7 @@ export default function StockCardPage() {
       const supervisorStore = safeNumber(stockRow?.floor_store_stock);
       const damaged = safeNumber(damageMap.get(linenType));
       const overallFloorStock = safeNumber(overallFloorMap.get(linenType));
-      const selectedFloorStock = safeNumber(selectedFloorMap.get(linenType));
+      const selectedFloorStock = Math.max(0, floorInRoomPar - floorContractorStock);
 
       const totalUsable = Math.max(0, overallInRoomPar + overallFloorStock + supervisorStore + overallContractorStock - damaged);
       const threeParTarget = overallInRoomPar * 3;
@@ -455,49 +422,13 @@ export default function StockCardPage() {
         shortfall,
       } as StockItem;
     });
-  }, [linenStock, floorStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals, selectedFloor]);
+  }, [linenStock, floorStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals]);
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
     if (viewMode === 'SUPERVISOR_STORE') return 'Supervisor Store';
     return FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey)?.label || 'Selected Floor';
   }, [viewMode, selectedFloorKey]);
-
-  async function saveSelectedFloorStock() {
-    const supabase = getSupabaseSafe();
-    if (!supabase) {
-      setErrorMsg('Supabase is not configured.');
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setErrorMsg('');
-      setSuccessMsg('');
-
-      const rows = LINEN_TYPES.map((linenType) => ({
-        block_no: selectedFloor.block,
-        floor_no: selectedFloor.floor,
-        linen_type: linenType,
-        qty: Math.max(0, safeNumber(draftFloorQty[linenType])),
-      }));
-
-      const { error } = await supabase
-        .from('linen_floor_stock')
-        .upsert(rows, {
-          onConflict: 'block_no,floor_no,linen_type',
-        });
-
-      if (error) throw error;
-
-      setSuccessMsg(`Saved stock for ${selectedFloor.label}.`);
-      await loadData();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to save selected floor stock');
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function saveSupervisorStore() {
     const supabase = getSupabaseSafe();
@@ -722,14 +653,7 @@ export default function StockCardPage() {
 
                       <div style={styles.metricRow}>
                         <span style={styles.metricLabel}>Selected Floor Stock</span>
-                        {renderEditableField(
-                          draftFloorQty[item.linenType] ?? String(item.selectedFloorStock),
-                          (value) =>
-                            setDraftFloorQty((prev) => ({
-                              ...prev,
-                              [item.linenType]: value,
-                            }))
-                        )}
+                        <span style={styles.metricValue}>{item.selectedFloorStock}</span>
                       </div>
 
                       <div style={styles.metricRow}>
@@ -756,19 +680,6 @@ export default function StockCardPage() {
               ))}
             </div>
           )}
-
-          {viewMode === 'FLOOR' ? (
-            <div style={styles.saveRow}>
-              <button
-                type="button"
-                onClick={saveSelectedFloorStock}
-                disabled={saving || loading}
-                style={{ ...styles.primaryBtn, opacity: saving || loading ? 0.6 : 1 }}
-              >
-                {saving ? 'Saving...' : 'Save Floor'}
-              </button>
-            </div>
-          ) : null}
 
           {viewMode === 'SUPERVISOR_STORE' ? (
             <div style={styles.saveRow}>
