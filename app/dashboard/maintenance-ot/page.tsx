@@ -25,6 +25,8 @@ type MaintenanceOtEntry = {
   updated_at: string;
 };
 
+type ViewMode = 'ENTRY' | 'PAST' | 'REPORT';
+
 const STAFF_OPTIONS = [
   'Izzuddin',
   'Yazid',
@@ -35,14 +37,22 @@ const STAFF_OPTIONS = [
   'Harraz',
 ] as const;
 
+const TIME_OPTIONS = [
+  '00:00', '00:30', '01:00', '01:30', '02:00', '02:30',
+  '03:00', '03:30', '04:00', '04:30', '05:00', '05:30',
+  '06:00', '06:30', '07:00', '07:30', '08:00', '08:30',
+  '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+  '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
+  '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
+  '18:00', '18:30', '19:00', '19:30', '20:00', '20:30',
+  '21:00', '21:30', '22:00', '22:30', '23:00', '23:30',
+] as const;
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
-
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
   if (!url || !anon) return null;
-
   return createBrowserSupabaseClient();
 }
 
@@ -52,6 +62,22 @@ function getTodayLocalDateString() {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function getYesterdayLocalDateString() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentMonthString() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
 }
 
 function safeNumber(value: unknown) {
@@ -75,7 +101,6 @@ function formatDateTime(value?: string | null) {
 
 function calculateHours(startTime: string, endTime: string): number {
   if (!startTime || !endTime) return 0;
-
   const [startHour, startMin] = startTime.split(':').map(Number);
   const [endHour, endMin] = endTime.split(':').map(Number);
 
@@ -90,13 +115,26 @@ function calculateHours(startTime: string, endTime: string): number {
 
   const startTotal = startHour * 60 + startMin;
   const endTotal = endHour * 60 + endMin;
-
   if (endTotal <= startTotal) return 0;
 
-  const diffMinutes = endTotal - startTotal;
-  const hours = diffMinutes / 60;
+  return Math.round(((endTotal - startTotal) / 60) * 100) / 100;
+}
 
-  return Math.round(hours * 100) / 100;
+function formatHours(hours: number) {
+  return safeNumber(hours).toFixed(2);
+}
+
+function monthRange(monthStr: string) {
+  const [yearStr, monthStrNum] = monthStr.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStrNum);
+  if (!year || !month) {
+    return { start: '', end: '' };
+  }
+  const start = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDate = new Date(year, month, 0).getDate();
+  const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDate).padStart(2, '0')}`;
+  return { start, end };
 }
 
 export default function MaintenanceOtPage() {
@@ -107,15 +145,19 @@ export default function MaintenanceOtPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  const [viewMode, setViewMode] = useState<ViewMode>('ENTRY');
+
   const [entries, setEntries] = useState<MaintenanceOtEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [staffName, setStaffName] = useState<string>('');
-  const [otDate, setOtDate] = useState<string>(getTodayLocalDateString());
   const [startTime, setStartTime] = useState<string>('');
   const [endTime, setEndTime] = useState<string>('');
   const [reason, setReason] = useState<string>('');
+
+  const [pastDate, setPastDate] = useState<string>(getYesterdayLocalDateString());
+  const [reportMonth, setReportMonth] = useState<string>(getCurrentMonthString());
 
   useEffect(() => {
     let mounted = true;
@@ -123,9 +165,7 @@ export default function MaintenanceOtPage() {
     async function bootstrap() {
       try {
         const supabase = getSupabaseSafe();
-        if (!supabase) {
-          throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
-        }
+        if (!supabase) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
 
         const {
           data: { session },
@@ -172,18 +212,12 @@ export default function MaintenanceOtPage() {
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    return (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'MT'
-    );
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'MT';
   }, [profile]);
 
-  const totalHours = useMemo(() => {
-    return calculateHours(startTime, endTime);
-  }, [startTime, endTime]);
-
+  const totalHours = useMemo(() => calculateHours(startTime, endTime), [startTime, endTime]);
   const needsReason = totalHours > 3;
+  const today = getTodayLocalDateString();
 
   async function loadEntries() {
     const supabase = getSupabaseSafe();
@@ -204,7 +238,6 @@ export default function MaintenanceOtPage() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
       setEntries((data || []) as MaintenanceOtEntry[]);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load OT entries');
@@ -218,14 +251,12 @@ export default function MaintenanceOtPage() {
       setPageLoading(false);
       return;
     }
-
     void loadEntries();
   }, [profile, canAccess]);
 
   function resetForm() {
     setEditingId(null);
     setStaffName('');
-    setOtDate(getTodayLocalDateString());
     setStartTime('');
     setEndTime('');
     setReason('');
@@ -241,7 +272,6 @@ export default function MaintenanceOtPage() {
     });
 
     const data = await res.json().catch(() => null);
-
     if (!res.ok || data?.ok === false) {
       throw new Error(data?.error || 'Failed to send Telegram alert');
     }
@@ -266,27 +296,18 @@ export default function MaintenanceOtPage() {
       setErrorMsg('Please select a staff name.');
       return;
     }
-
-    if (!otDate) {
-      setErrorMsg('Please select OT date.');
-      return;
-    }
-
     if (!startTime) {
       setErrorMsg('Please select start time.');
       return;
     }
-
     if (!endTime) {
       setErrorMsg('Please select end time.');
       return;
     }
-
     if (totalHours <= 0) {
       setErrorMsg('End time must be later than start time.');
       return;
     }
-
     if (needsReason && !trimmedReason) {
       setErrorMsg('Reason is required for OT exceeding 3 hours.');
       return;
@@ -302,7 +323,7 @@ export default function MaintenanceOtPage() {
           .from('maintenance_ot_entries')
           .update({
             staff_name: trimmedStaff,
-            ot_date: otDate,
+            ot_date: today,
             start_time: startTime,
             end_time: endTime,
             total_hours: totalHours,
@@ -313,7 +334,6 @@ export default function MaintenanceOtPage() {
         if (error) throw error;
 
         await sendTelegramIfNeeded(trimmedStaff, totalHours, trimmedReason);
-
         setSuccessMsg('OT entry updated successfully.');
       } else {
         const { error } = await supabase
@@ -321,7 +341,7 @@ export default function MaintenanceOtPage() {
           .insert([
             {
               staff_name: trimmedStaff,
-              ot_date: otDate,
+              ot_date: today,
               start_time: startTime,
               end_time: endTime,
               total_hours: totalHours,
@@ -334,7 +354,6 @@ export default function MaintenanceOtPage() {
         if (error) throw error;
 
         await sendTelegramIfNeeded(trimmedStaff, totalHours, trimmedReason);
-
         setSuccessMsg('OT entry submitted successfully.');
       }
 
@@ -350,10 +369,10 @@ export default function MaintenanceOtPage() {
   function handleEdit(entry: MaintenanceOtEntry) {
     setEditingId(entry.id);
     setStaffName(entry.staff_name);
-    setOtDate(entry.ot_date);
     setStartTime(entry.start_time);
     setEndTime(entry.end_time);
     setReason(entry.reason || '');
+    setViewMode('ENTRY');
     setErrorMsg('');
     setSuccessMsg('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -366,9 +385,7 @@ export default function MaintenanceOtPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete OT entry for ${entry.staff_name} on ${formatDate(entry.ot_date)}?`
-    );
+    const confirmed = window.confirm(`Delete OT entry for ${entry.staff_name} on ${formatDate(entry.ot_date)}?`);
     if (!confirmed) return;
 
     try {
@@ -400,12 +417,108 @@ export default function MaintenanceOtPage() {
     return entries.filter((entry) => safeNumber(entry.total_hours) > 3).length;
   }, [entries]);
 
+  const todayEntries = useMemo(() => entries.filter((entry) => entry.ot_date === today), [entries, today]);
+  const pastEntries = useMemo(() => entries.filter((entry) => entry.ot_date === pastDate), [entries, pastDate]);
+
+  const reportEntries = useMemo(() => {
+    const { start, end } = monthRange(reportMonth);
+    if (!start || !end) return [];
+    return entries.filter((entry) => entry.ot_date >= start && entry.ot_date <= end);
+  }, [entries, reportMonth]);
+
+  const reportSummary = useMemo(() => {
+    const grouped = new Map();
+
+    for (const entry of reportEntries) {
+      const existing = grouped.get(entry.staff_name) || { totalHours: 0, entries: [] };
+      existing.totalHours += safeNumber(entry.total_hours);
+      existing.entries.push(entry);
+      grouped.set(entry.staff_name, existing);
+    }
+
+    return Array.from(grouped.entries())
+      .map(([staffName, data]: any) => ({
+        staffName,
+        totalHours: Math.round(data.totalHours * 100) / 100,
+        entries: data.entries.sort((a: MaintenanceOtEntry, b: MaintenanceOtEntry) => {
+          const aKey = `${a.ot_date} ${a.start_time}`;
+          const bKey = `${b.ot_date} ${b.start_time}`;
+          return aKey.localeCompare(bKey);
+        }),
+      }))
+      .sort((a, b) => a.staffName.localeCompare(b.staffName));
+  }, [reportEntries]);
+
+  function handleDownloadReport() {
+    const reportWindow = window.open('', '_blank', 'width=1000,height=800');
+    if (!reportWindow) {
+      setErrorMsg('Popup blocked. Please allow popups to download report.');
+      return;
+    }
+
+    const rows = reportSummary.length
+      ? reportSummary.map((staff) =>
+          staff.entries.map((entry) => `
+            <tr>
+              <td>${entry.staff_name}</td>
+              <td>${formatDate(entry.ot_date)}</td>
+              <td>${entry.start_time}</td>
+              <td>${entry.end_time}</td>
+              <td>${formatHours(entry.total_hours)}</td>
+              <td>${entry.reason || '-'}</td>
+              <td>${formatHours(staff.totalHours)}</td>
+            </tr>
+          `).join('')
+        ).join('')
+      : '<tr><td colspan="7" style="text-align:center;">No entries for this month.</td></tr>';
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Maintenance OT Report ${reportMonth}</title>
+        <style>
+          body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #111827; }
+          h1 { margin: 0 0 8px; font-size: 26px; }
+          .sub { margin: 0 0 18px; color: #475569; font-size: 14px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; }
+          th { background: #f8fafc; font-weight: 700; }
+          .totals { margin: 0 0 18px; font-size: 14px; font-weight: 700; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <h1>Maintenance OT Monthly Report</h1>
+        <div class="sub">Month: ${reportMonth}</div>
+        <div class="totals">Total Entries: ${reportEntries.length}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Date</th>
+              <th>From</th>
+              <th>To</th>
+              <th>OT Hours</th>
+              <th>Reason</th>
+              <th>Total OT This Month</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <script>window.onload = function(){ window.print(); };</script>
+      </body>
+      </html>
+    `;
+
+    reportWindow.document.open();
+    reportWindow.document.write(html);
+    reportWindow.document.close();
+  }
+
   if (authLoading) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.centerCard}>Loading...</div>
-      </main>
-    );
+    return <main style={styles.page}><div style={styles.centerCard}>Loading...</div></main>;
   }
 
   if (!profile) {
@@ -414,9 +527,7 @@ export default function MaintenanceOtPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Login required</div>
           <p style={styles.centerText}>Please log in first, then open this page again.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -428,9 +539,7 @@ export default function MaintenanceOtPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
           <p style={styles.centerText}>You do not have permission to access Maintenance OT.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -442,224 +551,241 @@ export default function MaintenanceOtPage() {
         <div style={styles.topBar}>
           <div>
             <div style={styles.pageTitle}>Maintenance OT</div>
-            <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role}) · Record and manage maintenance overtime
-            </div>
+            <div style={styles.pageSubTitle}>{profile.name} ({profile.role}) · Record and manage maintenance overtime</div>
           </div>
-
           <div style={styles.topBarActions}>
-            <Link href="/dashboard" style={styles.secondaryBtn}>
-              Back to Dashboard
-            </Link>
+            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
         <div style={styles.summaryGrid}>
           <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Total Entries</div>
-            <div style={styles.summaryValue}>{entries.length}</div>
+            <div style={styles.summaryLabel}>Today Entries</div>
+            <div style={styles.summaryValue}>{todayEntries.length}</div>
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Above 3 Hours</div>
             <div style={{ ...styles.summaryValue, color: '#b91c1c' }}>{overThreeCount}</div>
           </div>
           <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Current Hours</div>
-            <div style={styles.summaryValue}>{totalHours.toFixed(2)}</div>
+            <div style={styles.summaryLabel}>Selected Past Date</div>
+            <div style={styles.summaryValueSmall}>{formatDate(pastDate)}</div>
           </div>
         </div>
+
+        <section style={styles.panel}>
+          <div style={styles.modeRow}>
+            <button type="button" onClick={() => setViewMode('ENTRY')} style={{ ...styles.modeBtn, ...(viewMode === 'ENTRY' ? styles.modeBtnActive : {}) }}>Entry</button>
+            <button type="button" onClick={() => setViewMode('PAST')} style={{ ...styles.modeBtn, ...(viewMode === 'PAST' ? styles.modeBtnActive : {}) }}>Past Entries</button>
+            <button type="button" onClick={() => setViewMode('REPORT')} style={{ ...styles.modeBtn, ...(viewMode === 'REPORT' ? styles.modeBtnActive : {}) }}>Report</button>
+          </div>
+        </section>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
         {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
-        <section style={styles.panel}>
-          <div style={styles.sectionTitle}>
-            {editingId ? 'Edit OT Entry' : 'Add OT Entry'}
-          </div>
+        {viewMode === 'ENTRY' ? (
+          <>
+            <section style={styles.panel}>
+              <div style={styles.sectionTitle}>{editingId ? 'Edit OT Entry' : 'Add OT Entry'}</div>
 
-          <div style={styles.formGrid}>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Staff Name</label>
-              <select
-                value={staffName}
-                onChange={(e) => setStaffName(e.target.value)}
-                style={styles.select}
-                disabled={saving}
-              >
-                <option value="">Select staff</option>
-                {STAFF_OPTIONS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+              <div style={styles.todayBar}>
+                <span style={styles.todayLabel}>OT Date</span>
+                <span style={styles.todayValue}>{formatDate(today)}</span>
+              </div>
+
+              <div style={styles.formGrid}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Staff Name</label>
+                  <select value={staffName} onChange={(e) => setStaffName(e.target.value)} style={styles.select} disabled={saving}>
+                    <option value="">Select staff</option>
+                    {STAFF_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>From</label>
+                  <select value={startTime} onChange={(e) => setStartTime(e.target.value)} style={styles.select} disabled={saving}>
+                    <option value="">Select time</option>
+                    {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
+                  </select>
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>To</label>
+                  <select value={endTime} onChange={(e) => setEndTime(e.target.value)} style={styles.select} disabled={saving}>
+                    <option value="">Select time</option>
+                    {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>{needsReason ? 'Reason for Exceeding 3 Hours' : 'Reason (Optional)'}</label>
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  style={styles.textarea}
+                  placeholder={needsReason ? 'This field is compulsory when OT exceeds 3 hours' : 'Optional if OT is 3 hours or below'}
+                  disabled={saving}
+                />
+              </div>
+
+              <div style={styles.actionRow}>
+                {editingId ? <button type="button" onClick={resetForm} style={styles.secondaryActionBtn} disabled={saving}>Cancel Edit</button> : null}
+                <button type="button" onClick={() => void handleSubmit()} style={styles.primaryBtn} disabled={saving}>
+                  {saving ? 'Saving...' : editingId ? 'Update Entry' : 'Submit Entry'}
+                </button>
+              </div>
+            </section>
+
+            <section style={styles.panel}>
+              <div style={styles.sectionTitle}>Today Entries</div>
+              {pageLoading ? (
+                <div style={styles.emptyState}>Loading OT entries...</div>
+              ) : todayEntries.length === 0 ? (
+                <div style={styles.emptyState}>No OT entries for today.</div>
+              ) : (
+                <div style={styles.cardsWrap}>
+                  {todayEntries.map((entry) => (
+                    <article key={entry.id} style={styles.entryCard}>
+                      <div style={styles.entryTopRow}>
+                        <div>
+                          <div style={styles.entryTitle}>{entry.staff_name}</div>
+                          <div style={styles.entrySubTitle}>{entry.start_time} - {entry.end_time}</div>
+                        </div>
+                        <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
+                          {formatHours(entry.total_hours)} hrs
+                        </div>
+                      </div>
+
+                      <div style={styles.metaGrid}>
+                        <div style={styles.metaItem}>
+                          <div style={styles.metaLabel}>Created By</div>
+                          <div style={styles.metaValue}>{entry.created_by_name || '-'}</div>
+                        </div>
+                        <div style={styles.metaItem}>
+                          <div style={styles.metaLabel}>Created At</div>
+                          <div style={styles.metaValue}>{formatDateTime(entry.created_at)}</div>
+                        </div>
+                      </div>
+
+                      {entry.reason ? (
+                        <div style={styles.reasonBox}>
+                          <div style={styles.reasonLabel}>Reason</div>
+                          <div style={styles.reasonText}>{entry.reason}</div>
+                        </div>
+                      ) : null}
+
+                      <div style={styles.cardActions}>
+                        <button type="button" onClick={() => handleEdit(entry)} style={styles.secondaryActionBtn} disabled={saving}>Edit</button>
+                        <button type="button" onClick={() => void handleDelete(entry)} style={styles.deleteBtn} disabled={deletingId === entry.id}>
+                          {deletingId === entry.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        ) : null}
+
+        {viewMode === 'PAST' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Past Entries</div>
+
+            <div style={styles.filterRow}>
+              <div style={styles.formGroupCompact}>
+                <label style={styles.label}>Select Date</label>
+                <input type="date" value={pastDate} onChange={(e) => setPastDate(e.target.value)} style={styles.input} />
+              </div>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>OT Date</label>
-              <input
-                type="date"
-                value={otDate}
-                onChange={(e) => setOtDate(e.target.value)}
-                style={styles.input}
-                disabled={saving}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>From</label>
-              <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                style={styles.input}
-                disabled={saving}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>To</label>
-              <input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                style={styles.input}
-                disabled={saving}
-              />
-            </div>
-          </div>
-
-          <div style={styles.hoursBar}>
-            <div style={styles.hoursBox}>
-              <span style={styles.hoursLabel}>Total OT Hours</span>
-              <span style={styles.hoursValue}>{totalHours.toFixed(2)}</span>
-            </div>
-
-            {needsReason ? (
-              <div style={styles.alertPill}>Reason required for OT above 3 hours</div>
-            ) : null}
-          </div>
-
-          {needsReason ? (
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Reason for Exceeding 3 Hours</label>
-              <textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                style={styles.textarea}
-                placeholder="This field is compulsory when OT exceeds 3 hours"
-                disabled={saving}
-              />
-            </div>
-          ) : (
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Reason (Optional)</label>
-              <textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                style={styles.textarea}
-                placeholder="Optional if OT is 3 hours or below"
-                disabled={saving}
-              />
-            </div>
-          )}
-
-          <div style={styles.actionRow}>
-            {editingId ? (
-              <button
-                type="button"
-                onClick={resetForm}
-                style={styles.secondaryActionBtn}
-                disabled={saving}
-              >
-                Cancel Edit
-              </button>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => void handleSubmit()}
-              style={styles.primaryBtn}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : editingId ? 'Update Entry' : 'Submit Entry'}
-            </button>
-          </div>
-        </section>
-
-        <section style={styles.panel}>
-          <div style={styles.sectionTitle}>OT Entries</div>
-
-          {pageLoading ? (
-            <div style={styles.emptyState}>Loading OT entries...</div>
-          ) : entries.length === 0 ? (
-            <div style={styles.emptyState}>No OT entries yet.</div>
-          ) : (
-            <div style={styles.cardsWrap}>
-              {entries.map((entry) => (
-                <article key={entry.id} style={styles.entryCard}>
-                  <div style={styles.entryTopRow}>
-                    <div>
-                      <div style={styles.entryTitle}>{entry.staff_name}</div>
-                      <div style={styles.entrySubTitle}>
-                        {formatDate(entry.ot_date)} · {entry.start_time} - {entry.end_time}
+            {pageLoading ? (
+              <div style={styles.emptyState}>Loading past entries...</div>
+            ) : pastEntries.length === 0 ? (
+              <div style={styles.emptyState}>No OT entries for {formatDate(pastDate)}.</div>
+            ) : (
+              <div style={styles.cardsWrap}>
+                {pastEntries.map((entry) => (
+                  <article key={entry.id} style={styles.entryCard}>
+                    <div style={styles.entryTopRow}>
+                      <div>
+                        <div style={styles.entryTitle}>{entry.staff_name}</div>
+                        <div style={styles.entrySubTitle}>{formatDate(entry.ot_date)} · {entry.start_time} - {entry.end_time}</div>
+                      </div>
+                      <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
+                        {formatHours(entry.total_hours)} hrs
                       </div>
                     </div>
 
-                    <div
-                      style={{
-                        ...styles.hourBadge,
-                        ...(safeNumber(entry.total_hours) > 3
-                          ? styles.hourBadgeAlert
-                          : styles.hourBadgeNormal),
-                      }}
-                    >
-                      {safeNumber(entry.total_hours).toFixed(2)} hrs
-                    </div>
-                  </div>
+                    {entry.reason ? (
+                      <div style={styles.reasonBox}>
+                        <div style={styles.reasonLabel}>Reason</div>
+                        <div style={styles.reasonText}>{entry.reason}</div>
+                      </div>
+                    ) : null}
 
-                  <div style={styles.metaGrid}>
-                    <div style={styles.metaItem}>
-                      <div style={styles.metaLabel}>Created By</div>
-                      <div style={styles.metaValue}>{entry.created_by_name || '-'}</div>
+                    <div style={styles.cardActions}>
+                      <button type="button" onClick={() => handleEdit(entry)} style={styles.secondaryActionBtn} disabled={saving}>Edit</button>
+                      <button type="button" onClick={() => void handleDelete(entry)} style={styles.deleteBtn} disabled={deletingId === entry.id}>
+                        {deletingId === entry.id ? 'Deleting...' : 'Delete'}
+                      </button>
                     </div>
-                    <div style={styles.metaItem}>
-                      <div style={styles.metaLabel}>Created At</div>
-                      <div style={styles.metaValue}>{formatDateTime(entry.created_at)}</div>
-                    </div>
-                  </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
 
-                  {entry.reason ? (
-                    <div style={styles.reasonBox}>
-                      <div style={styles.reasonLabel}>Reason</div>
-                      <div style={styles.reasonText}>{entry.reason}</div>
-                    </div>
-                  ) : null}
+        {viewMode === 'REPORT' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Monthly Report</div>
 
-                  <div style={styles.cardActions}>
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(entry)}
-                      style={styles.secondaryActionBtn}
-                      disabled={saving}
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(entry)}
-                      style={styles.deleteBtn}
-                      disabled={deletingId === entry.id}
-                    >
-                      {deletingId === entry.id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
-                </article>
-              ))}
+            <div style={styles.filterRow}>
+              <div style={styles.formGroupCompact}>
+                <label style={styles.label}>Month</label>
+                <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={styles.input} />
+              </div>
+              <button type="button" onClick={handleDownloadReport} style={styles.primaryBtn}>Download Report</button>
             </div>
-          )}
-        </section>
+
+            <div style={styles.reportTableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Total OT This Month</th>
+                    <th style={styles.th}>Entries</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportSummary.length === 0 ? (
+                    <tr><td colSpan={3} style={styles.emptyTableCell}>No entries for this month.</td></tr>
+                  ) : (
+                    reportSummary.map((staff) => (
+                      <tr key={staff.staffName}>
+                        <td style={styles.td}>{staff.staffName}</td>
+                        <td style={styles.tdStrong}>{formatHours(staff.totalHours)} hrs</td>
+                        <td style={styles.td}>
+                          <div style={styles.reportEntryList}>
+                            {staff.entries.map((entry) => (
+                              <div key={entry.id} style={styles.reportEntryRow}>
+                                {formatDate(entry.ot_date)} · {entry.start_time} - {entry.end_time} · {formatHours(entry.total_hours)} hrs{entry.reason ? ` · ${entry.reason}` : ''}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   );
@@ -725,6 +851,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#0f172a',
   },
+  summaryValueSmall: {
+    fontSize: '18px',
+    fontWeight: 800,
+    color: '#0f172a',
+  },
   panel: {
     background: '#ffffff',
     border: '1px solid #e2e8f0',
@@ -739,6 +870,45 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     marginBottom: '14px',
   },
+  modeRow: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+  },
+  modeBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '999px',
+    padding: '12px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  modeBtnActive: {
+    background: '#0f172a',
+    color: '#ffffff',
+    borderColor: '#0f172a',
+  },
+  todayBar: {
+    display: 'inline-flex',
+    gap: '10px',
+    alignItems: 'center',
+    border: '1px solid #e2e8f0',
+    background: '#f8fafc',
+    borderRadius: '14px',
+    padding: '10px 14px',
+    marginBottom: '14px',
+  },
+  todayLabel: {
+    fontSize: '14px',
+    fontWeight: 700,
+    color: '#475569',
+  },
+  todayValue: {
+    fontSize: '16px',
+    fontWeight: 800,
+    color: '#0f172a',
+  },
   formGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -750,6 +920,12 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '8px',
     marginBottom: '14px',
+  },
+  formGroupCompact: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    minWidth: '220px',
   },
   label: {
     fontSize: '14px',
@@ -777,6 +953,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 14px',
     fontSize: '15px',
     outline: 'none',
+    cursor: 'pointer',
   },
   textarea: {
     width: '100%',
@@ -791,41 +968,13 @@ const styles: Record<string, React.CSSProperties> = {
     outline: 'none',
     resize: 'vertical',
   },
-  hoursBar: {
+  filterRow: {
     display: 'flex',
     justifyContent: 'space-between',
+    alignItems: 'end',
     gap: '12px',
-    alignItems: 'center',
     flexWrap: 'wrap',
     marginBottom: '14px',
-  },
-  hoursBox: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '12px',
-    border: '1px solid #dbeafe',
-    background: '#eff6ff',
-    borderRadius: '14px',
-    padding: '12px 14px',
-  },
-  hoursLabel: {
-    fontSize: '14px',
-    color: '#1e3a8a',
-    fontWeight: 700,
-  },
-  hoursValue: {
-    fontSize: '22px',
-    color: '#1d4ed8',
-    fontWeight: 800,
-  },
-  alertPill: {
-    border: '1px solid #fecaca',
-    background: '#fef2f2',
-    color: '#b91c1c',
-    borderRadius: '999px',
-    padding: '10px 14px',
-    fontWeight: 800,
-    fontSize: '13px',
   },
   actionRow: {
     display: 'flex',
@@ -991,6 +1140,52 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
     flexWrap: 'wrap',
     marginTop: '14px',
+  },
+  reportTableWrap: {
+    overflowX: 'auto',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+  },
+  th: {
+    textAlign: 'left',
+    borderBottom: '1px solid #cbd5e1',
+    padding: '12px 10px',
+    fontSize: '13px',
+    color: '#334155',
+    background: '#f8fafc',
+  },
+  td: {
+    borderBottom: '1px solid #e2e8f0',
+    padding: '12px 10px',
+    fontSize: '14px',
+    color: '#0f172a',
+    verticalAlign: 'top',
+  },
+  tdStrong: {
+    borderBottom: '1px solid #e2e8f0',
+    padding: '12px 10px',
+    fontSize: '14px',
+    color: '#0f172a',
+    verticalAlign: 'top',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  emptyTableCell: {
+    borderBottom: '1px solid #e2e8f0',
+    padding: '18px 10px',
+    fontSize: '14px',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  reportEntryList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  reportEntryRow: {
+    lineHeight: 1.5,
   },
   centerCard: {
     maxWidth: '460px',
