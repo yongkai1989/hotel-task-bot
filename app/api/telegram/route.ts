@@ -631,6 +631,7 @@ export async function POST(req: NextRequest) {
 
     const update = await req.json();
     const updateId = Number(update?.update_id);
+    console.log(JSON.stringify(body, null, 2));
 
     const callbackHandled = await handleCallbackQuery(update, updateId);
     if (callbackHandled) {
