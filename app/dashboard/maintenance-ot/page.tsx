@@ -456,21 +456,44 @@ export default function MaintenanceOtPage() {
       return;
     }
 
-    const rows = reportSummary.length
-      ? reportSummary.map((staff) =>
-          staff.entries.map((entry) => `
+    const totalMonthHours = reportSummary.reduce((sum, staff) => sum + safeNumber(staff.totalHours), 0);
+
+    const body = reportSummary.length
+      ? reportSummary.map((staff, index) => {
+          const rows = staff.entries.map((entry) => `
             <tr>
-              <td>${entry.staff_name}</td>
               <td>${formatDate(entry.ot_date)}</td>
               <td>${entry.start_time}</td>
               <td>${entry.end_time}</td>
               <td>${formatHours(entry.total_hours)}</td>
               <td>${entry.reason || '-'}</td>
-              <td>${formatHours(staff.totalHours)}</td>
             </tr>
-          `).join('')
-        ).join('')
-      : '<tr><td colspan="7" style="text-align:center;">No entries for this month.</td></tr>';
+          `).join('');
+
+          return `
+            <section class="staff-page ${index > 0 ? 'page-break' : ''}">
+              <h2>${staff.staffName}</h2>
+              <div class="meta">Month: ${reportMonth}</div>
+              <div class="meta strong">Total OT for ${staff.staffName}: ${formatHours(staff.totalHours)} hours</div>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>OT Hours</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </section>
+          `;
+        }).join('')
+      : '<div class="empty">No entries for this month.</div>';
 
     const html = `
       <!DOCTYPE html>
@@ -481,32 +504,27 @@ export default function MaintenanceOtPage() {
         <style>
           body { font-family: Arial, Helvetica, sans-serif; padding: 24px; color: #111827; }
           h1 { margin: 0 0 8px; font-size: 26px; }
-          .sub { margin: 0 0 18px; color: #475569; font-size: 14px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          h2 { margin: 0 0 8px; font-size: 22px; }
+          .sub { margin: 0 0 10px; color: #475569; font-size: 14px; }
+          .meta { margin: 0 0 8px; color: #334155; font-size: 14px; }
+          .strong { font-weight: 700; }
+          .overall { margin: 0 0 18px; font-size: 15px; font-weight: 700; }
+          .staff-page { margin-top: 18px; }
+          .page-break { page-break-before: always; break-before: page; }
+          .empty { padding: 20px 0; color: #64748b; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
           th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; }
           th { background: #f8fafc; font-weight: 700; }
-          .totals { margin: 0 0 18px; font-size: 14px; font-weight: 700; }
-          @media print { body { padding: 0; } }
+          @media print {
+            body { padding: 0; }
+          }
         </style>
       </head>
       <body>
         <h1>Maintenance OT Monthly Report</h1>
         <div class="sub">Month: ${reportMonth}</div>
-        <div class="totals">Total Entries: ${reportEntries.length}</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Date</th>
-              <th>From</th>
-              <th>To</th>
-              <th>OT Hours</th>
-              <th>Reason</th>
-              <th>Total OT This Month</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+        <div class="overall">Total OT Hours for Selected Month: ${formatHours(totalMonthHours)} hours</div>
+        ${body}
         <script>window.onload = function(){ window.print(); };</script>
       </body>
       </html>
@@ -566,10 +584,6 @@ export default function MaintenanceOtPage() {
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Above 3 Hours</div>
             <div style={{ ...styles.summaryValue, color: '#b91c1c' }}>{overThreeCount}</div>
-          </div>
-          <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Selected Past Date</div>
-            <div style={styles.summaryValueSmall}>{formatDate(pastDate)}</div>
           </div>
         </div>
 
