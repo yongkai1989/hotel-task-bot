@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const CHAT_ID = -1003784764929;
+const CHAT_ID = -1003860980789;
 
 async function telegram(method: string, body: any) {
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
