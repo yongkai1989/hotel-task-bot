@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     }
 
     const text = [
-      '⚠️ MAINTENANCE OT ALERT',
+      'MAINTENANCE OT REVIEW',
       `Staff: ${name}`,
       `Hours: ${hours}`,
       `Reason: ${reason}`,
