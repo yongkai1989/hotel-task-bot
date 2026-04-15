@@ -247,57 +247,6 @@ export default function HkSpecialProjectPage() {
     return;
   }
 
-  async function __unusedTelegramNotifications() {
-    try {
-      const { data: unsentRuns, error } = await supabase
-        .from('hk_special_project_task_runs')
-        .select(`
-          id,
-          run_start_date,
-          due_date,
-          telegram_sent_at,
-          hk_special_project_task_id,
-          hk_special_project_tasks (
-            title,
-            has_room_checklist
-          )
-        `)
-        .is('telegram_sent_at', null)
-        .order('created_at', { ascending: true });
-
-      if (error || !unsentRuns || unsentRuns.length === 0) return;
-
-      for (const run of unsentRuns as any[]) {
-        const taskData = Array.isArray(run.hk_special_project_tasks) ? run.hk_special_project_tasks[0] : run.hk_special_project_tasks;
-        if (!taskData?.title) continue;
-
-        const res = await fetch('/api/pm-telegram', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: taskData.title,
-            startDate: run.run_start_date,
-            dueDate: run.due_date,
-            hasChecklist: !!taskData.has_room_checklist,
-          }),
-        });
-
-        if (res.ok) {
-          await supabase
-            .from('hk_special_project_task_runs')
-            .update({
-              telegram_sent_at: new Date().toISOString(),
-            })
-            .eq('id', run.id);
-        }
-      }
-    } catch (error) {
-      console.error('noopTelegramNotifications error:', error);
-    }
-  }
-
   async function loadAllData() {
     if (!profile || !canAccess) {
       setPageLoading(false);
