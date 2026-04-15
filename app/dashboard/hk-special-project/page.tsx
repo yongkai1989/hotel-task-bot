@@ -23,7 +23,7 @@ type HkTask = {
   id: string;
   title: string;
   description: string | null;
-  repeat_every_days: number;
+  repeat_every_days: number | null;
   due_in_days: number;
   has_room_checklist: boolean;
   is_active: boolean;
@@ -131,6 +131,7 @@ export default function HkSpecialProjectPage() {
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newIsRecurring, setNewIsRecurring] = useState(true);
   const [newRepeatEveryDays, setNewRepeatEveryDays] = useState(30);
   const [newDueInDays, setNewDueInDays] = useState(7);
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
@@ -359,7 +360,7 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
-    if (newRepeatEveryDays <= 0) {
+    if (newIsRecurring && newRepeatEveryDays <= 0) {
       setErrorMsg('Repeat every days must be more than 0.');
       return;
     }
@@ -383,7 +384,7 @@ export default function HkSpecialProjectPage() {
           {
             title,
             description: newDescription.trim() || null,
-            repeat_every_days: newRepeatEveryDays,
+            repeat_every_days: newIsRecurring ? newRepeatEveryDays : null,
             due_in_days: newDueInDays,
             has_room_checklist: newHasRoomChecklist,
             is_active: true,
@@ -429,6 +430,7 @@ export default function HkSpecialProjectPage() {
 
       setNewTitle('');
       setNewDescription('');
+      setNewIsRecurring(true);
       setNewRepeatEveryDays(30);
       setNewDueInDays(7);
       setNewHasRoomChecklist(false);
@@ -679,8 +681,10 @@ export default function HkSpecialProjectPage() {
 
         <div style={styles.metaGrid}>
           <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Repeat</div>
-            <div style={styles.metaValue}>Every {card.task.repeat_every_days} day(s)</div>
+            <div style={styles.metaLabel}>Recurrence</div>
+            <div style={styles.metaValue}>
+              {card.task.repeat_every_days ? `Every ${card.task.repeat_every_days} day(s)` : 'Does not recur'}
+            </div>
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Start</div>
@@ -817,7 +821,7 @@ export default function HkSpecialProjectPage() {
           <div style={styles.topBarActions}>
             {canCreate ? (
               <button type="button" onClick={() => setShowCreateModal(true)} style={styles.primaryHeaderBtn}>
-                Add Routine Task
+                Add Task
               </button>
             ) : null}
 
@@ -856,7 +860,7 @@ export default function HkSpecialProjectPage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Open</div>
               {openCards.length === 0 ? (
-                <div style={styles.emptyState}>No open routine tasks.</div>
+                <div style={styles.emptyState}>No open tasks.</div>
               ) : (
                 <div style={styles.cardsWrap}>
                   {openCards.map((card) => renderTaskCard(card, 'OPEN'))}
@@ -892,7 +896,7 @@ export default function HkSpecialProjectPage() {
       {showCreateModal ? (
         <div style={styles.modalOverlay} onClick={() => !creatingTask && setShowCreateModal(false)}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalTitle}>Create Routine Task</div>
+            <div style={styles.modalTitle}>Create Task</div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Task Title</label>
@@ -914,7 +918,16 @@ export default function HkSpecialProjectPage() {
               />
             </div>
 
-            <div style={styles.formRow}>
+            <label style={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={newIsRecurring}
+                onChange={(e) => setNewIsRecurring(e.target.checked)}
+              />
+              <span>This task recurs</span>
+            </label>
+
+            {newIsRecurring ? (
               <div style={styles.formGroup}>
                 <label style={styles.label}>Repeat Every (Days)</label>
                 <input
@@ -925,17 +938,19 @@ export default function HkSpecialProjectPage() {
                   style={styles.input}
                 />
               </div>
+            ) : (
+              <div style={styles.helperText}>This task will only run once and will not be issued again after completion.</div>
+            )}
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Due In (Days)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={newDueInDays}
-                  onChange={(e) => setNewDueInDays(Math.max(0, Number(e.target.value || 0)))}
-                  style={styles.input}
-                />
-              </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Due In (Days)</label>
+              <input
+                type="number"
+                min={0}
+                value={newDueInDays}
+                onChange={(e) => setNewDueInDays(Math.max(0, Number(e.target.value || 0)))}
+                style={styles.input}
+              />
             </div>
 
             <label style={styles.checkboxLabel}>
