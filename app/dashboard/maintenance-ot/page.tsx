@@ -26,16 +26,9 @@ type MaintenanceOtEntry = {
 };
 
 type ViewMode = 'ENTRY' | 'PAST' | 'REPORT';
+type TimeSlot = { start: string; end: string };
 
-const STAFF_OPTIONS = [
-  'Izzuddin',
-  'Yazid',
-  'Panjang',
-  'Jimmy',
-  'Paiz',
-  'Ezwan',
-  'Harraz',
-] as const;
+const STAFF_OPTIONS = ['Izzuddin', 'Yazid', 'Panjang', 'Jimmy', 'Paiz', 'Ezwan', 'Harraz'] as const;
 
 const TIME_OPTIONS = [
   '00:00', '00:30', '01:00', '01:30', '02:00', '02:30',
@@ -75,9 +68,7 @@ function getYesterdayLocalDateString() {
 
 function getCurrentMonthString() {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function safeNumber(value: unknown) {
@@ -103,21 +94,15 @@ function calculateHours(startTime: string, endTime: string): number {
   if (!startTime || !endTime) return 0;
   const [startHour, startMin] = startTime.split(':').map(Number);
   const [endHour, endMin] = endTime.split(':').map(Number);
-
-  if (
-    Number.isNaN(startHour) ||
-    Number.isNaN(startMin) ||
-    Number.isNaN(endHour) ||
-    Number.isNaN(endMin)
-  ) {
-    return 0;
-  }
-
+  if ([startHour, startMin, endHour, endMin].some(Number.isNaN)) return 0;
   const startTotal = startHour * 60 + startMin;
   const endTotal = endHour * 60 + endMin;
   if (endTotal <= startTotal) return 0;
+  return Math.round((((endTotal - startTotal) / 60) * 100)) / 100;
+}
 
-  return Math.round(((endTotal - startTotal) / 60) * 100) / 100;
+function sumSlotHours(slots: TimeSlot[]) {
+  return Math.round(slots.reduce((sum, slot) => sum + calculateHours(slot.start, slot.end), 0) * 100) / 100;
 }
 
 function formatHours(hours: number) {
@@ -128,13 +113,22 @@ function monthRange(monthStr: string) {
   const [yearStr, monthStrNum] = monthStr.split('-');
   const year = Number(yearStr);
   const month = Number(monthStrNum);
-  if (!year || !month) {
-    return { start: '', end: '' };
-  }
+  if (!year || !month) return { start: '', end: '' };
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDate = new Date(year, month, 0).getDate();
   const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDate).padStart(2, '0')}`;
   return { start, end };
+}
+
+function entryToSlots(entry: MaintenanceOtEntry): TimeSlot[] {
+  const raw = `${entry.start_time || ''}`.split('|').map((s) => s.trim()).filter(Boolean);
+  if (raw.length > 0 && raw.every((part) => part.includes('-'))) {
+    return raw.map((part) => {
+      const [start, end] = part.split('-').map((s) => s.trim());
+      return { start: start || '', end: end || '' };
+    });
+  }
+  return [{ start: entry.start_time || '', end: entry.end_time || '' }];
 }
 
 export default function MaintenanceOtPage() {
@@ -146,49 +140,36 @@ export default function MaintenanceOtPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   const [viewMode, setViewMode] = useState<ViewMode>('ENTRY');
-
   const [entries, setEntries] = useState<MaintenanceOtEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [staffName, setStaffName] = useState<string>('');
-  const [startTime, setStartTime] = useState<string>('');
-  const [endTime, setEndTime] = useState<string>('');
-  const [reason, setReason] = useState<string>('');
+  const [staffName, setStaffName] = useState('');
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([{ start: '', end: '' }]);
+  const [reason, setReason] = useState('');
 
-  const [pastDate, setPastDate] = useState<string>(getYesterdayLocalDateString());
-  const [reportMonth, setReportMonth] = useState<string>(getCurrentMonthString());
+  const [pastDate, setPastDate] = useState(getYesterdayLocalDateString());
+  const [reportMonth, setReportMonth] = useState(getCurrentMonthString());
 
   useEffect(() => {
     let mounted = true;
-
     async function bootstrap() {
       try {
         const supabase = getSupabaseSafe();
         if (!supabase) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
-
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
-
         if (!session?.user) {
-          if (!mounted) return;
-          setProfile(null);
+          if (mounted) setProfile(null);
           return;
         }
-
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
           .select('user_id, email, name, role')
           .eq('user_id', session.user.id)
           .maybeSingle();
-
         if (profileError) throw profileError;
         if (!mounted) return;
-
         setProfile({
           user_id: session.user.id,
           email: profileRow?.email || session.user.email || '',
@@ -196,47 +177,32 @@ export default function MaintenanceOtPage() {
           role: (profileRow?.role || 'MT') as DashboardUser['role'],
         });
       } catch (err: any) {
-        if (!mounted) return;
-        setErrorMsg(err?.message || 'Failed to load session');
+        if (mounted) setErrorMsg(err?.message || 'Failed to load session');
       } finally {
         if (mounted) setAuthLoading(false);
       }
     }
-
     void bootstrap();
-
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
-  const canAccess = useMemo(() => {
-    if (!profile) return false;
-    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'MT';
-  }, [profile]);
-
-  const totalHours = useMemo(() => calculateHours(startTime, endTime), [startTime, endTime]);
-  const needsReason = totalHours > 3;
+  const canAccess = useMemo(() => !!profile && (profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'MT'), [profile]);
   const today = getTodayLocalDateString();
+  const totalHours = useMemo(() => sumSlotHours(timeSlots), [timeSlots]);
+  const needsReason = totalHours > 3;
 
   async function loadEntries() {
     const supabase = getSupabaseSafe();
-    if (!supabase) {
-      setErrorMsg('Supabase is not configured.');
-      return;
-    }
-
+    if (!supabase) return setErrorMsg('Supabase is not configured.');
     try {
       setPageLoading(true);
       setErrorMsg('');
       setSuccessMsg('');
-
       const { data, error } = await supabase
         .from('maintenance_ot_entries')
         .select('*')
         .order('ot_date', { ascending: false })
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       setEntries((data || []) as MaintenanceOtEntry[]);
     } catch (err: any) {
@@ -257,61 +223,48 @@ export default function MaintenanceOtPage() {
   function resetForm() {
     setEditingId(null);
     setStaffName('');
-    setStartTime('');
-    setEndTime('');
+    setTimeSlots([{ start: '', end: '' }]);
     setReason('');
+  }
+
+  function updateSlot(index: number, field: keyof TimeSlot, value: string) {
+    setTimeSlots((prev) => prev.map((slot, i) => i === index ? { ...slot, [field]: value } : slot));
+  }
+
+  function addSlot() {
+    setTimeSlots((prev) => [...prev, { start: '', end: '' }]);
+  }
+
+  function removeSlot(index: number) {
+    setTimeSlots((prev) => prev.length === 1 ? prev : prev.filter((_, i) => i !== index));
   }
 
   async function sendTelegramIfNeeded(name: string, hours: number, submitReason: string) {
     if (hours <= 3) return;
-
     const res = await fetch('/api/maintenance-ot-telegram', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, hours, reason: submitReason }),
     });
-
     const data = await res.json().catch(() => null);
-    if (!res.ok || data?.ok === false) {
-      throw new Error(data?.error || 'Failed to send Telegram alert');
-    }
+    if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Failed to send Telegram alert');
   }
 
   async function handleSubmit() {
     const supabase = getSupabaseSafe();
-    if (!supabase) {
-      setErrorMsg('Supabase is not configured.');
-      return;
-    }
-
-    if (!profile?.user_id) {
-      setErrorMsg('User not found.');
-      return;
-    }
+    if (!supabase) return setErrorMsg('Supabase is not configured.');
+    if (!profile?.user_id) return setErrorMsg('User not found.');
 
     const trimmedStaff = staffName.trim();
     const trimmedReason = reason.trim();
 
-    if (!trimmedStaff) {
-      setErrorMsg('Please select a staff name.');
-      return;
-    }
-    if (!startTime) {
-      setErrorMsg('Please select start time.');
-      return;
-    }
-    if (!endTime) {
-      setErrorMsg('Please select end time.');
-      return;
-    }
-    if (totalHours <= 0) {
-      setErrorMsg('End time must be later than start time.');
-      return;
-    }
-    if (needsReason && !trimmedReason) {
-      setErrorMsg('Reason is required for OT exceeding 3 hours.');
-      return;
-    }
+    if (!trimmedStaff) return setErrorMsg('Please select a staff name.');
+    if (timeSlots.some((slot) => !slot.start || !slot.end)) return setErrorMsg('Please complete all OT time rows.');
+    if (timeSlots.some((slot) => calculateHours(slot.start, slot.end) <= 0)) return setErrorMsg('Each OT time row must have an end time later than start time.');
+    if (needsReason && !trimmedReason) return setErrorMsg('Reason is required for OT exceeding 3 hours.');
+
+    const startTimeStore = timeSlots.map((slot) => `${slot.start}-${slot.end}`).join(' | ');
+    const endTimeStore = timeSlots[timeSlots.length - 1]?.end || '';
 
     try {
       setSaving(true);
@@ -324,35 +277,29 @@ export default function MaintenanceOtPage() {
           .update({
             staff_name: trimmedStaff,
             ot_date: today,
-            start_time: startTime,
-            end_time: endTime,
+            start_time: startTimeStore,
+            end_time: endTimeStore,
             total_hours: totalHours,
             reason: trimmedReason || null,
           })
           .eq('id', editingId);
-
         if (error) throw error;
-
         await sendTelegramIfNeeded(trimmedStaff, totalHours, trimmedReason);
         setSuccessMsg('OT entry updated successfully.');
       } else {
         const { error } = await supabase
           .from('maintenance_ot_entries')
-          .insert([
-            {
-              staff_name: trimmedStaff,
-              ot_date: today,
-              start_time: startTime,
-              end_time: endTime,
-              total_hours: totalHours,
-              reason: trimmedReason || null,
-              created_by_user_id: profile.user_id,
-              created_by_name: profile.name || profile.email,
-            },
-          ]);
-
+          .insert([{
+            staff_name: trimmedStaff,
+            ot_date: today,
+            start_time: startTimeStore,
+            end_time: endTimeStore,
+            total_hours: totalHours,
+            reason: trimmedReason || null,
+            created_by_user_id: profile.user_id,
+            created_by_name: profile.name || profile.email,
+          }]);
         if (error) throw error;
-
         await sendTelegramIfNeeded(trimmedStaff, totalHours, trimmedReason);
         setSuccessMsg('OT entry submitted successfully.');
       }
@@ -369,8 +316,7 @@ export default function MaintenanceOtPage() {
   function handleEdit(entry: MaintenanceOtEntry) {
     setEditingId(entry.id);
     setStaffName(entry.staff_name);
-    setStartTime(entry.start_time);
-    setEndTime(entry.end_time);
+    setTimeSlots(entryToSlots(entry));
     setReason(entry.reason || '');
     setViewMode('ENTRY');
     setErrorMsg('');
@@ -380,30 +326,16 @@ export default function MaintenanceOtPage() {
 
   async function handleDelete(entry: MaintenanceOtEntry) {
     const supabase = getSupabaseSafe();
-    if (!supabase) {
-      setErrorMsg('Supabase is not configured.');
-      return;
-    }
-
+    if (!supabase) return setErrorMsg('Supabase is not configured.');
     const confirmed = window.confirm(`Delete OT entry for ${entry.staff_name} on ${formatDate(entry.ot_date)}?`);
     if (!confirmed) return;
-
     try {
       setDeletingId(entry.id);
       setErrorMsg('');
       setSuccessMsg('');
-
-      const { error } = await supabase
-        .from('maintenance_ot_entries')
-        .delete()
-        .eq('id', entry.id);
-
+      const { error } = await supabase.from('maintenance_ot_entries').delete().eq('id', entry.id);
       if (error) throw error;
-
-      if (editingId === entry.id) {
-        resetForm();
-      }
-
+      if (editingId === entry.id) resetForm();
       setSuccessMsg('OT entry deleted.');
       await loadEntries();
     } catch (err: any) {
@@ -413,10 +345,7 @@ export default function MaintenanceOtPage() {
     }
   }
 
-  const overThreeCount = useMemo(() => {
-    return entries.filter((entry) => safeNumber(entry.total_hours) > 3).length;
-  }, [entries]);
-
+  const overThreeCount = useMemo(() => entries.filter((entry) => safeNumber(entry.total_hours) > 3).length, [entries]);
   const todayEntries = useMemo(() => entries.filter((entry) => entry.ot_date === today), [entries, today]);
   const pastEntries = useMemo(() => entries.filter((entry) => entry.ot_date === pastDate), [entries, pastDate]);
 
@@ -427,68 +356,55 @@ export default function MaintenanceOtPage() {
   }, [entries, reportMonth]);
 
   const reportSummary = useMemo(() => {
-    const grouped = new Map();
-
+    const grouped = new Map<string, { totalHours: number; entries: MaintenanceOtEntry[] }>();
     for (const entry of reportEntries) {
       const existing = grouped.get(entry.staff_name) || { totalHours: 0, entries: [] };
       existing.totalHours += safeNumber(entry.total_hours);
       existing.entries.push(entry);
       grouped.set(entry.staff_name, existing);
     }
-
     return Array.from(grouped.entries())
-      .map(([staffName, data]: any) => ({
+      .map(([staffName, data]) => ({
         staffName,
         totalHours: Math.round(data.totalHours * 100) / 100,
-        entries: data.entries.sort((a: MaintenanceOtEntry, b: MaintenanceOtEntry) => {
-          const aKey = `${a.ot_date} ${a.start_time}`;
-          const bKey = `${b.ot_date} ${b.start_time}`;
-          return aKey.localeCompare(bKey);
-        }),
+        entries: data.entries.sort((a, b) => `${a.ot_date} ${a.start_time}`.localeCompare(`${b.ot_date} ${b.start_time}`)),
       }))
       .sort((a, b) => a.staffName.localeCompare(b.staffName));
   }, [reportEntries]);
 
   function handleDownloadReport() {
     const reportWindow = window.open('', '_blank', 'width=1000,height=800');
-    if (!reportWindow) {
-      setErrorMsg('Popup blocked. Please allow popups to download report.');
-      return;
-    }
-
+    if (!reportWindow) return setErrorMsg('Popup blocked. Please allow popups to download report.');
     const totalMonthHours = reportSummary.reduce((sum, staff) => sum + safeNumber(staff.totalHours), 0);
 
     const body = reportSummary.length
       ? reportSummary.map((staff, index) => {
-          const rows = staff.entries.map((entry) => `
-            <tr>
-              <td>${formatDate(entry.ot_date)}</td>
-              <td>${entry.start_time}</td>
-              <td>${entry.end_time}</td>
-              <td>${formatHours(entry.total_hours)}</td>
-              <td>${entry.reason || '-'}</td>
-            </tr>
-          `).join('');
-
+          const rows = staff.entries.map((entry) => {
+            const slotText = entryToSlots(entry).map((slot) => `${slot.start} - ${slot.end}`).join(', ');
+            return `
+              <tr>
+                <td>${formatDate(entry.ot_date)}</td>
+                <td>${slotText}</td>
+                <td>${formatHours(entry.total_hours)}</td>
+                <td>${entry.reason || '-'}</td>
+              </tr>
+            `;
+          }).join('');
           return `
             <section class="staff-page ${index > 0 ? 'page-break' : ''}">
               <h2>${staff.staffName}</h2>
               <div class="meta">Month: ${reportMonth}</div>
               <div class="meta strong">Total OT for ${staff.staffName}: ${formatHours(staff.totalHours)} hours</div>
-
               <table>
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>From</th>
-                    <th>To</th>
+                    <th>OT Time</th>
                     <th>OT Hours</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
-                <tbody>
-                  ${rows}
-                </tbody>
+                <tbody>${rows}</tbody>
               </table>
             </section>
           `;
@@ -515,9 +431,7 @@ export default function MaintenanceOtPage() {
           table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
           th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; }
           th { background: #f8fafc; font-weight: 700; }
-          @media print {
-            body { padding: 0; }
-          }
+          @media print { body { padding: 0; } }
         </style>
       </head>
       <body>
@@ -529,15 +443,12 @@ export default function MaintenanceOtPage() {
       </body>
       </html>
     `;
-
     reportWindow.document.open();
     reportWindow.document.write(html);
     reportWindow.document.close();
   }
 
-  if (authLoading) {
-    return <main style={styles.page}><div style={styles.centerCard}>Loading...</div></main>;
-  }
+  if (authLoading) return <main style={styles.page}><div style={styles.centerCard}>Loading...</div></main>;
 
   if (!profile) {
     return (
@@ -608,30 +519,50 @@ export default function MaintenanceOtPage() {
                 <span style={styles.todayValue}>{formatDate(today)}</span>
               </div>
 
-              <div style={styles.formGrid}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Staff Name</label>
-                  <select value={staffName} onChange={(e) => setStaffName(e.target.value)} style={styles.select} disabled={saving}>
-                    <option value="">Select staff</option>
-                    {STAFF_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
-                  </select>
-                </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Staff Name</label>
+                <select value={staffName} onChange={(e) => setStaffName(e.target.value)} style={styles.select} disabled={saving}>
+                  <option value="">Select staff</option>
+                  {STAFF_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>From</label>
-                  <select value={startTime} onChange={(e) => setStartTime(e.target.value)} style={styles.select} disabled={saving}>
-                    <option value="">Select time</option>
-                    {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
-                  </select>
-                </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>OT Time</label>
+                <div style={styles.slotList}>
+                  {timeSlots.map((slot, index) => (
+                    <div key={index} style={styles.slotRow}>
+                      <select value={slot.start} onChange={(e) => updateSlot(index, 'start', e.target.value)} style={styles.slotSelect} disabled={saving}>
+                        <option value="">From</option>
+                        {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
+                      </select>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>To</label>
-                  <select value={endTime} onChange={(e) => setEndTime(e.target.value)} style={styles.select} disabled={saving}>
-                    <option value="">Select time</option>
-                    {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
-                  </select>
+                      <span style={styles.toLabel}>to</span>
+
+                      <select value={slot.end} onChange={(e) => updateSlot(index, 'end', e.target.value)} style={styles.slotSelect} disabled={saving}>
+                        <option value="">To</option>
+                        {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
+                      </select>
+
+                      <button type="button" onClick={addSlot} style={styles.iconBtn} disabled={saving} title="Add another OT row">+</button>
+
+                      <button
+                        type="button"
+                        onClick={() => removeSlot(index)}
+                        style={{ ...styles.iconBtn, opacity: timeSlots.length === 1 ? 0.45 : 1 }}
+                        disabled={saving || timeSlots.length === 1}
+                        title="Remove this OT row"
+                      >
+                        −
+                      </button>
+                    </div>
+                  ))}
                 </div>
+              </div>
+
+              <div style={styles.totalRow}>
+                <span style={styles.totalLabel}>Total OT Hours</span>
+                <span style={styles.totalValue}>{formatHours(totalHours)}</span>
               </div>
 
               <div style={styles.formGroup}>
@@ -655,32 +586,78 @@ export default function MaintenanceOtPage() {
 
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Today Entries</div>
-              {pageLoading ? (
-                <div style={styles.emptyState}>Loading OT entries...</div>
-              ) : todayEntries.length === 0 ? (
-                <div style={styles.emptyState}>No OT entries for today.</div>
-              ) : (
+              {pageLoading ? <div style={styles.emptyState}>Loading OT entries...</div> : todayEntries.length === 0 ? <div style={styles.emptyState}>No OT entries for today.</div> : (
                 <div style={styles.cardsWrap}>
-                  {todayEntries.map((entry) => (
+                  {todayEntries.map((entry) => {
+                    const slots = entryToSlots(entry);
+                    return (
+                      <article key={entry.id} style={styles.entryCard}>
+                        <div style={styles.entryTopRow}>
+                          <div>
+                            <div style={styles.entryTitle}>{entry.staff_name}</div>
+                            <div style={styles.entrySubTitle}>{slots.map((slot) => `${slot.start} - ${slot.end}`).join(', ')}</div>
+                          </div>
+                          <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
+                            {formatHours(entry.total_hours)} hrs
+                          </div>
+                        </div>
+
+                        <div style={styles.metaGrid}>
+                          <div style={styles.metaItem}>
+                            <div style={styles.metaLabel}>Created By</div>
+                            <div style={styles.metaValue}>{entry.created_by_name || '-'}</div>
+                          </div>
+                          <div style={styles.metaItem}>
+                            <div style={styles.metaLabel}>Created At</div>
+                            <div style={styles.metaValue}>{formatDateTime(entry.created_at)}</div>
+                          </div>
+                        </div>
+
+                        {entry.reason ? (
+                          <div style={styles.reasonBox}>
+                            <div style={styles.reasonLabel}>Reason</div>
+                            <div style={styles.reasonText}>{entry.reason}</div>
+                          </div>
+                        ) : null}
+
+                        <div style={styles.cardActions}>
+                          <button type="button" onClick={() => handleEdit(entry)} style={styles.secondaryActionBtn} disabled={saving}>Edit</button>
+                          <button type="button" onClick={() => void handleDelete(entry)} style={styles.deleteBtn} disabled={deletingId === entry.id}>
+                            {deletingId === entry.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </>
+        ) : null}
+
+        {viewMode === 'PAST' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Past Entries</div>
+            <div style={styles.filterRow}>
+              <div style={styles.formGroupCompact}>
+                <label style={styles.label}>Select Date</label>
+                <input type="date" value={pastDate} onChange={(e) => setPastDate(e.target.value)} style={styles.input} />
+              </div>
+            </div>
+
+            {pageLoading ? <div style={styles.emptyState}>Loading past entries...</div> : pastEntries.length === 0 ? <div style={styles.emptyState}>No OT entries for {formatDate(pastDate)}.</div> : (
+              <div style={styles.cardsWrap}>
+                {pastEntries.map((entry) => {
+                  const slots = entryToSlots(entry);
+                  return (
                     <article key={entry.id} style={styles.entryCard}>
                       <div style={styles.entryTopRow}>
                         <div>
                           <div style={styles.entryTitle}>{entry.staff_name}</div>
-                          <div style={styles.entrySubTitle}>{entry.start_time} - {entry.end_time}</div>
+                          <div style={styles.entrySubTitle}>{formatDate(entry.ot_date)} · {slots.map((slot) => `${slot.start} - ${slot.end}`).join(', ')}</div>
                         </div>
                         <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
                           {formatHours(entry.total_hours)} hrs
-                        </div>
-                      </div>
-
-                      <div style={styles.metaGrid}>
-                        <div style={styles.metaItem}>
-                          <div style={styles.metaLabel}>Created By</div>
-                          <div style={styles.metaValue}>{entry.created_by_name || '-'}</div>
-                        </div>
-                        <div style={styles.metaItem}>
-                          <div style={styles.metaLabel}>Created At</div>
-                          <div style={styles.metaValue}>{formatDateTime(entry.created_at)}</div>
                         </div>
                       </div>
 
@@ -698,57 +675,8 @@ export default function MaintenanceOtPage() {
                         </button>
                       </div>
                     </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
-        ) : null}
-
-        {viewMode === 'PAST' ? (
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Past Entries</div>
-
-            <div style={styles.filterRow}>
-              <div style={styles.formGroupCompact}>
-                <label style={styles.label}>Select Date</label>
-                <input type="date" value={pastDate} onChange={(e) => setPastDate(e.target.value)} style={styles.input} />
-              </div>
-            </div>
-
-            {pageLoading ? (
-              <div style={styles.emptyState}>Loading past entries...</div>
-            ) : pastEntries.length === 0 ? (
-              <div style={styles.emptyState}>No OT entries for {formatDate(pastDate)}.</div>
-            ) : (
-              <div style={styles.cardsWrap}>
-                {pastEntries.map((entry) => (
-                  <article key={entry.id} style={styles.entryCard}>
-                    <div style={styles.entryTopRow}>
-                      <div>
-                        <div style={styles.entryTitle}>{entry.staff_name}</div>
-                        <div style={styles.entrySubTitle}>{formatDate(entry.ot_date)} · {entry.start_time} - {entry.end_time}</div>
-                      </div>
-                      <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
-                        {formatHours(entry.total_hours)} hrs
-                      </div>
-                    </div>
-
-                    {entry.reason ? (
-                      <div style={styles.reasonBox}>
-                        <div style={styles.reasonLabel}>Reason</div>
-                        <div style={styles.reasonText}>{entry.reason}</div>
-                      </div>
-                    ) : null}
-
-                    <div style={styles.cardActions}>
-                      <button type="button" onClick={() => handleEdit(entry)} style={styles.secondaryActionBtn} disabled={saving}>Edit</button>
-                      <button type="button" onClick={() => void handleDelete(entry)} style={styles.deleteBtn} disabled={deletingId === entry.id}>
-                        {deletingId === entry.id ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -757,7 +685,6 @@ export default function MaintenanceOtPage() {
         {viewMode === 'REPORT' ? (
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>Monthly Report</div>
-
             <div style={styles.filterRow}>
               <div style={styles.formGroupCompact}>
                 <label style={styles.label}>Month</label>
@@ -776,25 +703,21 @@ export default function MaintenanceOtPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reportSummary.length === 0 ? (
-                    <tr><td colSpan={3} style={styles.emptyTableCell}>No entries for this month.</td></tr>
-                  ) : (
-                    reportSummary.map((staff) => (
-                      <tr key={staff.staffName}>
-                        <td style={styles.td}>{staff.staffName}</td>
-                        <td style={styles.tdStrong}>{formatHours(staff.totalHours)} hrs</td>
-                        <td style={styles.td}>
-                          <div style={styles.reportEntryList}>
-                            {staff.entries.map((entry) => (
-                              <div key={entry.id} style={styles.reportEntryRow}>
-                                {formatDate(entry.ot_date)} · {entry.start_time} - {entry.end_time} · {formatHours(entry.total_hours)} hrs{entry.reason ? ` · ${entry.reason}` : ''}
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  {reportSummary.length === 0 ? <tr><td colSpan={3} style={styles.emptyTableCell}>No entries for this month.</td></tr> : reportSummary.map((staff) => (
+                    <tr key={staff.staffName}>
+                      <td style={styles.td}>{staff.staffName}</td>
+                      <td style={styles.tdStrong}>{formatHours(staff.totalHours)} hrs</td>
+                      <td style={styles.td}>
+                        <div style={styles.reportEntryList}>
+                          {staff.entries.map((entry) => (
+                            <div key={entry.id} style={styles.reportEntryRow}>
+                              {formatDate(entry.ot_date)} · {entryToSlots(entry).map((slot) => `${slot.start} - ${slot.end}`).join(', ')} · {formatHours(entry.total_hours)} hrs{entry.reason ? ` · ${entry.reason}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -806,433 +729,73 @@ export default function MaintenanceOtPage() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#f8fafc',
-    padding: '20px 16px 40px',
-  },
-  shell: {
-    width: '100%',
-    maxWidth: '1200px',
-    margin: '0 auto',
-  },
-  topBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '16px',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: '18px',
-  },
-  topBarActions: {
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  pageTitle: {
-    fontSize: '28px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.1,
-  },
-  pageSubTitle: {
-    fontSize: '14px',
-    color: '#64748b',
-    marginTop: '6px',
-  },
-  summaryGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: '12px',
-    marginBottom: '16px',
-  },
-  summaryCard: {
-    background: '#fff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '16px',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-  },
-  summaryLabel: {
-    fontSize: '13px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '8px',
-  },
-  summaryValue: {
-    fontSize: '28px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  summaryValueSmall: {
-    fontSize: '18px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  panel: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '22px',
-    padding: '16px',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-    marginBottom: '16px',
-  },
-  sectionTitle: {
-    fontSize: '22px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '14px',
-  },
-  modeRow: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  modeBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#334155',
-    borderRadius: '999px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  modeBtnActive: {
-    background: '#0f172a',
-    color: '#ffffff',
-    borderColor: '#0f172a',
-  },
-  todayBar: {
-    display: 'inline-flex',
-    gap: '10px',
-    alignItems: 'center',
-    border: '1px solid #e2e8f0',
-    background: '#f8fafc',
-    borderRadius: '14px',
-    padding: '10px 14px',
-    marginBottom: '14px',
-  },
-  todayLabel: {
-    fontSize: '14px',
-    fontWeight: 700,
-    color: '#475569',
-  },
-  todayValue: {
-    fontSize: '16px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  formGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '12px',
-    alignItems: 'end',
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    marginBottom: '14px',
-  },
-  formGroupCompact: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    minWidth: '220px',
-  },
-  label: {
-    fontSize: '14px',
-    color: '#334155',
-    fontWeight: 700,
-  },
-  input: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-  },
-  select: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-    cursor: 'pointer',
-  },
-  textarea: {
-    width: '100%',
-    boxSizing: 'border-box',
-    minHeight: '110px',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-    resize: 'vertical',
-  },
-  filterRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'end',
-    gap: '12px',
-    flexWrap: 'wrap',
-    marginBottom: '14px',
-  },
-  actionRow: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
-    flexWrap: 'wrap',
-    marginTop: '6px',
-  },
-  primaryBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  secondaryBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-  },
-  secondaryActionBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  deleteBtn: {
-    border: '1px solid #ef4444',
-    background: '#fff',
-    color: '#ef4444',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  errorBox: {
-    marginBottom: '14px',
-    background: '#fef2f2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 600,
-  },
-  successBox: {
-    marginBottom: '14px',
-    background: '#ecfdf5',
-    color: '#166534',
-    border: '1px solid #bbf7d0',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 600,
-  },
-  emptyState: {
-    border: '1px dashed #cbd5e1',
-    background: '#f8fafc',
-    borderRadius: '14px',
-    padding: '24px',
-    textAlign: 'center',
-    color: '#64748b',
-    fontWeight: 600,
-  },
-  cardsWrap: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: '12px',
-  },
-  entryCard: {
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    background: '#ffffff',
-    padding: '14px',
-  },
-  entryTopRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'flex-start',
-  },
-  entryTitle: {
-    fontSize: '20px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.2,
-  },
-  entrySubTitle: {
-    fontSize: '14px',
-    color: '#475569',
-    marginTop: '6px',
-  },
-  hourBadge: {
-    borderRadius: '999px',
-    padding: '8px 12px',
-    fontWeight: 800,
-    fontSize: '12px',
-    whiteSpace: 'nowrap',
-  },
-  hourBadgeNormal: {
-    background: '#ecfdf5',
-    color: '#166534',
-  },
-  hourBadgeAlert: {
-    background: '#fef2f2',
-    color: '#b91c1c',
-  },
-  metaGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '10px',
-    marginTop: '14px',
-  },
-  metaItem: {
-    border: '1px solid #e2e8f0',
-    borderRadius: '12px',
-    padding: '10px',
-    background: '#f8fafc',
-  },
-  metaLabel: {
-    fontSize: '12px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '4px',
-  },
-  metaValue: {
-    fontSize: '14px',
-    color: '#0f172a',
-    fontWeight: 800,
-    wordBreak: 'break-word',
-  },
-  reasonBox: {
-    marginTop: '12px',
-    border: '1px solid #fde68a',
-    background: '#fffbeb',
-    borderRadius: '12px',
-    padding: '12px 14px',
-  },
-  reasonLabel: {
-    fontSize: '12px',
-    color: '#92400e',
-    fontWeight: 800,
-    marginBottom: '4px',
-  },
-  reasonText: {
-    fontSize: '14px',
-    color: '#78350f',
-    lineHeight: 1.5,
-    whiteSpace: 'pre-wrap',
-  },
-  cardActions: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-    marginTop: '14px',
-  },
-  reportTableWrap: {
-    overflowX: 'auto',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  th: {
-    textAlign: 'left',
-    borderBottom: '1px solid #cbd5e1',
-    padding: '12px 10px',
-    fontSize: '13px',
-    color: '#334155',
-    background: '#f8fafc',
-  },
-  td: {
-    borderBottom: '1px solid #e2e8f0',
-    padding: '12px 10px',
-    fontSize: '14px',
-    color: '#0f172a',
-    verticalAlign: 'top',
-  },
-  tdStrong: {
-    borderBottom: '1px solid #e2e8f0',
-    padding: '12px 10px',
-    fontSize: '14px',
-    color: '#0f172a',
-    verticalAlign: 'top',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-  emptyTableCell: {
-    borderBottom: '1px solid #e2e8f0',
-    padding: '18px 10px',
-    fontSize: '14px',
-    color: '#64748b',
-    textAlign: 'center',
-  },
-  reportEntryList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  reportEntryRow: {
-    lineHeight: 1.5,
-  },
-  centerCard: {
-    maxWidth: '460px',
-    margin: '80px auto',
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '24px',
-    textAlign: 'center',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-  },
-  centerTitle: {
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '10px',
-  },
-  centerText: {
-    fontSize: '15px',
-    color: '#64748b',
-    lineHeight: 1.5,
-    marginBottom: '16px',
-  },
-  linkBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: '1px solid #0f172a',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-  },
+  page: { minHeight: '100vh', background: '#f8fafc', padding: '20px 16px 40px' },
+  shell: { width: '100%', maxWidth: '1200px', margin: '0 auto' },
+  topBar: { display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '18px' },
+  topBarActions: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
+  pageTitle: { fontSize: '28px', fontWeight: 800, color: '#0f172a', lineHeight: 1.1 },
+  pageSubTitle: { fontSize: '14px', color: '#64748b', marginTop: '6px' },
+  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '16px' },
+  summaryCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 10px 24px rgba(15,23,42,0.05)' },
+  summaryLabel: { fontSize: '13px', color: '#64748b', fontWeight: 700, marginBottom: '8px' },
+  summaryValue: { fontSize: '28px', fontWeight: 800, color: '#0f172a' },
+  panel: { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '22px', padding: '16px', boxShadow: '0 10px 24px rgba(15,23,42,0.05)', marginBottom: '16px' },
+  sectionTitle: { fontSize: '22px', fontWeight: 800, color: '#0f172a', marginBottom: '14px' },
+  modeRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
+  modeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '999px', padding: '12px 16px', fontWeight: 800, cursor: 'pointer' },
+  modeBtnActive: { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' },
+  todayBar: { display: 'inline-flex', gap: '10px', alignItems: 'center', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '10px 14px', marginBottom: '14px' },
+  todayLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
+  todayValue: { fontSize: '16px', fontWeight: 800, color: '#0f172a' },
+  formGroup: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' },
+  formGroupCompact: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' },
+  label: { fontSize: '14px', color: '#334155', fontWeight: 700 },
+  input: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none' },
+  select: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', cursor: 'pointer' },
+  textarea: { width: '100%', boxSizing: 'border-box', minHeight: '110px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },
+  slotList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  slotRow: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr) auto auto', gap: '8px', alignItems: 'center' },
+  slotSelect: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', cursor: 'pointer' },
+  toLabel: { fontWeight: 700, color: '#475569' },
+  iconBtn: { width: '40px', height: '40px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '22px', lineHeight: 1, cursor: 'pointer' },
+  totalRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '12px 14px', marginBottom: '14px' },
+  totalLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
+  totalValue: { fontSize: '22px', fontWeight: 800, color: '#0f172a' },
+  filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' },
+  actionRow: { display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', marginTop: '6px' },
+  primaryBtn: { border: 'none', background: '#0f172a', color: '#ffffff', borderRadius: '12px', padding: '12px 16px', fontWeight: 700, cursor: 'pointer' },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 16px', fontWeight: 700 },
+  secondaryActionBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px 14px', fontWeight: 700, cursor: 'pointer' },
+  deleteBtn: { border: '1px solid #ef4444', background: '#fff', color: '#ef4444', borderRadius: '12px', padding: '10px 14px', fontWeight: 700, cursor: 'pointer' },
+  errorBox: { marginBottom: '14px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px 14px', fontWeight: 600 },
+  successBox: { marginBottom: '14px', background: '#ecfdf5', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '12px 14px', fontWeight: 600 },
+  emptyState: { border: '1px dashed #cbd5e1', background: '#f8fafc', borderRadius: '14px', padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: 600 },
+  cardsWrap: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' },
+  entryCard: { border: '1px solid #e2e8f0', borderRadius: '18px', background: '#ffffff', padding: '14px' },
+  entryTopRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' },
+  entryTitle: { fontSize: '20px', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 },
+  entrySubTitle: { fontSize: '14px', color: '#475569', marginTop: '6px' },
+  hourBadge: { borderRadius: '999px', padding: '8px 12px', fontWeight: 800, fontSize: '12px', whiteSpace: 'nowrap' },
+  hourBadgeNormal: { background: '#ecfdf5', color: '#166534' },
+  hourBadgeAlert: { background: '#fef2f2', color: '#b91c1c' },
+  metaGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', marginTop: '14px' },
+  metaItem: { border: '1px solid #e2e8f0', borderRadius: '12px', padding: '10px', background: '#f8fafc' },
+  metaLabel: { fontSize: '12px', color: '#64748b', fontWeight: 700, marginBottom: '4px' },
+  metaValue: { fontSize: '14px', color: '#0f172a', fontWeight: 800, wordBreak: 'break-word' },
+  reasonBox: { marginTop: '12px', border: '1px solid #fde68a', background: '#fffbeb', borderRadius: '12px', padding: '12px 14px' },
+  reasonLabel: { fontSize: '12px', color: '#92400e', fontWeight: 800, marginBottom: '4px' },
+  reasonText: { fontSize: '14px', color: '#78350f', lineHeight: 1.5, whiteSpace: 'pre-wrap' },
+  cardActions: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '14px' },
+  reportTableWrap: { overflowX: 'auto' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: { textAlign: 'left', borderBottom: '1px solid #cbd5e1', padding: '12px 10px', fontSize: '13px', color: '#334155', background: '#f8fafc' },
+  td: { borderBottom: '1px solid #e2e8f0', padding: '12px 10px', fontSize: '14px', color: '#0f172a', verticalAlign: 'top' },
+  tdStrong: { borderBottom: '1px solid #e2e8f0', padding: '12px 10px', fontSize: '14px', color: '#0f172a', verticalAlign: 'top', fontWeight: 800, whiteSpace: 'nowrap' },
+  emptyTableCell: { borderBottom: '1px solid #e2e8f0', padding: '18px 10px', fontSize: '14px', color: '#64748b', textAlign: 'center' },
+  reportEntryList: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  reportEntryRow: { lineHeight: 1.5 },
+  centerCard: { maxWidth: '460px', margin: '80px auto', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '18px', padding: '24px', textAlign: 'center', boxShadow: '0 10px 24px rgba(15,23,42,0.05)' },
+  centerTitle: { fontSize: '24px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' },
+  centerText: { fontSize: '15px', color: '#64748b', lineHeight: 1.5, marginBottom: '16px' },
+  linkBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #0f172a', background: '#0f172a', color: '#ffffff', borderRadius: '12px', padding: '12px 16px', fontWeight: 700 },
 };
