@@ -81,6 +81,14 @@ export default function DashboardSidebar({
         MT_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
     );
 
+  const canSeeMaintenanceOT =
+    !!profile &&
+    (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'MT'
+    );
+
   const canSeeHkSpecialProject =
     !!profile &&
     (
@@ -328,6 +336,16 @@ export default function DashboardSidebar({
               style={styles.navBtn}
             >
               Preventive Maintenance
+            </Link>
+          ) : null}
+
+          {canSeeMaintenanceOT ? (
+            <Link
+              href="/dashboard/maintenance-ot"
+              onClick={closeSidebar}
+              style={styles.navBtn}
+            >
+              Maintenance OT
             </Link>
           ) : null}
 
