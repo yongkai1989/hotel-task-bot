@@ -23,7 +23,7 @@ type HkTask = {
   id: string;
   title: string;
   description: string | null;
-  repeat_every_days: number | null;
+  repeat_every_days: number;
   due_in_days: number;
   has_room_checklist: boolean;
   is_active: boolean;
@@ -45,6 +45,7 @@ type HkTaskRun = {
   reopened_at: string | null;
   reopened_by_user_id: string | null;
   reopened_by_name: string | null;
+  telegram_sent_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -114,6 +115,26 @@ function addDaysToDate(dateStr: string, days: number) {
   return `${year}-${month}-${day}`;
 }
 
+function parseWholeNumber(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+function dayInputOnChange(
+  next: string,
+  setter: React.Dispatch<React.SetStateAction<string>>
+) {
+  if (next === '') {
+    setter('');
+    return;
+  }
+  if (/^\d+$/.test(next)) {
+    setter(next);
+  }
+}
+
 export default function HkSpecialProjectPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -131,9 +152,8 @@ export default function HkSpecialProjectPage() {
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [newIsRecurring, setNewIsRecurring] = useState(true);
-  const [newRepeatEveryDays, setNewRepeatEveryDays] = useState(30);
-  const [newDueInDays, setNewDueInDays] = useState(7);
+  const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
+  const [newDueInDaysInput, setNewDueInDaysInput] = useState('7');
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -148,12 +168,18 @@ export default function HkSpecialProjectPage() {
     async function bootstrap() {
       try {
         const supabase = getSupabaseSafe();
-        if (!supabase) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+        if (!supabase) {
+          throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+        }
 
         setAuthLoading(true);
         setErrorMsg('');
 
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
         if (sessionError) throw sessionError;
 
         if (!session?.user) {
@@ -172,13 +198,13 @@ export default function HkSpecialProjectPage() {
           .maybeSingle();
 
         if (profileError) throw profileError;
-        if (!mounted) return;
 
+        if (!mounted) return;
         setProfile({
           user_id: userId,
           email: profileRow?.email || email,
           name: profileRow?.name || email || 'User',
-          role: (profileRow?.role || 'HK') as DashboardUser['role'],
+          role: (profileRow?.role || 'MT') as DashboardUser['role'],
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -189,6 +215,7 @@ export default function HkSpecialProjectPage() {
     }
 
     void bootstrap();
+
     return () => {
       mounted = false;
     };
@@ -216,6 +243,61 @@ export default function HkSpecialProjectPage() {
     return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
   }, [profile]);
 
+  async function noopTelegramNotifications(_supabase: any) {
+    return;
+  }
+
+  async function __unusedTelegramNotifications() {
+    try {
+      const { data: unsentRuns, error } = await supabase
+        .from('hk_special_project_task_runs')
+        .select(`
+          id,
+          run_start_date,
+          due_date,
+          telegram_sent_at,
+          hk_special_project_task_id,
+          hk_special_project_tasks (
+            title,
+            has_room_checklist
+          )
+        `)
+        .is('telegram_sent_at', null)
+        .order('created_at', { ascending: true });
+
+      if (error || !unsentRuns || unsentRuns.length === 0) return;
+
+      for (const run of unsentRuns as any[]) {
+        const taskData = Array.isArray(run.hk_special_project_tasks) ? run.hk_special_project_tasks[0] : run.hk_special_project_tasks;
+        if (!taskData?.title) continue;
+
+        const res = await fetch('/api/pm-telegram', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: taskData.title,
+            startDate: run.run_start_date,
+            dueDate: run.due_date,
+            hasChecklist: !!taskData.has_room_checklist,
+          }),
+        });
+
+        if (res.ok) {
+          await supabase
+            .from('hk_special_project_task_runs')
+            .update({
+              telegram_sent_at: new Date().toISOString(),
+            })
+            .eq('id', run.id);
+        }
+      }
+    } catch (error) {
+      console.error('noopTelegramNotifications error:', error);
+    }
+  }
+
   async function loadAllData() {
     if (!profile || !canAccess) {
       setPageLoading(false);
@@ -234,6 +316,8 @@ export default function HkSpecialProjectPage() {
       if (recurrenceError) {
         console.error('run_hk_special_project_recurrence error:', recurrenceError);
       }
+
+      
 
       const [roomRes, taskRes, runRes, roomChecklistRes] = await Promise.all([
         supabase
@@ -326,9 +410,9 @@ export default function HkSpecialProjectPage() {
 
       const now = new Date();
       const diffMs = now.getTime() - completedAt.getTime();
-      const retentionMs = 30 * 24 * 60 * 60 * 1000;
+      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
-      return diffMs <= retentionMs;
+      return diffMs <= sevenDaysMs;
     });
   }, [taskCards]);
 
@@ -341,6 +425,23 @@ export default function HkSpecialProjectPage() {
     if (!keyword) return selectedRun.rooms;
     return selectedRun.rooms.filter((room) => room.room_number.includes(keyword));
   }, [selectedRun, roomSearch]);
+
+  function openCreateModal() {
+    if (!canCreate) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setNewTitle('');
+    setNewDescription('');
+    setNewRepeatEveryDaysInput('30');
+    setNewDueInDaysInput('7');
+    setNewHasRoomChecklist(false);
+    setShowCreateModal(true);
+  }
+
+  function closeCreateModal() {
+    if (creatingTask) return;
+    setShowCreateModal(false);
+  }
 
   async function handleCreateTask() {
     const supabase = getSupabaseSafe();
@@ -360,12 +461,22 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
-    if (newIsRecurring && newRepeatEveryDays <= 0) {
+    const parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
+    if (parsedRepeatEveryDays === null) {
+      setErrorMsg('Please enter Repeat Every days.');
+      return;
+    }
+    if (parsedRepeatEveryDays <= 0) {
       setErrorMsg('Repeat every days must be more than 0.');
       return;
     }
 
-    if (newDueInDays < 0) {
+    const parsedDueInDays = parseWholeNumber(newDueInDaysInput);
+    if (parsedDueInDays === null) {
+      setErrorMsg('Please enter Due In days.');
+      return;
+    }
+    if (parsedDueInDays < 0) {
       setErrorMsg('Due in days cannot be negative.');
       return;
     }
@@ -376,7 +487,7 @@ export default function HkSpecialProjectPage() {
       setSuccessMsg('');
 
       const today = getTodayLocalDateString();
-      const dueDate = addDaysToDate(today, newDueInDays);
+      const dueDate = addDaysToDate(today, parsedDueInDays);
 
       const { data: insertedTask, error: taskError } = await supabase
         .from('hk_special_project_tasks')
@@ -384,8 +495,8 @@ export default function HkSpecialProjectPage() {
           {
             title,
             description: newDescription.trim() || null,
-            repeat_every_days: newIsRecurring ? newRepeatEveryDays : null,
-            due_in_days: newDueInDays,
+            repeat_every_days: parsedRepeatEveryDays,
+            due_in_days: parsedDueInDays,
             has_room_checklist: newHasRoomChecklist,
             is_active: true,
             created_by_user_id: profile.user_id,
@@ -428,14 +539,15 @@ export default function HkSpecialProjectPage() {
         }
       }
 
+      
+
       setNewTitle('');
       setNewDescription('');
-      setNewIsRecurring(true);
-      setNewRepeatEveryDays(30);
-      setNewDueInDays(7);
+      setNewRepeatEveryDaysInput('30');
+      setNewDueInDaysInput('7');
       setNewHasRoomChecklist(false);
       setShowCreateModal(false);
-      setSuccessMsg('HK Special Project task created successfully.');
+      setSuccessMsg('Preventive maintenance task created successfully.');
 
       await loadAllData();
     } catch (err: any) {
@@ -539,13 +651,18 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
-    if (!profile || !(profile.role === 'SUPERUSER' || profile.role === 'MANAGER')) {
+    if (!profile) {
+      setErrorMsg('User not found.');
+      return;
+    }
+
+    if (!(profile.role === 'SUPERUSER' || profile.role === 'MANAGER')) {
       setErrorMsg('You do not have permission to delete routine tasks.');
       return;
     }
 
     const confirmed = window.confirm(
-      `Delete HK Special Project "${taskTitle}" and all related runs? This cannot be undone.`
+      `Delete routine task "${taskTitle}" and all related runs? This cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -556,85 +673,56 @@ export default function HkSpecialProjectPage() {
 
       const { error } = await supabase
         .from('hk_special_project_tasks')
-        .delete()
+        .update({ is_active: false })
         .eq('id', taskId);
 
       if (error) throw error;
 
-      if (selectedRun?.task.id === taskId) {
+      setSuccessMsg(`Task "${taskTitle}" deleted.`);
+      if (selectedRun && selectedRun.task.id === taskId) {
         setSelectedRunId(null);
-        setRoomSearch('');
       }
-
-      setSuccessMsg(`HK Special Project "${taskTitle}" deleted successfully.`);
       await loadAllData();
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to delete HK Special Project');
+      setErrorMsg(err?.message || 'Failed to delete routine task');
     } finally {
       setBusyDeleteTaskId(null);
     }
   }
 
-  async function handleToggleRoom(room: HkTaskRunRoom) {
+  async function handleToggleRoom(roomId: string, checked: boolean) {
     const supabase = getSupabaseSafe();
-    if (!supabase) {
-      setErrorMsg('Supabase is not configured.');
-      return;
-    }
-
-    if (!profile?.user_id) {
-      setErrorMsg('User not found.');
-      return;
-    }
-
-    const previous = room.is_done;
-    const nextDone = !previous;
-    const nextDoneAt = nextDone ? new Date().toISOString() : null;
-    const nextDoneByUserId = nextDone ? profile.user_id || null : null;
-    const nextDoneByName = nextDone ? (profile.name || profile.email) : null;
-
-    setBusyRoomId(room.id);
-    setRunRooms((prev) =>
-      prev.map((r) =>
-        r.id === room.id
-          ? {
-              ...r,
-              is_done: nextDone,
-              done_at: nextDoneAt,
-              done_by_user_id: nextDoneByUserId,
-              done_by_name: nextDoneByName,
-            }
-          : r
-      )
-    );
+    if (!supabase || !profile?.user_id) return;
 
     try {
+      setBusyRoomId(roomId);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const payload = checked
+        ? {
+            is_done: true,
+            done_at: new Date().toISOString(),
+            done_by_user_id: profile.user_id,
+            done_by_name: profile.name || profile.email,
+          }
+        : {
+            is_done: false,
+            done_at: null,
+            done_by_user_id: null,
+            done_by_name: null,
+          };
+
       const { error } = await supabase
         .from('hk_special_project_task_run_rooms')
-        .update({
-          is_done: nextDone,
-          done_at: nextDoneAt,
-          done_by_user_id: nextDoneByUserId,
-          done_by_name: nextDoneByName,
-        })
-        .eq('id', room.id);
+        .update(payload)
+        .eq('id', roomId);
 
       if (error) throw error;
+
+      await loadAllData();
     } catch (err: any) {
-      setRunRooms((prev) =>
-        prev.map((r) =>
-          r.id === room.id
-            ? {
-                ...r,
-                is_done: previous,
-                done_at: room.done_at,
-                done_by_user_id: room.done_by_user_id,
-                done_by_name: room.done_by_name,
-              }
-            : r
-        )
-      );
-      setErrorMsg(err?.message || 'Failed to update room checklist');
+      setErrorMsg(err?.message || 'Failed to update room status');
     } finally {
       setBusyRoomId(null);
     }
@@ -657,35 +745,27 @@ export default function HkSpecialProjectPage() {
 
     return (
       <div key={card.run.id} style={styles.taskCard}>
-        <div style={styles.taskCardHeader}>
-          <div style={{ minWidth: 0 }}>
+        <div style={styles.taskTopRow}>
+          <div>
             <div style={styles.taskTitle}>{card.task.title}</div>
             {card.task.description ? (
               <div style={styles.taskDescription}>{card.task.description}</div>
             ) : null}
           </div>
 
-          <div
-            style={{
-              ...styles.statusPill,
-              ...(section === 'OPEN'
-                ? styles.statusOpen
-                : section === 'OVERDUE'
-                ? styles.statusOverdue
-                : styles.statusDone),
-            }}
-          >
-            {section}
+          <div style={{
+            ...styles.statusBadge,
+            ...(card.run.status === 'DONE'
+              ? styles.statusDone
+              : card.run.status === 'OVERDUE'
+              ? styles.statusOverdue
+              : styles.statusOpen),
+          }}>
+            {card.run.status}
           </div>
         </div>
 
         <div style={styles.metaGrid}>
-          <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Recurrence</div>
-            <div style={styles.metaValue}>
-              {card.task.repeat_every_days ? `Every ${card.task.repeat_every_days} day(s)` : 'Does not recur'}
-            </div>
-          </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Start</div>
             <div style={styles.metaValue}>{formatDate(card.run.run_start_date)}</div>
@@ -695,7 +775,11 @@ export default function HkSpecialProjectPage() {
             <div style={styles.metaValue}>{formatDate(card.run.due_date)}</div>
           </div>
           <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Checklist</div>
+            <div style={styles.metaLabel}>Repeat</div>
+            <div style={styles.metaValue}>{card.task.repeat_every_days} days</div>
+          </div>
+          <div style={styles.metaItem}>
+            <div style={styles.metaLabel}>Rooms</div>
             <div style={styles.metaValue}>
               {card.task.has_room_checklist ? `${card.doneRooms}/${card.totalRooms} rooms` : 'No room list'}
             </div>
@@ -706,6 +790,13 @@ export default function HkSpecialProjectPage() {
           <div style={styles.auditText}>
             Completed: {formatDateTime(card.run.completed_at)}
             {card.run.completed_by_name ? ` · ${card.run.completed_by_name}` : ''}
+          </div>
+        ) : null}
+
+        {card.run.reopened_at ? (
+          <div style={styles.auditText}>
+            Reopened: {formatDateTime(card.run.reopened_at)}
+            {card.run.reopened_by_name ? ` · ${card.run.reopened_by_name}` : ''}
           </div>
         ) : null}
 
@@ -789,7 +880,9 @@ export default function HkSpecialProjectPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Login required</div>
           <p style={styles.centerText}>Please log in first, then open this page again.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
+          <Link href="/dashboard" style={styles.linkBtn}>
+            Back to Dashboard
+          </Link>
         </div>
       </main>
     );
@@ -801,7 +894,9 @@ export default function HkSpecialProjectPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
           <p style={styles.centerText}>You do not have permission to access HK Special Project.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
+          <Link href="/dashboard" style={styles.linkBtn}>
+            Back to Dashboard
+          </Link>
         </div>
       </main>
     );
@@ -814,18 +909,20 @@ export default function HkSpecialProjectPage() {
           <div>
             <div style={styles.pageTitle}>HK Special Project</div>
             <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role}) · Housekeeping special project tracker
+              {profile.name} ({profile.role}) · Mobile friendly maintenance routine tracker
             </div>
           </div>
 
           <div style={styles.topBarActions}>
             {canCreate ? (
-              <button type="button" onClick={() => setShowCreateModal(true)} style={styles.primaryHeaderBtn}>
-                Add Task
+              <button type="button" onClick={openCreateModal} style={styles.primaryHeaderBtn}>
+                Add Routine Task
               </button>
             ) : null}
 
-            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
+            <Link href="/dashboard" style={styles.secondaryBtn}>
+              Back to Dashboard
+            </Link>
           </div>
         </div>
 
@@ -839,7 +936,7 @@ export default function HkSpecialProjectPage() {
             <div style={{ ...styles.summaryValue, color: '#b91c1c' }}>{overdueCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Done (30 days)</div>
+            <div style={styles.summaryLabel}>Done (7 days)</div>
             <div style={{ ...styles.summaryValue, color: '#166534' }}>{visibleDoneCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
@@ -860,7 +957,7 @@ export default function HkSpecialProjectPage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Open</div>
               {openCards.length === 0 ? (
-                <div style={styles.emptyState}>No open tasks.</div>
+                <div style={styles.emptyState}>No open routine tasks.</div>
               ) : (
                 <div style={styles.cardsWrap}>
                   {openCards.map((card) => renderTaskCard(card, 'OPEN'))}
@@ -882,7 +979,7 @@ export default function HkSpecialProjectPage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Done</div>
               {visibleDoneCards.length === 0 ? (
-                <div style={styles.emptyState}>No completed tasks in the last 30 days.</div>
+                <div style={styles.emptyState}>No completed tasks in the last 7 days.</div>
               ) : (
                 <div style={styles.cardsWrap}>
                   {visibleDoneCards.map((card) => renderTaskCard(card, 'DONE'))}
@@ -894,9 +991,14 @@ export default function HkSpecialProjectPage() {
       </div>
 
       {showCreateModal ? (
-        <div style={styles.modalOverlay} onClick={() => !creatingTask && setShowCreateModal(false)}>
+        <div style={styles.modalOverlay}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalTitle}>Create Task</div>
+            <div style={styles.modalTop}>
+              <div style={styles.modalTitle}>Create Routine Task</div>
+              <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTask}>
+                ×
+              </button>
+            </div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Task Title</label>
@@ -904,7 +1006,8 @@ export default function HkSpecialProjectPage() {
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 style={styles.input}
-                placeholder="Example: Deep Clean Project"
+                placeholder="Example: Water Heater Check"
+                disabled={creatingTask}
               />
             </div>
 
@@ -915,42 +1018,52 @@ export default function HkSpecialProjectPage() {
                 onChange={(e) => setNewDescription(e.target.value)}
                 style={styles.textarea}
                 placeholder="Optional notes or SOP"
+                disabled={creatingTask}
               />
             </div>
 
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={newIsRecurring}
-                onChange={(e) => setNewIsRecurring(e.target.checked)}
-              />
-              <span>This task recurs</span>
-            </label>
-
-            {newIsRecurring ? (
+            <div style={styles.formRow}>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Repeat Every (Days)</label>
                 <input
                   type="number"
-                  min={1}
-                  value={newRepeatEveryDays}
-                  onChange={(e) => setNewRepeatEveryDays(Math.max(1, Number(e.target.value || 1)))}
+                  value={newRepeatEveryDaysInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setNewRepeatEveryDaysInput('');
+                      return;
+                    }
+                    if (!Number.isNaN(Number(val))) {
+                      setNewRepeatEveryDaysInput(val);
+                    }
+                  }}
                   style={styles.input}
+                  placeholder="30"
+                  disabled={creatingTask}
                 />
               </div>
-            ) : (
-              <div style={styles.helperText}>This task will only run once and will not be issued again after completion.</div>
-            )}
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Due In (Days)</label>
-              <input
-                type="number"
-                min={0}
-                value={newDueInDays}
-                onChange={(e) => setNewDueInDays(Math.max(0, Number(e.target.value || 0)))}
-                style={styles.input}
-              />
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Due In (Days)</label>
+                <input
+                  type="number"
+                  value={newDueInDaysInput}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setNewDueInDaysInput('');
+                      return;
+                    }
+                    if (!Number.isNaN(Number(val))) {
+                      setNewDueInDaysInput(val);
+                    }
+                  }}
+                  style={styles.input}
+                  placeholder="7"
+                  disabled={creatingTask}
+                />
+              </div>
             </div>
 
             <label style={styles.checkboxLabel}>
@@ -958,19 +1071,26 @@ export default function HkSpecialProjectPage() {
                 type="checkbox"
                 checked={newHasRoomChecklist}
                 onChange={(e) => setNewHasRoomChecklist(e.target.checked)}
+                disabled={creatingTask}
               />
               <span>Attach full room checklist ({allRooms.length} active rooms)</span>
             </label>
 
             <div style={styles.modalActions}>
-              <button type="button" onClick={() => setShowCreateModal(false)} disabled={creatingTask} style={styles.modalCancelBtn}>
+              <button
+                type="button"
+                onClick={closeCreateModal}
+                style={styles.secondaryBtn}
+                disabled={creatingTask}
+              >
                 Cancel
               </button>
+
               <button
                 type="button"
                 onClick={() => void handleCreateTask()}
+                style={styles.primaryBtn}
                 disabled={creatingTask}
-                style={{ ...styles.modalCreateBtn, opacity: creatingTask ? 0.6 : 1 }}
               >
                 {creatingTask ? 'Creating...' : 'Create Task'}
               </button>
@@ -981,51 +1101,54 @@ export default function HkSpecialProjectPage() {
 
       {selectedRun ? (
         <div style={styles.modalOverlay} onClick={closeRoomChecklist}>
-          <div style={styles.largeModalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.roomModalHeader}>
+          <div style={styles.roomModalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalTop}>
               <div>
-                <div style={styles.modalTitle}>{selectedRun.task.title}</div>
-                <div style={styles.pageSubTitle}>
-                  {selectedRun.doneRooms} / {selectedRun.totalRooms} rooms completed · Due {formatDate(selectedRun.run.due_date)}
+                <div style={styles.modalTitle}>Room Checklist</div>
+                <div style={styles.modalSubTitle}>
+                  {selectedRun.task.title} · Due {formatDate(selectedRun.run.due_date)}
                 </div>
               </div>
-              <button type="button" onClick={closeRoomChecklist} style={styles.modalCloseBtn}>Close</button>
+
+              <button type="button" onClick={closeRoomChecklist} style={styles.closeBtn}>
+                ×
+              </button>
             </div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Search Room</label>
               <input
                 value={roomSearch}
-                onChange={(e) => setRoomSearch(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="Enter room number"
+                onChange={(e) => setRoomSearch(e.target.value)}
                 style={styles.input}
+                placeholder="Type room number"
               />
             </div>
 
-            {filteredSelectedRooms.length === 0 ? (
-              <div style={styles.emptyState}>No room found.</div>
-            ) : (
-              <div style={styles.roomGrid}>
-                {filteredSelectedRooms.map((room) => (
-                  <button
-                    key={room.id}
-                    type="button"
-                    onClick={() => void handleToggleRoom(room)}
-                    disabled={busyRoomId === room.id}
-                    style={{
-                      ...styles.roomToggleBtn,
-                      ...(room.is_done ? styles.roomToggleDone : {}),
-                      opacity: busyRoomId === room.id ? 0.6 : 1,
-                    }}
-                  >
-                    <div style={styles.roomToggleNo}>{room.room_number}</div>
-                    <div style={styles.roomToggleStatus}>
-                      {busyRoomId === room.id ? 'Saving...' : room.is_done ? 'Completed' : 'Pending'}
+            <div style={styles.roomList}>
+              {filteredSelectedRooms.length === 0 ? (
+                <div style={styles.emptyState}>No rooms found.</div>
+              ) : (
+                filteredSelectedRooms.map((room) => (
+                  <label key={room.id} style={styles.roomRow}>
+                    <div>
+                      <div style={styles.roomNumber}>{room.room_number}</div>
+                      <div style={styles.roomAudit}>
+                        {room.done_at ? `Done: ${formatDateTime(room.done_at)}` : 'Pending'}
+                        {room.done_by_name ? ` · ${room.done_by_name}` : ''}
+                      </div>
                     </div>
-                  </button>
-                ))}
-              </div>
-            )}
+
+                    <input
+                      type="checkbox"
+                      checked={room.is_done}
+                      onChange={(e) => void handleToggleRoom(room.id, e.target.checked)}
+                      disabled={busyRoomId === room.id}
+                    />
+                  </label>
+                ))
+              )}
+            </div>
           </div>
         </div>
       ) : null}
@@ -1037,14 +1160,12 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
     background: '#f8fafc',
-    padding: '20px',
-    overflowX: 'hidden',
+    padding: '20px 16px 40px',
   },
   shell: {
     width: '100%',
-    maxWidth: '1180px',
+    maxWidth: '1200px',
     margin: '0 auto',
-    paddingInline: '4px',
   },
   topBar: {
     display: 'flex',
@@ -1071,13 +1192,193 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     marginTop: '6px',
   },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '12px',
+    marginBottom: '16px',
+  },
+  summaryCard: {
+    background: '#fff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    padding: '16px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+  },
+  summaryLabel: {
+    fontSize: '13px',
+    color: '#64748b',
+    fontWeight: 700,
+    marginBottom: '8px',
+  },
+  summaryValue: {
+    fontSize: '28px',
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  panel: {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '22px',
+    padding: '16px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+    marginBottom: '16px',
+  },
+  sectionTitle: {
+    fontSize: '22px',
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: '12px',
+  },
+  cardsWrap: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: '12px',
+  },
+  taskCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    background: '#ffffff',
+    padding: '14px',
+  },
+  taskTopRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'flex-start',
+  },
+  taskTitle: {
+    fontSize: '20px',
+    fontWeight: 800,
+    color: '#0f172a',
+    lineHeight: 1.2,
+  },
+  taskDescription: {
+    fontSize: '14px',
+    color: '#475569',
+    marginTop: '6px',
+    whiteSpace: 'pre-wrap',
+  },
+  statusBadge: {
+    borderRadius: '999px',
+    padding: '8px 12px',
+    fontWeight: 800,
+    fontSize: '12px',
+  },
+  statusOpen: {
+    background: '#eff6ff',
+    color: '#1d4ed8',
+  },
+  statusDone: {
+    background: '#ecfdf5',
+    color: '#166534',
+  },
+  statusOverdue: {
+    background: '#fef2f2',
+    color: '#b91c1c',
+  },
+  metaGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: '10px',
+    marginTop: '14px',
+  },
+  metaItem: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '12px',
+    padding: '10px',
+    background: '#f8fafc',
+  },
+  metaLabel: {
+    fontSize: '12px',
+    color: '#64748b',
+    fontWeight: 700,
+    marginBottom: '4px',
+  },
+  metaValue: {
+    fontSize: '14px',
+    color: '#0f172a',
+    fontWeight: 800,
+  },
+  auditText: {
+    marginTop: '12px',
+    fontSize: '13px',
+    color: '#475569',
+  },
+  overdueRemark: {
+    marginTop: '12px',
+    background: '#fff7ed',
+    color: '#c2410c',
+    border: '1px solid #fdba74',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontWeight: 600,
+    fontSize: '13px',
+  },
+  cardActions: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+    marginTop: '14px',
+  },
+  primaryActionBtn: {
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  secondaryActionBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  reopenBtn: {
+    border: '1px solid #0f766e',
+    background: '#f0fdfa',
+    color: '#0f766e',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  deleteBtn: {
+    border: '1px solid #ef4444',
+    background: '#fff',
+    color: '#ef4444',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  helperText: {
+    marginTop: '10px',
+    color: '#b45309',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
   primaryHeaderBtn: {
+    border: 'none',
+    background: '#0f172a',
+    color: '#fff',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  primaryBtn: {
     border: 'none',
     background: '#0f172a',
     color: '#ffffff',
     borderRadius: '12px',
     padding: '12px 16px',
-    fontWeight: 800,
+    fontWeight: 700,
     cursor: 'pointer',
   },
   secondaryBtn: {
@@ -1091,182 +1392,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     padding: '12px 16px',
     fontWeight: 700,
-  },
-  summaryGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: '12px',
-    marginBottom: '16px',
-  },
-  summaryCard: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '14px',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-  },
-  summaryLabel: {
-    fontSize: '13px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '8px',
-  },
-  summaryValue: {
-    fontSize: '30px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1,
-  },
-  panel: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '20px',
-    padding: '16px',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-    marginBottom: '16px',
-  },
-  sectionTitle: {
-    fontSize: '22px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '12px',
-  },
-  cardsWrap: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
-    gap: '14px',
-  },
-  taskCard: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '16px',
-  },
-  taskCardHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'flex-start',
-    marginBottom: '14px',
-  },
-  taskTitle: {
-    fontSize: '20px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.2,
-  },
-  taskDescription: {
-    fontSize: '13px',
-    color: '#64748b',
-    marginTop: '6px',
-    lineHeight: 1.5,
-  },
-  statusPill: {
-    borderRadius: '999px',
-    padding: '8px 12px',
-    fontSize: '12px',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-  statusOpen: {
-    background: '#dbeafe',
-    color: '#1d4ed8',
-  },
-  statusOverdue: {
-    background: '#fee2e2',
-    color: '#b91c1c',
-  },
-  statusDone: {
-    background: '#dcfce7',
-    color: '#166534',
-  },
-  metaGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '10px',
-    marginBottom: '12px',
-  },
-  metaItem: {
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: '12px',
-    padding: '10px',
-  },
-  metaLabel: {
-    fontSize: '12px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '4px',
-  },
-  metaValue: {
-    fontSize: '14px',
-    color: '#0f172a',
-    fontWeight: 800,
-    lineHeight: 1.3,
-  },
-  auditText: {
-    fontSize: '12px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '10px',
-  },
-  overdueRemark: {
-    marginBottom: '10px',
-    background: '#fff7ed',
-    color: '#c2410c',
-    border: '1px solid #fdba74',
-    borderRadius: '12px',
-    padding: '10px 12px',
-    fontSize: '13px',
-    fontWeight: 700,
-    lineHeight: 1.5,
-  },
-  cardActions: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-    marginTop: '10px',
-  },
-  secondaryActionBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 700,
     cursor: 'pointer',
-  },
-  primaryActionBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 800,
-  },
-  reopenBtn: {
-    border: 'none',
-    background: '#166534',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  deleteBtn: {
-    border: 'none',
-    background: '#b91c1c',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  helperText: {
-    marginTop: '10px',
-    fontSize: '12px',
-    color: '#64748b',
-    fontWeight: 700,
   },
   errorBox: {
     marginBottom: '14px',
@@ -1332,60 +1458,77 @@ const styles: Record<string, React.CSSProperties> = {
   modalOverlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(15,23,42,0.45)',
+    background: 'rgba(15, 23, 42, 0.48)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '16px',
+    padding: '20px',
     zIndex: 1000,
   },
   modalCard: {
     width: '100%',
-    maxWidth: '560px',
-    background: '#ffffff',
-    borderRadius: '18px',
-    padding: '18px',
-    boxShadow: '0 20px 40px rgba(15,23,42,0.25)',
+    maxWidth: '640px',
+    background: '#fff',
+    borderRadius: '22px',
+    padding: '20px',
+    boxShadow: '0 20px 50px rgba(15,23,42,0.28)',
   },
-  largeModalCard: {
+  roomModalCard: {
     width: '100%',
-    maxWidth: '880px',
-    maxHeight: '90vh',
+    maxWidth: '760px',
+    maxHeight: '85vh',
     overflowY: 'auto',
-    background: '#ffffff',
-    borderRadius: '18px',
-    padding: '18px',
-    boxShadow: '0 20px 40px rgba(15,23,42,0.25)',
+    background: '#fff',
+    borderRadius: '22px',
+    padding: '20px',
+    boxShadow: '0 20px 50px rgba(15,23,42,0.28)',
   },
-  roomModalHeader: {
+  modalTop: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '12px',
     alignItems: 'flex-start',
-    marginBottom: '14px',
-    flexWrap: 'wrap',
+    marginBottom: '16px',
   },
   modalTitle: {
     fontSize: '22px',
     fontWeight: 800,
     color: '#0f172a',
-    marginBottom: '10px',
+    marginBottom: '4px',
+  },
+  modalSubTitle: {
+    fontSize: '14px',
+    color: '#64748b',
+  },
+  closeBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#0f172a',
+    width: '36px',
+    height: '36px',
+    borderRadius: '10px',
+    fontSize: '20px',
+    lineHeight: 1,
+    cursor: 'pointer',
   },
   formGroup: {
+    marginBottom: '14px',
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
-    marginBottom: '14px',
+    flex: '1 1 240px',
+    minWidth: 0,
   },
   formRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    display: 'flex',
     gap: '12px',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
   },
   label: {
-    fontSize: '13px',
-    fontWeight: 700,
+    fontSize: '14px',
     color: '#334155',
+    fontWeight: 700,
   },
   input: {
     width: '100%',
@@ -1401,6 +1544,7 @@ const styles: Record<string, React.CSSProperties> = {
   textarea: {
     width: '100%',
     boxSizing: 'border-box',
+    minHeight: '110px',
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
@@ -1408,16 +1552,16 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 14px',
     fontSize: '15px',
     outline: 'none',
-    minHeight: '100px',
     resize: 'vertical',
   },
   checkboxLabel: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    fontWeight: 700,
-    color: '#334155',
+    marginTop: '6px',
     marginBottom: '16px',
+    color: '#334155',
+    fontWeight: 600,
   },
   modalActions: {
     display: 'flex',
@@ -1425,58 +1569,30 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '10px',
     flexWrap: 'wrap',
   },
-  modalCancelBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  modalCreateBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  modalCloseBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  roomGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+  roomList: {
+    display: 'flex',
+    flexDirection: 'column',
     gap: '10px',
+    marginTop: '10px',
   },
-  roomToggleBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
+  roomRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    border: '1px solid #e2e8f0',
     borderRadius: '14px',
-    padding: '14px 10px',
-    cursor: 'pointer',
+    padding: '12px 14px',
+    background: '#fff',
   },
-  roomToggleDone: {
-    background: '#dcfce7',
-    borderColor: '#86efac',
-    color: '#166534',
-  },
-  roomToggleNo: {
-    fontSize: '18px',
+  roomNumber: {
+    fontSize: '16px',
     fontWeight: 800,
-    marginBottom: '6px',
+    color: '#0f172a',
   },
-  roomToggleStatus: {
-    fontSize: '12px',
-    fontWeight: 700,
+  roomAudit: {
+    fontSize: '13px',
+    color: '#64748b',
+    marginTop: '4px',
   },
 };
