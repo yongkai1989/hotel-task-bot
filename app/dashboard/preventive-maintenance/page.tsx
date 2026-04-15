@@ -1017,10 +1017,18 @@ export default function PreventiveMaintenancePage() {
               <div style={styles.formGroup}>
                 <label style={styles.label}>Repeat Every (Days)</label>
                 <input
-                  type="text"
-                  inputMode="numeric"
+                  type="number"
                   value={newRepeatEveryDaysInput}
-                  onChange={(e) => dayInputOnChange(e.target.value, setNewRepeatEveryDaysInput)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setNewRepeatEveryDaysInput('');
+                      return;
+                    }
+                    if (!isNaN(Number(val))) {
+                      setNewRepeatEveryDaysInput(val);
+                    }
+                  }}
                   style={styles.input}
                   placeholder="30"
                   disabled={creatingTask}
@@ -1030,10 +1038,18 @@ export default function PreventiveMaintenancePage() {
               <div style={styles.formGroup}>
                 <label style={styles.label}>Due In (Days)</label>
                 <input
-                  type="text"
-                  inputMode="numeric"
+                  type="number"
                   value={newDueInDaysInput}
-                  onChange={(e) => dayInputOnChange(e.target.value, setNewDueInDaysInput)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setNewDueInDaysInput('');
+                      return;
+                    }
+                    if (!isNaN(Number(val))) {
+                      setNewDueInDaysInput(val);
+                    }
+                  }}
                   style={styles.input}
                   placeholder="7"
                   disabled={creatingTask}
