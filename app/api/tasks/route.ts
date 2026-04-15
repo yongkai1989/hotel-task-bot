@@ -8,6 +8,10 @@ export const revalidate = 0;
 
 const GET_TASK_LIMIT = 300;
 
+// Department-specific Telegram group chat IDs
+const MT_CHAT_ID = -1003860980789;
+const HK_CHAT_ID = -1003784764929;
+
 function normalizeDept(value: string): Dept | null {
   const v = String(value || '').trim().toUpperCase();
 
@@ -67,6 +71,21 @@ function jsonNoCache(body: any, status = 200) {
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     },
   });
+}
+
+function resolveTelegramChatId(department: Dept): number | null {
+  if (department === 'MT') return MT_CHAT_ID;
+  if (department === 'HK') return HK_CHAT_ID;
+
+  // Optional fallback for FO or any future department
+  const fallbackRaw = process.env.ALLOWED_CHAT_ID;
+  const fallbackChatId = Number(fallbackRaw);
+
+  if (!fallbackRaw || Number.isNaN(fallbackChatId)) {
+    return null;
+  }
+
+  return fallbackChatId;
 }
 
 export async function GET() {
@@ -154,21 +173,21 @@ export async function POST(req: NextRequest) {
   try {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
 
-// ✅ FIRST: auth check
-if (!user) {
-  return jsonNoCache(
-    { ok: false, error: authError || 'Unauthorized' },
-    401
-  );
-}
+    // 1) Auth check
+    if (!user) {
+      return jsonNoCache(
+        { ok: false, error: authError || 'Unauthorized' },
+        401
+      );
+    }
 
-// ✅ SECOND: permission check
-if (!user.can_create_task) {
-  return NextResponse.json(
-    { ok: false, error: 'Not allowed to create tasks' },
-    { status: 403 }
-  );
-}
+    // 2) Permission check
+    if (!user.can_create_task) {
+      return NextResponse.json(
+        { ok: false, error: 'Not allowed to create tasks' },
+        { status: 403 }
+      );
+    }
 
     const body = await req.json();
 
@@ -193,12 +212,17 @@ if (!user.can_create_task) {
       return jsonNoCache({ ok: false, error: 'Task text is required' }, 400);
     }
 
-    const chatIdRaw = process.env.ALLOWED_CHAT_ID;
-    const telegramChatId = Number(chatIdRaw);
+    const telegramChatId = resolveTelegramChatId(department);
 
-    if (!chatIdRaw || Number.isNaN(telegramChatId)) {
+    if (!telegramChatId) {
       return jsonNoCache(
-        { ok: false, error: 'ALLOWED_CHAT_ID is missing or invalid' },
+        {
+          ok: false,
+          error:
+            department === 'FO'
+              ? 'No Telegram chat configured for FO. Set ALLOWED_CHAT_ID for FO fallback or add a dedicated FO chat ID.'
+              : `No Telegram chat configured for department ${department}`,
+        },
         500
       );
     }
