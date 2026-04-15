@@ -839,7 +839,7 @@ export default function HkSpecialProjectPage() {
             <div style={{ ...styles.summaryValue, color: '#b91c1c' }}>{overdueCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Done (7 days)</div>
+            <div style={styles.summaryLabel}>Done (30 days)</div>
             <div style={{ ...styles.summaryValue, color: '#166534' }}>{visibleDoneCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
@@ -882,7 +882,7 @@ export default function HkSpecialProjectPage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Done</div>
               {visibleDoneCards.length === 0 ? (
-                <div style={styles.emptyState}>No completed tasks in the last 7 days.</div>
+                <div style={styles.emptyState}>No completed tasks in the last 30 days.</div>
               ) : (
                 <div style={styles.cardsWrap}>
                   {visibleDoneCards.map((card) => renderTaskCard(card, 'DONE'))}
