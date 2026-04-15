@@ -24,6 +24,12 @@ const MT_SUPERVISOR_EMAILS = [
   'mtsup2@hotelhallmark.com',
 ];
 
+const HK_SUPERVISOR_EMAILS = [
+  'hksup1@hotelhallmark.com',
+  'hksup2@hotelhallmark.com',
+  'hksup3@hotelhallmark.com',
+];
+
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
@@ -66,14 +72,23 @@ export default function DashboardSidebar({
       profile.can_access_linen_admin === true);
 
   const canSeePM =
-  !!profile &&
-  (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER' ||
-    profile.role === 'MT' ||
-    (profile.role === 'SUPERVISOR' &&
-      MT_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
-  );
+    !!profile &&
+    (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'MT' ||
+      (profile.role === 'SUPERVISOR' &&
+        MT_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
+    );
+
+  const canSeeHkSpecialProject =
+    !!profile &&
+    (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      (profile.role === 'SUPERVISOR' &&
+        HK_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
+    );
 
   const canOpenPasswordModal = !!profile;
   const isManager = profile?.role === 'MANAGER';
@@ -307,14 +322,24 @@ export default function DashboardSidebar({
           </Link>
 
           {canSeePM ? (
-  <Link
-    href="/dashboard/preventive-maintenance"
-    onClick={closeSidebar}
-    style={styles.navBtn}
-  >
-    Preventive Maintenance
-  </Link>
-) : null}
+            <Link
+              href="/dashboard/preventive-maintenance"
+              onClick={closeSidebar}
+              style={styles.navBtn}
+            >
+              Preventive Maintenance
+            </Link>
+          ) : null}
+
+          {canSeeHkSpecialProject ? (
+            <Link
+              href="/dashboard/hk-special-project"
+              onClick={closeSidebar}
+              style={styles.navBtn}
+            >
+              HK Special Project
+            </Link>
+          ) : null}
 
           {canSeeChambermaid ? (
             <Link href="/dashboard/chambermaid-entry" onClick={closeSidebar} style={styles.navBtn}>
