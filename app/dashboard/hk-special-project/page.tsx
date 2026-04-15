@@ -326,7 +326,7 @@ export default function HkSpecialProjectPage() {
 
       const now = new Date();
       const diffMs = now.getTime() - completedAt.getTime();
-      const sevenDaysMs = 30 * 24 * 60 * 60 * 1000;
+      const retentionMs = 30 * 24 * 60 * 60 * 1000;
 
       return diffMs <= retentionMs;
     });
