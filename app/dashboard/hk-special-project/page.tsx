@@ -941,7 +941,7 @@ export default function HkSpecialProjectPage() {
 
       {showCreateModal ? (
         <div style={styles.modalOverlay}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
             <div style={styles.modalTop}>
               <div style={styles.modalTitle}>Create Routine Task</div>
               <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTask}>
@@ -1406,6 +1406,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modalOverlay: {
     position: 'fixed',
+    userSelect: 'none',
     inset: 0,
     background: 'rgba(15, 23, 42, 0.48)',
     display: 'flex',
@@ -1416,6 +1417,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modalCard: {
     width: '100%',
+    userSelect: 'text',
     maxWidth: '640px',
     background: '#fff',
     borderRadius: '22px',
