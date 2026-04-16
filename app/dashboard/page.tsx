@@ -1404,10 +1404,14 @@ async function handleDeleteTask(taskId: string) {
                       <button
                         onClick={openCreateModal}
                         style={styles.addTaskBtn}
-                        aria-label="Add task"
-                        title="Add new task"
+                        aria-label="Create task"
+                        title="Create new task"
                       >
-                        +
+                        <span style={styles.addTaskBtnIcon}>✦</span>
+                        <span style={styles.addTaskBtnTextWrap}>
+                          <span style={styles.addTaskBtnEyebrow}>Quick action</span>
+                          <span style={styles.addTaskBtnText}>Create Task</span>
+                        </span>
                       </button>
                     ) : null}
                   </div>
@@ -2516,18 +2520,57 @@ const styles: Record<string, React.CSSProperties> = {
 
   },
   addTaskBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    border: 'none',
-    background: '#0f172a',
+    minHeight: 56,
+    borderRadius: 16,
+    border: '1px solid rgba(15, 23, 42, 0.08)',
+    background: 'linear-gradient(135deg, #0f172a 0%, #172554 52%, #1d4ed8 100%)',
     color: '#ffffff',
     cursor: 'pointer',
-    fontSize: 22,
     fontWeight: 800,
     lineHeight: 1,
-    boxShadow: '0 8px 20px rgba(15, 23, 42, 0.18)',
-
+    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.18)',
+    padding: '10px 16px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 12,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  addTaskBtnIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(255,255,255,0.16)',
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 900,
+    flexShrink: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
+  },
+  addTaskBtnTextWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 4,
+    minWidth: 0,
+  },
+  addTaskBtnEyebrow: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.72)',
+    lineHeight: 1,
+  },
+  addTaskBtnText: {
+    fontSize: 15,
+    fontWeight: 900,
+    color: '#ffffff',
+    lineHeight: 1.1,
+    whiteSpace: 'nowrap',
   },
   filterBlock: {
     marginTop: 10,
