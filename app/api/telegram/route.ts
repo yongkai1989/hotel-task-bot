@@ -15,8 +15,13 @@ const supabase = createClient(
 );
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID!;
+const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID || '';
+const ALLOWED_CHAT_IDS = process.env.ALLOWED_CHAT_IDS || '';
 const SECRET_PATH = process.env.TELEGRAM_SECRET_PATH!;
+
+// Known live group IDs
+const MT_CHAT_ID = -1003860980789;
+const HK_CHAT_ID = -1003784764929;
 
 const DEPT_ALIASES: Record<Dept, string[]> = {
   HK: ['hk', 'hsk', 'housekeeping'],
@@ -97,6 +102,28 @@ function formatDateTime(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+function getAllowedChatIds(): number[] {
+  const parsedEnvIds = String(ALLOWED_CHAT_IDS || '')
+    .split(',')
+    .map((v) => Number(String(v).trim()))
+    .filter((v) => Number.isFinite(v));
+
+  const singleEnvId = Number(String(ALLOWED_CHAT_ID || '').trim());
+
+  const combined = [
+    ...parsedEnvIds,
+    Number.isFinite(singleEnvId) ? singleEnvId : null,
+    MT_CHAT_ID,
+    HK_CHAT_ID
+  ].filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+
+  return Array.from(new Set(combined));
+}
+
+function isAllowedChatId(chatId: number): boolean {
+  return getAllowedChatIds().includes(Number(chatId));
 }
 
 function buildTaskMessageText(task: {
@@ -523,7 +550,7 @@ async function handleCallbackQuery(update: any, updateId: number) {
       ? `@${callback.from.username}`
       : [callback.from?.first_name, callback.from?.last_name].filter(Boolean).join(' ') || 'Unknown';
 
-  if (String(chatId) !== String(ALLOWED_CHAT_ID)) {
+  if (!isAllowedChatId(chatId)) {
     await telegram('answerCallbackQuery', {
       callback_query_id: callback.id,
       text: 'Unauthorized chat'
@@ -654,7 +681,7 @@ export async function POST(req: NextRequest) {
     const messageId = Number(msg.message_id);
     const textOrCaption = String(msg.text || msg.caption || '').trim();
 
-    if (String(chatId) !== String(ALLOWED_CHAT_ID)) {
+    if (!isAllowedChatId(chatId)) {
       return NextResponse.json({ ok: true, ignored: 'OTHER_CHAT' });
     }
 
@@ -884,5 +911,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, message: 'Telegram route is alive' });
+  return NextResponse.json({
+    ok: true,
+    message: 'Telegram route is alive',
+    allowed_chat_ids: getAllowedChatIds()
+  });
 }
