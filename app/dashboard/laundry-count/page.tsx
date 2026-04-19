@@ -9,8 +9,6 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-
-  // ✅ NEW
   can_access_linen_admin?: boolean;
 };
 
@@ -47,6 +45,19 @@ type LinenMapRow = {
   duvet_cover_single: number;
 };
 
+type LinenBillRow = {
+  id?: string;
+  service_date: string;
+  block_no: number;
+  bedsheet_king: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
+  created_at?: string;
+};
+
 type LinenTotals = {
   bedsheet_king: number;
   pillow_case: number;
@@ -61,15 +72,18 @@ type GroupSummary = {
   label: string;
   expected: LinenTotals;
   actual: LinenTotals;
+  inBill: LinenTotals;
   difference: LinenTotals;
   roomCount: number;
   dndCount: number;
 };
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
+type PageTab = 'COUNT' | 'BILL';
 
 const FLOOR_KEYS = ['B1F1', 'B1F2', 'B1F3', 'B1F5', 'B2F3', 'B2F5', 'B2F6', 'B2F7'] as const;
 const BLOCK_KEYS = ['B1', 'B2'] as const;
+const LAUNDRY_ONLY_EMAIL = 'laundry@hotelhallmark.com';
 
 const ITEM_DEFS: Array<{ key: keyof LinenTotals; label: string }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
@@ -117,14 +131,14 @@ function addTotals(target: LinenTotals, source: Partial<LinenTotals> | null | un
   target.duvet_cover_single += Number(source.duvet_cover_single || 0);
 }
 
-function subtractTotals(actual: LinenTotals, expected: LinenTotals): LinenTotals {
+function subtractTotals(left: LinenTotals, right: LinenTotals): LinenTotals {
   return {
-    bedsheet_king: actual.bedsheet_king - expected.bedsheet_king,
-    pillow_case: actual.pillow_case - expected.pillow_case,
-    bath_towel: actual.bath_towel - expected.bath_towel,
-    bath_mat: actual.bath_mat - expected.bath_mat,
-    duvet_cover_king: actual.duvet_cover_king - expected.duvet_cover_king,
-    duvet_cover_single: actual.duvet_cover_single - expected.duvet_cover_single,
+    bedsheet_king: left.bedsheet_king - right.bedsheet_king,
+    pillow_case: left.pillow_case - right.pillow_case,
+    bath_towel: left.bath_towel - right.bath_towel,
+    bath_mat: left.bath_mat - right.bath_mat,
+    duvet_cover_king: left.duvet_cover_king - right.duvet_cover_king,
+    duvet_cover_single: left.duvet_cover_single - right.duvet_cover_single,
   };
 }
 
@@ -147,6 +161,17 @@ function floorKey(blockNo: number, floorNo: number) {
   return `B${blockNo}F${floorNo}`;
 }
 
+function toTotalsFromBillRow(row?: Partial<LinenBillRow> | null): LinenTotals {
+  return {
+    bedsheet_king: Number(row?.bedsheet_king || 0),
+    pillow_case: Number(row?.pillow_case || 0),
+    bath_towel: Number(row?.bath_towel || 0),
+    bath_mat: Number(row?.bath_mat || 0),
+    duvet_cover_king: Number(row?.duvet_cover_king || 0),
+    duvet_cover_single: Number(row?.duvet_cover_single || 0),
+  };
+}
+
 export default function LaundryCountPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -160,10 +185,16 @@ export default function LaundryCountPage() {
   const [statuses, setStatuses] = useState<StatusRow[]>([]);
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [linenMap, setLinenMap] = useState<LinenMapRow[]>([]);
+  const [billRows, setBillRows] = useState<LinenBillRow[]>([]);
 
   const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
+  const [pageTab, setPageTab] = useState<PageTab>('COUNT');
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
+  const [savingBill, setSavingBill] = useState(false);
+
+  const [billBlock1, setBillBlock1] = useState<LinenTotals>(zeroTotals());
+  const [billBlock2, setBillBlock2] = useState<LinenTotals>(zeroTotals());
 
   const serviceDate = getTodayLocalDateString();
 
@@ -194,12 +225,12 @@ export default function LaundryCountPage() {
         if (!mounted) return;
 
         setProfile({
-  user_id: session.user.id,
-  email: profileRow?.email || session.user.email || '',
-  name: profileRow?.name || session.user.email || 'User',
-  role: (profileRow?.role || 'HK') as DashboardUser['role'],
-  can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
-});
+          user_id: session.user.id,
+          email: profileRow?.email || session.user.email || '',
+          name: profileRow?.name || session.user.email || 'User',
+          role: (profileRow?.role || 'HK') as DashboardUser['role'],
+          can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+        });
       } catch (err: any) {
         if (!mounted) return;
         setErrorMsg(err?.message || 'Failed to load session');
@@ -214,28 +245,29 @@ export default function LaundryCountPage() {
     };
   }, []);
 
+  const isLaundryOnlyUser = useMemo(() => {
+    return (profile?.email || '').trim().toLowerCase() === LAUNDRY_ONLY_EMAIL;
+  }, [profile]);
+
   const canAccess = useMemo(() => {
-  if (!profile) return false;
+    if (!profile) return false;
+    if (isLaundryOnlyUser) return true;
 
-  if (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER' ||
-    profile.role === 'SUPERVISOR'
-  ) {
-    return true;
-  }
+    if (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      profile.role === 'SUPERVISOR'
+    ) {
+      return true;
+    }
 
-  return profile.can_access_linen_admin === true;
-}, [profile]);
+    return profile.can_access_linen_admin === true;
+  }, [profile, isLaundryOnlyUser]);
 
-const canRunNewDay = useMemo(() => {
-  if (!profile) return false;
-
-  return (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER'
-  );
-}, [profile]);
+  const canRunNewDay = useMemo(() => {
+    if (!profile || isLaundryOnlyUser) return false;
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
+  }, [profile, isLaundryOnlyUser]);
 
   async function checkAlreadyRanToday() {
     const supabase = getSupabaseSafe();
@@ -261,11 +293,12 @@ const canRunNewDay = useMemo(() => {
     try {
       setLoading(true);
       setErrorMsg('');
+      setSuccessMsg('');
 
       const supabase = getSupabaseSafe();
       if (!supabase) throw new Error('Supabase is not configured.');
 
-      const [roomRes, statusRes, entryRes, mapRes] = await Promise.all([
+      const [roomRes, statusRes, entryRes, mapRes, billRes] = await Promise.all([
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type')
@@ -283,17 +316,30 @@ const canRunNewDay = useMemo(() => {
         supabase
           .from('linen_room_type_map')
           .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+        supabase
+          .from('linen_laundry_bill')
+          .select('*')
+          .eq('service_date', serviceDate)
+          .order('block_no', { ascending: true }),
       ]);
 
       if (roomRes.error) throw roomRes.error;
       if (statusRes.error) throw statusRes.error;
       if (entryRes.error) throw entryRes.error;
       if (mapRes.error) throw mapRes.error;
+      if (billRes.error) throw billRes.error;
 
       setRooms((roomRes.data || []) as RoomMasterRow[]);
       setStatuses((statusRes.data || []) as StatusRow[]);
       setEntries((entryRes.data || []) as EntryRow[]);
       setLinenMap((mapRes.data || []) as LinenMapRow[]);
+      setBillRows((billRes.data || []) as LinenBillRow[]);
+
+      const b1 = (billRes.data || []).find((row: any) => Number(row.block_no) === 1);
+      const b2 = (billRes.data || []).find((row: any) => Number(row.block_no) === 2);
+      setBillBlock1(toTotalsFromBillRow(b1));
+      setBillBlock2(toTotalsFromBillRow(b2));
+
       await checkAlreadyRanToday();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load laundry count');
@@ -306,6 +352,12 @@ const canRunNewDay = useMemo(() => {
     void loadData();
   }, [profile, canAccess, serviceDate]);
 
+  useEffect(() => {
+    if (isLaundryOnlyUser) {
+      setPageTab('BILL');
+    }
+  }, [isLaundryOnlyUser]);
+
   const summaries = useMemo(() => {
     const roomByNumber = new Map<string, RoomMasterRow>();
     const mapByRoomType = new Map<string, LinenMapRow>();
@@ -315,10 +367,16 @@ const canRunNewDay = useMemo(() => {
     linenMap.forEach((row) => mapByRoomType.set(row.room_type, row));
     entries.forEach((row) => entryByRoom.set(row.room_number, row));
 
+    const billByBlock = new Map<number, LinenTotals>([
+      [1, billBlock1],
+      [2, billBlock2],
+    ]);
+
     const floorGroups = new Map<string, GroupSummary>();
     const blockGroups = new Map<string, GroupSummary>();
     const grandExpected = zeroTotals();
     const grandActual = zeroTotals();
+    const grandInBill = zeroTotals();
     let grandRoomCount = 0;
     let grandDndCount = 0;
 
@@ -331,6 +389,7 @@ const canRunNewDay = useMemo(() => {
         label: `Block ${blockNo} · Floor ${floorNo}`,
         expected: zeroTotals(),
         actual: zeroTotals(),
+        inBill: zeroTotals(),
         difference: zeroTotals(),
         roomCount: 0,
         dndCount: 0,
@@ -348,6 +407,7 @@ const canRunNewDay = useMemo(() => {
         label: `Block ${blockNo}`,
         expected: zeroTotals(),
         actual: zeroTotals(),
+        inBill: toTotalsFromBillRow(billByBlock.get(blockNo)),
         difference: zeroTotals(),
         roomCount: 0,
         dndCount: 0,
@@ -402,11 +462,14 @@ const canRunNewDay = useMemo(() => {
       }
     });
 
+    addTotals(grandInBill, billBlock1);
+    addTotals(grandInBill, billBlock2);
+
     floorGroups.forEach((group) => {
       group.difference = subtractTotals(group.actual, group.expected);
     });
     blockGroups.forEach((group) => {
-      group.difference = subtractTotals(group.actual, group.expected);
+      group.difference = subtractTotals(group.actual, group.inBill);
     });
 
     const floorList = FLOOR_KEYS.map((key) => floorGroups.get(key)).filter(Boolean) as GroupSummary[];
@@ -417,13 +480,14 @@ const canRunNewDay = useMemo(() => {
       label: 'Grand Total',
       expected: grandExpected,
       actual: grandActual,
-      difference: subtractTotals(grandActual, grandExpected),
+      inBill: grandInBill,
+      difference: subtractTotals(grandActual, grandInBill),
       roomCount: grandRoomCount,
       dndCount: grandDndCount,
     };
 
     return { floorList, blockList, grand };
-  }, [rooms, statuses, entries, linenMap]);
+  }, [rooms, statuses, entries, linenMap, billBlock1, billBlock2]);
 
   useEffect(() => {
     if (summaries.floorList.length > 0 && !summaries.floorList.find((g) => g.key === selectedFloorKey)) {
@@ -486,6 +550,91 @@ const canRunNewDay = useMemo(() => {
     }
   }
 
+  function updateBillValue(block: 1 | 2, key: keyof LinenTotals, rawValue: string) {
+    const parsed = rawValue === '' ? 0 : Math.max(0, Number(rawValue || 0));
+    if (Number.isNaN(parsed)) return;
+
+    const updater = (prev: LinenTotals): LinenTotals => ({
+      ...prev,
+      [key]: parsed,
+    });
+
+    if (block === 1) {
+      setBillBlock1(updater);
+    } else {
+      setBillBlock2(updater);
+    }
+  }
+
+  async function handleSaveBill() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setSavingBill(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error: deleteError } = await supabase
+        .from('linen_laundry_bill')
+        .delete()
+        .eq('service_date', serviceDate);
+
+      if (deleteError) throw deleteError;
+
+      const rows = [
+        {
+          service_date: serviceDate,
+          block_no: 1,
+          ...billBlock1,
+        },
+        {
+          service_date: serviceDate,
+          block_no: 2,
+          ...billBlock2,
+        },
+      ];
+
+      const { error: insertError } = await supabase
+        .from('linen_laundry_bill')
+        .insert(rows);
+
+      if (insertError) throw insertError;
+
+      setSuccessMsg('Laundry Bill saved successfully.');
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save Laundry Bill');
+    } finally {
+      setSavingBill(false);
+    }
+  }
+
+  function renderBillEditor(blockNo: 1 | 2, totals: LinenTotals) {
+    return (
+      <section style={styles.billCard}>
+        <div style={styles.billCardTitle}>Block {blockNo}</div>
+        <div style={styles.billGrid}>
+          {ITEM_DEFS.map((item) => (
+            <div key={`${blockNo}-${item.key}`} style={styles.formGroup}>
+              <label style={styles.formLabel}>{item.label}</label>
+              <input
+                type="number"
+                min="0"
+                value={totals[item.key]}
+                onChange={(e) => updateBillValue(blockNo, item.key, e.target.value)}
+                style={styles.numberInput}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
   if (authLoading) {
     return (
       <main style={styles.page}>
@@ -513,6 +662,42 @@ const canRunNewDay = useMemo(() => {
           <div style={styles.centerTitle}>Access denied</div>
           <p style={styles.centerText}>You do not have permission to access Laundry Count.</p>
           <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (isLaundryOnlyUser) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.shell}>
+          <div style={styles.topBar}>
+            <div>
+              <div style={styles.pageTitle}>Laundry Bill</div>
+              <div style={styles.pageSubTitle}>Service Date: {serviceDate} · {profile.name}</div>
+            </div>
+          </div>
+
+          {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+          {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
+
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Laundry Bill Entry</div>
+            <div style={styles.groupMeta}>Only Laundry Bill is available for this account.</div>
+            {renderBillEditor(1, billBlock1)}
+            {renderBillEditor(2, billBlock2)}
+
+            <div style={styles.billActionRow}>
+              <button
+                type="button"
+                onClick={handleSaveBill}
+                disabled={savingBill}
+                style={{ ...styles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
+              >
+                {savingBill ? 'Saving...' : 'Save Laundry Bill'}
+              </button>
+            </div>
+          </section>
         </div>
       </main>
     );
@@ -564,99 +749,158 @@ const canRunNewDay = useMemo(() => {
         </div>
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>View</div>
+          <div style={styles.sectionTitle}>Page</div>
 
           <div style={styles.modeRow}>
             <button
               type="button"
-              onClick={() => setViewMode('FLOOR')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
+              onClick={() => setPageTab('COUNT')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'COUNT' ? styles.modeBtnActive : {}) }}
             >
-              By Floor
+              Laundry Count
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('BLOCK')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
+              onClick={() => setPageTab('BILL')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'BILL' ? styles.modeBtnActive : {}) }}
             >
-              By Block
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('GRAND')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
-            >
-              Grand Total
+              Laundry Bill
             </button>
           </div>
-
-          {viewMode === 'FLOOR' ? (
-            <div style={styles.selectorRow}>
-              {summaries.floorList.map((group) => (
-                <button
-                  key={group.key}
-                  type="button"
-                  onClick={() => setSelectedFloorKey(group.key)}
-                  style={{ ...styles.selectorBtn, ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}) }}
-                >
-                  {group.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {viewMode === 'BLOCK' ? (
-            <div style={styles.selectorRow}>
-              {summaries.blockList.map((group) => (
-                <button
-                  key={group.key}
-                  type="button"
-                  onClick={() => setSelectedBlockKey(group.key)}
-                  style={{ ...styles.selectorBtn, ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}) }}
-                >
-                  {group.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </section>
 
-        {loading ? (
+        {pageTab === 'BILL' ? (
           <section style={styles.panel}>
-            <div style={styles.emptyState}>Loading laundry count...</div>
-          </section>
-        ) : !selectedSummary ? (
-          <section style={styles.panel}>
-            <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
-          </section>
-        ) : (
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>{selectedSummary.label}</div>
-            <div style={styles.groupMeta}>Rooms: {selectedSummary.roomCount} · DND: {selectedSummary.dndCount}</div>
+            <div style={styles.sectionTitle}>Laundry Bill Entry</div>
+            <div style={styles.groupMeta}>
+              Enter the contractor bill totals for each block. These will appear as In Bill under By Block and Grand Total.
+            </div>
 
-            <div style={styles.itemGrid}>
-              {ITEM_DEFS.map((item) => {
-                const diffValue = selectedSummary.difference[item.key];
-                return (
-                  <div key={item.key} style={styles.itemCard}>
-                    <div style={styles.itemTitle}>{item.label}</div>
-                    <div style={styles.metricRow}>
-                      <span style={styles.metricLabel}>Expected</span>
-                      <span style={styles.metricValue}>{selectedSummary.expected[item.key]}</span>
-                    </div>
-                    <div style={styles.metricRow}>
-                      <span style={styles.metricLabel}>Actual</span>
-                      <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
-                    </div>
-                    <div style={styles.metricRow}>
-                      <span style={styles.metricLabel}>Difference</span>
-                      <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>{formatDiff(diffValue)}</span>
-                    </div>
-                  </div>
-                );
-              })}
+            {renderBillEditor(1, billBlock1)}
+            {renderBillEditor(2, billBlock2)}
+
+            <div style={styles.billActionRow}>
+              <button
+                type="button"
+                onClick={handleSaveBill}
+                disabled={savingBill}
+                style={{ ...styles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
+              >
+                {savingBill ? 'Saving...' : 'Save Laundry Bill'}
+              </button>
             </div>
           </section>
+        ) : (
+          <>
+            <section style={styles.panel}>
+              <div style={styles.sectionTitle}>View</div>
+
+              <div style={styles.modeRow}>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('FLOOR')}
+                  style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
+                >
+                  By Floor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('BLOCK')}
+                  style={{ ...styles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
+                >
+                  By Block
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('GRAND')}
+                  style={{ ...styles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
+                >
+                  Grand Total
+                </button>
+              </div>
+
+              {viewMode === 'FLOOR' ? (
+                <div style={styles.selectorRow}>
+                  {summaries.floorList.map((group) => (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => setSelectedFloorKey(group.key)}
+                      style={{ ...styles.selectorBtn, ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}) }}
+                    >
+                      {group.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {viewMode === 'BLOCK' ? (
+                <div style={styles.selectorRow}>
+                  {summaries.blockList.map((group) => (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => setSelectedBlockKey(group.key)}
+                      style={{ ...styles.selectorBtn, ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}) }}
+                    >
+                      {group.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
+            {loading ? (
+              <section style={styles.panel}>
+                <div style={styles.emptyState}>Loading laundry count...</div>
+              </section>
+            ) : !selectedSummary ? (
+              <section style={styles.panel}>
+                <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
+              </section>
+            ) : (
+              <section style={styles.panel}>
+                <div style={styles.sectionTitle}>{selectedSummary.label}</div>
+                <div style={styles.groupMeta}>Rooms: {selectedSummary.roomCount} · DND: {selectedSummary.dndCount}</div>
+
+                <div style={styles.itemGrid}>
+                  {ITEM_DEFS.map((item) => {
+                    const diffValue = selectedSummary.difference[item.key];
+                    return (
+                      <div key={item.key} style={styles.itemCard}>
+                        <div style={styles.itemTitle}>{item.label}</div>
+
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>Expected</span>
+                          <span style={styles.metricValue}>{selectedSummary.expected[item.key]}</span>
+                        </div>
+
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>Actual Maid Used</span>
+                          <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
+                        </div>
+
+                        {viewMode !== 'FLOOR' ? (
+                          <>
+                            <div style={styles.metricRow}>
+                              <span style={styles.metricLabel}>In Bill</span>
+                              <span style={styles.metricValue}>{selectedSummary.inBill[item.key]}</span>
+                            </div>
+                            <div style={styles.metricRow}>
+                              <span style={styles.metricLabel}>Difference</span>
+                              <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
+                                {formatDiff(diffValue)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </>
         )}
       </div>
     </main>
@@ -828,6 +1072,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: 'pointer',
   },
+  primaryBtn: {
+    border: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
   secondaryBtn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -900,5 +1153,49 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     padding: '12px 16px',
     fontWeight: 700,
+  },
+  billCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    background: '#ffffff',
+    padding: '14px',
+    marginBottom: '14px',
+  },
+  billCardTitle: {
+    fontSize: '20px',
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: '14px',
+  },
+  billGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '12px',
+  },
+  formGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  formLabel: {
+    fontSize: '14px',
+    color: '#334155',
+    fontWeight: 700,
+  },
+  numberInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontSize: '15px',
+    outline: 'none',
+  },
+  billActionRow: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '16px',
   },
 };
