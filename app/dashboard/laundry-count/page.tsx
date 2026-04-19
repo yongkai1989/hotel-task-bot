@@ -469,7 +469,7 @@ export default function LaundryCountPage() {
       group.difference = subtractTotals(group.actual, group.expected);
     });
     blockGroups.forEach((group) => {
-      group.difference = subtractTotals(group.actual, group.inBill);
+      group.difference = subtractTotals(group.inBill, group.actual);
     });
 
     const floorList = FLOOR_KEYS.map((key) => floorGroups.get(key)).filter(Boolean) as GroupSummary[];
