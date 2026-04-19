@@ -481,7 +481,7 @@ export default function LaundryCountPage() {
       expected: grandExpected,
       actual: grandActual,
       inBill: grandInBill,
-      difference: subtractTotals(grandActual, grandInBill),
+      difference: subtractTotals(grandInBill, grandActual),
       roomCount: grandRoomCount,
       dndCount: grandDndCount,
     };
