@@ -235,8 +235,12 @@ export default function HkSpecialProjectPage() {
 
   const canCreate = useMemo(() => {
     if (!profile) return false;
-    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
-  }, [profile]);
+    return (
+      profile.role === 'SUPERUSER' ||
+      profile.role === 'MANAGER' ||
+      (profile.role === 'SUPERVISOR' && isHkSupervisorByEmail)
+    );
+  }, [profile, isHkSupervisorByEmail]);
 
   const canDelete = useMemo(() => {
     if (!profile) return false;
@@ -496,7 +500,7 @@ export default function HkSpecialProjectPage() {
       setNewDueInDaysInput('7');
       setNewHasRoomChecklist(false);
       setShowCreateModal(false);
-      setSuccessMsg('Preventive maintenance task created successfully.');
+      setSuccessMsg('HK Special Project task created successfully.');
 
       await loadAllData();
     } catch (err: any) {
