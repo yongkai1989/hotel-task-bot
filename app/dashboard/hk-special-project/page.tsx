@@ -106,35 +106,6 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
-function addDaysToDate(dateStr: string, days: number) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function parseWholeNumber(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (!/^\d+$/.test(trimmed)) return null;
-  return Number(trimmed);
-}
-
-function dayInputOnChange(
-  next: string,
-  setter: React.Dispatch<React.SetStateAction<string>>
-) {
-  if (next === '') {
-    setter('');
-    return;
-  }
-  if (/^\d+$/.test(next)) {
-    setter(next);
-  }
-}
-
 export default function HkSpecialProjectPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -152,8 +123,7 @@ export default function HkSpecialProjectPage() {
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
-  const [newDueInDaysInput, setNewDueInDaysInput] = useState('7');
+  const [newDueDate, setNewDueDate] = useState(getTodayLocalDateString());
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -385,8 +355,7 @@ export default function HkSpecialProjectPage() {
     setSuccessMsg('');
     setNewTitle('');
     setNewDescription('');
-    setNewRepeatEveryDaysInput('30');
-    setNewDueInDaysInput('7');
+    setNewDueDate(getTodayLocalDateString());
     setNewHasRoomChecklist(false);
     setShowCreateModal(true);
   }
@@ -414,25 +383,22 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
-    const parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
-    if (parsedRepeatEveryDays === null) {
-      setErrorMsg('Please enter Repeat Every days.');
-      return;
-    }
-    if (parsedRepeatEveryDays <= 0) {
-      setErrorMsg('Repeat every days must be more than 0.');
+    const dueDate = newDueDate.trim();
+    if (!dueDate) {
+      setErrorMsg('Please select a due date.');
       return;
     }
 
-    const parsedDueInDays = parseWholeNumber(newDueInDaysInput);
-    if (parsedDueInDays === null) {
-      setErrorMsg('Please enter Due In days.');
+    const today = getTodayLocalDateString();
+    if (dueDate < today) {
+      setErrorMsg('Due date cannot be earlier than today.');
       return;
     }
-    if (parsedDueInDays < 0) {
-      setErrorMsg('Due in days cannot be negative.');
-      return;
-    }
+
+    const dueInDays = Math.floor(
+      (new Date(`${dueDate}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) /
+        (1000 * 60 * 60 * 24)
+    );
 
     try {
       setCreatingTask(true);
@@ -440,7 +406,6 @@ export default function HkSpecialProjectPage() {
       setSuccessMsg('');
 
       const today = getTodayLocalDateString();
-      const dueDate = addDaysToDate(today, parsedDueInDays);
 
       const { data: insertedTask, error: taskError } = await supabase
         .from('hk_special_project_tasks')
@@ -448,8 +413,8 @@ export default function HkSpecialProjectPage() {
           {
             title,
             description: newDescription.trim() || null,
-            repeat_every_days: parsedRepeatEveryDays,
-            due_in_days: parsedDueInDays,
+            repeat_every_days: 0,
+            due_in_days: dueInDays,
             has_room_checklist: newHasRoomChecklist,
             is_active: true,
             created_by_user_id: profile.user_id,
@@ -496,8 +461,7 @@ export default function HkSpecialProjectPage() {
 
       setNewTitle('');
       setNewDescription('');
-      setNewRepeatEveryDaysInput('30');
-      setNewDueInDaysInput('7');
+      setNewDueDate(getTodayLocalDateString());
       setNewHasRoomChecklist(false);
       setShowCreateModal(false);
       setSuccessMsg('HK Special Project task created successfully.');
@@ -610,12 +574,12 @@ export default function HkSpecialProjectPage() {
     }
 
     if (!(profile.role === 'SUPERUSER' || profile.role === 'MANAGER')) {
-      setErrorMsg('You do not have permission to delete routine tasks.');
+      setErrorMsg('You do not have permission to delete tasks.');
       return;
     }
 
     const confirmed = window.confirm(
-      `Delete routine task "${taskTitle}" and all related runs? This cannot be undone.`
+      `Delete task "${taskTitle}" and all related runs? This cannot be undone.`
     );
     if (!confirmed) return;
 
@@ -726,10 +690,6 @@ export default function HkSpecialProjectPage() {
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Due</div>
             <div style={styles.metaValue}>{formatDate(card.run.due_date)}</div>
-          </div>
-          <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Repeat</div>
-            <div style={styles.metaValue}>{card.task.repeat_every_days} days</div>
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Rooms</div>
@@ -869,7 +829,7 @@ export default function HkSpecialProjectPage() {
           <div style={styles.topBarActions}>
             {canCreate ? (
               <button type="button" onClick={openCreateModal} style={styles.primaryHeaderBtn}>
-                Add Routine Task
+                Create Task
               </button>
             ) : null}
 
@@ -910,7 +870,7 @@ export default function HkSpecialProjectPage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Open</div>
               {openCards.length === 0 ? (
-                <div style={styles.emptyState}>No open routine tasks.</div>
+                <div style={styles.emptyState}>No open tasks.</div>
               ) : (
                 <div style={styles.cardsWrap}>
                   {openCards.map((card) => renderTaskCard(card, 'OPEN'))}
@@ -947,7 +907,7 @@ export default function HkSpecialProjectPage() {
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
             <div style={styles.modalTop}>
-              <div style={styles.modalTitle}>Create Routine Task</div>
+              <div style={styles.modalTitle}>Create Task</div>
               <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTask}>
                 ×
               </button>
@@ -975,48 +935,16 @@ export default function HkSpecialProjectPage() {
               />
             </div>
 
-            <div style={styles.formRow}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Repeat Every (Days)</label>
-                <input
-                  type="number"
-                  value={newRepeatEveryDaysInput}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setNewRepeatEveryDaysInput('');
-                      return;
-                    }
-                    if (!Number.isNaN(Number(val))) {
-                      setNewRepeatEveryDaysInput(val);
-                    }
-                  }}
-                  style={styles.input}
-                  placeholder="30"
-                  disabled={creatingTask}
-                />
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Due In (Days)</label>
-                <input
-                  type="number"
-                  value={newDueInDaysInput}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setNewDueInDaysInput('');
-                      return;
-                    }
-                    if (!Number.isNaN(Number(val))) {
-                      setNewDueInDaysInput(val);
-                    }
-                  }}
-                  style={styles.input}
-                  placeholder="7"
-                  disabled={creatingTask}
-                />
-              </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Due Date</label>
+              <input
+                type="date"
+                value={newDueDate}
+                min={getTodayLocalDateString()}
+                onChange={(e) => setNewDueDate(e.target.value)}
+                style={styles.input}
+                disabled={creatingTask}
+              />
             </div>
 
             <label style={styles.checkboxLabel}>
