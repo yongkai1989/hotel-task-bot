@@ -153,6 +153,7 @@ export default function PreventiveMaintenancePage() {
   const [newDescription, setNewDescription] = useState('');
   const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
   const [newDueInDaysInput, setNewDueInDaysInput] = useState('7');
+  const [newStartDate, setNewStartDate] = useState(getTodayLocalDateString());
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -430,6 +431,7 @@ export default function PreventiveMaintenancePage() {
     setNewDescription('');
     setNewRepeatEveryDaysInput('30');
     setNewDueInDaysInput('7');
+    setNewStartDate(getTodayLocalDateString());
     setNewHasRoomChecklist(false);
     setShowCreateModal(true);
   }
@@ -477,13 +479,19 @@ export default function PreventiveMaintenancePage() {
       return;
     }
 
+    const startDateValue = (newStartDate || '').trim();
+    if (!startDateValue) {
+      setErrorMsg('Please select a start date.');
+      return;
+    }
+
     try {
       setCreatingTask(true);
       setErrorMsg('');
       setSuccessMsg('');
 
-      const today = getTodayLocalDateString();
-      const dueDate = addDaysToDate(today, parsedDueInDays);
+      const startDate = newStartDate || getTodayLocalDateString();
+      const dueDate = addDaysToDate(startDate, parsedDueInDays);
 
       const { data: insertedTask, error: taskError } = await supabase
         .from('pm_tasks')
@@ -509,7 +517,7 @@ export default function PreventiveMaintenancePage() {
         .insert([
           {
             pm_task_id: insertedTask.id,
-            run_start_date: today,
+            run_start_date: startDate,
             due_date: dueDate,
             status: 'OPEN',
           },
@@ -541,6 +549,7 @@ export default function PreventiveMaintenancePage() {
       setNewDescription('');
       setNewRepeatEveryDaysInput('30');
       setNewDueInDaysInput('7');
+      setNewStartDate(getTodayLocalDateString());
       setNewHasRoomChecklist(false);
       setShowCreateModal(false);
       setSuccessMsg('Preventive maintenance task created successfully.');
@@ -1014,6 +1023,18 @@ export default function PreventiveMaintenancePage() {
                 onChange={(e) => setNewDescription(e.target.value)}
                 style={styles.textarea}
                 placeholder="Optional notes or SOP"
+                disabled={creatingTask}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Start Date</label>
+              <input
+                type="date"
+                value={newStartDate}
+                min={getTodayLocalDateString()}
+                onChange={(e) => setNewStartDate(e.target.value)}
+                style={styles.input}
                 disabled={creatingTask}
               />
             </div>
