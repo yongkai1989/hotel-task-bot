@@ -112,7 +112,7 @@ export default function DailyFormsPage() {
     { question_text: '', question_description: '', answer_mode: 'YES_NO' },
   ]);
 
-  const supabase = getSupabaseSafe();
+  const supabase = useMemo(() => getSupabaseSafe(), []);
   const today = getTodayLocalDateString();
 
   const isSuper = profile?.role === 'SUPERUSER';
@@ -176,7 +176,7 @@ export default function DailyFormsPage() {
     return () => {
       mounted = false;
     };
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     if (!profile || !canAccess) {
