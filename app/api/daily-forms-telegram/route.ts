@@ -36,9 +36,7 @@ export async function POST(req: Request) {
     }
 
     const negativeAnswers = (answers || []).filter(
-      (a: any) =>
-        a?.answer_mode === 'YES_NO' &&
-        a?.answer_yes_no === false
+      (a: any) => a?.answer_mode === 'YES_NO' && a?.answer_yes_no === false
     );
 
     const lines = [
