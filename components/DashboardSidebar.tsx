@@ -102,7 +102,7 @@ export default function DashboardSidebar({
         HK_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
     );
 
-  const canSeeDailyForms =
+  const canSeeManagementItems =
     !!profile &&
     (profile.role === 'SUPERUSER' || profile.role === 'MANAGER');
 
@@ -112,7 +112,7 @@ export default function DashboardSidebar({
   const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT;
   const showHousekeepingGroup =
     canSeeHkSpecialProject || canSeeChambermaid || canSeeLinenAdmin;
-  const showManagementGroup = canSeeDailyForms;
+  const showManagementGroup = canSeeManagementItems;
 
   function closeSidebar() {
     setSidebarOpen(false);
@@ -450,13 +450,23 @@ export default function DashboardSidebar({
               open={managementOpen}
               setOpen={setManagementOpen}
             >
-              {canSeeDailyForms ? (
+              {canSeeManagementItems ? (
                 <Link
                   href="/dashboard/daily-forms"
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
                   Daily Forms
+                </Link>
+              ) : null}
+
+              {canSeeManagementItems ? (
+                <Link
+                  href="/dashboard/management-tasks"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Management Tasks
                 </Link>
               ) : null}
             </GroupSection>
