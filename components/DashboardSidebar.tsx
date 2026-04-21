@@ -1,883 +1,181 @@
 'use client';
 
-import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 
-type DashboardUser = {
-  email: string;
-  name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
-  can_create_task?: boolean;
-  can_access_chambermaid_entry?: boolean;
-  can_access_linen_admin?: boolean;
-};
+export default function DashboardSidebar() {
+  const [profile, setProfile] = useState<any>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
-type AdminUser = {
-  email: string;
-  name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
-};
+  const supabase = createBrowserSupabaseClient();
 
-const MT_SUPERVISOR_EMAILS = [
-  'mtsup1@hotelhallmark.com',
-  'mtsup2@hotelhallmark.com',
-];
+  useEffect(() => {
+    loadProfile();
+  }, []);
 
-const HK_SUPERVISOR_EMAILS = [
-  'hksup1@hotelhallmark.com',
-  'hksup2@hotelhallmark.com',
-  'hksup3@hotelhallmark.com',
-];
-
-export default function DashboardSidebar({
-  profile,
-  sidebarOpen,
-  setSidebarOpen,
-}: {
-  profile: DashboardUser | null;
-  sidebarOpen: boolean;
-  setSidebarOpen: (value: boolean) => void;
-}) {
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-
-  const [loginModalOpen, setLoginModalOpen] = useState(false);
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [loginBusy, setLoginBusy] = useState(false);
-  const [loginError, setLoginError] = useState('');
-
-  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [passwordBusy, setPasswordBusy] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
-  const [logoutBusy, setLogoutBusy] = useState(false);
-
-  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
-  const [passwordTargetEmail, setPasswordTargetEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-
-  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
-  const [housekeepingOpen, setHousekeepingOpen] = useState(false);
-  const [managementOpen, setManagementOpen] = useState(false);
-
-  const canSeeChambermaid =
-    !!profile &&
-    (profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR' ||
-      profile.can_access_chambermaid_entry === true);
-
-  const canSeeLinenAdmin =
-    !!profile &&
-    (profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR' ||
-      profile.can_access_linen_admin === true);
-
-  const canSeePM =
-    !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'MT' ||
-      (profile.role === 'SUPERVISOR' &&
-        MT_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
-    );
-
-  const canSeeMaintenanceOT =
-    !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'MT'
-    );
-
-  const canSeeHkSpecialProject =
-    !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      (profile.role === 'SUPERVISOR' &&
-        HK_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
-    );
-
-  const canSeeManagementItems =
-    !!profile &&
-    (profile.role === 'SUPERUSER' || profile.role === 'MANAGER');
-
-  const canOpenPasswordModal = !!profile;
-  const isManager = profile?.role === 'MANAGER';
-
-  const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT;
-  const showHousekeepingGroup =
-    canSeeHkSpecialProject || canSeeChambermaid || canSeeLinenAdmin;
-  const showManagementGroup = canSeeManagementItems;
-
-  function closeSidebar() {
-    setSidebarOpen(false);
-  }
-
-  async function getAccessToken() {
+  async function loadProfile() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
-    return session?.access_token || '';
+    if (!session) return;
+
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .single();
+
+    setProfile(data);
   }
 
-  async function fetchJson(
-    input: RequestInfo | URL,
-    init?: RequestInit,
-    timeoutMs = 15000
-  ) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const res = await fetch(input, {
-        ...init,
-        signal: controller.signal,
-        cache: 'no-store',
-      });
-
-      const contentType = res.headers.get('content-type') || '';
-      const isJson = contentType.includes('application/json');
-
-      if (!isJson) {
-        const text = await res.text();
-        throw new Error(text || `Request failed (${res.status})`);
-      }
-
-      const json = await res.json();
-
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || `Request failed (${res.status})`);
-      }
-
-      return json;
-    } catch (error: any) {
-      if (error?.name === 'AbortError') {
-        throw new Error('Request timeout');
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  function openLoginModal() {
-    setLoginError('');
-    setLoginEmail('');
-    setLoginPassword('');
-    setLoginModalOpen(true);
-    closeSidebar();
-  }
-
-  function closeLoginModal() {
-    if (loginBusy) return;
-    setLoginModalOpen(false);
-    setLoginError('');
-    setLoginEmail('');
-    setLoginPassword('');
-  }
-
-  async function handleLogin() {
-    try {
-      const email = loginEmail.trim();
-      if (!email) throw new Error('Please enter email');
-      if (!loginPassword) throw new Error('Please enter password');
-
-      setLoginBusy(true);
-      setLoginError('');
-
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password: loginPassword,
-      });
-
-      if (error) throw error;
-
-      closeLoginModal();
-      window.location.href = '/dashboard';
-    } catch (error: any) {
-      setLoginError(error?.message || 'Login failed');
-    } finally {
-      setLoginBusy(false);
-    }
-  }
-
-  async function handleLogout() {
-    try {
-      setLogoutBusy(true);
-      await supabase.auth.signOut();
-      closeSidebar();
-      window.location.href = '/dashboard';
-    } catch (error: any) {
-      alert(error?.message || 'Logout failed');
-    } finally {
-      setLogoutBusy(false);
-    }
-  }
-
-  async function openPasswordModal() {
-    if (!canOpenPasswordModal) return;
-
-    try {
-      setPasswordError('');
-      setPasswordSuccess('');
-      setNewPassword('');
-      setAdminUsers([]);
-      setPasswordTargetEmail(profile?.email || '');
-      setPasswordModalOpen(true);
-      closeSidebar();
-
-      if (isManager) {
-        const token = await getAccessToken();
-
-        const json = await fetchJson('/api/admin/users', {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        const users = (json.users || []) as AdminUser[];
-        setAdminUsers(users);
-        setPasswordTargetEmail(users[0]?.email || profile?.email || '');
-      }
-    } catch (error: any) {
-      setPasswordError(error?.message || 'Failed to load users');
-    }
-  }
-
-  function closePasswordModal() {
-    if (passwordBusy) return;
-    setPasswordModalOpen(false);
-    setPasswordError('');
-    setPasswordSuccess('');
-    setNewPassword('');
-    setAdminUsers([]);
-    setPasswordTargetEmail('');
-  }
-
-  async function handleChangePassword() {
-    try {
-      if (!profile) {
-        throw new Error('Login required');
-      }
-
-      const trimmed = newPassword.trim();
-
-      if (!trimmed) {
-        throw new Error('Please enter a new password');
-      }
-
-      if (trimmed.length < 6) {
-        throw new Error('Password must be at least 6 characters');
-      }
-
-      setPasswordBusy(true);
-      setPasswordError('');
-      setPasswordSuccess('');
-
-      if (isManager) {
-        if (!passwordTargetEmail) {
-          throw new Error('Please select a user');
-        }
-
-        const token = await getAccessToken();
-
-        await fetchJson('/api/admin/change-password', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            targetEmail: passwordTargetEmail,
-            newPassword: trimmed,
-          }),
-        });
-      } else {
-        const { error } = await supabase.auth.updateUser({
-          password: trimmed,
-        });
-
-        if (error) throw error;
-      }
-
-      setPasswordSuccess('Password updated successfully');
-      setNewPassword('');
-    } catch (error: any) {
-      setPasswordError(error?.message || 'Failed to update password');
-    } finally {
-      setPasswordBusy(false);
-    }
-  }
-
-  function GroupSection({
-    title,
-    open,
-    setOpen,
-    children,
-  }: {
-    title: string;
-    open: boolean;
-    setOpen: (value: boolean) => void;
-    children: React.ReactNode;
-  }) {
-    return (
-      <div style={styles.groupWrap}>
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          style={styles.groupBtn}
-        >
-          <span>{title}</span>
-          <span style={styles.groupChevron}>{open ? '▾' : '▸'}</span>
-        </button>
-        {open ? <div style={styles.groupContent}>{children}</div> : null}
-      </div>
-    );
+  function toggleGroup(name: string) {
+    setOpenGroup(openGroup === name ? null : name);
   }
 
   return (
-    <>
-      {sidebarOpen ? <div onClick={closeSidebar} style={styles.overlay} /> : null}
+    <aside style={styles.sidebar}>
+      <div style={styles.title}>Dashboard</div>
 
-      <aside
-        style={{
-          ...styles.drawer,
-          transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-        }}
-      >
-        <div style={styles.headerRow}>
-          <div style={styles.menuTitle}>Menu</div>
-          <button type="button" onClick={closeSidebar} style={styles.closeBtn} aria-label="Close menu">
-            ✕
-          </button>
-        </div>
+      {/* MANAGEMENT */}
+      {(profile?.role === 'MANAGER' || profile?.role === 'SUPERUSER') && (
+        <div>
+          <div style={styles.group} onClick={() => toggleGroup('management')}>
+            Management
+          </div>
 
-        <nav style={styles.nav}>
-          <Link href="/dashboard" onClick={closeSidebar} style={styles.navBtn}>
-            Dashboard
-          </Link>
-
-          <Link href="/dashboard?view=past" onClick={closeSidebar} style={styles.navBtn}>
-            Past Task
-          </Link>
-
-          {showMaintenanceGroup ? (
-            <GroupSection
-              title="Maintenance"
-              open={maintenanceOpen}
-              setOpen={setMaintenanceOpen}
-            >
-              {canSeePM ? (
-                <Link
-                  href="/dashboard/preventive-maintenance"
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  Preventive Maintenance
-                </Link>
-              ) : null}
-
-              {canSeeMaintenanceOT ? (
-                <Link
-                  href="/dashboard/maintenance-ot"
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  Maintenance OT
-                </Link>
-              ) : null}
-            </GroupSection>
-          ) : null}
-
-          {showHousekeepingGroup ? (
-            <GroupSection
-              title="Housekeeping"
-              open={housekeepingOpen}
-              setOpen={setHousekeepingOpen}
-            >
-              {canSeeHkSpecialProject ? (
-                <Link
-                  href="/dashboard/hk-special-project"
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  HK Special Project
-                </Link>
-              ) : null}
-
-              {canSeeChambermaid ? (
-                <Link
-                  href="/dashboard/chambermaid-entry"
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  Chambermaid Entry
-                </Link>
-              ) : null}
-
-              {canSeeLinenAdmin ? (
-                <>
-                  <Link href="/dashboard/supervisor-update" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Supervisor Update
-                  </Link>
-                  <Link href="/dashboard/laundry-count" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Laundry Count
-                  </Link>
-                  <Link href="/dashboard/stock-card" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Stock Card
-                  </Link>
-                  <Link href="/dashboard/damaged" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Damaged
-                  </Link>
-                  <Link href="/dashboard/linen-history" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Linen History
-                  </Link>
-                </>
-              ) : null}
-            </GroupSection>
-          ) : null}
-
-          {showManagementGroup ? (
-            <GroupSection
-              title="Management"
-              open={managementOpen}
-              setOpen={setManagementOpen}
-            >
-              {canSeeManagementItems ? (
-                <Link
-                  href="/dashboard/daily-forms"
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
+          {openGroup === 'management' && (
+            <div style={styles.sub}>
+              {profile?.can_access_daily_forms && (
+                <Link href="/dashboard/daily-forms" style={styles.link}>
                   Daily Forms
                 </Link>
-              ) : null}
+              )}
 
-              {canSeeManagementItems ? (
-                <Link
-                  href="/dashboard/management-tasks"
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
+              {profile?.can_access_management_tasks && (
+                <Link href="/dashboard/management-tasks" style={styles.link}>
                   Management Tasks
                 </Link>
-              ) : null}
-            </GroupSection>
-          ) : null}
-        </nav>
+              )}
 
-        <div style={styles.footer}>
-          {profile ? (
-            <>
-              <div style={styles.userBox}>
-                <div style={styles.userName}>{profile.name}</div>
-                <div style={styles.userRole}>{profile.role}</div>
-                <div style={styles.userEmail}>{profile.email}</div>
-              </div>
-
-              <button type="button" onClick={openPasswordModal} style={styles.secondaryAction}>
-                {isManager ? 'Change User Password' : 'Change Password'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                style={{
-                  ...styles.primaryAction,
-                  opacity: logoutBusy ? 0.7 : 1,
-                }}
-                disabled={logoutBusy}
-              >
-                {logoutBusy ? 'Logging out...' : 'Log Out'}
-              </button>
-            </>
-          ) : (
-            <>
-              <div style={styles.userBox}>
-                <div style={styles.userName}>Not logged in</div>
-                <div style={styles.userEmail}>Use the button below to sign in.</div>
-              </div>
-
-              <button
-                type="button"
-                onClick={openLoginModal}
-                style={styles.primaryAction}
-              >
-                Log In
-              </button>
-            </>
+              {profile?.role === 'SUPERUSER' && (
+                <Link href="/dashboard/admin-settings" style={styles.link}>
+                  Admin Settings
+                </Link>
+              )}
+            </div>
           )}
         </div>
-      </aside>
+      )}
 
-      {loginModalOpen ? (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalCard}>
-            <div style={styles.modalTitle}>Log In</div>
-
-            <div style={styles.modalLabel}>Email</div>
-            <input
-              type="email"
-              value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
-              placeholder="Enter email"
-              style={styles.input}
-              disabled={loginBusy}
-            />
-
-            <div style={{ ...styles.modalLabel, marginTop: 12 }}>Password</div>
-            <input
-              type="password"
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="Enter password"
-              style={styles.input}
-              disabled={loginBusy}
-            />
-
-            {loginError ? <div style={styles.errorBox}>{loginError}</div> : null}
-
-            <div style={styles.modalActions}>
-              <button
-                type="button"
-                onClick={closeLoginModal}
-                style={styles.modalSecondaryBtn}
-                disabled={loginBusy}
-              >
-                Close
-              </button>
-
-              <button
-                type="button"
-                onClick={handleLogin}
-                style={{
-                  ...styles.modalPrimaryBtn,
-                  opacity: loginBusy ? 0.7 : 1,
-                }}
-                disabled={loginBusy}
-              >
-                {loginBusy ? 'Logging in...' : 'Log In'}
-              </button>
-            </div>
-          </div>
+      {/* MAINTENANCE */}
+      <div>
+        <div style={styles.group} onClick={() => toggleGroup('maintenance')}>
+          Maintenance
         </div>
-      ) : null}
 
-      {passwordModalOpen ? (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalCard}>
-            <div style={styles.modalTitle}>
-              {isManager ? 'Change User Password' : 'Change Password'}
-            </div>
+        {openGroup === 'maintenance' && (
+          <div style={styles.sub}>
+            {profile?.can_access_preventive_maintenance && (
+              <Link href="/dashboard/preventive-maintenance" style={styles.link}>
+                Preventive Maintenance
+              </Link>
+            )}
 
-            {isManager ? (
-              <>
-                <div style={styles.modalLabel}>User</div>
-                <select
-                  value={passwordTargetEmail}
-                  onChange={(e) => setPasswordTargetEmail(e.target.value)}
-                  style={styles.input}
-                  disabled={passwordBusy}
-                >
-                  <option value="">Select user</option>
-                  {adminUsers.map((user) => (
-                    <option key={user.email} value={user.email}>
-                      {user.name} ({user.role}) - {user.email}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : null}
-
-            <div style={{ ...styles.modalLabel, marginTop: isManager ? 12 : 0 }}>New Password</div>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Enter new password"
-              style={styles.input}
-              disabled={passwordBusy}
-            />
-
-            {passwordError ? <div style={styles.errorBox}>{passwordError}</div> : null}
-            {passwordSuccess ? <div style={styles.successBox}>{passwordSuccess}</div> : null}
-
-            <div style={styles.modalActions}>
-              <button
-                type="button"
-                onClick={closePasswordModal}
-                style={styles.modalSecondaryBtn}
-                disabled={passwordBusy}
-              >
-                Close
-              </button>
-
-              <button
-                type="button"
-                onClick={handleChangePassword}
-                style={{
-                  ...styles.modalPrimaryBtn,
-                  opacity: passwordBusy ? 0.7 : 1,
-                }}
-                disabled={passwordBusy}
-              >
-                {passwordBusy ? 'Saving...' : 'Save Password'}
-              </button>
-            </div>
+            {profile?.can_access_maintenance_ot && (
+              <Link href="/dashboard/maintenance-ot" style={styles.link}>
+                Maintenance OT
+              </Link>
+            )}
           </div>
+        )}
+      </div>
+
+      {/* HOUSEKEEPING */}
+      <div>
+        <div style={styles.group} onClick={() => toggleGroup('hk')}>
+          Housekeeping
         </div>
-      ) : null}
-    </>
+
+        {openGroup === 'hk' && (
+          <div style={styles.sub}>
+            {profile?.can_access_hk_special_project && (
+              <Link href="/dashboard/hk-special-project" style={styles.link}>
+                HK Special Project
+              </Link>
+            )}
+
+            {profile?.can_access_chambermaid_entry && (
+              <Link href="/dashboard/chambermaid-entry" style={styles.link}>
+                Chambermaid Entry
+              </Link>
+            )}
+
+            {profile?.can_access_supervisor_update && (
+              <Link href="/dashboard/supervisor-update" style={styles.link}>
+                Supervisor Update
+              </Link>
+            )}
+
+            {profile?.can_access_laundry_count && (
+              <Link href="/dashboard/laundry-count" style={styles.link}>
+                Laundry Count
+              </Link>
+            )}
+
+            {profile?.can_access_stock_card && (
+              <Link href="/dashboard/stock-card" style={styles.link}>
+                Stock Card
+              </Link>
+            )}
+
+            {profile?.can_access_damaged && (
+              <Link href="/dashboard/damaged" style={styles.link}>
+                Damaged
+              </Link>
+            )}
+
+            {profile?.can_access_linen_history && (
+              <Link href="/dashboard/linen-history" style={styles.link}>
+                Linen History
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(15, 23, 42, 0.45)',
-    zIndex: 40,
-  },
-  drawer: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    width: '280px',
-    maxWidth: '86vw',
+const styles: any = {
+  sidebar: {
+    width: 250,
+    background: '#0f172a',
+    color: '#fff',
     height: '100vh',
-    background: '#ffffff',
-    borderRight: '1px solid #e5e7eb',
-    padding: '18px 14px',
-    boxSizing: 'border-box',
-    overflowY: 'auto',
-    zIndex: 50,
-    transition: 'transform 0.22s ease',
-    boxShadow: '0 10px 30px rgba(15,23,42,0.18)',
+    padding: 20,
   },
-  headerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: '18px',
-  },
-  menuTitle: {
-    fontSize: '18px',
+  title: {
+    fontSize: 22,
     fontWeight: 800,
-    color: '#0f172a',
+    marginBottom: 20,
   },
-  closeBtn: {
-    border: '1px solid #e5e7eb',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '10px',
-    width: '36px',
-    height: '36px',
-    cursor: 'pointer',
+  group: {
     fontWeight: 700,
+    marginTop: 10,
+    cursor: 'pointer',
   },
-  nav: {
+  sub: {
+    marginLeft: 10,
+    marginTop: 5,
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: 6,
   },
-  navBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    width: '100%',
+  link: {
+    color: '#cbd5f5',
     textDecoration: 'none',
-    border: '1px solid #e5e7eb',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 700,
-    fontSize: '14px',
-    boxSizing: 'border-box',
-  },
-  groupWrap: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-  },
-  groupBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    border: '1px solid #e5e7eb',
-    background: '#f8fafc',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 800,
-    fontSize: '14px',
-    cursor: 'pointer',
-    boxSizing: 'border-box',
-  },
-  groupChevron: {
-    fontSize: '14px',
-    fontWeight: 800,
-    color: '#475569',
-  },
-  groupContent: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    paddingLeft: '10px',
-  },
-  subNavBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    width: '100%',
-    textDecoration: 'none',
-    border: '1px solid #e5e7eb',
-    background: '#ffffff',
-    color: '#334155',
-    borderRadius: '12px',
-    padding: '11px 14px',
-    fontWeight: 700,
-    fontSize: '14px',
-    boxSizing: 'border-box',
-  },
-  footer: {
-    marginTop: '20px',
-    borderTop: '1px solid #e5e7eb',
-    paddingTop: '12px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  userBox: {
-    border: '1px solid #e5e7eb',
-    borderRadius: '12px',
-    padding: '12px',
-    background: '#f8fafc',
-  },
-  userName: {
-    fontSize: '14px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  userRole: {
-    fontSize: '12px',
-    color: '#475569',
-    fontWeight: 700,
-    marginTop: '2px',
-  },
-  userEmail: {
-    fontSize: '12px',
-    color: '#64748b',
-    marginTop: '4px',
-    wordBreak: 'break-word',
-  },
-  secondaryAction: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  primaryAction: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  modalOverlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(15, 23, 42, 0.45)',
-    zIndex: 60,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '16px',
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: '460px',
-    background: '#ffffff',
-    borderRadius: '18px',
-    border: '1px solid #e2e8f0',
-    boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
-    padding: '18px',
-  },
-  modalTitle: {
-    fontSize: '22px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '14px',
-  },
-  modalLabel: {
-    fontSize: '13px',
-    fontWeight: 700,
-    color: '#334155',
-    marginBottom: '8px',
-  },
-  input: {
-    width: '100%',
-    border: '1px solid #cbd5e1',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-    boxSizing: 'border-box',
-    background: '#ffffff',
-  },
-  modalActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
-    marginTop: '14px',
-  },
-  modalSecondaryBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  modalPrimaryBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  errorBox: {
-    marginTop: '12px',
-    background: '#fef2f2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: '12px',
-    padding: '10px 12px',
-    fontWeight: 600,
-    fontSize: '14px',
-  },
-  successBox: {
-    marginTop: '12px',
-    background: '#ecfdf5',
-    color: '#166534',
-    border: '1px solid #bbf7d0',
-    borderRadius: '12px',
-    padding: '10px 12px',
-    fontWeight: 600,
-    fontSize: '14px',
+    fontSize: 14,
   },
 };
