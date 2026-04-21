@@ -10,62 +10,49 @@ async function telegram(method: string, body: any) {
     body: JSON.stringify(body),
   });
 
-  const data = await res.json();
-  return {
-    httpOk: res.ok,
-    data,
-  };
+  return res.json();
 }
 
 export async function POST(req: Request) {
   try {
-    if (!BOT_TOKEN) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing TELEGRAM_BOT_TOKEN' },
-        { status: 500 }
-      );
+    const { checklistTitle, submittedBy, date, answers } = await req.json();
+
+    // Filter ONLY "No" answers
+    const negativeAnswers = (answers || []).filter(
+      (a: any) =>
+        a.answer_mode === 'YES_NO' &&
+        a.answer_yes_no === false
+    );
+
+    // If no issues, don't send anything
+    if (negativeAnswers.length === 0) {
+      return NextResponse.json({ ok: true });
     }
 
-    const { checklistTitle, submittedBy, date } = await req.json();
-
-    if (!checklistTitle || !submittedBy || !date) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    const text = [
-      '📋 DAILY FORM SUBMITTED',
-      `Checklist: ${checklistTitle}`,
-      `Submitted by: ${submittedBy}`,
+    const messageLines = [
+      'DAILY FORM ALERT',
+      '',
+      `Form: ${checklistTitle}`,
+      `By: ${submittedBy}`,
       `Date: ${date}`,
-    ].join('\n');
+      '',
+      'Issues Found:',
+      ...negativeAnswers.map((a: any) => `❌ ${a.question_text}`)
+    ];
 
-    const tg = await telegram('sendMessage', {
+    const text = messageLines.join('\n');
+
+    await telegram('sendMessage', {
       chat_id: CHAT_ID,
       text,
     });
 
-    if (!tg.httpOk || !tg.data?.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: tg.data?.description || 'Telegram send failed',
-          telegram: tg.data,
-        },
-        { status: 500 }
-      );
-    }
+    return NextResponse.json({ ok: true });
 
-    return NextResponse.json({
-      ok: true,
-      message_id: tg.data.result?.message_id ?? null,
-    });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err?.message || 'Unknown error' },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      ok: false,
+      error: err?.message || 'Telegram send failed',
+    });
   }
 }
