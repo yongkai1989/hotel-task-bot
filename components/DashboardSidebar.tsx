@@ -7,7 +7,33 @@ import {
   type DashboardProfile,
   getEffectiveProfile,
   loadDashboardProfileClient,
+  emptyProfile,
 } from '../lib/dashboardProfileClient';
+
+type LegacyDashboardUser = {
+  user_id?: string;
+  email: string;
+  name: string;
+  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
+  can_create_task?: boolean;
+  can_edit_task?: boolean;
+  can_delete_task?: boolean;
+  can_access_preventive_maintenance?: boolean;
+  can_access_maintenance_ot?: boolean;
+  can_access_hk_special_project?: boolean;
+  can_access_chambermaid_entry?: boolean;
+  can_access_supervisor_update?: boolean;
+  can_access_laundry_count?: boolean;
+  can_access_stock_card?: boolean;
+  can_access_damaged?: boolean;
+  can_access_linen_history?: boolean;
+  can_access_daily_forms?: boolean;
+  can_access_management_tasks?: boolean;
+  can_access_admin_settings?: boolean;
+  can_access_linen_admin?: boolean;
+};
+
+type SidebarProfileInput = DashboardProfile | LegacyDashboardUser | null;
 
 type AdminUser = {
   email: string;
@@ -15,17 +41,52 @@ type AdminUser = {
   role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT' | 'SUPERVISOR';
 };
 
+function normalizeProfileInput(profile: SidebarProfileInput): DashboardProfile | null {
+  if (!profile) return null;
+
+  return {
+    ...emptyProfile(),
+    ...profile,
+    user_id: String(profile.user_id || ''),
+    email: String(profile.email || '').toLowerCase(),
+    name: String(profile.name || ''),
+    role: profile.role,
+    can_access_supervisor_update:
+      profile.can_access_supervisor_update ??
+      profile.can_access_linen_admin ??
+      false,
+    can_access_laundry_count:
+      profile.can_access_laundry_count ??
+      profile.can_access_linen_admin ??
+      false,
+    can_access_stock_card:
+      profile.can_access_stock_card ??
+      profile.can_access_linen_admin ??
+      false,
+    can_access_damaged:
+      profile.can_access_damaged ??
+      profile.can_access_linen_admin ??
+      false,
+    can_access_linen_history:
+      profile.can_access_linen_history ??
+      profile.can_access_linen_admin ??
+      false,
+  };
+}
+
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
   setSidebarOpen,
 }: {
-  profile: DashboardProfile | null;
+  profile: SidebarProfileInput;
   sidebarOpen: boolean;
   setSidebarOpen: (value: boolean) => void;
 }) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const [resolvedProfile, setResolvedProfile] = useState<DashboardProfile | null>(profile);
+  const [resolvedProfile, setResolvedProfile] = useState<DashboardProfile | null>(
+    normalizeProfileInput(profile)
+  );
   const [profileLoading, setProfileLoading] = useState(!profile);
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
@@ -49,14 +110,14 @@ export default function DashboardSidebar({
   const [managementOpen, setManagementOpen] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
+    let mounted = true
 
     async function refreshProfile() {
       try {
         setProfileLoading(true);
         const loaded = await loadDashboardProfileClient();
         if (!mounted) return;
-        setResolvedProfile(loaded);
+        setResolvedProfile(loaded ?? normalizeProfileInput(profile));
       } finally {
         if (mounted) setProfileLoading(false);
       }
@@ -70,13 +131,11 @@ export default function DashboardSidebar({
   }, []);
 
   useEffect(() => {
-    if (profile) {
-      setResolvedProfile(profile);
-      setProfileLoading(false);
-    }
+    setResolvedProfile((prev) => prev ?? normalizeProfileInput(profile));
+    if (profile) setProfileLoading(false);
   }, [profile]);
 
-  const currentProfile = resolvedProfile;
+  const currentProfile = resolvedProfile ?? normalizeProfileInput(profile);
   const effectiveProfile = currentProfile ? getEffectiveProfile(currentProfile) : null;
 
   const canSeeDashboard = true;
