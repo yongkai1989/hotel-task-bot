@@ -27,6 +27,7 @@ type Question = {
   question_description?: string | null;
   answer_mode: 'YES_NO' | 'SHORT_TEXT';
   sort_order: number;
+  is_required: boolean;
 };
 
 type Submission = {
@@ -53,6 +54,7 @@ type DraftQuestion = {
   question_text: string;
   question_description: string;
   answer_mode: 'YES_NO' | 'SHORT_TEXT';
+  is_required: boolean;
 };
 
 type ViewMode = 'LIST' | 'FORM' | 'HISTORY' | 'VIEW_SUBMISSION';
@@ -114,7 +116,7 @@ export default function DailyFormsPage() {
 
   const [draftTitle, setDraftTitle] = useState('');
   const [draftQuestions, setDraftQuestions] = useState<DraftQuestion[]>([
-    { question_text: '', question_description: '', answer_mode: 'YES_NO' },
+    { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
   ]);
 
   const [errorMsg, setErrorMsg] = useState('');
@@ -317,7 +319,7 @@ export default function DailyFormsPage() {
   function openCreateModal() {
     setTemplateModalMode('CREATE');
     setDraftTitle('');
-    setDraftQuestions([{ question_text: '', question_description: '', answer_mode: 'YES_NO' }]);
+    setDraftQuestions([{ question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false }]);
     setShowTemplateModal(true);
     setErrorMsg('');
     setSuccessMsg('');
@@ -333,6 +335,7 @@ export default function DailyFormsPage() {
         question_text: question.question_text,
         question_description: question.question_description || '',
         answer_mode: question.answer_mode,
+        is_required: question.is_required ?? false,
       }))
     );
     setShowTemplateModal(true);
@@ -354,7 +357,7 @@ export default function DailyFormsPage() {
   function addDraftQuestion() {
     setDraftQuestions((prev) => [
       ...prev,
-      { question_text: '', question_description: '', answer_mode: 'YES_NO' },
+      { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
     ]);
   }
 
@@ -381,6 +384,7 @@ export default function DailyFormsPage() {
         ...q,
         question_text: q.question_text.trim(),
         question_description: q.question_description.trim(),
+        is_required: q.is_required ?? false,
       }))
       .filter((q) => q.question_text);
 
@@ -415,6 +419,7 @@ export default function DailyFormsPage() {
           question_text: question.question_text,
           question_description: question.question_description || null,
           answer_mode: question.answer_mode,
+          is_required: question.is_required,
           sort_order: index,
         }));
 
@@ -449,6 +454,7 @@ export default function DailyFormsPage() {
                 question_text: question.question_text,
                 question_description: question.question_description || null,
                 answer_mode: question.answer_mode,
+                is_required: question.is_required,
                 sort_order: i,
               })
               .eq('id', question.existingId);
@@ -540,6 +546,24 @@ export default function DailyFormsPage() {
 
   async function handleSaveSubmission() {
     if (!supabase || !profile?.user_id || !selectedTemplate) return;
+
+    for (const question of selectedQuestions) {
+      if (!question.is_required) continue;
+
+      const answer = answers[question.id];
+
+      if (question.answer_mode === 'YES_NO') {
+        if (answer?.answer_yes_no !== true && answer?.answer_yes_no !== false) {
+          setErrorMsg(`Please answer required question: ${question.question_text}`);
+          return;
+        }
+      } else {
+        if (!answer?.answer_text || !answer.answer_text.trim()) {
+          setErrorMsg(`Please answer required question: ${question.question_text}`);
+          return;
+        }
+      }
+    }
 
     try {
       setSavingAnswers(true);
@@ -826,7 +850,12 @@ export default function DailyFormsPage() {
               {selectedQuestions.map((question, index) => (
                 <div key={question.id} style={styles.questionCard}>
                   <div style={styles.questionNumber}>Question {index + 1}</div>
-                  <div style={styles.questionText}>{question.question_text}</div>
+                  <div style={styles.questionTitleRow}>
+                    <div style={styles.questionText}>{question.question_text}</div>
+                    {question.is_required ? (
+                      <span style={styles.requiredBadge}>Required</span>
+                    ) : null}
+                  </div>
                   {question.question_description ? (
                     <div style={styles.questionDescription}>{question.question_description}</div>
                   ) : null}
@@ -935,7 +964,12 @@ export default function DailyFormsPage() {
                 .map((question, index) => (
                   <div key={question.id} style={styles.questionCard}>
                     <div style={styles.questionNumber}>Question {index + 1}</div>
-                    <div style={styles.questionText}>{question.question_text}</div>
+                    <div style={styles.questionTitleRow}>
+                      <div style={styles.questionText}>{question.question_text}</div>
+                      {question.is_required ? (
+                        <span style={styles.requiredBadge}>Required</span>
+                      ) : null}
+                    </div>
                     {question.question_description ? (
                       <div style={styles.questionDescription}>{question.question_description}</div>
                     ) : null}
@@ -1034,6 +1068,21 @@ export default function DailyFormsPage() {
                       <option value="SHORT_TEXT">Short Text</option>
                     </select>
                   </div>
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={question.is_required}
+                      onChange={(e) =>
+                        setDraftQuestions((prev) =>
+                          prev.map((item, i) =>
+                            i === index ? { ...item, is_required: e.target.checked } : item
+                          )
+                        )
+                      }
+                      disabled={templateSaving}
+                    />
+                    <span>Compulsory question</span>
+                  </label>
 
                   {question.existingId ? (
                     <div style={styles.lockNotice}>
@@ -1097,7 +1146,9 @@ const styles: Record<string, React.CSSProperties> = {
   questionList: { display: 'flex', flexDirection: 'column', gap: '14px' },
   questionCard: { border: '1px solid #e2e8f0', background: '#ffffff', borderRadius: '20px', padding: '16px' },
   questionNumber: { fontSize: '12px', color: '#64748b', fontWeight: 800, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  questionTitleRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' },
   questionText: { fontSize: '18px', fontWeight: 800, color: '#0f172a', lineHeight: 1.35 },
+  requiredBadge: { background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '999px', padding: '6px 10px', fontSize: '12px', fontWeight: 800 },
   questionDescription: { fontSize: '14px', color: '#475569', lineHeight: 1.6, marginTop: '8px', whiteSpace: 'pre-wrap' },
   answerBtnRow: { display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' },
   answerChoiceBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '12px', padding: '12px 18px', fontWeight: 800, cursor: 'pointer', minWidth: '110px' },
@@ -1131,6 +1182,7 @@ const styles: Record<string, React.CSSProperties> = {
   removeBtn: { border: '1px solid #ef4444', background: '#ffffff', color: '#ef4444', borderRadius: '12px', padding: '10px 14px', fontWeight: 800, cursor: 'pointer' },
   formGroup: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' },
   label: { fontSize: '14px', color: '#334155', fontWeight: 800 },
+  checkboxLabel: { display: 'flex', alignItems: 'center', gap: '10px', color: '#334155', fontWeight: 700, marginBottom: '8px' },
   input: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 14px', fontSize: '15px', outline: 'none' },
   textarea: { width: '100%', boxSizing: 'border-box', minHeight: '100px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical', marginTop: '14px' },
   textareaCompact: { width: '100%', boxSizing: 'border-box', minHeight: '88px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },
