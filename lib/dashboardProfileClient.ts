@@ -1,6 +1,6 @@
 'use client';
 
-import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
+import { createBrowserSupabaseClient } from './supabaseBrowser';
 
 export type DashboardProfile = {
   user_id: string;
