@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { createClient } from '@supabase/supabase-js';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
-
-type AuthUser = {
-  id: string;
-  email?: string | null;
-  user_metadata?: {
-    name?: string | null;
-    role?: string | null;
-  } | null;
-};
 
 function emptyPermissions() {
   return {
@@ -51,58 +42,28 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const [{ data: authData, error: authError }, { data: profileRows, error: profileError }] =
-      await Promise.all([
-        supabaseAdmin.auth.admin.listUsers(),
-        supabaseAdmin.from('user_profiles').select('*'),
-      ]);
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    if (authError) {
+    const { data, error: usersError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .order('role', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (usersError) {
       return NextResponse.json(
-        { ok: false, error: authError.message || 'Failed to list auth users' },
+        { ok: false, error: usersError.message },
         { status: 500 }
       );
     }
 
-    if (profileError) {
-      return NextResponse.json(
-        { ok: false, error: profileError.message || 'Failed to load user profiles' },
-        { status: 500 }
-      );
-    }
-
-    const profilesByEmail = new Map<string, any>();
-    (profileRows || []).forEach((row: any) => {
-      const email = String(row.email || '').trim().toLowerCase();
-      if (email) profilesByEmail.set(email, row);
-    });
-
-    const users = ((authData?.users || []) as AuthUser[]).map((authUser) => {
-      const email = String(authUser.email || '').trim().toLowerCase();
-      const profile = profilesByEmail.get(email);
-
-      return {
-        user_id: profile?.user_id || authUser.id,
-        email,
-        name:
-          profile?.name ||
-          authUser.user_metadata?.name ||
-          email ||
-          'Unnamed User',
-        role:
-          profile?.role ||
-          authUser.user_metadata?.role ||
-          'FO',
-        ...emptyPermissions(),
-        ...(profile || {}),
-      };
-    });
-
-    users.sort((a, b) => {
-      if (a.role === 'SUPERUSER' && b.role !== 'SUPERUSER') return -1;
-      if (a.role !== 'SUPERUSER' && b.role === 'SUPERUSER') return 1;
-      return String(a.email).localeCompare(String(b.email));
-    });
+    const users = (data || []).map((row: any) => ({
+      ...emptyPermissions(),
+      ...row,
+    }));
 
     return NextResponse.json({ ok: true, users });
   } catch (error: any) {
