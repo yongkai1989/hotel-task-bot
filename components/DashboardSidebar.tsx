@@ -3,14 +3,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
-import {
-  type DashboardProfile,
-  getEffectiveProfile,
-  loadDashboardProfileClient,
-  emptyProfile,
-} from '../lib/dashboardProfileClient';
 
-type LegacyDashboardUser = {
+type SidebarProfile = {
   user_id?: string;
   email: string;
   name: string;
@@ -33,44 +27,112 @@ type LegacyDashboardUser = {
   can_access_linen_admin?: boolean;
 };
 
-type SidebarProfileInput = DashboardProfile | LegacyDashboardUser | null;
-
 type AdminUser = {
   email: string;
   name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT' | 'SUPERVISOR';
+  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 };
 
-function normalizeProfileInput(profile: SidebarProfileInput): DashboardProfile | null {
+type EffectiveProfile = Required<
+  Pick<
+    SidebarProfile,
+    | 'email'
+    | 'name'
+    | 'role'
+    | 'can_create_task'
+    | 'can_edit_task'
+    | 'can_delete_task'
+    | 'can_access_preventive_maintenance'
+    | 'can_access_maintenance_ot'
+    | 'can_access_hk_special_project'
+    | 'can_access_chambermaid_entry'
+    | 'can_access_supervisor_update'
+    | 'can_access_laundry_count'
+    | 'can_access_stock_card'
+    | 'can_access_damaged'
+    | 'can_access_linen_history'
+    | 'can_access_daily_forms'
+    | 'can_access_management_tasks'
+    | 'can_access_admin_settings'
+  >
+> & {
+  user_id: string;
+};
+
+function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | null {
   if (!profile) return null;
 
+  const rawLinenAdmin = !!profile.can_access_linen_admin;
+  const role = profile.role;
+
   return {
-    ...emptyProfile(),
-    ...profile,
     user_id: String(profile.user_id || ''),
     email: String(profile.email || '').toLowerCase(),
     name: String(profile.name || ''),
-    role: profile.role,
+    role,
+    can_create_task: !!profile.can_create_task,
+    can_edit_task: !!profile.can_edit_task,
+    can_delete_task: !!profile.can_delete_task,
+    can_access_preventive_maintenance: !!profile.can_access_preventive_maintenance,
+    can_access_maintenance_ot: !!profile.can_access_maintenance_ot,
+    can_access_hk_special_project: !!profile.can_access_hk_special_project,
+    can_access_chambermaid_entry: !!profile.can_access_chambermaid_entry,
     can_access_supervisor_update:
-      profile.can_access_supervisor_update ??
-      profile.can_access_linen_admin ??
-      false,
+      profile.can_access_supervisor_update ?? rawLinenAdmin,
     can_access_laundry_count:
-      profile.can_access_laundry_count ??
-      profile.can_access_linen_admin ??
-      false,
+      profile.can_access_laundry_count ?? rawLinenAdmin,
     can_access_stock_card:
-      profile.can_access_stock_card ??
-      profile.can_access_linen_admin ??
-      false,
+      profile.can_access_stock_card ?? rawLinenAdmin,
     can_access_damaged:
-      profile.can_access_damaged ??
-      profile.can_access_linen_admin ??
-      false,
+      profile.can_access_damaged ?? rawLinenAdmin,
     can_access_linen_history:
-      profile.can_access_linen_history ??
-      profile.can_access_linen_admin ??
-      false,
+      profile.can_access_linen_history ?? rawLinenAdmin,
+    can_access_daily_forms: !!profile.can_access_daily_forms,
+    can_access_management_tasks: !!profile.can_access_management_tasks,
+    can_access_admin_settings: !!profile.can_access_admin_settings,
+  };
+}
+
+function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile | null {
+  if (!profile) return null;
+
+  const isSuper = profile.role === 'SUPERUSER';
+  const isManager = profile.role === 'MANAGER';
+  const isSupervisor = profile.role === 'SUPERVISOR';
+  const isMt = profile.role === 'MT';
+
+  return {
+    ...profile,
+    can_access_preventive_maintenance:
+      isSuper || isManager || isMt || profile.can_access_preventive_maintenance,
+    can_access_maintenance_ot:
+      isSuper || isManager || isMt || profile.can_access_maintenance_ot,
+    can_access_hk_special_project:
+      isSuper || isManager || profile.can_access_hk_special_project,
+    can_access_chambermaid_entry:
+      isSuper || isManager || isSupervisor || profile.can_access_chambermaid_entry,
+    can_access_supervisor_update:
+      isSuper || isManager || isSupervisor || profile.can_access_supervisor_update,
+    can_access_laundry_count:
+      isSuper || isManager || isSupervisor || profile.can_access_laundry_count,
+    can_access_stock_card:
+      isSuper || isManager || isSupervisor || profile.can_access_stock_card,
+    can_access_damaged:
+      isSuper || isManager || isSupervisor || profile.can_access_damaged,
+    can_access_linen_history:
+      isSuper || isManager || isSupervisor || profile.can_access_linen_history,
+    can_access_daily_forms:
+      isSuper || isManager || profile.can_access_daily_forms,
+    can_access_management_tasks:
+      isSuper || isManager || profile.can_access_management_tasks,
+    can_access_admin_settings:
+      isSuper || profile.can_access_admin_settings,
+    can_create_task:
+      isSuper || profile.can_create_task,
+    can_edit_task:
+      isSuper || profile.can_edit_task,
+    can_delete_task:
+      isSuper || profile.can_delete_task,
   };
 }
 
@@ -79,15 +141,16 @@ export default function DashboardSidebar({
   sidebarOpen,
   setSidebarOpen,
 }: {
-  profile: SidebarProfileInput;
+  profile: SidebarProfile | null;
   sidebarOpen: boolean;
   setSidebarOpen: (value: boolean) => void;
 }) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const [resolvedProfile, setResolvedProfile] = useState<DashboardProfile | null>(
-    normalizeProfileInput(profile)
+
+  const [resolvedProfile, setResolvedProfile] = useState<EffectiveProfile | null>(
+    normalizeProfile(profile)
   );
-  const [profileLoading, setProfileLoading] = useState(!profile);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -110,33 +173,79 @@ export default function DashboardSidebar({
   const [managementOpen, setManagementOpen] = useState(false);
 
   useEffect(() => {
-    let mounted = true
+    setResolvedProfile(normalizeProfile(profile));
+  }, [profile]);
 
-    async function refreshProfile() {
+  useEffect(() => {
+    let mounted = true;
+
+    async function refreshProfileFromDb() {
       try {
         setProfileLoading(true);
-        const loaded = await loadDashboardProfileClient();
-        if (!mounted) return;
-        setResolvedProfile(loaded ?? normalizeProfileInput(profile));
+
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError) throw sessionError;
+        if (!session?.user) {
+          if (mounted) setResolvedProfile(normalizeProfile(profile));
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select(
+            `
+            user_id,
+            email,
+            name,
+            role,
+            can_create_task,
+            can_edit_task,
+            can_delete_task,
+            can_access_preventive_maintenance,
+            can_access_maintenance_ot,
+            can_access_hk_special_project,
+            can_access_chambermaid_entry,
+            can_access_supervisor_update,
+            can_access_laundry_count,
+            can_access_stock_card,
+            can_access_damaged,
+            can_access_linen_history,
+            can_access_daily_forms,
+            can_access_management_tasks,
+            can_access_admin_settings,
+            can_access_linen_admin
+          `
+          )
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (mounted) {
+          setResolvedProfile(normalizeProfile((data as SidebarProfile | null) ?? profile));
+        }
+      } catch {
+        if (mounted) {
+          setResolvedProfile(normalizeProfile(profile));
+        }
       } finally {
         if (mounted) setProfileLoading(false);
       }
     }
 
-    void refreshProfile();
+    void refreshProfileFromDb();
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [profile, supabase]);
 
-  useEffect(() => {
-    setResolvedProfile((prev) => prev ?? normalizeProfileInput(profile));
-    if (profile) setProfileLoading(false);
-  }, [profile]);
-
-  const currentProfile = resolvedProfile ?? normalizeProfileInput(profile);
-  const effectiveProfile = currentProfile ? getEffectiveProfile(currentProfile) : null;
+  const currentProfile = resolvedProfile;
+  const effectiveProfile = getEffectiveProfile(currentProfile);
 
   const canSeeDashboard = true;
   const canSeePastTask = true;
@@ -166,9 +275,7 @@ export default function DashboardSidebar({
     canSeeDamaged ||
     canSeeLinenHistory;
   const showManagementGroup =
-    canSeeDailyForms ||
-    canSeeManagementTasks ||
-    canSeeAdminSettings;
+    canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
 
   const canOpenPasswordModal = !!currentProfile;
   const isManager = currentProfile?.role === 'MANAGER';
