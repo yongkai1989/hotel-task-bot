@@ -632,6 +632,27 @@ export default function DailyFormsPage() {
 
       if (answerError) throw answerError;
 
+      await fetch('/api/daily-forms-telegram', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          checklistTitle: selectedTemplate.title,
+          submittedBy: profile.name || profile.email,
+          date: today,
+          action: createdNewSubmission ? 'submit' : 'update',
+          answers: selectedQuestions.map((question) => ({
+            question_text: question.question_text,
+            answer_mode: question.answer_mode,
+            answer_yes_no:
+              question.answer_mode === 'YES_NO'
+                ? answers[question.id]?.answer_yes_no ?? null
+                : null,
+          })),
+        }),
+      });
+
       setSuccessMsg(
         createdNewSubmission ? 'Form submitted successfully.' : 'Answers updated successfully.'
       );
