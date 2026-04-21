@@ -11,7 +11,6 @@ type UserProfile = {
   email: string;
   name: string;
   role: Role;
-
   can_access_preventive_maintenance: boolean;
   can_access_maintenance_ot: boolean;
   can_access_hk_special_project: boolean;
@@ -24,30 +23,18 @@ type UserProfile = {
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
   can_access_admin_settings: boolean;
-
   can_create_task: boolean;
   can_edit_task: boolean;
   can_delete_task: boolean;
 };
 
-type EditableUser = UserProfile & {
-  newPassword?: string;
-};
-
-type AdminRouteUser = Partial<UserProfile> & {
-  id?: string;
-  user_id?: string;
-  email?: string;
-  name?: string;
-  role?: Role;
-};
+type EditableUser = UserProfile & { newPassword?: string };
 
 const roleOptions: Role[] = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'];
 
 const accessFieldDefs: Array<{ key: keyof UserProfile; label: string; group: 'Maintenance' | 'Housekeeping' | 'Management' | 'Actions' }> = [
   { key: 'can_access_preventive_maintenance', label: 'Preventive Maintenance', group: 'Maintenance' },
   { key: 'can_access_maintenance_ot', label: 'Maintenance OT', group: 'Maintenance' },
-
   { key: 'can_access_hk_special_project', label: 'HK Special Project', group: 'Housekeeping' },
   { key: 'can_access_chambermaid_entry', label: 'Chambermaid Entry', group: 'Housekeeping' },
   { key: 'can_access_supervisor_update', label: 'Supervisor Update', group: 'Housekeeping' },
@@ -55,11 +42,9 @@ const accessFieldDefs: Array<{ key: keyof UserProfile; label: string; group: 'Ma
   { key: 'can_access_stock_card', label: 'Stock Card', group: 'Housekeeping' },
   { key: 'can_access_damaged', label: 'Damaged', group: 'Housekeeping' },
   { key: 'can_access_linen_history', label: 'Linen History', group: 'Housekeeping' },
-
   { key: 'can_access_daily_forms', label: 'Daily Forms', group: 'Management' },
   { key: 'can_access_management_tasks', label: 'Management Tasks', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
-
   { key: 'can_create_task', label: 'Can Create', group: 'Actions' },
   { key: 'can_edit_task', label: 'Can Edit', group: 'Actions' },
   { key: 'can_delete_task', label: 'Can Delete', group: 'Actions' },
@@ -85,9 +70,9 @@ function emptyPermissions() {
   };
 }
 
-function normalizeUser(row: Partial<UserProfile> & { user_id?: string; id?: string; email?: string; name?: string; role?: Role }): UserProfile {
+function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: string; name?: string; role?: Role }): UserProfile {
   return {
-    user_id: String(row.user_id || row.id || ''),
+    user_id: String(row.user_id || ''),
     email: String(row.email || '').toLowerCase(),
     name: String(row.name || ''),
     role: (row.role || 'FO') as Role,
@@ -103,54 +88,37 @@ function getEffectiveAccess(user: UserProfile) {
   const isMt = user.role === 'MT';
 
   return {
-    can_access_preventive_maintenance:
-      isSuper || isManager || isMt || !!user.can_access_preventive_maintenance,
-    can_access_maintenance_ot:
-      isSuper || isManager || isMt || !!user.can_access_maintenance_ot,
-    can_access_hk_special_project:
-      isSuper || isManager || !!user.can_access_hk_special_project,
-    can_access_chambermaid_entry:
-      isSuper || isManager || isSupervisor || !!user.can_access_chambermaid_entry,
-    can_access_supervisor_update:
-      isSuper || isManager || isSupervisor || !!user.can_access_supervisor_update,
-    can_access_laundry_count:
-      isSuper || isManager || isSupervisor || !!user.can_access_laundry_count,
-    can_access_stock_card:
-      isSuper || isManager || isSupervisor || !!user.can_access_stock_card,
-    can_access_damaged:
-      isSuper || isManager || isSupervisor || !!user.can_access_damaged,
-    can_access_linen_history:
-      isSuper || isManager || isSupervisor || !!user.can_access_linen_history,
-    can_access_daily_forms:
-      isSuper || isManager || !!user.can_access_daily_forms,
-    can_access_management_tasks:
-      isSuper || isManager || !!user.can_access_management_tasks,
-    can_access_admin_settings:
-      isSuper || !!user.can_access_admin_settings,
-    can_create_task:
-      isSuper || !!user.can_create_task,
-    can_edit_task:
-      isSuper || !!user.can_edit_task,
-    can_delete_task:
-      isSuper || !!user.can_delete_task,
+    can_access_preventive_maintenance: isSuper || isManager || isMt || !!user.can_access_preventive_maintenance,
+    can_access_maintenance_ot: isSuper || isManager || isMt || !!user.can_access_maintenance_ot,
+    can_access_hk_special_project: isSuper || isManager || !!user.can_access_hk_special_project,
+    can_access_chambermaid_entry: isSuper || isManager || isSupervisor || !!user.can_access_chambermaid_entry,
+    can_access_supervisor_update: isSuper || isManager || isSupervisor || !!user.can_access_supervisor_update,
+    can_access_laundry_count: isSuper || isManager || isSupervisor || !!user.can_access_laundry_count,
+    can_access_stock_card: isSuper || isManager || isSupervisor || !!user.can_access_stock_card,
+    can_access_damaged: isSuper || isManager || isSupervisor || !!user.can_access_damaged,
+    can_access_linen_history: isSuper || isManager || isSupervisor || !!user.can_access_linen_history,
+    can_access_daily_forms: isSuper || isManager || !!user.can_access_daily_forms,
+    can_access_management_tasks: isSuper || isManager || !!user.can_access_management_tasks,
+    can_access_admin_settings: isSuper || !!user.can_access_admin_settings,
+    can_create_task: isSuper || !!user.can_create_task,
+    can_edit_task: isSuper || !!user.can_edit_task,
+    can_delete_task: isSuper || !!user.can_delete_task,
   };
 }
 
 export default function AdminSettingsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-
   const [me, setMe] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [selectedUserId, setSelectedUserId] = useState('');
   const [draft, setDraft] = useState<EditableUser | null>(null);
-
-  const [statusMsg, setStatusMsg] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   const [createName, setCreateName] = useState('');
   const [createEmail, setCreateEmail] = useState('');
@@ -166,8 +134,7 @@ export default function AdminSettingsPage() {
       setDraft(null);
       return;
     }
-
-    const selected = users.find((user) => user.user_id === selectedUserId);
+    const selected = users.find((u) => u.user_id === selectedUserId);
     setDraft(selected ? { ...selected, newPassword: '' } : null);
   }, [selectedUserId, users]);
 
@@ -175,20 +142,13 @@ export default function AdminSettingsPage() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-
     return session?.access_token || '';
   }
 
   async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
-    const res = await fetch(input, {
-      ...init,
-      cache: 'no-store',
-    });
-
+    const res = await fetch(input, { ...init, cache: 'no-store' });
     const json = await res.json();
-    if (!res.ok || !json?.ok) {
-      throw new Error(json?.error || `Request failed (${res.status})`);
-    }
+    if (!res.ok || !json?.ok) throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
   }
 
@@ -225,17 +185,16 @@ export default function AdminSettingsPage() {
       setMe(meProfile);
 
       const token = await getAccessToken();
-      const routeUsersJson = await fetchJson('/api/admin/users', {
+      const json = await fetchJson('/api/admin/users', {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const nextUsers = ((routeUsersJson.users || []) as AdminRouteUser[]).map(normalizeUser);
-
+      const nextUsers = (json.users || []).map(normalizeUser);
       setUsers(nextUsers);
 
       if (nextUsers.length > 0) {
-        const meInList = nextUsers.find((u) => u.user_id === meProfile.user_id);
+        const meInList = nextUsers.find((u: UserProfile) => u.user_id === meProfile.user_id);
         setSelectedUserId(meInList?.user_id || nextUsers[0].user_id);
       }
     } catch (err: any) {
@@ -265,19 +224,17 @@ export default function AdminSettingsPage() {
       setErrorMsg('');
       setStatusMsg('');
 
-      const payload = {
-        name: createName.trim(),
-        email: createEmail.trim().toLowerCase(),
-        password: createPassword.trim(),
-        role: createRole,
-        ...emptyPermissions(),
-        can_access_admin_settings: createRole === 'SUPERUSER',
-      };
-
       const res = await fetch('/api/admin/create-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          name: createName.trim(),
+          email: createEmail.trim().toLowerCase(),
+          password: createPassword.trim(),
+          role: createRole,
+          ...emptyPermissions(),
+          can_access_admin_settings: createRole === 'SUPERUSER',
+        }),
       });
 
       const json = await res.json();
@@ -299,50 +256,45 @@ export default function AdminSettingsPage() {
   async function handleSaveUser() {
     try {
       if (!draft) throw new Error('No user selected');
+      if (!draft.user_id) throw new Error('Selected user is missing user_id');
       if (!draft.name.trim()) throw new Error('Name cannot be blank');
-      if (!draft.email.trim()) throw new Error('Email cannot be blank');
 
       setSaving(true);
       setErrorMsg('');
       setStatusMsg('');
 
       const token = await getAccessToken();
-
-      const payload = {
-        user_id: draft.user_id,
-        email: draft.email,
-        name: draft.name.trim(),
-        role: draft.role,
-        can_access_preventive_maintenance: !!draft.can_access_preventive_maintenance,
-        can_access_maintenance_ot: !!draft.can_access_maintenance_ot,
-        can_access_hk_special_project: !!draft.can_access_hk_special_project,
-        can_access_chambermaid_entry: !!draft.can_access_chambermaid_entry,
-        can_access_supervisor_update: !!draft.can_access_supervisor_update,
-        can_access_laundry_count: !!draft.can_access_laundry_count,
-        can_access_stock_card: !!draft.can_access_stock_card,
-        can_access_damaged: !!draft.can_access_damaged,
-        can_access_linen_history: !!draft.can_access_linen_history,
-        can_access_daily_forms: !!draft.can_access_daily_forms,
-        can_access_management_tasks: !!draft.can_access_management_tasks,
-        can_access_admin_settings: !!draft.can_access_admin_settings,
-        can_create_task: !!draft.can_create_task,
-        can_edit_task: !!draft.can_edit_task,
-        can_delete_task: !!draft.can_delete_task,
-      };
-
       const res = await fetch('/api/admin/update-user-profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          user_id: draft.user_id,
+          email: draft.email,
+          name: draft.name.trim(),
+          role: draft.role,
+          can_access_preventive_maintenance: !!draft.can_access_preventive_maintenance,
+          can_access_maintenance_ot: !!draft.can_access_maintenance_ot,
+          can_access_hk_special_project: !!draft.can_access_hk_special_project,
+          can_access_chambermaid_entry: !!draft.can_access_chambermaid_entry,
+          can_access_supervisor_update: !!draft.can_access_supervisor_update,
+          can_access_laundry_count: !!draft.can_access_laundry_count,
+          can_access_stock_card: !!draft.can_access_stock_card,
+          can_access_damaged: !!draft.can_access_damaged,
+          can_access_linen_history: !!draft.can_access_linen_history,
+          can_access_daily_forms: !!draft.can_access_daily_forms,
+          can_access_management_tasks: !!draft.can_access_management_tasks,
+          can_access_admin_settings: !!draft.can_access_admin_settings,
+          can_create_task: !!draft.can_create_task,
+          can_edit_task: !!draft.can_edit_task,
+          can_delete_task: !!draft.can_delete_task,
+        }),
       });
 
       const json = await res.json();
-      if (!res.ok || (!json?.ok && !json?.success)) {
-        throw new Error(json?.error || 'Failed to update user');
-      }
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update user');
 
       setStatusMsg('User access updated successfully');
       await refreshUsers(draft.user_id);
@@ -451,11 +403,7 @@ export default function AdminSettingsPage() {
   }
 
   if (loading) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.centerCard}>Loading...</div>
-      </main>
-    );
+    return <main style={styles.page}><div style={styles.centerCard}>Loading...</div></main>;
   }
 
   if (!me || me.role !== 'SUPERUSER') {
@@ -482,14 +430,9 @@ export default function AdminSettingsPage() {
         <div style={styles.hero}>
           <div>
             <div style={styles.heroTitle}>Admin Settings</div>
-            <div style={styles.heroSub}>
-              Manage all users, department roles, passwords, page visibility, and task permissions in one place.
-            </div>
+            <div style={styles.heroSub}>Manage all users, department roles, passwords, page visibility, and task permissions in one place.</div>
           </div>
-
-          <Link href="/dashboard" style={styles.backBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.backBtn}>Back to Dashboard</Link>
         </div>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
@@ -504,23 +447,18 @@ export default function AdminSettingsPage() {
                 <label style={styles.label}>Full Name</label>
                 <input value={createName} onChange={(e) => setCreateName(e.target.value)} style={styles.input} placeholder="Enter name" />
               </div>
-
               <div style={styles.formGroup}>
                 <label style={styles.label}>Email</label>
                 <input value={createEmail} onChange={(e) => setCreateEmail(e.target.value)} style={styles.input} placeholder="name@hotelhallmark.com" type="email" />
               </div>
-
               <div style={styles.formGroup}>
                 <label style={styles.label}>Temporary Password</label>
                 <input value={createPassword} onChange={(e) => setCreatePassword(e.target.value)} style={styles.input} placeholder="Minimum 6 characters" type="password" />
               </div>
-
               <div style={styles.formGroup}>
                 <label style={styles.label}>Department / Role</label>
                 <select value={createRole} onChange={(e) => setCreateRole(e.target.value as Role)} style={styles.input}>
-                  {roleOptions.map((role) => (
-                    <option key={role} value={role}>{role}</option>
-                  ))}
+                  {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                 </select>
               </div>
             </div>
@@ -535,13 +473,12 @@ export default function AdminSettingsPage() {
           <section style={styles.leftRail}>
             <div style={styles.panel}>
               <div style={styles.panelTitle}>Select User</div>
-
               <div style={styles.formGroup}>
                 <label style={styles.label}>All Users</label>
                 <select value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)} style={styles.input}>
                   <option value="">Select a user</option>
                   {users.map((user) => (
-                    <option key={user.user_id || user.email} value={user.user_id}>
+                    <option key={user.user_id} value={user.user_id}>
                       {user.name || 'Unnamed User'} - {user.role} - {user.email}
                     </option>
                   ))}
@@ -573,37 +510,21 @@ export default function AdminSettingsPage() {
                       <label style={styles.label}>Name</label>
                       <input value={draft.name} onChange={(e) => setDraftField('name', e.target.value)} style={styles.input} placeholder="User name" />
                     </div>
-
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Email</label>
                       <input value={draft.email} readOnly style={{ ...styles.input, background: '#f8fafc', color: '#64748b' }} />
                     </div>
-
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Department / Role</label>
                       <select value={draft.role} onChange={(e) => setDraftField('role', e.target.value as Role)} style={styles.input}>
-                        {roleOptions.map((role) => (
-                          <option key={role} value={role}>{role}</option>
-                        ))}
+                        {roleOptions.map((role) => <option key={role} value={role}>{role}</option>)}
                       </select>
                     </div>
-
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Reset Password</label>
                       <div style={styles.inlineActionRow}>
-                        <input
-                          value={draft.newPassword || ''}
-                          onChange={(e) => setDraftField('newPassword', e.target.value)}
-                          style={styles.input}
-                          placeholder="Enter new password"
-                          type="password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void handleResetPassword()}
-                          style={{ ...styles.secondaryBtn, opacity: changingPassword ? 0.65 : 1 }}
-                          disabled={changingPassword}
-                        >
+                        <input value={draft.newPassword || ''} onChange={(e) => setDraftField('newPassword', e.target.value)} style={styles.input} placeholder="Enter new password" type="password" />
+                        <button type="button" onClick={() => void handleResetPassword()} style={{ ...styles.secondaryBtn, opacity: changingPassword ? 0.65 : 1 }} disabled={changingPassword}>
                           {changingPassword ? 'Saving...' : 'Update'}
                         </button>
                       </div>
@@ -636,17 +557,14 @@ export default function AdminSettingsPage() {
                       <div style={styles.permissionTitle}>Maintenance Access</div>
                       {maintenanceToggles.map((item) => renderToggle(item.key, item.label))}
                     </div>
-
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Housekeeping Access</div>
                       {housekeepingToggles.map((item) => renderToggle(item.key, item.label))}
                     </div>
-
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Management Access</div>
                       {managementToggles.map((item) => renderToggle(item.key, item.label))}
                     </div>
-
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Task Permissions</div>
                       {actionToggles.map((item) => renderToggle(item.key, item.label))}
@@ -657,7 +575,6 @@ export default function AdminSettingsPage() {
                     <button type="button" onClick={() => void handleDeleteUser()} style={{ ...styles.deleteBtn, opacity: deleting ? 0.65 : 1 }} disabled={deleting}>
                       {deleting ? 'Deleting...' : 'Delete User'}
                     </button>
-
                     <button type="button" onClick={() => void handleSaveUser()} style={{ ...styles.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
                       {saving ? 'Saving...' : 'Save Changes'}
                     </button>
