@@ -1,48 +1,32 @@
 'use client';
 
-import { type ReactNode, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
-
-type DashboardUser = {
-  email: string;
-  name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
-  can_create_task?: boolean;
-  can_access_chambermaid_entry?: boolean;
-  can_access_linen_admin?: boolean;
-  can_access_daily_forms?: boolean;
-  can_access_management_tasks?: boolean;
-  can_access_admin_settings?: boolean;
-};
+import {
+  type DashboardProfile,
+  getEffectiveProfile,
+  loadDashboardProfileClient,
+} from '../lib/dashboardProfileClient';
 
 type AdminUser = {
   email: string;
   name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
+  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT' | 'SUPERVISOR';
 };
-
-const MT_SUPERVISOR_EMAILS = [
-  'mtsup1@hotelhallmark.com',
-  'mtsup2@hotelhallmark.com',
-];
-
-const HK_SUPERVISOR_EMAILS = [
-  'hksup1@hotelhallmark.com',
-  'hksup2@hotelhallmark.com',
-  'hksup3@hotelhallmark.com',
-];
 
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
   setSidebarOpen,
 }: {
-  profile: DashboardUser | null;
+  profile: DashboardProfile | null;
   sidebarOpen: boolean;
   setSidebarOpen: (value: boolean) => void;
 }) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const [resolvedProfile, setResolvedProfile] = useState<DashboardProfile | null>(profile);
+  const [profileLoading, setProfileLoading] = useState(!profile);
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -64,77 +48,72 @@ export default function DashboardSidebar({
   const [housekeepingOpen, setHousekeepingOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
 
-  const canSeeChambermaid =
-    !!profile &&
-    (profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR' ||
-      profile.can_access_chambermaid_entry === true);
+  useEffect(() => {
+    let mounted = true;
 
-  const canSeeLinenAdmin =
-    !!profile &&
-    (profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'SUPERVISOR' ||
-      profile.can_access_linen_admin === true);
+    async function refreshProfile() {
+      try {
+        setProfileLoading(true);
+        const loaded = await loadDashboardProfileClient();
+        if (!mounted) return;
+        setResolvedProfile(loaded);
+      } finally {
+        if (mounted) setProfileLoading(false);
+      }
+    }
 
-  const canSeePM =
-    !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'MT' ||
-      (profile.role === 'SUPERVISOR' &&
-        MT_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
-    );
+    void refreshProfile();
 
-  const canSeeMaintenanceOT =
-    !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.role === 'MT'
-    );
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-  const canSeeHkSpecialProject =
-    !!profile &&
-    (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      (profile.role === 'SUPERVISOR' &&
-        HK_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
-    );
+  useEffect(() => {
+    if (profile) {
+      setResolvedProfile(profile);
+      setProfileLoading(false);
+    }
+  }, [profile]);
 
-  const canSeeManagementItems =
-    !!profile &&
-    (profile.role === 'SUPERUSER' || profile.role === 'MANAGER');
+  const currentProfile = resolvedProfile;
+  const effectiveProfile = currentProfile ? getEffectiveProfile(currentProfile) : null;
 
-  const canSeeDailyForms =
-    !!profile &&
-    (profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.can_access_daily_forms === true);
+  const canSeeDashboard = true;
+  const canSeePastTask = true;
 
-  const canSeeManagementTasks =
-    !!profile &&
-    (profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      profile.can_access_management_tasks === true);
+  const canSeePM = !!effectiveProfile?.can_access_preventive_maintenance;
+  const canSeeMaintenanceOT = !!effectiveProfile?.can_access_maintenance_ot;
 
-  const canSeeAdminSettings =
-    !!profile &&
-    profile.role === 'SUPERUSER' &&
-    (profile.can_access_admin_settings !== false);
+  const canSeeHkSpecialProject = !!effectiveProfile?.can_access_hk_special_project;
+  const canSeeChambermaid = !!effectiveProfile?.can_access_chambermaid_entry;
+  const canSeeSupervisorUpdate = !!effectiveProfile?.can_access_supervisor_update;
+  const canSeeLaundryCount = !!effectiveProfile?.can_access_laundry_count;
+  const canSeeStockCard = !!effectiveProfile?.can_access_stock_card;
+  const canSeeDamaged = !!effectiveProfile?.can_access_damaged;
+  const canSeeLinenHistory = !!effectiveProfile?.can_access_linen_history;
 
-  const canOpenPasswordModal = !!profile;
-  const isManager = profile?.role === 'MANAGER';
+  const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
+  const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
+  const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
 
   const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT;
   const showHousekeepingGroup =
-    canSeeHkSpecialProject || canSeeChambermaid || canSeeLinenAdmin;
+    canSeeHkSpecialProject ||
+    canSeeChambermaid ||
+    canSeeSupervisorUpdate ||
+    canSeeLaundryCount ||
+    canSeeStockCard ||
+    canSeeDamaged ||
+    canSeeLinenHistory;
   const showManagementGroup =
-    canSeeManagementItems &&
-    (canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings);
+    canSeeDailyForms ||
+    canSeeManagementTasks ||
+    canSeeAdminSettings;
+
+  const canOpenPasswordModal = !!currentProfile;
+  const isManager = currentProfile?.role === 'MANAGER';
+  const isSuperuser = currentProfile?.role === 'SUPERUSER';
 
   function closeSidebar() {
     setSidebarOpen(false);
@@ -250,11 +229,11 @@ export default function DashboardSidebar({
       setPasswordSuccess('');
       setNewPassword('');
       setAdminUsers([]);
-      setPasswordTargetEmail(profile?.email || '');
+      setPasswordTargetEmail(currentProfile?.email || '');
       setPasswordModalOpen(true);
       closeSidebar();
 
-      if (isManager) {
+      if (isManager || isSuperuser) {
         const token = await getAccessToken();
 
         const json = await fetchJson('/api/admin/users', {
@@ -266,7 +245,7 @@ export default function DashboardSidebar({
 
         const users = (json.users || []) as AdminUser[];
         setAdminUsers(users);
-        setPasswordTargetEmail(users[0]?.email || profile?.email || '');
+        setPasswordTargetEmail(users[0]?.email || currentProfile?.email || '');
       }
     } catch (error: any) {
       setPasswordError(error?.message || 'Failed to load users');
@@ -285,7 +264,7 @@ export default function DashboardSidebar({
 
   async function handleChangePassword() {
     try {
-      if (!profile) {
+      if (!currentProfile) {
         throw new Error('Login required');
       }
 
@@ -303,7 +282,7 @@ export default function DashboardSidebar({
       setPasswordError('');
       setPasswordSuccess('');
 
-      if (isManager) {
+      if (isManager || isSuperuser) {
         if (!passwordTargetEmail) {
           throw new Error('Please select a user');
         }
@@ -376,19 +355,32 @@ export default function DashboardSidebar({
       >
         <div style={styles.headerRow}>
           <div style={styles.menuTitle}>Menu</div>
-          <button type="button" onClick={closeSidebar} style={styles.closeBtn} aria-label="Close menu">
+          <button
+            type="button"
+            onClick={closeSidebar}
+            style={styles.closeBtn}
+            aria-label="Close menu"
+          >
             ✕
           </button>
         </div>
 
-        <nav style={styles.nav}>
-          <Link href="/dashboard" onClick={closeSidebar} style={styles.navBtn}>
-            Dashboard
-          </Link>
+        {profileLoading ? (
+          <div style={styles.loadingBox}>Loading access…</div>
+        ) : null}
 
-          <Link href="/dashboard?view=past" onClick={closeSidebar} style={styles.navBtn}>
-            Past Task
-          </Link>
+        <nav style={styles.nav}>
+          {canSeeDashboard ? (
+            <Link href="/dashboard" onClick={closeSidebar} style={styles.navBtn}>
+              Dashboard
+            </Link>
+          ) : null}
+
+          {canSeePastTask ? (
+            <Link href="/dashboard?view=past" onClick={closeSidebar} style={styles.navBtn}>
+              Past Task
+            </Link>
+          ) : null}
 
           {showMaintenanceGroup ? (
             <GroupSection
@@ -444,24 +436,54 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeLinenAdmin ? (
-                <>
-                  <Link href="/dashboard/supervisor-update" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Supervisor Update
-                  </Link>
-                  <Link href="/dashboard/laundry-count" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Laundry Count
-                  </Link>
-                  <Link href="/dashboard/stock-card" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Stock Card
-                  </Link>
-                  <Link href="/dashboard/damaged" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Damaged
-                  </Link>
-                  <Link href="/dashboard/linen-history" onClick={closeSidebar} style={styles.subNavBtn}>
-                    Linen History
-                  </Link>
-                </>
+              {canSeeSupervisorUpdate ? (
+                <Link
+                  href="/dashboard/supervisor-update"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Supervisor Update
+                </Link>
+              ) : null}
+
+              {canSeeLaundryCount ? (
+                <Link
+                  href="/dashboard/laundry-count"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Laundry Count
+                </Link>
+              ) : null}
+
+              {canSeeStockCard ? (
+                <Link
+                  href="/dashboard/stock-card"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Stock Card
+                </Link>
+              ) : null}
+
+              {canSeeDamaged ? (
+                <Link
+                  href="/dashboard/damaged"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Damaged
+                </Link>
+              ) : null}
+
+              {canSeeLinenHistory ? (
+                <Link
+                  href="/dashboard/linen-history"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Linen History
+                </Link>
               ) : null}
             </GroupSection>
           ) : null}
@@ -506,16 +528,20 @@ export default function DashboardSidebar({
         </nav>
 
         <div style={styles.footer}>
-          {profile ? (
+          {currentProfile ? (
             <>
               <div style={styles.userBox}>
-                <div style={styles.userName}>{profile.name}</div>
-                <div style={styles.userRole}>{profile.role}</div>
-                <div style={styles.userEmail}>{profile.email}</div>
+                <div style={styles.userName}>{currentProfile.name}</div>
+                <div style={styles.userRole}>{currentProfile.role}</div>
+                <div style={styles.userEmail}>{currentProfile.email}</div>
               </div>
 
-              <button type="button" onClick={openPasswordModal} style={styles.secondaryAction}>
-                {isManager ? 'Change User Password' : 'Change Password'}
+              <button
+                type="button"
+                onClick={openPasswordModal}
+                style={styles.secondaryAction}
+              >
+                {isManager || isSuperuser ? 'Change User Password' : 'Change Password'}
               </button>
 
               <button
@@ -606,10 +632,10 @@ export default function DashboardSidebar({
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard}>
             <div style={styles.modalTitle}>
-              {isManager ? 'Change User Password' : 'Change Password'}
+              {isManager || isSuperuser ? 'Change User Password' : 'Change Password'}
             </div>
 
-            {isManager ? (
+            {isManager || isSuperuser ? (
               <>
                 <div style={styles.modalLabel}>User</div>
                 <select
@@ -628,7 +654,9 @@ export default function DashboardSidebar({
               </>
             ) : null}
 
-            <div style={{ ...styles.modalLabel, marginTop: isManager ? 12 : 0 }}>New Password</div>
+            <div style={{ ...styles.modalLabel, marginTop: (isManager || isSuperuser) ? 12 : 0 }}>
+              New Password
+            </div>
             <input
               type="password"
               value={newPassword}
@@ -713,6 +741,16 @@ const styles: Record<string, React.CSSProperties> = {
     height: '36px',
     cursor: 'pointer',
     fontWeight: 700,
+  },
+  loadingBox: {
+    marginBottom: '10px',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    border: '1px solid #bfdbfe',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontWeight: 700,
+    fontSize: '13px',
   },
   nav: {
     display: 'flex',
