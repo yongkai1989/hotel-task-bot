@@ -509,7 +509,7 @@ export default function AdminSettingsPage() {
 
           <section style={styles.leftRail}>
             <div style={styles.panel}>
-              <div style={styles.panelTitle}>Users</div>
+              <div style={styles.panelTitle}>Select User</div>
 
               <div style={styles.formGroup}>
                 <label style={styles.label}>Search</label>
@@ -521,23 +521,31 @@ export default function AdminSettingsPage() {
                 />
               </div>
 
-              <div style={styles.userList}>
-                {filteredUsers.map((user) => (
-                  <button
-                    key={user.user_id}
-                    type="button"
-                    onClick={() => setSelectedUserId(user.user_id)}
-                    style={{
-                      ...styles.userListItem,
-                      ...(selectedUserId === user.user_id ? styles.userListItemActive : {}),
-                    }}
-                  >
-                    <div style={styles.userListName}>{user.name || 'Unnamed User'}</div>
-                    <div style={styles.userListEmail}>{user.email}</div>
-                    <div style={styles.userListRole}>{user.role}</div>
-                  </button>
-                ))}
+              <div style={styles.formGroup}>
+                <label style={styles.label}>All Users</label>
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">Select a user</option>
+                  {filteredUsers.map((user) => (
+                    <option key={user.user_id} value={user.user_id}>
+                      {user.name || 'Unnamed User'} - {user.role} - {user.email}
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              {draft ? (
+                <div style={styles.selectedUserCard}>
+                  <div style={styles.selectedUserName}>{draft.name || 'Unnamed User'}</div>
+                  <div style={styles.selectedUserEmail}>{draft.email}</div>
+                  <div style={styles.selectedUserRole}>{draft.role}</div>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>Select a user from the dropdown to view current access.</div>
+              )}
             </div>
           </section>
 
@@ -785,40 +793,27 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: 'pointer',
   },
-  userList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-    maxHeight: '880px',
-    overflowY: 'auto',
+  selectedUserCard: {
+    border: '1px solid #dbeafe',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    borderRadius: '20px',
+    padding: '16px',
+    boxShadow: '0 12px 28px rgba(37,99,235,0.08)',
   },
-  userListItem: {
-    border: '1px solid #e2e8f0',
-    background: '#ffffff',
-    borderRadius: '18px',
-    padding: '14px',
-    textAlign: 'left',
-    cursor: 'pointer',
-  },
-  userListItemActive: {
-    borderColor: '#93c5fd',
-    boxShadow: '0 12px 28px rgba(37,99,235,0.12)',
-    background: '#f8fbff',
-  },
-  userListName: {
-    fontSize: '16px',
+  selectedUserName: {
+    fontSize: '18px',
     fontWeight: 800,
     color: '#0f172a',
   },
-  userListEmail: {
+  selectedUserEmail: {
     fontSize: '13px',
     color: '#64748b',
-    marginTop: '4px',
+    marginTop: '6px',
     wordBreak: 'break-word',
   },
-  userListRole: {
+  selectedUserRole: {
     display: 'inline-flex',
-    marginTop: '8px',
+    marginTop: '10px',
     borderRadius: '999px',
     background: '#eef2ff',
     color: '#3730a3',
