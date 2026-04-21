@@ -307,6 +307,7 @@ export default function AdminSettingsPage() {
       setStatusMsg('');
 
       const payload = {
+        user_id: draft.user_id,
         email: draft.email,
         name: draft.name.trim(),
         role: draft.role,
