@@ -20,15 +20,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (user.role !== 'MANAGER') {
+    if (user.role !== 'SUPERUSER') {
       return NextResponse.json(
-        { ok: false, error: 'Manager only' },
+        { ok: false, error: 'Superuser only' },
         { status: 403 }
       );
     }
 
     const body = await req.json();
-    const targetEmail = String(body.targetEmail || '').trim().toLowerCase();
+    const targetEmail = String(body.targetEmail || '')
+      .trim()
+      .toLowerCase();
     const newPassword = String(body.newPassword || '').trim();
 
     if (!targetEmail) {
@@ -45,7 +47,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 🔥 FIX: explicitly type users
     const { data, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
     if (listError || !data?.users) {
