@@ -306,6 +306,8 @@ export default function AdminSettingsPage() {
       setErrorMsg('');
       setStatusMsg('');
 
+      const token = await getAccessToken();
+
       const payload = {
         user_id: draft.user_id,
         email: draft.email,
@@ -328,16 +330,14 @@ export default function AdminSettingsPage() {
         can_delete_task: !!draft.can_delete_task,
       };
 
-      const token = await getAccessToken();
-
-const res = await fetch('/api/admin/update-user-profile', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`, // ✅ THIS FIXES IT
-  },
-  body: JSON.stringify(payload),
-});
+      const res = await fetch('/api/admin/update-user-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
       const json = await res.json();
       if (!res.ok || (!json?.ok && !json?.success)) {
