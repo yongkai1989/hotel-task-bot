@@ -225,47 +225,12 @@ export default function AdminSettingsPage() {
       setMe(meProfile);
 
       const token = await getAccessToken();
-
-      const [routeUsersJson, rawProfilesResult] = await Promise.allSettled([
-        fetchJson('/api/admin/users', {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        supabase.from('user_profiles').select('*').order('created_at', { ascending: false }),
-      ]);
-
-      const merged = new Map<string, UserProfile>();
-
-      if (routeUsersJson.status === 'fulfilled') {
-        const routeUsers = (routeUsersJson.value.users || []) as AdminRouteUser[];
-        routeUsers.forEach((u) => {
-          const normalized = normalizeUser(u);
-          if (normalized.email) {
-            merged.set(normalized.email, normalized);
-          }
-        });
-      }
-
-      if (rawProfilesResult.status === 'fulfilled') {
-        const { data, error } = rawProfilesResult.value;
-        if (error) throw error;
-
-        (data || []).forEach((row: any) => {
-          const normalized = normalizeUser(row);
-          const existing = merged.get(normalized.email);
-
-          merged.set(normalized.email, {
-            ...(existing || normalizeUser({ email: normalized.email, user_id: normalized.user_id, name: normalized.name, role: normalized.role })),
-            ...normalized,
-          });
-        });
-      }
-
-      const nextUsers = Array.from(merged.values()).sort((a, b) => {
-        if (a.role === 'SUPERUSER' && b.role !== 'SUPERUSER') return -1;
-        if (a.role !== 'SUPERUSER' && b.role === 'SUPERUSER') return 1;
-        return a.email.localeCompare(b.email);
+      const routeUsersJson = await fetchJson('/api/admin/users', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
       });
+
+      const nextUsers = ((routeUsersJson.users || []) as AdminRouteUser[]).map(normalizeUser);
 
       setUsers(nextUsers);
 
