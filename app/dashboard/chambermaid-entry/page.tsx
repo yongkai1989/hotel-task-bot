@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -68,6 +67,8 @@ const LINEN_FIELDS: Array<{
   { key: 'duvet_cover_single', label: 'Duvet Cover Single' },
 ];
 
+const MALAYSIA_TIMEZONE = 'Asia/Kuala_Lumpur';
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
 
@@ -80,11 +81,30 @@ function getSupabaseSafe() {
 }
 
 function getTodayLocalDateString() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const now = new Date();
+  const malaysiaDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MALAYSIA_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+
+  return malaysiaDate;
+}
+
+function getMalaysiaHour() {
+  const hour = new Intl.DateTimeFormat('en-GB', {
+    timeZone: MALAYSIA_TIMEZONE,
+    hour: '2-digit',
+    hour12: false,
+  }).format(new Date());
+
+  return Number(hour);
+}
+
+function isWithinChambermaidAccessWindow() {
+  const hour = getMalaysiaHour();
+  return hour >= 8 && hour < 18;
 }
 
 function zeroLinenValues(): LinenValues {
@@ -181,6 +201,7 @@ export default function ChambermaidEntryPage() {
   const [selectedBlock, setSelectedBlock] = useState<number>(1);
   const [selectedFloor, setSelectedFloor] = useState<number>(1);
   const [roomSearch, setRoomSearch] = useState('');
+  const [savingAll, setSavingAll] = useState(false);
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
@@ -273,6 +294,16 @@ export default function ChambermaidEntryPage() {
 
     return profile.can_access_chambermaid_entry === true;
   }, [profile]);
+
+  const has24HourAccess = useMemo(() => {
+    if (!profile) return false;
+    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
+  }, [profile]);
+
+  const canAccessByTime = useMemo(() => {
+    if (has24HourAccess) return true;
+    return isWithinChambermaidAccessWindow();
+  }, [has24HourAccess]);
 
   const roomMap = useMemo(() => {
     const map: Record<string, RoomRow> = {};
@@ -386,7 +417,7 @@ export default function ChambermaidEntryPage() {
   }
 
   useEffect(() => {
-    if (!profile || !canAccess) {
+    if (!profile || !canAccess || !canAccessByTime) {
       setRooms([]);
       setEntryMap({});
       setPageLoading(false);
@@ -394,7 +425,7 @@ export default function ChambermaidEntryPage() {
     }
 
     void loadFloorData(selectedBlock, selectedFloor);
-  }, [profile, canAccess, selectedBlock, selectedFloor, serviceDate]);
+  }, [profile, canAccess, canAccessByTime, selectedBlock, selectedFloor, serviceDate]);
 
   async function saveRoom(room: RoomRow, entryOverride?: RoomEntryState) {
     const supabase = getSupabaseSafe();
@@ -561,6 +592,27 @@ export default function ChambermaidEntryPage() {
     }
   }
 
+  async function handleSaveAll() {
+    if (savingAll || rooms.length === 0) return;
+
+    setSavingAll(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    let successCount = 0;
+
+    for (const room of rooms) {
+      const ok = await saveRoom(room);
+      if (ok) successCount += 1;
+    }
+
+    setSavingAll(false);
+
+    if (successCount > 0) {
+      setSuccessMsg(`Saved ${successCount} room${successCount > 1 ? 's' : ''} for this floor.`);
+    }
+  }
+
   const roomCount = rooms.length;
 
   const filteredRooms = useMemo(() => {
@@ -622,6 +674,25 @@ export default function ChambermaidEntryPage() {
     );
   }
 
+  if (!canAccessByTime) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.centerCard}>
+          <div style={styles.centerTitle}>Access restricted</div>
+          <p style={styles.centerText}>
+            Chambermaid Entry is only accessible from 8:00 AM to 6:00 PM Malaysia time for non-manager users.
+          </p>
+          <p style={styles.centerText}>
+            Managers and Superusers can access this page 24/7.
+          </p>
+          <Link href="/dashboard" style={styles.linkBtn}>
+            Back to Dashboard
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main style={styles.page}>
       <div style={styles.shell}>
@@ -634,6 +705,17 @@ export default function ChambermaidEntryPage() {
           </div>
 
           <div style={styles.topBarActions}>
+            <button
+              type="button"
+              onClick={() => void handleSaveAll()}
+              disabled={savingAll || pageLoading || rooms.length === 0}
+              style={{
+                ...styles.primaryBtn,
+                opacity: savingAll || pageLoading || rooms.length === 0 ? 0.6 : 1,
+              }}
+            >
+              {savingAll ? 'Saving All...' : 'Save All Rooms'}
+            </button>
             <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
@@ -789,7 +871,7 @@ export default function ChambermaidEntryPage() {
                         <input
                           type="checkbox"
                           checked={entry.is_dnd}
-                          disabled={isSaving}
+                          disabled={isSaving || savingAll}
                           onChange={(e) =>
                             updateRoomField(room.room_number, 'is_dnd', e.target.checked)
                           }
@@ -830,7 +912,7 @@ export default function ChambermaidEntryPage() {
                           <div style={styles.counterWrap}>
                             <button
                               type="button"
-                              disabled={entry.is_dnd || isSaving}
+                              disabled={entry.is_dnd || isSaving || savingAll}
                               onClick={() => adjustQty(room.room_number, item.key, -1)}
                               style={styles.counterBtn}
                             >
@@ -840,7 +922,7 @@ export default function ChambermaidEntryPage() {
                               type="number"
                               min={0}
                               value={currentQty}
-                              disabled={entry.is_dnd || isSaving}
+                              disabled={entry.is_dnd || isSaving || savingAll}
                               onChange={(e) => {
                                 const nextValue = Math.max(0, Number(e.target.value || 0));
                                 updateRoomField(room.room_number, item.key, nextValue);
@@ -852,7 +934,7 @@ export default function ChambermaidEntryPage() {
                             />
                             <button
                               type="button"
-                              disabled={entry.is_dnd || isSaving}
+                              disabled={entry.is_dnd || isSaving || savingAll}
                               onClick={() => adjustQty(room.room_number, item.key, 1)}
                               style={styles.counterBtn}
                             >
@@ -868,10 +950,10 @@ export default function ChambermaidEntryPage() {
                     <button
                       type="button"
                       onClick={() => void handleSaveRoom(room)}
-                      disabled={isSaving}
+                      disabled={isSaving || savingAll}
                       style={{
                         ...styles.saveBtn,
-                        opacity: isSaving ? 0.6 : 1,
+                        opacity: isSaving || savingAll ? 0.6 : 1,
                       }}
                     >
                       {isSaving ? 'Saving...' : 'Save'}
@@ -1046,6 +1128,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     outline: 'none',
   },
+  gridCard: {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    padding: '18px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+  },
   cardsWrap: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 420px))',
@@ -1076,48 +1165,48 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: '12px',
     alignItems: 'flex-start',
-    marginBottom: '14px',
+    marginBottom: '12px',
   },
   roomNo: {
-    fontSize: '26px',
+    fontSize: '22px',
     fontWeight: 800,
     color: '#0f172a',
+    lineHeight: 1,
   },
   roomType: {
     fontSize: '13px',
     color: '#64748b',
+    marginTop: '6px',
     fontWeight: 700,
-    marginTop: '4px',
   },
   statusPill: {
     borderRadius: '999px',
     padding: '8px 12px',
-    fontSize: '12px',
     fontWeight: 800,
+    fontSize: '12px',
     whiteSpace: 'nowrap',
   },
   stateRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '12px',
+    gap: '10px',
     alignItems: 'center',
     flexWrap: 'wrap',
     marginBottom: '14px',
   },
   dndLabel: {
-    display: 'inline-flex',
+    display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    fontSize: '14px',
-    fontWeight: 700,
     color: '#334155',
+    fontWeight: 700,
+    fontSize: '13px',
   },
   statePill: {
     borderRadius: '999px',
-    padding: '7px 11px',
+    padding: '8px 12px',
+    fontWeight: 700,
     fontSize: '12px',
-    fontWeight: 800,
-    lineHeight: 1.3,
   },
   statePillDefault: {
     background: '#f1f5f9',
@@ -1129,7 +1218,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   statePillSaved: {
     background: '#ecfdf5',
-    color: '#15803d',
+    color: '#166534',
   },
   statePillSaving: {
     background: '#eff6ff',
@@ -1138,87 +1227,76 @@ const styles: Record<string, React.CSSProperties> = {
   linenList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px',
+    gap: '10px',
   },
   linenRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '12px',
     alignItems: 'center',
+    border: '1px solid #e2e8f0',
+    background: '#f8fafc',
+    borderRadius: '14px',
+    padding: '10px 12px',
   },
   linenLabelWrap: {
     minWidth: 0,
-    flex: 1,
+    flex: '1 1 auto',
   },
   linenLabel: {
     fontSize: '14px',
     fontWeight: 700,
-    color: '#334155',
+    color: '#0f172a',
   },
   defaultHint: {
     fontSize: '12px',
-    color: '#94a3b8',
+    color: '#64748b',
     marginTop: '4px',
   },
   counterWrap: {
     display: 'flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '8px',
+    flexShrink: 0,
   },
   counterBtn: {
-    width: '36px',
-    height: '36px',
+    width: '32px',
+    height: '32px',
     borderRadius: '10px',
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
     fontWeight: 800,
-    fontSize: '18px',
     cursor: 'pointer',
   },
   counterInput: {
-    width: '62px',
-    height: '36px',
-    borderRadius: '10px',
+    width: '64px',
     border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    textAlign: 'center' as const,
+    borderRadius: '10px',
+    padding: '8px 10px',
+    textAlign: 'center',
     fontWeight: 800,
-    fontSize: '15px',
-    outline: 'none',
+    color: '#0f172a',
+    background: '#ffffff',
+    boxSizing: 'border-box',
   },
   counterInputChanged: {
     borderColor: '#f59e0b',
     background: '#fffbeb',
-    color: '#92400e',
   },
   cardFooter: {
     display: 'flex',
     justifyContent: 'flex-end',
-    marginTop: '16px',
+    marginTop: '14px',
   },
   saveBtn: {
     border: 'none',
     background: '#0f172a',
     color: '#ffffff',
     borderRadius: '12px',
-    padding: '10px 16px',
+    padding: '10px 14px',
     fontWeight: 800,
     cursor: 'pointer',
-    minWidth: '92px',
-  },
-  gridCard: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '20px',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-  },
-  emptyState: {
-    textAlign: 'center' as const,
-    color: '#64748b',
-    fontWeight: 600,
   },
   errorBox: {
     marginTop: '12px',
@@ -1226,8 +1304,9 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#b91c1c',
     border: '1px solid #fecaca',
     borderRadius: '12px',
-    padding: '12px 14px',
+    padding: '10px 12px',
     fontWeight: 600,
+    fontSize: '14px',
   },
   successBox: {
     marginTop: '12px',
@@ -1235,7 +1314,17 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#166534',
     border: '1px solid #bbf7d0',
     borderRadius: '12px',
-    padding: '12px 14px',
+    padding: '10px 12px',
+    fontWeight: 600,
+    fontSize: '14px',
+  },
+  emptyState: {
+    border: '1px dashed #cbd5e1',
+    background: '#f8fafc',
+    borderRadius: '14px',
+    padding: '24px',
+    textAlign: 'center',
+    color: '#64748b',
     fontWeight: 600,
   },
   centerCard: {
@@ -1245,7 +1334,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     padding: '24px',
-    textAlign: 'center' as const,
+    textAlign: 'center',
     boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
   },
   centerTitle: {
@@ -1258,7 +1347,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     color: '#64748b',
     lineHeight: 1.5,
-    marginBottom: '16px',
+    marginBottom: '12px',
   },
   linkBtn: {
     display: 'inline-flex',
