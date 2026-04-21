@@ -57,6 +57,10 @@ export default function DashboardSidebar({
   const [passwordTargetEmail, setPasswordTargetEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
+  const [housekeepingOpen, setHousekeepingOpen] = useState(false);
+  const [managementOpen, setManagementOpen] = useState(false);
+
   const canSeeChambermaid =
     !!profile &&
     (profile.role === 'SUPERUSER' ||
@@ -98,8 +102,17 @@ export default function DashboardSidebar({
         HK_SUPERVISOR_EMAILS.includes(profile.email.toLowerCase()))
     );
 
+  const canSeeDailyForms =
+    !!profile &&
+    (profile.role === 'SUPERUSER' || profile.role === 'MANAGER');
+
   const canOpenPasswordModal = !!profile;
   const isManager = profile?.role === 'MANAGER';
+
+  const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT;
+  const showHousekeepingGroup =
+    canSeeHkSpecialProject || canSeeChambermaid || canSeeLinenAdmin;
+  const showManagementGroup = canSeeDailyForms;
 
   function closeSidebar() {
     setSidebarOpen(false);
@@ -303,6 +316,32 @@ export default function DashboardSidebar({
     }
   }
 
+  function GroupSection({
+    title,
+    open,
+    setOpen,
+    children,
+  }: {
+    title: string;
+    open: boolean;
+    setOpen: (value: boolean) => void;
+    children: React.ReactNode;
+  }) {
+    return (
+      <div style={styles.groupWrap}>
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          style={styles.groupBtn}
+        >
+          <span>{title}</span>
+          <span style={styles.groupChevron}>{open ? '▾' : '▸'}</span>
+        </button>
+        {open ? <div style={styles.groupContent}>{children}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <>
       {sidebarOpen ? <div onClick={closeSidebar} style={styles.overlay} /> : null}
@@ -329,60 +368,98 @@ export default function DashboardSidebar({
             Past Task
           </Link>
 
-          {canSeePM ? (
-            <Link
-              href="/dashboard/preventive-maintenance"
-              onClick={closeSidebar}
-              style={styles.navBtn}
+          {showMaintenanceGroup ? (
+            <GroupSection
+              title="Maintenance"
+              open={maintenanceOpen}
+              setOpen={setMaintenanceOpen}
             >
-              Preventive Maintenance
-            </Link>
+              {canSeePM ? (
+                <Link
+                  href="/dashboard/preventive-maintenance"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Preventive Maintenance
+                </Link>
+              ) : null}
+
+              {canSeeMaintenanceOT ? (
+                <Link
+                  href="/dashboard/maintenance-ot"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Maintenance OT
+                </Link>
+              ) : null}
+            </GroupSection>
           ) : null}
 
-          {canSeeMaintenanceOT ? (
-            <Link
-              href="/dashboard/maintenance-ot"
-              onClick={closeSidebar}
-              style={styles.navBtn}
+          {showHousekeepingGroup ? (
+            <GroupSection
+              title="Housekeeping"
+              open={housekeepingOpen}
+              setOpen={setHousekeepingOpen}
             >
-              Maintenance OT
-            </Link>
+              {canSeeHkSpecialProject ? (
+                <Link
+                  href="/dashboard/hk-special-project"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  HK Special Project
+                </Link>
+              ) : null}
+
+              {canSeeChambermaid ? (
+                <Link
+                  href="/dashboard/chambermaid-entry"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Chambermaid Entry
+                </Link>
+              ) : null}
+
+              {canSeeLinenAdmin ? (
+                <>
+                  <Link href="/dashboard/supervisor-update" onClick={closeSidebar} style={styles.subNavBtn}>
+                    Supervisor Update
+                  </Link>
+                  <Link href="/dashboard/laundry-count" onClick={closeSidebar} style={styles.subNavBtn}>
+                    Laundry Count
+                  </Link>
+                  <Link href="/dashboard/stock-card" onClick={closeSidebar} style={styles.subNavBtn}>
+                    Stock Card
+                  </Link>
+                  <Link href="/dashboard/damaged" onClick={closeSidebar} style={styles.subNavBtn}>
+                    Damaged
+                  </Link>
+                  <Link href="/dashboard/linen-history" onClick={closeSidebar} style={styles.subNavBtn}>
+                    Linen History
+                  </Link>
+                </>
+              ) : null}
+            </GroupSection>
           ) : null}
 
-          {canSeeHkSpecialProject ? (
-            <Link
-              href="/dashboard/hk-special-project"
-              onClick={closeSidebar}
-              style={styles.navBtn}
+          {showManagementGroup ? (
+            <GroupSection
+              title="Management"
+              open={managementOpen}
+              setOpen={setManagementOpen}
             >
-              HK Special Project
-            </Link>
-          ) : null}
-
-          {canSeeChambermaid ? (
-            <Link href="/dashboard/chambermaid-entry" onClick={closeSidebar} style={styles.navBtn}>
-              Chambermaid Entry
-            </Link>
-          ) : null}
-
-          {canSeeLinenAdmin ? (
-            <>
-              <Link href="/dashboard/supervisor-update" onClick={closeSidebar} style={styles.navBtn}>
-                Supervisor Update
-              </Link>
-              <Link href="/dashboard/laundry-count" onClick={closeSidebar} style={styles.navBtn}>
-                Laundry Count
-              </Link>
-              <Link href="/dashboard/stock-card" onClick={closeSidebar} style={styles.navBtn}>
-                Stock Card
-              </Link>
-              <Link href="/dashboard/damaged" onClick={closeSidebar} style={styles.navBtn}>
-                Damaged
-              </Link>
-              <Link href="/dashboard/linen-history" onClick={closeSidebar} style={styles.navBtn}>
-                Linen History
-              </Link>
-            </>
+              {canSeeDailyForms ? (
+                <Link
+                  href="/dashboard/daily-forms"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Daily Forms
+                </Link>
+              ) : null}
+            </GroupSection>
           ) : null}
         </nav>
 
@@ -610,6 +687,51 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     borderRadius: '12px',
     padding: '12px 14px',
+    fontWeight: 700,
+    fontSize: '14px',
+    boxSizing: 'border-box',
+  },
+  groupWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  groupBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    border: '1px solid #e5e7eb',
+    background: '#f8fafc',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontWeight: 800,
+    fontSize: '14px',
+    cursor: 'pointer',
+    boxSizing: 'border-box',
+  },
+  groupChevron: {
+    fontSize: '14px',
+    fontWeight: 800,
+    color: '#475569',
+  },
+  groupContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    paddingLeft: '10px',
+  },
+  subNavBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    textDecoration: 'none',
+    border: '1px solid #e5e7eb',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '12px',
+    padding: '11px 14px',
     fontWeight: 700,
     fontSize: '14px',
     boxSizing: 'border-box',
