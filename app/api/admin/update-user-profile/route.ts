@@ -51,7 +51,10 @@ export async function POST(req: NextRequest) {
       can_delete_task,
     } = body;
 
-    if (!user_id && !email) {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedUserId = String(user_id || '').trim();
+
+    if (!normalizedUserId && !normalizedEmail) {
       return NextResponse.json(
         { ok: false, error: 'Missing user_id or email' },
         { status: 400 }
@@ -59,8 +62,10 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = {
-      name,
-      role,
+      user_id: normalizedUserId || undefined,
+      email: normalizedEmail || undefined,
+      name: String(name || '').trim(),
+      role: String(role || 'FO').trim(),
       can_access_preventive_maintenance: !!can_access_preventive_maintenance,
       can_access_maintenance_ot: !!can_access_maintenance_ot,
       can_access_hk_special_project: !!can_access_hk_special_project,
@@ -76,34 +81,73 @@ export async function POST(req: NextRequest) {
       can_create_task: !!can_create_task,
       can_edit_task: !!can_edit_task,
       can_delete_task: !!can_delete_task,
-      updated_at: new Date().toISOString(),
     };
 
-    let query = supabase.from('user_profiles').update(payload);
+    let existingProfile = null;
 
-    if (user_id) {
-      query = query.eq('user_id', user_id);
+    if (normalizedUserId) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', normalizedUserId)
+        .maybeSingle();
+      existingProfile = data;
+    }
+
+    if (!existingProfile && normalizedEmail) {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('email', normalizedEmail)
+        .maybeSingle();
+      existingProfile = data;
+    }
+
+    if (existingProfile) {
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({
+          ...payload,
+          user_id: existingProfile.user_id,
+          email: existingProfile.email,
+        })
+        .eq('user_id', existingProfile.user_id);
+
+      if (updateError) {
+        return NextResponse.json(
+          { ok: false, error: updateError.message },
+          { status: 500 }
+        );
+      }
     } else {
-      query = query.eq('email', String(email).trim().toLowerCase());
+      const { error: insertError } = await supabase
+        .from('user_profiles')
+        .insert([
+          {
+            ...payload,
+            user_id: normalizedUserId || null,
+            email: normalizedEmail || null,
+          },
+        ]);
+
+      if (insertError) {
+        return NextResponse.json(
+          { ok: false, error: insertError.message },
+          { status: 500 }
+        );
+      }
     }
 
-    const { data, error: updateError } = await query.select('user_id').limit(1);
-
-    if (updateError) {
-      return NextResponse.json(
-        { ok: false, error: updateError.message },
-        { status: 500 }
-      );
+    if (normalizedUserId) {
+      await supabase.auth.admin.updateUserById(normalizedUserId, {
+        user_metadata: {
+          name: String(name || '').trim(),
+          role: String(role || 'FO').trim(),
+        },
+      });
     }
 
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { ok: false, error: 'No matching user profile found to update' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, updated_user_id: data[0].user_id });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || 'Unknown error' },
