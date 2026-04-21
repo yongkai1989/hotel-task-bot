@@ -499,7 +499,22 @@ export default function DailyFormsPage() {
     }
   }
 
-  async function openHistorySubmission(submission: Submission) {
+  
+  async function handleDeleteTemplate(templateId: string) {
+    if (!supabase) return;
+    if (!confirm('Delete this list?')) return;
+
+    try {
+      await supabase.from('daily_form_templates').delete().eq('id', templateId);
+      setSelectedTemplateId(null);
+      setViewMode('LIST');
+      await loadTemplatesAndQuestions();
+    } catch (e) {
+      alert('Failed to delete');
+    }
+  }
+
+async function openHistorySubmission(submission: Submission) {
     if (!supabase) return;
     try {
       setLoading(true);
@@ -690,6 +705,17 @@ export default function DailyFormsPage() {
               </div>
             </div>
 
+              {isSuper ? (
+                <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
+                  <button
+                    onClick={() => handleDeleteTemplate(selectedTemplate.id)}
+                    style={{...styles.secondaryBtn,color:'#ef4444',borderColor:'#ef4444'}}
+                  >
+                    Delete List
+                  </button>
+                </div>
+              ) : null}
+
             <div style={styles.questionList}>
               {selectedQuestions.map((question, index) => (
                 <div key={question.id} style={styles.questionCard}>
@@ -799,6 +825,17 @@ export default function DailyFormsPage() {
                 </div>
               </div>
             </div>
+
+              {isSuper ? (
+                <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
+                  <button
+                    onClick={() => handleDeleteTemplate(selectedTemplate.id)}
+                    style={{...styles.secondaryBtn,color:'#ef4444',borderColor:'#ef4444'}}
+                  >
+                    Delete List
+                  </button>
+                </div>
+              ) : null}
 
             <div style={styles.questionList}>
               {selectedQuestions.map((question, index) => (
