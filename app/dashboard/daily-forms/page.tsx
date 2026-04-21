@@ -16,7 +16,8 @@ type Template = {
   title: string;
   is_active: boolean;
   created_by_name?: string | null;
-  created_at?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type Question = {
@@ -35,8 +36,8 @@ type Submission = {
   submitted_by_user_id?: string | null;
   submitted_by_name?: string | null;
   submitted_by_email?: string | null;
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type AnswerRow = {
@@ -48,6 +49,7 @@ type AnswerRow = {
 };
 
 type DraftQuestion = {
+  existingId?: string;
   question_text: string;
   question_description: string;
   answer_mode: 'YES_NO' | 'SHORT_TEXT';
@@ -86,6 +88,9 @@ function getSupabaseSafe() {
 }
 
 export default function DailyFormsPage() {
+  const supabase = useMemo(() => getSupabaseSafe(), []);
+  const today = getTodayLocalDateString();
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -98,22 +103,22 @@ export default function DailyFormsPage() {
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
   const [viewingAnswers, setViewingAnswers] = useState<Record<string, AnswerRow>>({});
 
-  const [viewMode, setViewMode] = useState<ViewMode>('LIST');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('LIST');
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templateModalMode, setTemplateModalMode] = useState<'CREATE' | 'EDIT'>('CREATE');
+  const [templateSaving, setTemplateSaving] = useState(false);
   const [savingAnswers, setSavingAnswers] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
 
-  const [newTitle, setNewTitle] = useState('');
+  const [draftTitle, setDraftTitle] = useState('');
   const [draftQuestions, setDraftQuestions] = useState<DraftQuestion[]>([
     { question_text: '', question_description: '', answer_mode: 'YES_NO' },
   ]);
 
-  const supabase = useMemo(() => getSupabaseSafe(), []);
-  const today = getTodayLocalDateString();
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const isSuper = profile?.role === 'SUPERUSER';
   const isManager = profile?.role === 'MANAGER';
@@ -125,9 +130,18 @@ export default function DailyFormsPage() {
   );
 
   const selectedQuestions = useMemo(
-    () => questions.filter((question) => question.template_id === selectedTemplateId).sort((a, b) => a.sort_order - b.sort_order),
+    () =>
+      questions
+        .filter((question) => question.template_id === selectedTemplateId)
+        .sort((a, b) => a.sort_order - b.sort_order),
     [questions, selectedTemplateId]
   );
+
+  const templateTitleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    templates.forEach((template) => map.set(template.id, template.title));
+    return map;
+  }, [templates]);
 
   useEffect(() => {
     let mounted = true;
@@ -176,7 +190,7 @@ export default function DailyFormsPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     if (!profile || !canAccess) {
@@ -196,6 +210,7 @@ export default function DailyFormsPage() {
     try {
       setLoading(true);
       setErrorMsg('');
+
       const [templateRes, questionRes] = await Promise.all([
         supabase
           .from('daily_form_templates')
@@ -219,10 +234,7 @@ export default function DailyFormsPage() {
 
       if (!selectedTemplateId && nextTemplates.length > 0) {
         setSelectedTemplateId(nextTemplates[0].id);
-      } else if (
-        selectedTemplateId &&
-        !nextTemplates.find((template) => template.id === selectedTemplateId)
-      ) {
+      } else if (selectedTemplateId && !nextTemplates.find((t) => t.id === selectedTemplateId)) {
         setSelectedTemplateId(nextTemplates[0]?.id || null);
       }
     } catch (err: any) {
@@ -240,6 +252,12 @@ export default function DailyFormsPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
+      const last30Start = (() => {
+        const d = new Date(`${today}T00:00:00`);
+        d.setDate(d.getDate() - 29);
+        return d.toISOString().slice(0, 10);
+      })();
+
       const [submissionRes, pastRes] = await Promise.all([
         supabase
           .from('daily_form_submissions')
@@ -251,15 +269,7 @@ export default function DailyFormsPage() {
         supabase
           .from('daily_form_submissions')
           .select('*')
-          .eq('template_id', templateId)
-          .gte(
-            'submission_date',
-            (() => {
-              const d = new Date(`${today}T00:00:00`);
-              d.setDate(d.getDate() - 29);
-              return d.toISOString().slice(0, 10);
-            })()
-          )
+          .gte('submission_date', last30Start)
           .order('submission_date', { ascending: false })
           .order('created_at', { ascending: false }),
       ]);
@@ -269,7 +279,11 @@ export default function DailyFormsPage() {
 
       const currentSubmission = submissionRes.data as Submission | null;
       setTodaySubmission(currentSubmission);
-      setPastSubmissions((pastRes.data || []) as Submission[]);
+
+      const filteredPast = ((pastRes.data || []) as Submission[]).filter(
+        (submission) => submission.template_id === templateId
+      );
+      setPastSubmissions(filteredPast);
 
       if (currentSubmission) {
         const { data: answerRows, error: answerError } = await supabase
@@ -294,23 +308,41 @@ export default function DailyFormsPage() {
         setAnswers({});
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to load submission');
+      setErrorMsg(err?.message || 'Failed to load submission state');
     } finally {
       setLoading(false);
     }
   }
 
   function openCreateModal() {
+    setTemplateModalMode('CREATE');
+    setDraftTitle('');
+    setDraftQuestions([{ question_text: '', question_description: '', answer_mode: 'YES_NO' }]);
+    setShowTemplateModal(true);
     setErrorMsg('');
     setSuccessMsg('');
-    setNewTitle('');
-    setDraftQuestions([{ question_text: '', question_description: '', answer_mode: 'YES_NO' }]);
-    setShowCreateModal(true);
   }
 
-  function closeCreateModal() {
-    if (creatingTemplate) return;
-    setShowCreateModal(false);
+  function openEditModal() {
+    if (!selectedTemplate) return;
+    setTemplateModalMode('EDIT');
+    setDraftTitle(selectedTemplate.title);
+    setDraftQuestions(
+      selectedQuestions.map((question) => ({
+        existingId: question.id,
+        question_text: question.question_text,
+        question_description: question.question_description || '',
+        answer_mode: question.answer_mode,
+      }))
+    );
+    setShowTemplateModal(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+  }
+
+  function closeTemplateModal() {
+    if (templateSaving) return;
+    setShowTemplateModal(false);
   }
 
   function updateDraftQuestion(index: number, field: keyof DraftQuestion, value: string) {
@@ -327,82 +359,171 @@ export default function DailyFormsPage() {
   }
 
   function removeDraftQuestion(index: number) {
-    setDraftQuestions((prev) => (prev.length === 1 ? prev : prev.filter((_, i) => i !== index)));
+    setDraftQuestions((prev) => {
+      if (prev.length === 1) return prev;
+      const item = prev[index];
+      if (item?.existingId) return prev; // preserve historical-linked questions
+      return prev.filter((_, i) => i !== index);
+    });
   }
 
-  async function handleCreateTemplate() {
+  async function handleSaveTemplate() {
     if (!supabase || !profile?.user_id) return;
 
-    const title = newTitle.trim();
+    const title = draftTitle.trim();
     if (!title) {
       setErrorMsg('Please enter a form title.');
       return;
     }
 
-    const cleanedQuestions = draftQuestions
-      .map((question) => ({
-        question_text: question.question_text.trim(),
-        question_description: question.question_description.trim(),
-        answer_mode: question.answer_mode,
+    const cleaned = draftQuestions
+      .map((q) => ({
+        ...q,
+        question_text: q.question_text.trim(),
+        question_description: q.question_description.trim(),
       }))
-      .filter((question) => question.question_text);
+      .filter((q) => q.question_text);
 
-    if (cleanedQuestions.length === 0) {
+    if (cleaned.length === 0) {
       setErrorMsg('Please add at least one question.');
       return;
     }
 
     try {
-      setCreatingTemplate(true);
+      setTemplateSaving(true);
       setErrorMsg('');
       setSuccessMsg('');
 
-      const { data: template, error: templateError } = await supabase
-        .from('daily_form_templates')
-        .insert([
-          {
+      if (templateModalMode === 'CREATE') {
+        const { data: template, error: templateError } = await supabase
+          .from('daily_form_templates')
+          .insert([
+            {
+              title,
+              is_active: true,
+              created_by_user_id: profile.user_id,
+              created_by_name: profile.name || profile.email,
+            },
+          ])
+          .select('*')
+          .single();
+
+        if (templateError) throw templateError;
+
+        const questionRows = cleaned.map((question, index) => ({
+          template_id: template.id,
+          question_text: question.question_text,
+          question_description: question.question_description || null,
+          answer_mode: question.answer_mode,
+          sort_order: index,
+        }));
+
+        const { error: questionError } = await supabase
+          .from('daily_form_questions')
+          .insert(questionRows);
+
+        if (questionError) throw questionError;
+
+        setSelectedTemplateId(template.id);
+        setSuccessMsg('List created successfully.');
+      } else {
+        if (!selectedTemplate) throw new Error('No template selected.');
+
+        const { error: templateError } = await supabase
+          .from('daily_form_templates')
+          .update({
             title,
-            is_active: true,
-            created_by_user_id: profile.user_id,
-            created_by_name: profile.name || profile.email,
-          },
-        ])
-        .select('*')
-        .single();
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', selectedTemplate.id);
 
-      if (templateError) throw templateError;
+        if (templateError) throw templateError;
 
-      const questionRows = cleanedQuestions.map((question, index) => ({
-        template_id: template.id,
-        question_text: question.question_text,
-        question_description: question.question_description || null,
-        answer_mode: question.answer_mode,
-        sort_order: index,
-      }));
+        for (let i = 0; i < cleaned.length; i++) {
+          const question = cleaned[i];
 
-      const { error: questionError } = await supabase
-        .from('daily_form_questions')
-        .insert(questionRows);
+          if (question.existingId) {
+            const { error: updateError } = await supabase
+              .from('daily_form_questions')
+              .update({
+                question_text: question.question_text,
+                question_description: question.question_description || null,
+                answer_mode: question.answer_mode,
+                sort_order: i,
+              })
+              .eq('id', question.existingId);
 
-      if (questionError) throw questionError;
+            if (updateError) throw updateError;
+          } else {
+            const { error: insertError } = await supabase
+              .from('daily_form_questions')
+              .insert([
+                {
+                  template_id: selectedTemplate.id,
+                  question_text: question.question_text,
+                  question_description: question.question_description || null,
+                  answer_mode: question.answer_mode,
+                  sort_order: i,
+                },
+              ]);
 
-      setShowCreateModal(false);
-      setSuccessMsg('Daily form created successfully.');
+            if (insertError) throw insertError;
+          }
+        }
+
+        setSuccessMsg('List updated successfully.');
+      }
+
+      setShowTemplateModal(false);
       await loadTemplatesAndQuestions();
-      setSelectedTemplateId(template.id);
-      setViewMode('LIST');
+      if (selectedTemplateId) {
+        await loadTemplateSubmissionState(selectedTemplateId);
+      }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to create daily form');
+      setErrorMsg(err?.message || 'Failed to save list');
     } finally {
-      setCreatingTemplate(false);
+      setTemplateSaving(false);
     }
   }
 
-  function handleChooseTemplate(templateId: string) {
+  async function handleDeleteTemplate(templateId: string) {
+    if (!supabase) return;
+    const confirmed = window.confirm('Delete this list? Existing submissions will remain in history, but the list will be hidden.');
+    if (!confirmed) return;
+
+    try {
+      setDeletingTemplateId(templateId);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase
+        .from('daily_form_templates')
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', templateId);
+
+      if (error) throw error;
+
+      setSelectedTemplateId(null);
+      setViewMode('LIST');
+      setTodaySubmission(null);
+      setAnswers({});
+      setSuccessMsg('List deleted successfully.');
+      await loadTemplatesAndQuestions();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to delete list');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  }
+
+  function chooseTemplate(templateId: string) {
     setSelectedTemplateId(templateId);
-    setViewMode('FORM');
     setViewingSubmission(null);
     setViewingAnswers({});
+    setViewMode('FORM');
   }
 
   function updateAnswer(question: Question, value: boolean | string) {
@@ -426,7 +547,7 @@ export default function DailyFormsPage() {
       setSuccessMsg('');
 
       let submissionId = todaySubmission?.id || null;
-      let createdNewSubmission = false;
+      let createdNew = false;
 
       if (!submissionId) {
         const { data: createdSubmission, error: submissionError } = await supabase
@@ -445,16 +566,16 @@ export default function DailyFormsPage() {
 
         if (submissionError) throw submissionError;
         submissionId = createdSubmission.id;
-        createdNewSubmission = true;
+        createdNew = true;
       } else {
-        const { error: touchError } = await supabase
+        const { error: updateSubmissionError } = await supabase
           .from('daily_form_submissions')
           .update({
             updated_at: new Date().toISOString(),
           })
           .eq('id', submissionId);
 
-        if (touchError) throw touchError;
+        if (updateSubmissionError) throw updateSubmissionError;
       }
 
       const rows = selectedQuestions.map((question) => ({
@@ -476,7 +597,7 @@ export default function DailyFormsPage() {
 
       if (answerError) throw answerError;
 
-      if (createdNewSubmission) {
+      if (createdNew) {
         await fetch('/api/daily-forms-telegram', {
           method: 'POST',
           headers: {
@@ -490,7 +611,7 @@ export default function DailyFormsPage() {
         });
       }
 
-      setSuccessMsg(createdNewSubmission ? 'Form submitted successfully.' : 'Answers updated successfully.');
+      setSuccessMsg(createdNew ? 'Form submitted successfully.' : 'Answers updated successfully.');
       await loadTemplateSubmissionState(selectedTemplate.id);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save form');
@@ -505,6 +626,7 @@ export default function DailyFormsPage() {
       setLoading(true);
       setViewMode('VIEW_SUBMISSION');
       setViewingSubmission(submission);
+
       const { data: answerRows, error } = await supabase
         .from('daily_form_answers')
         .select('*')
@@ -522,6 +644,7 @@ export default function DailyFormsPage() {
           answer_text: row.answer_text,
         };
       });
+
       setViewingAnswers(nextAnswers);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load submission details');
@@ -544,9 +667,7 @@ export default function DailyFormsPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Login required</div>
           <p style={styles.centerText}>Please log in first, then open this page again.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -558,9 +679,7 @@ export default function DailyFormsPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
           <p style={styles.centerText}>Only managers and superusers can access Daily Forms.</p>
-          <Link href="/dashboard" style={styles.linkBtn}>
-            Back to Dashboard
-          </Link>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
     );
@@ -583,10 +702,7 @@ export default function DailyFormsPage() {
                 Create List
               </button>
             ) : null}
-
-            <Link href="/dashboard" style={styles.secondaryBtn}>
-              Back to Dashboard
-            </Link>
+            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
@@ -602,22 +718,22 @@ export default function DailyFormsPage() {
             Forms
           </button>
           {selectedTemplate ? (
-            <button
-              type="button"
-              onClick={() => setViewMode('FORM')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'FORM' ? styles.modeBtnActive : {}) }}
-            >
-              Current Form
-            </button>
-          ) : null}
-          {selectedTemplate ? (
-            <button
-              type="button"
-              onClick={() => setViewMode('HISTORY')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'HISTORY' ? styles.modeBtnActive : {}) }}
-            >
-              Last 30 Days
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setViewMode('FORM')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'FORM' ? styles.modeBtnActive : {}) }}
+              >
+                Current Form
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('HISTORY')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'HISTORY' ? styles.modeBtnActive : {}) }}
+              >
+                Last 30 Days
+              </button>
+            </>
           ) : null}
         </div>
 
@@ -640,12 +756,12 @@ export default function DailyFormsPage() {
             <div style={styles.sectionTitle}>Available Forms</div>
             <div style={styles.formCardGrid}>
               {templates.map((template) => {
-                const templateQuestions = questions.filter((question) => question.template_id === template.id);
+                const templateQuestions = questions.filter((q) => q.template_id === template.id);
                 return (
                   <button
                     key={template.id}
                     type="button"
-                    onClick={() => handleChooseTemplate(template.id)}
+                    onClick={() => chooseTemplate(template.id)}
                     style={{
                       ...styles.formChooserCard,
                       ...(selectedTemplateId === template.id ? styles.formChooserCardActive : {}),
@@ -678,24 +794,23 @@ export default function DailyFormsPage() {
                 ) : null}
               </div>
 
-              <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
-{isSuper && selectedTemplate ? (
-<>
-<button
-onClick={() => openCreateModal()}
-style={styles.secondaryBtn}
->
-Edit List
-</button>
-<button
-onClick={() => handleDeleteTemplate(selectedTemplate.id)}
-style={{...styles.secondaryBtn,color:'#ef4444',borderColor:'#ef4444'}}
->
-Delete List
-</button>
-</>
-) : null}
-<div style={styles.statusPillWrap}>
+              <div style={styles.formHeaderRight}>
+                {isSuper ? (
+                  <>
+                    <button type="button" onClick={openEditModal} style={styles.secondaryBtn}>
+                      Edit List
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteTemplate(selectedTemplate.id)}
+                      style={{ ...styles.secondaryBtn, color: '#ef4444', borderColor: '#ef4444' }}
+                      disabled={deletingTemplateId === selectedTemplate.id}
+                    >
+                      {deletingTemplateId === selectedTemplate.id ? 'Deleting...' : 'Delete List'}
+                    </button>
+                  </>
+                ) : null}
+
                 <div
                   style={{
                     ...styles.statusPill,
@@ -723,9 +838,7 @@ Delete List
                         onClick={() => updateAnswer(question, true)}
                         style={{
                           ...styles.answerChoiceBtn,
-                          ...(answers[question.id]?.answer_yes_no === true
-                            ? styles.answerChoiceBtnActive
-                            : {}),
+                          ...(answers[question.id]?.answer_yes_no === true ? styles.answerChoiceBtnActive : {}),
                         }}
                       >
                         Yes
@@ -735,9 +848,7 @@ Delete List
                         onClick={() => updateAnswer(question, false)}
                         style={{
                           ...styles.answerChoiceBtn,
-                          ...(answers[question.id]?.answer_yes_no === false
-                            ? styles.answerChoiceBtnActive
-                            : {}),
+                          ...(answers[question.id]?.answer_yes_no === false ? styles.answerChoiceBtnActive : {}),
                         }}
                       >
                         No
@@ -756,11 +867,7 @@ Delete List
             </div>
 
             <div style={styles.actionRow}>
-              <button
-                type="button"
-                onClick={() => setViewMode('LIST')}
-                style={styles.secondaryBtn}
-              >
+              <button type="button" onClick={() => setViewMode('LIST')} style={styles.secondaryBtn}>
                 Back to Forms
               </button>
               <button
@@ -790,9 +897,11 @@ Delete List
                     style={styles.historyCard}
                   >
                     <div>
-                      <div style={styles.historyTitle}>{submission.submitted_by_name || submission.submitted_by_email || 'Unknown'}</div>
+                      <div style={styles.historyTitle}>
+                        {submission.submitted_by_name || submission.submitted_by_email || 'Unknown'}
+                      </div>
                       <div style={styles.historyMeta}>
-                        {formatDate(submission.submission_date)} · {formatDateTime(submission.created_at)}
+                        {templateTitleMap.get(submission.template_id) || 'Form'} · {formatDate(submission.submission_date)} · {formatDateTime(submission.created_at)}
                       </div>
                     </div>
                     <div style={styles.historyView}>View</div>
@@ -803,11 +912,13 @@ Delete List
           </section>
         ) : null}
 
-        {!loading && viewMode === 'VIEW_SUBMISSION' && selectedTemplate && viewingSubmission ? (
+        {!loading && viewMode === 'VIEW_SUBMISSION' && viewingSubmission ? (
           <section style={styles.panel}>
             <div style={styles.formHeader}>
               <div>
-                <div style={styles.sectionTitle}>{selectedTemplate.title}</div>
+                <div style={styles.sectionTitle}>
+                  {templateTitleMap.get(viewingSubmission.template_id) || 'Submission'}
+                </div>
                 <div style={styles.formSubMeta}>
                   Submission by {viewingSubmission.submitted_by_name || viewingSubmission.submitted_by_email || '-'}
                 </div>
@@ -818,33 +929,32 @@ Delete List
             </div>
 
             <div style={styles.questionList}>
-              {selectedQuestions.map((question, index) => (
-                <div key={question.id} style={styles.questionCard}>
-                  <div style={styles.questionNumber}>Question {index + 1}</div>
-                  <div style={styles.questionText}>{question.question_text}</div>
-                  {question.question_description ? (
-                    <div style={styles.questionDescription}>{question.question_description}</div>
-                  ) : null}
+              {questions
+                .filter((q) => q.template_id === viewingSubmission.template_id)
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map((question, index) => (
+                  <div key={question.id} style={styles.questionCard}>
+                    <div style={styles.questionNumber}>Question {index + 1}</div>
+                    <div style={styles.questionText}>{question.question_text}</div>
+                    {question.question_description ? (
+                      <div style={styles.questionDescription}>{question.question_description}</div>
+                    ) : null}
 
-                  <div style={styles.viewAnswerBox}>
-                    {question.answer_mode === 'YES_NO'
-                      ? viewingAnswers[question.id]?.answer_yes_no === null || viewingAnswers[question.id]?.answer_yes_no === undefined
-                        ? '-'
-                        : viewingAnswers[question.id]?.answer_yes_no
-                          ? 'Yes'
-                          : 'No'
-                      : viewingAnswers[question.id]?.answer_text || '-'}
+                    <div style={styles.viewAnswerBox}>
+                      {question.answer_mode === 'YES_NO'
+                        ? viewingAnswers[question.id]?.answer_yes_no === null || viewingAnswers[question.id]?.answer_yes_no === undefined
+                          ? '-'
+                          : viewingAnswers[question.id]?.answer_yes_no
+                            ? 'Yes'
+                            : 'No'
+                        : viewingAnswers[question.id]?.answer_text || '-'}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
 
             <div style={styles.actionRow}>
-              <button
-                type="button"
-                onClick={() => setViewMode('HISTORY')}
-                style={styles.secondaryBtn}
-              >
+              <button type="button" onClick={() => setViewMode('HISTORY')} style={styles.secondaryBtn}>
                 Back to History
               </button>
             </div>
@@ -852,12 +962,14 @@ Delete List
         ) : null}
       </div>
 
-      {showCreateModal ? (
+      {showTemplateModal ? (
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalTop}>
-              <div style={styles.modalTitle}>Create List</div>
-              <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTemplate}>
+              <div style={styles.modalTitle}>
+                {templateModalMode === 'CREATE' ? 'Create List' : 'Edit List'}
+              </div>
+              <button type="button" onClick={closeTemplateModal} style={styles.closeBtn} disabled={templateSaving}>
                 ×
               </button>
             </div>
@@ -865,29 +977,26 @@ Delete List
             <div style={styles.formGroup}>
               <label style={styles.label}>Form Title</label>
               <input
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
                 style={styles.input}
                 placeholder="Example: Manager Opening Checklist"
-                disabled={creatingTemplate}
+                disabled={templateSaving}
               />
             </div>
 
             <div style={styles.createQuestionList}>
               {draftQuestions.map((question, index) => (
-                <div key={index} style={styles.createQuestionCard}>
+                <div key={`${question.existingId || 'new'}-${index}`} style={styles.createQuestionCard}>
                   <div style={styles.createQuestionHeader}>
                     <div style={styles.createQuestionTitle}>Question {index + 1}</div>
                     <button
                       type="button"
                       onClick={() => removeDraftQuestion(index)}
-                      style={{
-                        ...styles.removeBtn,
-                        opacity: draftQuestions.length === 1 ? 0.45 : 1,
-                      }}
-                      disabled={creatingTemplate || draftQuestions.length === 1}
+                      style={{ ...styles.removeBtn, opacity: draftQuestions.length === 1 || !!question.existingId ? 0.45 : 1 }}
+                      disabled={templateSaving || draftQuestions.length === 1 || !!question.existingId}
                     >
-                      Remove
+                      {question.existingId ? 'Locked' : 'Remove'}
                     </button>
                   </div>
 
@@ -898,7 +1007,7 @@ Delete List
                       onChange={(e) => updateDraftQuestion(index, 'question_text', e.target.value)}
                       style={styles.input}
                       placeholder="Enter question"
-                      disabled={creatingTemplate}
+                      disabled={templateSaving}
                     />
                   </div>
 
@@ -907,9 +1016,9 @@ Delete List
                     <textarea
                       value={question.question_description}
                       onChange={(e) => updateDraftQuestion(index, 'question_description', e.target.value)}
-                      style={styles.textarea}
-                      placeholder="Optional description or guidance under the question"
-                      disabled={creatingTemplate}
+                      style={styles.textareaCompact}
+                      placeholder="Optional description or guidance"
+                      disabled={templateSaving}
                     />
                   </div>
 
@@ -919,32 +1028,38 @@ Delete List
                       value={question.answer_mode}
                       onChange={(e) => updateDraftQuestion(index, 'answer_mode', e.target.value)}
                       style={styles.input}
-                      disabled={creatingTemplate}
+                      disabled={templateSaving}
                     >
                       <option value="YES_NO">Yes / No</option>
                       <option value="SHORT_TEXT">Short Text</option>
                     </select>
                   </div>
+
+                  {question.existingId ? (
+                    <div style={styles.lockNotice}>
+                      Existing questions are editable, but not removable, so past submissions remain safe.
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
 
             <div style={styles.modalActionsSpread}>
-              <button type="button" onClick={addDraftQuestion} style={styles.secondaryBtn} disabled={creatingTemplate}>
+              <button type="button" onClick={addDraftQuestion} style={styles.secondaryBtn} disabled={templateSaving}>
                 Add Question
               </button>
 
               <div style={styles.modalActions}>
-                <button type="button" onClick={closeCreateModal} style={styles.secondaryBtn} disabled={creatingTemplate}>
+                <button type="button" onClick={closeTemplateModal} style={styles.secondaryBtn} disabled={templateSaving}>
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleCreateTemplate()}
-                  style={{ ...styles.primaryBtn, opacity: creatingTemplate ? 0.6 : 1 }}
-                  disabled={creatingTemplate}
+                  onClick={() => void handleSaveTemplate()}
+                  style={{ ...styles.primaryBtn, opacity: templateSaving ? 0.6 : 1 }}
+                  disabled={templateSaving}
                 >
-                  {creatingTemplate ? 'Creating...' : 'Create List'}
+                  {templateSaving ? 'Saving...' : templateModalMode === 'CREATE' ? 'Create List' : 'Save Changes'}
                 </button>
               </div>
             </div>
@@ -956,461 +1071,70 @@ Delete List
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#f8fafc',
-    padding: '20px 16px 40px',
-  },
-  shell: {
-    width: '100%',
-    maxWidth: '1180px',
-    margin: '0 auto',
-  },
-  topBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '16px',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: '18px',
-  },
-  topBarActions: {
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  pageTitle: {
-    fontSize: '30px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.1,
-  },
-  pageSubTitle: {
-    fontSize: '14px',
-    color: '#64748b',
-    marginTop: '6px',
-  },
-  panel: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '24px',
-    padding: '18px',
-    boxShadow: '0 16px 36px rgba(15,23,42,0.06)',
-    marginBottom: '16px',
-  },
-  sectionTitle: {
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '12px',
-  },
-  modeRow: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-    marginBottom: '16px',
-  },
-  modeBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#334155',
-    borderRadius: '999px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  modeBtnActive: {
-    background: '#0f172a',
-    color: '#ffffff',
-    borderColor: '#0f172a',
-  },
-  formCardGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-    gap: '14px',
-  },
-  formChooserCard: {
-    border: '1px solid #e2e8f0',
-    background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
-    color: '#0f172a',
-    borderRadius: '22px',
-    padding: '18px',
-    textAlign: 'left' as const,
-    cursor: 'pointer',
-    boxShadow: '0 10px 28px rgba(15,23,42,0.05)',
-  },
-  formChooserCardActive: {
-    borderColor: '#93c5fd',
-    boxShadow: '0 14px 32px rgba(37,99,235,0.12)',
-  },
-  formChooserTitle: {
-    fontSize: '20px',
-    fontWeight: 800,
-    marginBottom: '8px',
-  },
-  formChooserMeta: {
-    fontSize: '14px',
-    color: '#64748b',
-    fontWeight: 700,
-    marginBottom: '16px',
-  },
-  formChooserHint: {
-    fontSize: '13px',
-    color: '#1d4ed8',
-    fontWeight: 800,
-  },
-  formHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '16px',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
-    marginBottom: '14px',
-  },
-  formSubMeta: {
-    fontSize: '14px',
-    color: '#64748b',
-    marginTop: '6px',
-    fontWeight: 700,
-  },
-  statusPillWrap: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  statusPill: {
-    borderRadius: '999px',
-    padding: '10px 14px',
-    fontSize: '13px',
-    fontWeight: 800,
-  },
-  statusPending: {
-    background: '#fff7ed',
-    color: '#c2410c',
-  },
-  statusSubmitted: {
-    background: '#ecfdf5',
-    color: '#166534',
-  },
-  questionList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '14px',
-  },
-  questionCard: {
-    border: '1px solid #e2e8f0',
-    background: '#ffffff',
-    borderRadius: '20px',
-    padding: '16px',
-  },
-  questionNumber: {
-    fontSize: '12px',
-    color: '#64748b',
-    fontWeight: 800,
-    marginBottom: '8px',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.04em',
-  },
-  questionText: {
-    fontSize: '18px',
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.35,
-  },
-  questionDescription: {
-    fontSize: '14px',
-    color: '#475569',
-    lineHeight: 1.6,
-    marginTop: '8px',
-    whiteSpace: 'pre-wrap' as const,
-  },
-  answerBtnRow: {
-    display: 'flex',
-    gap: '10px',
-    marginTop: '14px',
-    flexWrap: 'wrap',
-  },
-  answerChoiceBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#334155',
-    borderRadius: '12px',
-    padding: '12px 18px',
-    fontWeight: 800,
-    cursor: 'pointer',
-    minWidth: '110px',
-  },
-  answerChoiceBtnActive: {
-    background: '#0f172a',
-    color: '#ffffff',
-    borderColor: '#0f172a',
-  },
-  viewAnswerBox: {
-    marginTop: '14px',
-    border: '1px solid #e2e8f0',
-    background: '#f8fafc',
-    borderRadius: '14px',
-    padding: '12px 14px',
-    fontWeight: 700,
-    color: '#0f172a',
-    whiteSpace: 'pre-wrap' as const,
-  },
-  actionRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    flexWrap: 'wrap',
-    marginTop: '18px',
-  },
-  historyList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  historyCard: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    border: '1px solid #e2e8f0',
-    background: '#ffffff',
-    borderRadius: '16px',
-    padding: '14px 16px',
-    cursor: 'pointer',
-    textAlign: 'left' as const,
-  },
-  historyTitle: {
-    fontSize: '16px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  historyMeta: {
-    fontSize: '13px',
-    color: '#64748b',
-    marginTop: '4px',
-    fontWeight: 700,
-  },
-  historyView: {
-    fontSize: '13px',
-    color: '#1d4ed8',
-    fontWeight: 800,
-    whiteSpace: 'nowrap' as const,
-  },
-  primaryHeaderBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '14px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  primaryBtn: {
-    border: 'none',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '14px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  secondaryBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '14px',
-    padding: '12px 16px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  errorBox: {
-    marginBottom: '14px',
-    background: '#fef2f2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: '14px',
-    padding: '12px 14px',
-    fontWeight: 700,
-  },
-  successBox: {
-    marginBottom: '14px',
-    background: '#ecfdf5',
-    color: '#166534',
-    border: '1px solid #bbf7d0',
-    borderRadius: '14px',
-    padding: '12px 14px',
-    fontWeight: 700,
-  },
-  emptyState: {
-    border: '1px dashed #cbd5e1',
-    background: '#f8fafc',
-    borderRadius: '16px',
-    padding: '26px',
-    textAlign: 'center' as const,
-    color: '#64748b',
-    fontWeight: 700,
-  },
-  centerCard: {
-    maxWidth: '460px',
-    margin: '80px auto',
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '20px',
-    padding: '26px',
-    textAlign: 'center' as const,
-    boxShadow: '0 14px 32px rgba(15,23,42,0.08)',
-  },
-  centerTitle: {
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '10px',
-  },
-  centerText: {
-    fontSize: '15px',
-    color: '#64748b',
-    lineHeight: 1.6,
-    marginBottom: '16px',
-  },
-  linkBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: '1px solid #0f172a',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '14px',
-    padding: '12px 16px',
-    fontWeight: 800,
-  },
-  modalOverlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(15, 23, 42, 0.48)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '20px',
-    zIndex: 1000,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: '860px',
-    maxHeight: '88vh',
-    overflowY: 'auto' as const,
-    background: '#ffffff',
-    borderRadius: '24px',
-    padding: '20px',
-    boxShadow: '0 20px 50px rgba(15,23,42,0.28)',
-  },
-  modalTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'flex-start',
-    marginBottom: '16px',
-  },
-  modalTitle: {
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  closeBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    width: '38px',
-    height: '38px',
-    borderRadius: '12px',
-    fontSize: '20px',
-    lineHeight: 1,
-    cursor: 'pointer',
-  },
-  createQuestionList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '14px',
-  },
-  createQuestionCard: {
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    background: '#f8fafc',
-    padding: '14px',
-  },
-  createQuestionHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'center',
-    marginBottom: '10px',
-  },
-  createQuestionTitle: {
-    fontSize: '16px',
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  removeBtn: {
-    border: '1px solid #ef4444',
-    background: '#ffffff',
-    color: '#ef4444',
-    borderRadius: '12px',
-    padding: '10px 14px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    marginBottom: '14px',
-  },
-  label: {
-    fontSize: '14px',
-    color: '#334155',
-    fontWeight: 800,
-  },
-  input: {
-    width: '100%',
-    boxSizing: 'border-box' as const,
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '14px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-  },
-  textarea: {
-    width: '100%',
-    boxSizing: 'border-box' as const,
-    minHeight: '100px',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '14px',
-    padding: '12px 14px',
-    fontSize: '15px',
-    outline: 'none',
-    resize: 'vertical' as const,
-    marginTop: '14px',
-  },
-  modalActionsSpread: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'center',
-    flexWrap: 'wrap' as const,
-    marginTop: '18px',
-  },
-  modalActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
-    flexWrap: 'wrap' as const,
-  },
+  page: { minHeight: '100vh', background: '#f8fafc', padding: '20px 16px 40px' },
+  shell: { width: '100%', maxWidth: '1180px', margin: '0 auto' },
+  topBar: { display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '18px' },
+  topBarActions: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
+  pageTitle: { fontSize: '30px', fontWeight: 800, color: '#0f172a', lineHeight: 1.1 },
+  pageSubTitle: { fontSize: '14px', color: '#64748b', marginTop: '6px' },
+  panel: { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '24px', padding: '18px', boxShadow: '0 16px 36px rgba(15,23,42,0.06)', marginBottom: '16px' },
+  sectionTitle: { fontSize: '24px', fontWeight: 800, color: '#0f172a', marginBottom: '12px' },
+  modeRow: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' },
+  modeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '999px', padding: '12px 16px', fontWeight: 800, cursor: 'pointer' },
+  modeBtnActive: { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' },
+  formCardGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' },
+  formChooserCard: { border: '1px solid #e2e8f0', background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)', color: '#0f172a', borderRadius: '22px', padding: '18px', textAlign: 'left', cursor: 'pointer', boxShadow: '0 10px 28px rgba(15,23,42,0.05)' },
+  formChooserCardActive: { borderColor: '#93c5fd', boxShadow: '0 14px 32px rgba(37,99,235,0.12)' },
+  formChooserTitle: { fontSize: '20px', fontWeight: 800, marginBottom: '8px' },
+  formChooserMeta: { fontSize: '14px', color: '#64748b', fontWeight: 700, marginBottom: '16px' },
+  formChooserHint: { fontSize: '13px', color: '#1d4ed8', fontWeight: 800 },
+  formHeader: { display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '14px' },
+  formHeaderRight: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
+  formSubMeta: { fontSize: '14px', color: '#64748b', marginTop: '6px', fontWeight: 700 },
+  statusPill: { borderRadius: '999px', padding: '10px 14px', fontSize: '13px', fontWeight: 800 },
+  statusPending: { background: '#fff7ed', color: '#c2410c' },
+  statusSubmitted: { background: '#ecfdf5', color: '#166534' },
+  questionList: { display: 'flex', flexDirection: 'column', gap: '14px' },
+  questionCard: { border: '1px solid #e2e8f0', background: '#ffffff', borderRadius: '20px', padding: '16px' },
+  questionNumber: { fontSize: '12px', color: '#64748b', fontWeight: 800, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  questionText: { fontSize: '18px', fontWeight: 800, color: '#0f172a', lineHeight: 1.35 },
+  questionDescription: { fontSize: '14px', color: '#475569', lineHeight: 1.6, marginTop: '8px', whiteSpace: 'pre-wrap' },
+  answerBtnRow: { display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' },
+  answerChoiceBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '12px', padding: '12px 18px', fontWeight: 800, cursor: 'pointer', minWidth: '110px' },
+  answerChoiceBtnActive: { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' },
+  viewAnswerBox: { marginTop: '14px', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '12px 14px', fontWeight: 700, color: '#0f172a', whiteSpace: 'pre-wrap' },
+  actionRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginTop: '18px' },
+  historyList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  historyCard: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', border: '1px solid #e2e8f0', background: '#ffffff', borderRadius: '16px', padding: '14px 16px', cursor: 'pointer', textAlign: 'left' },
+  historyTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a' },
+  historyMeta: { fontSize: '13px', color: '#64748b', marginTop: '4px', fontWeight: 700 },
+  historyView: { fontSize: '13px', color: '#1d4ed8', fontWeight: 800, whiteSpace: 'nowrap' },
+  primaryHeaderBtn: { border: 'none', background: '#0f172a', color: '#ffffff', borderRadius: '14px', padding: '12px 16px', fontWeight: 800, cursor: 'pointer' },
+  primaryBtn: { border: 'none', background: '#0f172a', color: '#ffffff', borderRadius: '14px', padding: '12px 16px', fontWeight: 800, cursor: 'pointer' },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 16px', fontWeight: 800, cursor: 'pointer' },
+  errorBox: { marginBottom: '14px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '14px', padding: '12px 14px', fontWeight: 700 },
+  successBox: { marginBottom: '14px', background: '#ecfdf5', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '14px', padding: '12px 14px', fontWeight: 700 },
+  emptyState: { border: '1px dashed #cbd5e1', background: '#f8fafc', borderRadius: '16px', padding: '26px', textAlign: 'center', color: '#64748b', fontWeight: 700 },
+  centerCard: { maxWidth: '460px', margin: '80px auto', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '26px', textAlign: 'center', boxShadow: '0 14px 32px rgba(15,23,42,0.08)' },
+  centerTitle: { fontSize: '24px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' },
+  centerText: { fontSize: '15px', color: '#64748b', lineHeight: 1.6, marginBottom: '16px' },
+  linkBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #0f172a', background: '#0f172a', color: '#ffffff', borderRadius: '14px', padding: '12px 16px', fontWeight: 800 },
+  modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 1000 },
+  modalCard: { width: '100%', maxWidth: '860px', maxHeight: '88vh', overflowY: 'auto', background: '#ffffff', borderRadius: '24px', padding: '20px', boxShadow: '0 20px 50px rgba(15,23,42,0.28)' },
+  modalTop: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '16px' },
+  modalTitle: { fontSize: '24px', fontWeight: 800, color: '#0f172a' },
+  closeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', width: '38px', height: '38px', borderRadius: '12px', fontSize: '20px', lineHeight: 1, cursor: 'pointer' },
+  createQuestionList: { display: 'flex', flexDirection: 'column', gap: '14px' },
+  createQuestionCard: { border: '1px solid #e2e8f0', borderRadius: '18px', background: '#f8fafc', padding: '14px' },
+  createQuestionHeader: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '10px' },
+  createQuestionTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a' },
+  removeBtn: { border: '1px solid #ef4444', background: '#ffffff', color: '#ef4444', borderRadius: '12px', padding: '10px 14px', fontWeight: 800, cursor: 'pointer' },
+  formGroup: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' },
+  label: { fontSize: '14px', color: '#334155', fontWeight: 800 },
+  input: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 14px', fontSize: '15px', outline: 'none' },
+  textarea: { width: '100%', boxSizing: 'border-box', minHeight: '100px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical', marginTop: '14px' },
+  textareaCompact: { width: '100%', boxSizing: 'border-box', minHeight: '88px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '14px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },
+  modalActionsSpread: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginTop: '18px' },
+  modalActions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' },
+  lockNotice: { fontSize: '12px', color: '#b45309', fontWeight: 700 },
 };
