@@ -24,6 +24,30 @@ export type DashboardProfile = {
   can_delete_task: boolean;
 };
 
+export function emptyProfile(): DashboardProfile {
+  return {
+    user_id: '',
+    email: '',
+    name: '',
+    role: 'FO',
+    can_access_preventive_maintenance: false,
+    can_access_maintenance_ot: false,
+    can_access_hk_special_project: false,
+    can_access_chambermaid_entry: false,
+    can_access_supervisor_update: false,
+    can_access_laundry_count: false,
+    can_access_stock_card: false,
+    can_access_damaged: false,
+    can_access_linen_history: false,
+    can_access_daily_forms: false,
+    can_access_management_tasks: false,
+    can_access_admin_settings: false,
+    can_create_task: false,
+    can_edit_task: false,
+    can_delete_task: false,
+  };
+}
+
 export function getEffectiveProfile(profile: DashboardProfile): DashboardProfile {
   const isSuper = profile.role === 'SUPERUSER';
   const isManager = profile.role === 'MANAGER';
@@ -74,7 +98,7 @@ export async function loadDashboardProfileClient(): Promise<DashboardProfile | n
 
   if (!session?.user) return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_profiles')
     .select(`
       user_id,
@@ -100,5 +124,10 @@ export async function loadDashboardProfileClient(): Promise<DashboardProfile | n
     .eq('user_id', session.user.id)
     .single();
 
-  return data;
+  if (error || !data) return null;
+
+  return {
+    ...emptyProfile(),
+    ...data,
+  };
 }
