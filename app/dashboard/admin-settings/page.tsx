@@ -87,23 +87,27 @@ function normalizeUser(
   };
 }
 
-function getSavedAccess(user: UserProfile) {
+function buildSavedPayload(draft: EditableUser): UserProfile {
   return {
-    can_access_preventive_maintenance: !!user.can_access_preventive_maintenance,
-    can_access_maintenance_ot: !!user.can_access_maintenance_ot,
-    can_access_hk_special_project: !!user.can_access_hk_special_project,
-    can_access_chambermaid_entry: !!user.can_access_chambermaid_entry,
-    can_access_supervisor_update: !!user.can_access_supervisor_update,
-    can_access_laundry_count: !!user.can_access_laundry_count,
-    can_access_stock_card: !!user.can_access_stock_card,
-    can_access_damaged: !!user.can_access_damaged,
-    can_access_linen_history: !!user.can_access_linen_history,
-    can_access_daily_forms: !!user.can_access_daily_forms,
-    can_access_management_tasks: !!user.can_access_management_tasks,
-    can_access_admin_settings: !!user.can_access_admin_settings,
-    can_create_task: !!user.can_create_task,
-    can_edit_task: !!user.can_edit_task,
-    can_delete_task: !!user.can_delete_task,
+    user_id: draft.user_id,
+    email: draft.email,
+    name: draft.name.trim(),
+    role: draft.role,
+    can_access_preventive_maintenance: !!draft.can_access_preventive_maintenance,
+    can_access_maintenance_ot: !!draft.can_access_maintenance_ot,
+    can_access_hk_special_project: !!draft.can_access_hk_special_project,
+    can_access_chambermaid_entry: !!draft.can_access_chambermaid_entry,
+    can_access_supervisor_update: !!draft.can_access_supervisor_update,
+    can_access_laundry_count: !!draft.can_access_laundry_count,
+    can_access_stock_card: !!draft.can_access_stock_card,
+    can_access_damaged: !!draft.can_access_damaged,
+    can_access_linen_history: !!draft.can_access_linen_history,
+    can_access_daily_forms: !!draft.can_access_daily_forms,
+    can_access_management_tasks: !!draft.can_access_management_tasks,
+    can_access_admin_settings: !!draft.can_access_admin_settings,
+    can_create_task: !!draft.can_create_task,
+    can_edit_task: !!draft.can_edit_task,
+    can_delete_task: !!draft.can_delete_task,
   };
 }
 
@@ -138,7 +142,6 @@ export default function AdminSettingsPage() {
       setDraft(null);
       return;
     }
-
     const selected = users.find((u) => u.user_id === selectedUserId);
     setDraft(selected ? { ...selected, newPassword: '' } : null);
   }, [selectedUserId, users]);
@@ -155,6 +158,15 @@ export default function AdminSettingsPage() {
     const json = await res.json();
     if (!res.ok || !json?.ok) throw new Error(json?.error || `Request failed (${res.status})`);
     return json;
+  }
+
+  async function fetchUsersRaw() {
+    const token = await getAccessToken();
+    const json = await fetchJson(`/api/admin/users?t=${Date.now()}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return (json.users || []).map(normalizeUser) as UserProfile[];
   }
 
   async function bootstrap() {
@@ -189,18 +201,12 @@ export default function AdminSettingsPage() {
       const meProfile = normalizeUser(meRow);
       setMe(meProfile);
 
-      const token = await getAccessToken();
-      const json = await fetchJson('/api/admin/users', {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const nextUsers = (json.users || []).map(normalizeUser);
+      const nextUsers = await fetchUsersRaw();
       setUsers(nextUsers);
 
       if (nextUsers.length > 0) {
-        const meInList = nextUsers.find((u: UserProfile) => u.user_id === meProfile.user_id);
-        setSelectedUserId(meInList?.user_id || nextUsers[0].user_id);
+        const meInList = nextUsers.find((u) => u.user_id === meProfile.user_id);
+        setSelectedUserId((prev) => prev || meInList?.user_id || nextUsers[0].user_id);
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load admin settings');
@@ -214,8 +220,13 @@ export default function AdminSettingsPage() {
   }
 
   async function refreshUsers(keepSelectedId?: string) {
-    await bootstrap();
-    if (keepSelectedId) setSelectedUserId(keepSelectedId);
+    const nextUsers = await fetchUsersRaw();
+    setUsers(nextUsers);
+    if (keepSelectedId) {
+      setSelectedUserId(keepSelectedId);
+      const selected = nextUsers.find((u) => u.user_id === keepSelectedId);
+      setDraft(selected ? { ...selected, newPassword: '' } : null);
+    }
   }
 
   async function handleCreateUser() {
@@ -268,41 +279,33 @@ export default function AdminSettingsPage() {
       setErrorMsg('');
       setStatusMsg('');
 
+      const savedPayload = buildSavedPayload(draft);
       const token = await getAccessToken();
+
       const res = await fetch('/api/admin/update-user-profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          user_id: draft.user_id,
-          email: draft.email,
-          name: draft.name.trim(),
-          role: draft.role,
-          can_access_preventive_maintenance: !!draft.can_access_preventive_maintenance,
-          can_access_maintenance_ot: !!draft.can_access_maintenance_ot,
-          can_access_hk_special_project: !!draft.can_access_hk_special_project,
-          can_access_chambermaid_entry: !!draft.can_access_chambermaid_entry,
-          can_access_supervisor_update: !!draft.can_access_supervisor_update,
-          can_access_laundry_count: !!draft.can_access_laundry_count,
-          can_access_stock_card: !!draft.can_access_stock_card,
-          can_access_damaged: !!draft.can_access_damaged,
-          can_access_linen_history: !!draft.can_access_linen_history,
-          can_access_daily_forms: !!draft.can_access_daily_forms,
-          can_access_management_tasks: !!draft.can_access_management_tasks,
-          can_access_admin_settings: !!draft.can_access_admin_settings,
-          can_create_task: !!draft.can_create_task,
-          can_edit_task: !!draft.can_edit_task,
-          can_delete_task: !!draft.can_delete_task,
-        }),
+        body: JSON.stringify(savedPayload),
       });
 
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update user');
 
+      // Apply the exact saved payload immediately so the UI never shows one-behind data
+      setUsers((prev) =>
+        prev.map((u) => (u.user_id === savedPayload.user_id ? { ...u, ...savedPayload } : u))
+      );
+      setDraft((prev) =>
+        prev ? { ...prev, ...savedPayload, newPassword: prev.newPassword || '' } : prev
+      );
+
       setStatusMsg('User access updated successfully');
-      await refreshUsers(draft.user_id);
+
+      // Then force a hard refetch from server to keep client/server in sync
+      await refreshUsers(savedPayload.user_id);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to update user');
     } finally {
@@ -331,6 +334,8 @@ export default function AdminSettingsPage() {
 
       setStatusMsg('User deleted successfully');
       await refreshUsers('');
+      setSelectedUserId('');
+      setDraft(null);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to delete user');
     } finally {
@@ -382,9 +387,7 @@ export default function AdminSettingsPage() {
       <label key={String(key)} style={styles.toggleRow}>
         <div>
           <div style={styles.toggleLabel}>{label}</div>
-          <div style={styles.toggleSubtext}>
-            Saved access: {savedValue ? 'Allowed' : 'Blocked'}
-          </div>
+          <div style={styles.toggleSubtext}>Saved access: {savedValue ? 'Allowed' : 'Blocked'}</div>
         </div>
         <button
           type="button"
@@ -425,7 +428,7 @@ export default function AdminSettingsPage() {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
-  const saved = draft ? getSavedAccess(draft) : null;
+  const saved = draft ? buildSavedPayload(draft) : null;
 
   return (
     <main style={styles.page}>
@@ -540,7 +543,7 @@ export default function AdminSettingsPage() {
                     <div style={styles.effectiveBox}>
                       <div style={styles.effectiveTitle}>Saved Access Preview</div>
                       <div style={styles.helperBanner}>
-                        Admin Settings now shows the saved database values only. Superuser still has full real access in the app, but this screen no longer auto-turns toggles back on based on role.
+                        This page now applies your change locally immediately after save, then hard-refreshes from the server with a cache-buster to avoid one-step-behind access states.
                       </div>
                       <div style={styles.effectiveChips}>
                         {accessFieldDefs.map((item) => (
@@ -548,12 +551,12 @@ export default function AdminSettingsPage() {
                             key={String(item.key)}
                             style={{
                               ...styles.effectiveChip,
-                              background: saved[item.key as keyof typeof saved] ? '#ecfdf5' : '#f8fafc',
-                              color: saved[item.key as keyof typeof saved] ? '#166534' : '#475569',
-                              borderColor: saved[item.key as keyof typeof saved] ? '#bbf7d0' : '#e2e8f0',
+                              background: saved[item.key] ? '#ecfdf5' : '#f8fafc',
+                              color: saved[item.key] ? '#166534' : '#475569',
+                              borderColor: saved[item.key] ? '#bbf7d0' : '#e2e8f0',
                             }}
                           >
-                            {item.label}: {saved[item.key as keyof typeof saved] ? 'Yes' : 'No'}
+                            {item.label}: {saved[item.key] ? 'Yes' : 'No'}
                           </span>
                         ))}
                       </div>
