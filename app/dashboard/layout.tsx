@@ -5,11 +5,25 @@ import DashboardSidebar from '../../components/DashboardSidebar';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
 type DashboardUser = {
+  user_id?: string;
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
   can_create_task?: boolean;
+  can_edit_task?: boolean;
+  can_delete_task?: boolean;
+  can_access_preventive_maintenance?: boolean;
+  can_access_maintenance_ot?: boolean;
+  can_access_hk_special_project?: boolean;
   can_access_chambermaid_entry?: boolean;
+  can_access_supervisor_update?: boolean;
+  can_access_laundry_count?: boolean;
+  can_access_stock_card?: boolean;
+  can_access_damaged?: boolean;
+  can_access_linen_history?: boolean;
+  can_access_daily_forms?: boolean;
+  can_access_management_tasks?: boolean;
+  can_access_admin_settings?: boolean;
   can_access_linen_admin?: boolean;
 };
 
@@ -58,12 +72,11 @@ export default function DashboardLayout({
         });
 
         const json = await res.json();
-        console.log('SESSION PROFILE:', json);
 
         if (!mounted) return;
 
         if (res.ok && json?.ok && json?.user) {
-          setProfile(json.user);
+          setProfile(json.user as DashboardUser);
         } else {
           setProfile(null);
         }
@@ -72,7 +85,7 @@ export default function DashboardLayout({
       }
     }
 
-    loadProfile();
+    void loadProfile();
 
     return () => {
       mounted = false;
