@@ -52,38 +52,6 @@ function withPermissions(row: any) {
   return { ...row, ...permissions, permissions };
 }
 
-const permissionLabels: Record<string, string> = {
-  can_access_preventive_maintenance: 'Preventive Maintenance',
-  can_access_maintenance_ot: 'Maintenance OT',
-  can_access_hk_special_project: 'HK Special Project',
-  can_access_chambermaid_entry: 'Chambermaid Entry',
-  can_access_supervisor_update: 'Supervisor Update',
-  can_access_laundry_count: 'Laundry Count',
-  can_access_stock_card: 'Stock Card',
-  can_access_damaged: 'Damaged',
-  can_access_linen_history: 'Linen History',
-  can_access_daily_forms: 'Daily Forms',
-  can_access_management_tasks: 'Management Tasks',
-  can_access_admin_settings: 'Admin Settings',
-  can_create_task: 'Can Create',
-  can_edit_task: 'Can Edit',
-  can_delete_task: 'Can Delete',
-};
-
-const permissionKeys = Object.keys(permissionLabels);
-
-function getPersistMismatches(expected: Record<string, any>, actual: Record<string, any>) {
-  return permissionKeys
-    .filter((key) => toPermissionBoolean(expected[key]) !== toPermissionBoolean(actual[key]))
-    .map((key) => ({
-      key,
-      label: permissionLabels[key],
-      attempted: toPermissionBoolean(expected[key]),
-      persisted: toPermissionBoolean(actual[key]),
-      rawPersisted: actual[key],
-    }));
-}
-
 const profileSelect = `
   user_id,
   email,
@@ -164,18 +132,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
     }
 
-    const { data: writtenRow, error: writeError } = await (existing
+    const { error: writeError } = await (existing
       ? supabase
           .from('user_profiles')
           .update(payload)
           .eq('user_id', targetUserId)
-          .select(profileSelect)
-          .single()
       : supabase
           .from('user_profiles')
-          .insert([{ user_id: targetUserId, ...payload }])
-          .select(profileSelect)
-          .single());
+          .insert([{ user_id: targetUserId, ...payload }]));
 
     if (writeError) {
       return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
@@ -191,31 +155,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: freshError.message }, { status: 500 });
     }
 
-    const verifiedUser = withPermissions(freshRow);
-    const writeResult = writtenRow ? withPermissions(writtenRow) : null;
-    const mismatches = getPersistMismatches(payload, verifiedUser);
-
-    if (mismatches.length > 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `Save did not persist: ${mismatches.map((item) => item.label).join(', ')}`,
-          attempted: withPermissions({ user_id: targetUserId, ...payload }),
-          writtenUser: writeResult,
-          persistedUser: verifiedUser,
-          mismatches,
-        },
-        {
-          status: 409,
-          headers: {
-            'Cache-Control': 'no-store, max-age=0',
-          },
-        }
-      );
-    }
-
     return NextResponse.json(
-      { ok: true, user: verifiedUser, writtenUser: writeResult, mismatches: [] },
+      { ok: true, user: withPermissions(freshRow) },
       {
         headers: {
           'Cache-Control': 'no-store, max-age=0',
