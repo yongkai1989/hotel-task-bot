@@ -52,6 +52,24 @@ function withPermissions(row: any) {
   return { ...row, ...permissions, permissions };
 }
 
+const permissionKeys = [
+  'can_access_preventive_maintenance',
+  'can_access_maintenance_ot',
+  'can_access_hk_special_project',
+  'can_access_chambermaid_entry',
+  'can_access_supervisor_update',
+  'can_access_laundry_count',
+  'can_access_stock_card',
+  'can_access_damaged',
+  'can_access_linen_history',
+  'can_access_daily_forms',
+  'can_access_management_tasks',
+  'can_access_admin_settings',
+  'can_create_task',
+  'can_edit_task',
+  'can_delete_task',
+] as const;
+
 const profileSelect = `
   user_id,
   email,
@@ -104,23 +122,14 @@ export async function POST(req: NextRequest) {
       email: targetEmail || null,
       name: String(body.name || '').trim(),
       role: String(body.role || 'FO').trim(),
-      can_access_preventive_maintenance: toPermissionBoolean(body.can_access_preventive_maintenance),
-      can_access_maintenance_ot: toPermissionBoolean(body.can_access_maintenance_ot),
-      can_access_hk_special_project: toPermissionBoolean(body.can_access_hk_special_project),
-      can_access_chambermaid_entry: toPermissionBoolean(body.can_access_chambermaid_entry),
-      can_access_supervisor_update: toPermissionBoolean(body.can_access_supervisor_update),
-      can_access_laundry_count: toPermissionBoolean(body.can_access_laundry_count),
-      can_access_stock_card: toPermissionBoolean(body.can_access_stock_card),
-      can_access_damaged: toPermissionBoolean(body.can_access_damaged),
-      can_access_linen_history: toPermissionBoolean(body.can_access_linen_history),
-      can_access_daily_forms: toPermissionBoolean(body.can_access_daily_forms),
-      can_access_management_tasks: toPermissionBoolean(body.can_access_management_tasks),
-      can_access_admin_settings: toPermissionBoolean(body.can_access_admin_settings),
-      can_create_task: toPermissionBoolean(body.can_create_task),
-      can_edit_task: toPermissionBoolean(body.can_edit_task),
-      can_delete_task: toPermissionBoolean(body.can_delete_task),
       updated_at: new Date().toISOString(),
-    };
+    } as Record<string, any>;
+
+    for (const key of permissionKeys) {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        payload[key] = toPermissionBoolean(body[key]);
+      }
+    }
 
     const { data: existing, error: existingError } = await supabase
       .from('user_profiles')
