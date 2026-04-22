@@ -60,10 +60,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      users: data || [],
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        users: data || [],
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
+    );
   } catch (error: any) {
     return NextResponse.json(
       { ok: false, error: error?.message || 'Unknown error' },
