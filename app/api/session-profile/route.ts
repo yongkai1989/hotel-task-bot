@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 type DashboardRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 
@@ -35,7 +37,6 @@ const permissionKeys = [
   'can_access_daily_forms',
   'can_access_management_tasks',
   'can_access_admin_settings',
-  'can_access_linen_admin',
 ];
 
 function enabledCount(profile: any) {
@@ -212,7 +213,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const profile = pickBestProfile([profileByUserId, ...(emailProfiles || [])]);
+    const profile = profileByUserId || pickBestProfile(emailProfiles || []);
 
     if (!profile) {
       return NextResponse.json(
@@ -225,9 +226,10 @@ export async function GET(req: NextRequest) {
       {
         ok: true,
         user: buildUser(profile, authUser.email),
-        source: 'direct-service-role-session-profile',
+        source: 'direct-service-role-session-profile-auth-row-first',
         matchedProfileUserId: profile.user_id,
         authUserId: authUser.id,
+        selectedProfileReason: profileByUserId ? 'auth-user-id-row' : 'latest-email-row',
         matchedProfiles: [profileByUserId, ...(emailProfiles || [])]
           .filter(Boolean)
           .map((row) => ({
