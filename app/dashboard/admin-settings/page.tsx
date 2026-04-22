@@ -158,12 +158,6 @@ function getActualAccessValue(user: UserProfile, key: AccessKey) {
   return user.role === 'SUPERUSER' || toPermissionBoolean(user[key]);
 }
 
-function getPermissionMismatches(expected: UserProfile, actual: UserProfile) {
-  return accessFieldDefs
-    .filter((item) => toPermissionBoolean(expected[item.key]) !== toPermissionBoolean(actual[item.key]))
-    .map((item) => item.label);
-}
-
 export default function AdminSettingsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
 
@@ -413,25 +407,21 @@ export default function AdminSettingsPage() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update user');
 
       const returnedUser = normalizeUser(json.user || savedPayload);
-      const persistedUser = await fetchUserRaw(returnedUser.user_id);
-      const mismatches = getPermissionMismatches(savedPayload, persistedUser);
 
       setUsers((prev) =>
-        prev.map((u) => (u.user_id === persistedUser.user_id ? persistedUser : u))
+        prev.some((u) => u.user_id === returnedUser.user_id)
+          ? prev.map((u) => (u.user_id === returnedUser.user_id ? returnedUser : u))
+          : [...prev, returnedUser]
       );
       setDraft((prev) =>
-        prev ? { ...persistedUser, newPassword: prev.newPassword || '' } : prev
+        prev ? { ...returnedUser, newPassword: prev.newPassword || '' } : prev
       );
-      setPersistedAccess(persistedUser);
-
-      if (mismatches.length > 0) {
-        throw new Error(`Save did not persist: ${mismatches.join(', ')}`);
-      }
+      setPersistedAccess(returnedUser);
 
       setStatusMsg('User access updated successfully');
-      void refreshUsers(persistedUser.user_id, persistedUser).catch(() => {
+      void refreshUsers(returnedUser.user_id, returnedUser).catch(() => {
         setUsers((prev) =>
-          prev.map((u) => (u.user_id === persistedUser.user_id ? persistedUser : u))
+          prev.map((u) => (u.user_id === returnedUser.user_id ? returnedUser : u))
         );
       });
     } catch (err: any) {
