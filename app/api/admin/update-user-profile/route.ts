@@ -4,6 +4,28 @@ import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 
+type UpdateBody = {
+  user_id?: string;
+  email?: string;
+  name?: string;
+  role?: string;
+  can_access_preventive_maintenance?: boolean;
+  can_access_maintenance_ot?: boolean;
+  can_access_hk_special_project?: boolean;
+  can_access_chambermaid_entry?: boolean;
+  can_access_supervisor_update?: boolean;
+  can_access_laundry_count?: boolean;
+  can_access_stock_card?: boolean;
+  can_access_damaged?: boolean;
+  can_access_linen_history?: boolean;
+  can_access_daily_forms?: boolean;
+  can_access_management_tasks?: boolean;
+  can_access_admin_settings?: boolean;
+  can_create_task?: boolean;
+  can_edit_task?: boolean;
+  can_delete_task?: boolean;
+};
+
 export async function POST(req: NextRequest) {
   try {
     const { user, error } = await getDashboardUserFromRequest(req);
@@ -22,24 +44,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
+    const body = (await req.json()) as UpdateBody;
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    const targetUserId = String(body.user_id || '').trim();
+    const targetEmail = String(body.email || '').trim().toLowerCase();
 
-    const normalizedUserId = String(body.user_id || '').trim();
-    const normalizedEmail = String(body.email || '').trim().toLowerCase();
-
-    if (!normalizedUserId) {
+    if (!targetUserId) {
       return NextResponse.json(
         { ok: false, error: 'Missing user_id' },
         { status: 400 }
       );
     }
 
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     const payload = {
+      email: targetEmail || null,
       name: String(body.name || '').trim(),
       role: String(body.role || 'FO').trim(),
       can_access_preventive_maintenance: !!body.can_access_preventive_maintenance,
@@ -60,10 +83,10 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    const { data: existingRow, error: existingError } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('user_profiles')
-      .select('user_id, email')
-      .eq('user_id', normalizedUserId)
+      .select('user_id')
+      .eq('user_id', targetUserId)
       .maybeSingle();
 
     if (existingError) {
@@ -73,11 +96,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (existingRow) {
+    if (existing) {
       const { error: updateError } = await supabase
         .from('user_profiles')
         .update(payload)
-        .eq('user_id', normalizedUserId);
+        .eq('user_id', targetUserId);
 
       if (updateError) {
         return NextResponse.json(
@@ -90,8 +113,7 @@ export async function POST(req: NextRequest) {
         .from('user_profiles')
         .insert([
           {
-            user_id: normalizedUserId,
-            email: normalizedEmail || null,
+            user_id: targetUserId,
             ...payload,
           },
         ]);
@@ -104,27 +126,46 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(
-      normalizedUserId,
-      {
-        user_metadata: {
-          name: payload.name,
-          role: payload.role,
-        },
-      }
-    );
+    const { data: freshRow, error: freshError } = await supabase
+      .from('user_profiles')
+      .select(`
+        user_id,
+        email,
+        name,
+        role,
+        can_access_preventive_maintenance,
+        can_access_maintenance_ot,
+        can_access_hk_special_project,
+        can_access_chambermaid_entry,
+        can_access_supervisor_update,
+        can_access_laundry_count,
+        can_access_stock_card,
+        can_access_damaged,
+        can_access_linen_history,
+        can_access_daily_forms,
+        can_access_management_tasks,
+        can_access_admin_settings,
+        can_create_task,
+        can_edit_task,
+        can_delete_task
+      `)
+      .eq('user_id', targetUserId)
+      .single();
 
-    if (authUpdateError) {
+    if (freshError) {
       return NextResponse.json(
-        { ok: false, error: authUpdateError.message },
+        { ok: false, error: freshError.message },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, user_id: normalizedUserId });
-  } catch (error: any) {
+    return NextResponse.json({
+      ok: true,
+      user: freshRow,
+    });
+  } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: error?.message || 'Unknown error' },
+      { ok: false, error: err?.message || 'Unknown error' },
       { status: 500 }
     );
   }
