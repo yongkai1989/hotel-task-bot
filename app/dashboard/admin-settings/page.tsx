@@ -32,7 +32,11 @@ type EditableUser = UserProfile & { newPassword?: string };
 
 const roleOptions: Role[] = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'];
 
-const accessFieldDefs: Array<{ key: keyof UserProfile; label: string; group: 'Maintenance' | 'Housekeeping' | 'Management' | 'Actions' }> = [
+const accessFieldDefs: Array<{
+  key: keyof UserProfile;
+  label: string;
+  group: 'Maintenance' | 'Housekeeping' | 'Management' | 'Actions';
+}> = [
   { key: 'can_access_preventive_maintenance', label: 'Preventive Maintenance', group: 'Maintenance' },
   { key: 'can_access_maintenance_ot', label: 'Maintenance OT', group: 'Maintenance' },
   { key: 'can_access_hk_special_project', label: 'HK Special Project', group: 'Housekeeping' },
@@ -70,7 +74,9 @@ function emptyPermissions() {
   };
 }
 
-function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: string; name?: string; role?: Role }): UserProfile {
+function normalizeUser(
+  row: Partial<UserProfile> & { user_id?: string; email?: string; name?: string; role?: Role }
+): UserProfile {
   return {
     user_id: String(row.user_id || ''),
     email: String(row.email || '').toLowerCase(),
@@ -81,42 +87,40 @@ function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: s
   };
 }
 
-function getEffectiveAccess(user: UserProfile) {
-  const isSuper = user.role === 'SUPERUSER';
-  const isManager = user.role === 'MANAGER';
-  const isSupervisor = user.role === 'SUPERVISOR';
-  const isMt = user.role === 'MT';
-
+function getSavedAccess(user: UserProfile) {
   return {
-    can_access_preventive_maintenance: isSuper || isManager || isMt || !!user.can_access_preventive_maintenance,
-    can_access_maintenance_ot: isSuper || isManager || isMt || !!user.can_access_maintenance_ot,
-    can_access_hk_special_project: isSuper || isManager || !!user.can_access_hk_special_project,
-    can_access_chambermaid_entry: isSuper || isManager || isSupervisor || !!user.can_access_chambermaid_entry,
-    can_access_supervisor_update: isSuper || isManager || isSupervisor || !!user.can_access_supervisor_update,
-    can_access_laundry_count: isSuper || isManager || isSupervisor || !!user.can_access_laundry_count,
-    can_access_stock_card: isSuper || isManager || isSupervisor || !!user.can_access_stock_card,
-    can_access_damaged: isSuper || isManager || isSupervisor || !!user.can_access_damaged,
-    can_access_linen_history: isSuper || isManager || isSupervisor || !!user.can_access_linen_history,
-    can_access_daily_forms: isSuper || isManager || !!user.can_access_daily_forms,
-    can_access_management_tasks: isSuper || isManager || !!user.can_access_management_tasks,
-    can_access_admin_settings: isSuper || !!user.can_access_admin_settings,
-    can_create_task: isSuper || !!user.can_create_task,
-    can_edit_task: isSuper || !!user.can_edit_task,
-    can_delete_task: isSuper || !!user.can_delete_task,
+    can_access_preventive_maintenance: !!user.can_access_preventive_maintenance,
+    can_access_maintenance_ot: !!user.can_access_maintenance_ot,
+    can_access_hk_special_project: !!user.can_access_hk_special_project,
+    can_access_chambermaid_entry: !!user.can_access_chambermaid_entry,
+    can_access_supervisor_update: !!user.can_access_supervisor_update,
+    can_access_laundry_count: !!user.can_access_laundry_count,
+    can_access_stock_card: !!user.can_access_stock_card,
+    can_access_damaged: !!user.can_access_damaged,
+    can_access_linen_history: !!user.can_access_linen_history,
+    can_access_daily_forms: !!user.can_access_daily_forms,
+    can_access_management_tasks: !!user.can_access_management_tasks,
+    can_access_admin_settings: !!user.can_access_admin_settings,
+    can_create_task: !!user.can_create_task,
+    can_edit_task: !!user.can_edit_task,
+    can_delete_task: !!user.can_delete_task,
   };
 }
 
 export default function AdminSettingsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+
   const [me, setMe] = useState<UserProfile | null>(null);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [draft, setDraft] = useState<EditableUser | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -134,6 +138,7 @@ export default function AdminSettingsPage() {
       setDraft(null);
       return;
     }
+
     const selected = users.find((u) => u.user_id === selectedUserId);
     setDraft(selected ? { ...selected, newPassword: '' } : null);
   }, [selectedUserId, users]);
@@ -371,16 +376,14 @@ export default function AdminSettingsPage() {
 
   function renderToggle(key: keyof UserProfile, label: string) {
     if (!draft) return null;
-    const effective = getEffectiveAccess(draft);
-    const rawValue = !!draft[key];
-    const effectiveValue = !!effective[key as keyof typeof effective];
+    const savedValue = !!draft[key];
 
     return (
       <label key={String(key)} style={styles.toggleRow}>
         <div>
           <div style={styles.toggleLabel}>{label}</div>
           <div style={styles.toggleSubtext}>
-            Saved: {rawValue ? 'Allowed' : 'Blocked'} · Effective: {effectiveValue ? 'Allowed' : 'Blocked'}
+            Saved access: {savedValue ? 'Allowed' : 'Blocked'}
           </div>
         </div>
         <button
@@ -388,13 +391,13 @@ export default function AdminSettingsPage() {
           onClick={() => setDraftField(key as keyof EditableUser, !draft[key] as any)}
           style={{
             ...styles.toggleBtn,
-            ...(rawValue ? styles.toggleBtnOn : styles.toggleBtnOff),
+            ...(savedValue ? styles.toggleBtnOn : styles.toggleBtnOff),
           }}
         >
           <span
             style={{
               ...styles.toggleKnob,
-              transform: rawValue ? 'translateX(22px)' : 'translateX(0)',
+              transform: savedValue ? 'translateX(22px)' : 'translateX(0)',
             }}
           />
         </button>
@@ -422,7 +425,7 @@ export default function AdminSettingsPage() {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
-  const effective = draft ? getEffectiveAccess(draft) : null;
+  const saved = draft ? getSavedAccess(draft) : null;
 
   return (
     <main style={styles.page}>
@@ -430,7 +433,9 @@ export default function AdminSettingsPage() {
         <div style={styles.hero}>
           <div>
             <div style={styles.heroTitle}>Admin Settings</div>
-            <div style={styles.heroSub}>Manage all users, department roles, passwords, page visibility, and task permissions in one place.</div>
+            <div style={styles.heroSub}>
+              Manage all users, department roles, passwords, page visibility, and task permissions.
+            </div>
           </div>
           <Link href="/dashboard" style={styles.backBtn}>Back to Dashboard</Link>
         </div>
@@ -531,21 +536,24 @@ export default function AdminSettingsPage() {
                     </div>
                   </div>
 
-                  {effective ? (
+                  {saved ? (
                     <div style={styles.effectiveBox}>
-                      <div style={styles.effectiveTitle}>Effective Access Preview</div>
+                      <div style={styles.effectiveTitle}>Saved Access Preview</div>
+                      <div style={styles.helperBanner}>
+                        Admin Settings now shows the saved database values only. Superuser still has full real access in the app, but this screen no longer auto-turns toggles back on based on role.
+                      </div>
                       <div style={styles.effectiveChips}>
                         {accessFieldDefs.map((item) => (
                           <span
                             key={String(item.key)}
                             style={{
                               ...styles.effectiveChip,
-                              background: effective[item.key as keyof typeof effective] ? '#ecfdf5' : '#f8fafc',
-                              color: effective[item.key as keyof typeof effective] ? '#166534' : '#475569',
-                              borderColor: effective[item.key as keyof typeof effective] ? '#bbf7d0' : '#e2e8f0',
+                              background: saved[item.key as keyof typeof saved] ? '#ecfdf5' : '#f8fafc',
+                              color: saved[item.key as keyof typeof saved] ? '#166534' : '#475569',
+                              borderColor: saved[item.key as keyof typeof saved] ? '#bbf7d0' : '#e2e8f0',
                             }}
                           >
-                            {item.label}: {effective[item.key as keyof typeof effective] ? 'Yes' : 'No'}
+                            {item.label}: {saved[item.key as keyof typeof saved] ? 'Yes' : 'No'}
                           </span>
                         ))}
                       </div>
@@ -615,6 +623,7 @@ const styles: Record<string, React.CSSProperties> = {
   selectedUserRole: { display: 'inline-flex', marginTop: '10px', borderRadius: '999px', background: '#eef2ff', color: '#3730a3', padding: '6px 10px', fontSize: '12px', fontWeight: 800 },
   effectiveBox: { marginTop: '8px', marginBottom: '12px', border: '1px solid #dbeafe', background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)', borderRadius: '20px', padding: '14px' },
   effectiveTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' },
+  helperBanner: { marginBottom: '10px', border: '1px solid #dbeafe', background: '#eff6ff', color: '#1e3a8a', borderRadius: '14px', padding: '10px 12px', fontSize: '13px', lineHeight: 1.5, fontWeight: 700 },
   effectiveChips: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
   effectiveChip: { border: '1px solid #e2e8f0', borderRadius: '999px', padding: '7px 10px', fontSize: '12px', fontWeight: 800 },
   permissionGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '8px' },
