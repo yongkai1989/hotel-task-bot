@@ -63,7 +63,7 @@ export default function DashboardLayout({
           return;
         }
 
-        const res = await fetch('/api/session-profile', {
+        const res = await fetch(`/api/session-profile?t=${Date.now()}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
