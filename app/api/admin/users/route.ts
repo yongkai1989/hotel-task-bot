@@ -83,7 +83,7 @@ const profileSelect = `
   updated_at
 `;
 
-async function getRequester(req: NextRequest, serviceClient: ReturnType<typeof createClient>) {
+async function getRequester(req: NextRequest) {
   const token = getBearerToken(req);
 
   if (!token) {
@@ -111,6 +111,11 @@ async function getRequester(req: NextRequest, serviceClient: ReturnType<typeof c
     return { requester: null, error: 'Invalid session' };
   }
 
+  const serviceClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   const { data: requester, error: profileError } = await serviceClient
     .from('user_profiles')
     .select('user_id, role, can_access_admin_settings')
@@ -135,7 +140,7 @@ export async function GET(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { requester, error } = await getRequester(req, serviceClient);
+    const { requester, error } = await getRequester(req);
 
     if (!requester) {
       return NextResponse.json(
@@ -179,8 +184,16 @@ export async function GET(req: NextRequest) {
       }
 
       return NextResponse.json(
-        { ok: true, user: normalizeProfileRow(profile), source: 'direct-admin-users-single' },
-        { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+        {
+          ok: true,
+          user: normalizeProfileRow(profile),
+          source: 'direct-admin-users-single',
+        },
+        {
+          headers: {
+            'Cache-Control': 'no-store, max-age=0',
+          },
+        }
       );
     }
 
@@ -203,7 +216,11 @@ export async function GET(req: NextRequest) {
         users: (profiles || []).map(normalizeProfileRow),
         source: 'direct-admin-users-list',
       },
-      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
     );
   } catch (error: any) {
     return NextResponse.json(
