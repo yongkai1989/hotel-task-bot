@@ -73,37 +73,9 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    const { data: existing, error: existingError } = await supabase
-      .from('user_profiles')
-      .select('user_id')
-      .eq('user_id', targetUserId)
-      .maybeSingle();
-
-    if (existingError) {
-      return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
-    }
-
-    if (existing) {
-      const { error: updateError } = await supabase
-        .from('user_profiles')
-        .update(payload)
-        .eq('user_id', targetUserId);
-
-      if (updateError) {
-        return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
-      }
-    } else {
-      const { error: insertError } = await supabase
-        .from('user_profiles')
-        .insert([{ user_id: targetUserId, ...payload }]);
-
-      if (insertError) {
-        return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
-      }
-    }
-
     const { data: freshRow, error: freshError } = await supabase
       .from('user_profiles')
+      .upsert([{ user_id: targetUserId, ...payload }], { onConflict: 'user_id' })
       .select(`
         user_id,
         email,
