@@ -26,6 +26,32 @@ type UpdateBody = {
   can_delete_task?: boolean;
 };
 
+function toPermissionBoolean(value: unknown) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function withPermissions(row: any) {
+  const permissions = {
+    can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
+    can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
+    can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
+    can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
+    can_access_supervisor_update: toPermissionBoolean(row.can_access_supervisor_update),
+    can_access_laundry_count: toPermissionBoolean(row.can_access_laundry_count),
+    can_access_stock_card: toPermissionBoolean(row.can_access_stock_card),
+    can_access_damaged: toPermissionBoolean(row.can_access_damaged),
+    can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
+    can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
+    can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
+    can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
+    can_create_task: toPermissionBoolean(row.can_create_task),
+    can_edit_task: toPermissionBoolean(row.can_edit_task),
+    can_delete_task: toPermissionBoolean(row.can_delete_task),
+  };
+
+  return { ...row, ...permissions, permissions };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { user, error } = await getDashboardUserFromRequest(req);
@@ -55,21 +81,21 @@ export async function POST(req: NextRequest) {
       email: targetEmail || null,
       name: String(body.name || '').trim(),
       role: String(body.role || 'FO').trim(),
-      can_access_preventive_maintenance: !!body.can_access_preventive_maintenance,
-      can_access_maintenance_ot: !!body.can_access_maintenance_ot,
-      can_access_hk_special_project: !!body.can_access_hk_special_project,
-      can_access_chambermaid_entry: !!body.can_access_chambermaid_entry,
-      can_access_supervisor_update: !!body.can_access_supervisor_update,
-      can_access_laundry_count: !!body.can_access_laundry_count,
-      can_access_stock_card: !!body.can_access_stock_card,
-      can_access_damaged: !!body.can_access_damaged,
-      can_access_linen_history: !!body.can_access_linen_history,
-      can_access_daily_forms: !!body.can_access_daily_forms,
-      can_access_management_tasks: !!body.can_access_management_tasks,
-      can_access_admin_settings: !!body.can_access_admin_settings,
-      can_create_task: !!body.can_create_task,
-      can_edit_task: !!body.can_edit_task,
-      can_delete_task: !!body.can_delete_task,
+      can_access_preventive_maintenance: toPermissionBoolean(body.can_access_preventive_maintenance),
+      can_access_maintenance_ot: toPermissionBoolean(body.can_access_maintenance_ot),
+      can_access_hk_special_project: toPermissionBoolean(body.can_access_hk_special_project),
+      can_access_chambermaid_entry: toPermissionBoolean(body.can_access_chambermaid_entry),
+      can_access_supervisor_update: toPermissionBoolean(body.can_access_supervisor_update),
+      can_access_laundry_count: toPermissionBoolean(body.can_access_laundry_count),
+      can_access_stock_card: toPermissionBoolean(body.can_access_stock_card),
+      can_access_damaged: toPermissionBoolean(body.can_access_damaged),
+      can_access_linen_history: toPermissionBoolean(body.can_access_linen_history),
+      can_access_daily_forms: toPermissionBoolean(body.can_access_daily_forms),
+      can_access_management_tasks: toPermissionBoolean(body.can_access_management_tasks),
+      can_access_admin_settings: toPermissionBoolean(body.can_access_admin_settings),
+      can_create_task: toPermissionBoolean(body.can_create_task),
+      can_edit_task: toPermissionBoolean(body.can_edit_task),
+      can_delete_task: toPermissionBoolean(body.can_delete_task),
       updated_at: new Date().toISOString(),
     };
 
@@ -105,7 +131,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { ok: true, user: freshRow },
+      { ok: true, user: withPermissions(freshRow) },
       {
         headers: {
           'Cache-Control': 'no-store, max-age=0',
