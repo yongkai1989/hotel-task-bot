@@ -154,7 +154,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
   };
 }
 
-function getActualAccessValue(user: EditableUser, key: AccessKey) {
+function getActualAccessValue(user: UserProfile, key: AccessKey) {
   return user.role === 'SUPERUSER' || toPermissionBoolean(user[key]);
 }
 
@@ -171,6 +171,7 @@ export default function AdminSettingsPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [draft, setDraft] = useState<EditableUser | null>(null);
+  const [persistedAccess, setPersistedAccess] = useState<UserProfile | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -193,11 +194,13 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     if (!selectedUserId) {
       setDraft(null);
+      setPersistedAccess(null);
       return;
     }
 
     const selected = users.find((u) => u.user_id === selectedUserId);
     setDraft(selected ? { ...selected, newPassword: '' } : null);
+    setPersistedAccess(null);
 
     void fetchUserRaw(selectedUserId)
       .then((freshUser) => {
@@ -210,6 +213,7 @@ export default function AdminSettingsPage() {
           ...freshUser,
           newPassword: prev?.newPassword || '',
         }));
+        setPersistedAccess(freshUser);
       })
       .catch((err: any) => {
         setErrorMsg(err?.message || 'Failed to load selected user access');
@@ -316,6 +320,7 @@ export default function AdminSettingsPage() {
       setSelectedUserId(keepSelectedId);
       const selected = authoritativeUser || nextUsers.find((u) => u.user_id === keepSelectedId);
       setDraft(selected ? { ...selected, newPassword: '' } : null);
+      setPersistedAccess(selected || null);
     }
   }
 
@@ -367,6 +372,7 @@ export default function AdminSettingsPage() {
       });
       setSelectedUserId(createdUser.user_id);
       setDraft({ ...createdUser, newPassword: '' });
+      setPersistedAccess(createdUser);
 
       setStatusMsg('User created successfully');
       setCreateName('');
@@ -416,6 +422,7 @@ export default function AdminSettingsPage() {
       setDraft((prev) =>
         prev ? { ...persistedUser, newPassword: prev.newPassword || '' } : prev
       );
+      setPersistedAccess(persistedUser);
 
       if (mismatches.length > 0) {
         throw new Error(`Save did not persist: ${mismatches.join(', ')}`);
@@ -457,6 +464,7 @@ export default function AdminSettingsPage() {
       await refreshUsers('');
       setSelectedUserId('');
       setDraft(null);
+      setPersistedAccess(null);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to delete user');
     } finally {
@@ -664,22 +672,22 @@ function renderToggle(key: AccessKey, label: string) {
                     </div>
                   </div>
 
-                  {draft ? (
+                  {persistedAccess ? (
                     <div style={styles.effectiveBox}>
                       <div style={styles.effectiveTitle}>Actual Access Granted</div>
                       <div style={styles.helperBanner}>
-                        SUPERUSER has full access. Other users receive only the access enabled below.
+                        This preview shows the access currently confirmed by the backend. Save changes to update it.
                       </div>
                       <div style={styles.debugLine}>
-                        Selected: {draft.email || draft.user_id} | Role: {draft.role} | Enabled: {
-                          accessFieldDefs.filter((item) => getActualAccessValue(draft, item.key)).length
+                        Selected: {persistedAccess.email || persistedAccess.user_id} | Role: {persistedAccess.role} | Enabled: {
+                          accessFieldDefs.filter((item) => getActualAccessValue(persistedAccess, item.key)).length
                         }/{accessFieldDefs.length}
                       </div>
 
                       <div style={styles.sectionMiniTitle}>Access Preview</div>
                       <div style={styles.effectiveChips}>
                         {accessFieldDefs.map((item) => {
-                          const allowed = getActualAccessValue(draft, item.key);
+                          const allowed = getActualAccessValue(persistedAccess, item.key);
 
                           return (
                             <span
