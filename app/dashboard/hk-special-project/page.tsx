@@ -9,6 +9,22 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+  can_create_task?: boolean;
+  can_edit_task?: boolean;
+  can_delete_task?: boolean;
+  can_access_preventive_maintenance?: boolean;
+  can_access_maintenance_ot?: boolean;
+  can_access_hk_special_project?: boolean;
+  can_access_chambermaid_entry?: boolean;
+  can_access_supervisor_update?: boolean;
+  can_access_laundry_count?: boolean;
+  can_access_stock_card?: boolean;
+  can_access_damaged?: boolean;
+  can_access_linen_history?: boolean;
+  can_access_daily_forms?: boolean;
+  can_access_management_tasks?: boolean;
+  can_access_admin_settings?: boolean;
+  can_access_linen_admin?: boolean;
 };
 
 type RoomRow = {
@@ -69,12 +85,6 @@ type TaskCardData = {
   totalRooms: number;
   doneRooms: number;
 };
-
-const HK_SUPERVISOR_EMAILS = [
-  'hksup1@hotelhallmark.com',
-  'hksup2@hotelhallmark.com',
-  'hksup3@hotelhallmark.com',
-];
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -163,7 +173,28 @@ export default function HkSpecialProjectPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select(`
+            user_id,
+            email,
+            name,
+            role,
+            can_create_task,
+            can_edit_task,
+            can_delete_task,
+            can_access_preventive_maintenance,
+            can_access_maintenance_ot,
+            can_access_hk_special_project,
+            can_access_chambermaid_entry,
+            can_access_supervisor_update,
+            can_access_laundry_count,
+            can_access_stock_card,
+            can_access_damaged,
+            can_access_linen_history,
+            can_access_daily_forms,
+            can_access_management_tasks,
+            can_access_admin_settings,
+            can_access_linen_admin
+          `)
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -175,6 +206,22 @@ export default function HkSpecialProjectPage() {
           email: profileRow?.email || email,
           name: profileRow?.name || email || 'User',
           role: (profileRow?.role || 'MT') as DashboardUser['role'],
+          can_create_task: profileRow?.can_create_task ?? false,
+          can_edit_task: profileRow?.can_edit_task ?? false,
+          can_delete_task: profileRow?.can_delete_task ?? false,
+          can_access_preventive_maintenance: profileRow?.can_access_preventive_maintenance ?? false,
+          can_access_maintenance_ot: profileRow?.can_access_maintenance_ot ?? false,
+          can_access_hk_special_project: profileRow?.can_access_hk_special_project ?? false,
+          can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
+          can_access_supervisor_update: profileRow?.can_access_supervisor_update ?? false,
+          can_access_laundry_count: profileRow?.can_access_laundry_count ?? false,
+          can_access_stock_card: profileRow?.can_access_stock_card ?? false,
+          can_access_damaged: profileRow?.can_access_damaged ?? false,
+          can_access_linen_history: profileRow?.can_access_linen_history ?? false,
+          can_access_daily_forms: profileRow?.can_access_daily_forms ?? false,
+          can_access_management_tasks: profileRow?.can_access_management_tasks ?? false,
+          can_access_admin_settings: profileRow?.can_access_admin_settings ?? false,
+          can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -191,35 +238,23 @@ export default function HkSpecialProjectPage() {
     };
   }, []);
 
-  const isHkSupervisorByEmail = useMemo(() => {
-    const email = profile?.email?.toLowerCase() || '';
-    return HK_SUPERVISOR_EMAILS.includes(email);
-  }, [profile]);
-
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    if (profile.role === 'SUPERUSER' || profile.role === 'MANAGER') return true;
-    if (profile.role === 'SUPERVISOR' && isHkSupervisorByEmail) return true;
-    return false;
-  }, [profile, isHkSupervisorByEmail]);
+    if (profile.role === 'SUPERUSER') return true;
+    return !!profile.can_access_hk_special_project;
+  }, [profile]);
 
   const canCreate = useMemo(() => {
     if (!profile) return false;
-    return (
-      profile.role === 'SUPERUSER' ||
-      profile.role === 'MANAGER' ||
-      (profile.role === 'SUPERVISOR' && isHkSupervisorByEmail)
-    );
-  }, [profile, isHkSupervisorByEmail]);
+    if (profile.role === 'SUPERUSER') return true;
+    return !!profile.can_create_task;
+  }, [profile]);
 
   const canDelete = useMemo(() => {
     if (!profile) return false;
-    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
+    if (profile.role === 'SUPERUSER') return true;
+    return !!profile.can_delete_task;
   }, [profile]);
-
-  async function noopTelegramNotifications(_supabase: any) {
-    return;
-  }
 
   async function loadAllData() {
     if (!profile || !canAccess) {
@@ -239,8 +274,6 @@ export default function HkSpecialProjectPage() {
       if (recurrenceError) {
         console.error('run_hk_special_project_recurrence error:', recurrenceError);
       }
-
-      
 
       const [roomRes, taskRes, runRes, roomChecklistRes] = await Promise.all([
         supabase
@@ -405,7 +438,7 @@ export default function HkSpecialProjectPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const today = getTodayLocalDateString();
+      const currentDay = getTodayLocalDateString();
 
       const { data: insertedTask, error: taskError } = await supabase
         .from('hk_special_project_tasks')
@@ -431,7 +464,7 @@ export default function HkSpecialProjectPage() {
         .insert([
           {
             hk_special_project_task_id: insertedTask.id,
-            run_start_date: today,
+            run_start_date: currentDay,
             due_date: dueDate,
             status: 'OPEN',
           },
@@ -456,8 +489,6 @@ export default function HkSpecialProjectPage() {
           if (checklistError) throw checklistError;
         }
       }
-
-      
 
       setNewTitle('');
       setNewDescription('');
@@ -573,7 +604,7 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
-    if (!(profile.role === 'SUPERUSER' || profile.role === 'MANAGER')) {
+    if (!canDelete) {
       setErrorMsg('You do not have permission to delete tasks.');
       return;
     }
@@ -670,14 +701,16 @@ export default function HkSpecialProjectPage() {
             ) : null}
           </div>
 
-          <div style={{
-            ...styles.statusBadge,
-            ...(card.run.status === 'DONE'
-              ? styles.statusDone
-              : card.run.status === 'OVERDUE'
-              ? styles.statusOverdue
-              : styles.statusOpen),
-          }}>
+          <div
+            style={{
+              ...styles.statusBadge,
+              ...(card.run.status === 'DONE'
+                ? styles.statusDone
+                : card.run.status === 'OVERDUE'
+                ? styles.statusOverdue
+                : styles.statusOpen),
+            }}
+          >
             {card.run.status}
           </div>
         </div>
@@ -905,7 +938,12 @@ export default function HkSpecialProjectPage() {
 
       {showCreateModal ? (
         <div style={styles.modalOverlay}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
+          <div
+            style={styles.modalCard}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+          >
             <div style={styles.modalTop}>
               <div style={styles.modalTitle}>Create Task</div>
               <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTask}>
