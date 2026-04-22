@@ -216,7 +216,7 @@ export default function DashboardSidebar({
     return () => {
       mounted = false;
     };
-  }, [profile, supabase]);
+  }, [profile, supabase, sidebarOpen]);
 
   const currentProfile = resolvedProfile;
   const effectiveProfile = getEffectiveProfile(currentProfile);
@@ -250,6 +250,24 @@ export default function DashboardSidebar({
     canSeeLinenHistory;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
+
+  const enabledAccessCount = [
+    effectiveProfile?.can_access_preventive_maintenance,
+    effectiveProfile?.can_access_maintenance_ot,
+    effectiveProfile?.can_access_hk_special_project,
+    effectiveProfile?.can_access_chambermaid_entry,
+    effectiveProfile?.can_access_supervisor_update,
+    effectiveProfile?.can_access_laundry_count,
+    effectiveProfile?.can_access_stock_card,
+    effectiveProfile?.can_access_damaged,
+    effectiveProfile?.can_access_linen_history,
+    effectiveProfile?.can_access_daily_forms,
+    effectiveProfile?.can_access_management_tasks,
+    effectiveProfile?.can_access_admin_settings,
+    effectiveProfile?.can_create_task,
+    effectiveProfile?.can_edit_task,
+    effectiveProfile?.can_delete_task,
+  ].filter(Boolean).length;
 
   const canOpenPasswordModal = !!currentProfile;
   const isSuperuser = currentProfile?.role === 'SUPERUSER';
@@ -673,6 +691,7 @@ export default function DashboardSidebar({
                 <div style={styles.userName}>{currentProfile.name}</div>
                 <div style={styles.userRole}>{currentProfile.role}</div>
                 <div style={styles.userEmail}>{currentProfile.email}</div>
+                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/15</div>
               </div>
 
               <button
@@ -985,6 +1004,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     marginTop: '4px',
     wordBreak: 'break-word',
+  },
+  userAccessCount: {
+    fontSize: '12px',
+    color: '#0f172a',
+    marginTop: '8px',
+    fontWeight: 800,
   },
   secondaryAction: {
     border: '1px solid #cbd5e1',
