@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 type UpdateBody = {
   user_id?: string;
@@ -74,6 +76,10 @@ function getBearerToken(req: NextRequest) {
 
 function toPermissionBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function normalizeEmail(value: unknown) {
+  return String(value || '').trim().toLowerCase();
 }
 
 function withPermissions(row: any) {
@@ -222,7 +228,7 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as UpdateBody;
     const targetUserId = String(body.user_id || '').trim();
-    const targetEmail = String(body.email || '').trim().toLowerCase();
+    const targetEmail = normalizeEmail(body.email);
 
     if (!targetUserId) {
       return NextResponse.json({ ok: false, error: 'Missing user_id' }, { status: 400 });
@@ -255,11 +261,10 @@ export async function POST(req: NextRequest) {
       ? await findAuthUserIdByEmail(serviceClient, targetEmail)
       : '';
 
-    const { data: emailProfiles, error: emailProfilesError } = targetEmail
+    const { data: allProfiles, error: emailProfilesError } = targetEmail
       ? await serviceClient
           .from('user_profiles')
-          .select('user_id')
-          .ilike('email', targetEmail)
+          .select('user_id, email')
       : { data: [], error: null };
 
     if (emailProfilesError) {
@@ -268,6 +273,10 @@ export async function POST(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    const emailProfiles = (allProfiles || []).filter(
+      (profile: any) => normalizeEmail(profile?.email) === targetEmail
+    );
 
     const targetUserIds = new Set<string>();
     targetUserIds.add(targetUserId);
@@ -320,20 +329,6 @@ export async function POST(req: NextRequest) {
       touchedUserIds.push(userId);
     }
 
-    if (targetEmail) {
-      const { error: emailWriteError } = await serviceClient
-        .from('user_profiles')
-        .update(payload)
-        .ilike('email', targetEmail);
-
-      if (emailWriteError) {
-        return NextResponse.json(
-          { ok: false, error: emailWriteError.message },
-          { status: 500 }
-        );
-      }
-    }
-
     const { data: freshRow, error: freshError } = await serviceClient
       .from('user_profiles')
       .select(profileSelect)
@@ -348,10 +343,12 @@ export async function POST(req: NextRequest) {
       {
         ok: true,
         user: withPermissions(freshRow),
-        source: 'direct-admin-update-user-profile',
+        source: 'direct-admin-update-user-profile-normalized-email',
         touchedUserIds,
         selectedUserId: targetUserId,
         authUserId: authUserId || null,
+        returnedUserId: freshRow.user_id,
+        matchedEmailProfileIds: emailProfiles.map((profile: any) => profile.user_id),
       },
       {
         headers: {
