@@ -25,6 +25,25 @@ type SidebarProfile = {
   can_access_management_tasks?: boolean;
   can_access_admin_settings?: boolean;
   can_access_linen_admin?: boolean;
+  permissions?: Partial<Record<
+    | 'can_create_task'
+    | 'can_edit_task'
+    | 'can_delete_task'
+    | 'can_access_preventive_maintenance'
+    | 'can_access_maintenance_ot'
+    | 'can_access_hk_special_project'
+    | 'can_access_chambermaid_entry'
+    | 'can_access_supervisor_update'
+    | 'can_access_laundry_count'
+    | 'can_access_stock_card'
+    | 'can_access_damaged'
+    | 'can_access_linen_history'
+    | 'can_access_daily_forms'
+    | 'can_access_management_tasks'
+    | 'can_access_admin_settings'
+    | 'can_access_linen_admin',
+    unknown
+  >>;
 };
 
 type AdminUser = {
@@ -66,39 +85,41 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
   const isSuperuser = role === 'SUPERUSER';
   const hasAccess = (value: unknown) =>
     value === true || value === 'true' || value === 1 || value === '1';
+  const permissionValue = (key: Exclude<keyof EffectiveProfile, 'user_id' | 'email' | 'name' | 'role'>) =>
+    profile.permissions?.[key] !== undefined ? profile.permissions[key] : profile[key];
 
   return {
     user_id: String(profile.user_id || ''),
     email: String(profile.email || '').toLowerCase(),
     name: String(profile.name || ''),
     role,
-    can_create_task: isSuperuser || hasAccess(profile.can_create_task),
-    can_edit_task: isSuperuser || hasAccess(profile.can_edit_task),
-    can_delete_task: isSuperuser || hasAccess(profile.can_delete_task),
+    can_create_task: isSuperuser || hasAccess(permissionValue('can_create_task')),
+    can_edit_task: isSuperuser || hasAccess(permissionValue('can_edit_task')),
+    can_delete_task: isSuperuser || hasAccess(permissionValue('can_delete_task')),
     can_access_preventive_maintenance:
-      isSuperuser || hasAccess(profile.can_access_preventive_maintenance),
+      isSuperuser || hasAccess(permissionValue('can_access_preventive_maintenance')),
     can_access_maintenance_ot:
-      isSuperuser || hasAccess(profile.can_access_maintenance_ot),
+      isSuperuser || hasAccess(permissionValue('can_access_maintenance_ot')),
     can_access_hk_special_project:
-      isSuperuser || hasAccess(profile.can_access_hk_special_project),
+      isSuperuser || hasAccess(permissionValue('can_access_hk_special_project')),
     can_access_chambermaid_entry:
-      isSuperuser || hasAccess(profile.can_access_chambermaid_entry),
+      isSuperuser || hasAccess(permissionValue('can_access_chambermaid_entry')),
     can_access_supervisor_update:
-      isSuperuser || hasAccess(profile.can_access_supervisor_update),
+      isSuperuser || hasAccess(permissionValue('can_access_supervisor_update')),
     can_access_laundry_count:
-      isSuperuser || hasAccess(profile.can_access_laundry_count),
+      isSuperuser || hasAccess(permissionValue('can_access_laundry_count')),
     can_access_stock_card:
-      isSuperuser || hasAccess(profile.can_access_stock_card),
+      isSuperuser || hasAccess(permissionValue('can_access_stock_card')),
     can_access_damaged:
-      isSuperuser || hasAccess(profile.can_access_damaged),
+      isSuperuser || hasAccess(permissionValue('can_access_damaged')),
     can_access_linen_history:
-      isSuperuser || hasAccess(profile.can_access_linen_history),
+      isSuperuser || hasAccess(permissionValue('can_access_linen_history')),
     can_access_daily_forms:
-      isSuperuser || hasAccess(profile.can_access_daily_forms),
+      isSuperuser || hasAccess(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
-      isSuperuser || hasAccess(profile.can_access_management_tasks),
+      isSuperuser || hasAccess(permissionValue('can_access_management_tasks')),
     can_access_admin_settings:
-      isSuperuser || hasAccess(profile.can_access_admin_settings),
+      isSuperuser || hasAccess(permissionValue('can_access_admin_settings')),
   };
 }
 
