@@ -64,39 +64,41 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
 
   const role = profile.role;
   const isSuperuser = role === 'SUPERUSER';
+  const hasAccess = (value: unknown) =>
+    value === true || value === 'true' || value === 1 || value === '1';
 
   return {
     user_id: String(profile.user_id || ''),
     email: String(profile.email || '').toLowerCase(),
     name: String(profile.name || ''),
     role,
-    can_create_task: isSuperuser || profile.can_create_task === true,
-    can_edit_task: isSuperuser || profile.can_edit_task === true,
-    can_delete_task: isSuperuser || profile.can_delete_task === true,
+    can_create_task: isSuperuser || hasAccess(profile.can_create_task),
+    can_edit_task: isSuperuser || hasAccess(profile.can_edit_task),
+    can_delete_task: isSuperuser || hasAccess(profile.can_delete_task),
     can_access_preventive_maintenance:
-      isSuperuser || profile.can_access_preventive_maintenance === true,
+      isSuperuser || hasAccess(profile.can_access_preventive_maintenance),
     can_access_maintenance_ot:
-      isSuperuser || profile.can_access_maintenance_ot === true,
+      isSuperuser || hasAccess(profile.can_access_maintenance_ot),
     can_access_hk_special_project:
-      isSuperuser || profile.can_access_hk_special_project === true,
+      isSuperuser || hasAccess(profile.can_access_hk_special_project),
     can_access_chambermaid_entry:
-      isSuperuser || profile.can_access_chambermaid_entry === true,
+      isSuperuser || hasAccess(profile.can_access_chambermaid_entry),
     can_access_supervisor_update:
-      isSuperuser || profile.can_access_supervisor_update === true,
+      isSuperuser || hasAccess(profile.can_access_supervisor_update),
     can_access_laundry_count:
-      isSuperuser || profile.can_access_laundry_count === true,
+      isSuperuser || hasAccess(profile.can_access_laundry_count),
     can_access_stock_card:
-      isSuperuser || profile.can_access_stock_card === true,
+      isSuperuser || hasAccess(profile.can_access_stock_card),
     can_access_damaged:
-      isSuperuser || profile.can_access_damaged === true,
+      isSuperuser || hasAccess(profile.can_access_damaged),
     can_access_linen_history:
-      isSuperuser || profile.can_access_linen_history === true,
+      isSuperuser || hasAccess(profile.can_access_linen_history),
     can_access_daily_forms:
-      isSuperuser || profile.can_access_daily_forms === true,
+      isSuperuser || hasAccess(profile.can_access_daily_forms),
     can_access_management_tasks:
-      isSuperuser || profile.can_access_management_tasks === true,
+      isSuperuser || hasAccess(profile.can_access_management_tasks),
     can_access_admin_settings:
-      isSuperuser || profile.can_access_admin_settings === true,
+      isSuperuser || hasAccess(profile.can_access_admin_settings),
   };
 }
 
