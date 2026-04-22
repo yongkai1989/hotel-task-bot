@@ -31,6 +31,24 @@ export type DashboardUser = {
   can_access_management_tasks: boolean;
   can_access_admin_settings: boolean;
   can_access_linen_admin: boolean;
+  permissions: {
+    can_create_task: boolean;
+    can_edit_task: boolean;
+    can_delete_task: boolean;
+    can_access_preventive_maintenance: boolean;
+    can_access_maintenance_ot: boolean;
+    can_access_hk_special_project: boolean;
+    can_access_chambermaid_entry: boolean;
+    can_access_supervisor_update: boolean;
+    can_access_laundry_count: boolean;
+    can_access_stock_card: boolean;
+    can_access_damaged: boolean;
+    can_access_linen_history: boolean;
+    can_access_daily_forms: boolean;
+    can_access_management_tasks: boolean;
+    can_access_admin_settings: boolean;
+    can_access_linen_admin: boolean;
+  };
 };
 
 function getBearerToken(req: NextRequest) {
@@ -116,6 +134,37 @@ export async function getDashboardUserFromRequest(
     }
 
     const role = profile.role as DashboardRole;
+    const permissions = {
+      can_create_task: effectiveBoolean(role, profile.can_create_task),
+      can_edit_task: effectiveBoolean(role, profile.can_edit_task),
+      can_delete_task: effectiveBoolean(role, profile.can_delete_task),
+      can_access_preventive_maintenance:
+        effectiveBoolean(role, profile.can_access_preventive_maintenance),
+      can_access_maintenance_ot:
+        effectiveBoolean(role, profile.can_access_maintenance_ot),
+      can_access_hk_special_project:
+        effectiveBoolean(role, profile.can_access_hk_special_project),
+      can_access_chambermaid_entry:
+        effectiveBoolean(role, profile.can_access_chambermaid_entry),
+      can_access_supervisor_update:
+        effectiveBoolean(role, profile.can_access_supervisor_update),
+      can_access_laundry_count:
+        effectiveBoolean(role, profile.can_access_laundry_count),
+      can_access_stock_card:
+        effectiveBoolean(role, profile.can_access_stock_card),
+      can_access_damaged:
+        effectiveBoolean(role, profile.can_access_damaged),
+      can_access_linen_history:
+        effectiveBoolean(role, profile.can_access_linen_history),
+      can_access_daily_forms:
+        effectiveBoolean(role, profile.can_access_daily_forms),
+      can_access_management_tasks:
+        effectiveBoolean(role, profile.can_access_management_tasks),
+      can_access_admin_settings:
+        effectiveBoolean(role, profile.can_access_admin_settings),
+      can_access_linen_admin:
+        effectiveBoolean(role, profile.can_access_linen_admin),
+    };
 
     return {
       user: {
@@ -123,35 +172,8 @@ export async function getDashboardUserFromRequest(
         email: profile.email || authUser.email,
         name: profile.name || authUser.email || 'User',
         role,
-        can_create_task: effectiveBoolean(role, profile.can_create_task),
-        can_edit_task: effectiveBoolean(role, profile.can_edit_task),
-        can_delete_task: effectiveBoolean(role, profile.can_delete_task),
-        can_access_preventive_maintenance:
-          effectiveBoolean(role, profile.can_access_preventive_maintenance),
-        can_access_maintenance_ot:
-          effectiveBoolean(role, profile.can_access_maintenance_ot),
-        can_access_hk_special_project:
-          effectiveBoolean(role, profile.can_access_hk_special_project),
-        can_access_chambermaid_entry:
-          effectiveBoolean(role, profile.can_access_chambermaid_entry),
-        can_access_supervisor_update:
-          effectiveBoolean(role, profile.can_access_supervisor_update),
-        can_access_laundry_count:
-          effectiveBoolean(role, profile.can_access_laundry_count),
-        can_access_stock_card:
-          effectiveBoolean(role, profile.can_access_stock_card),
-        can_access_damaged:
-          effectiveBoolean(role, profile.can_access_damaged),
-        can_access_linen_history:
-          effectiveBoolean(role, profile.can_access_linen_history),
-        can_access_daily_forms:
-          effectiveBoolean(role, profile.can_access_daily_forms),
-        can_access_management_tasks:
-          effectiveBoolean(role, profile.can_access_management_tasks),
-        can_access_admin_settings:
-          effectiveBoolean(role, profile.can_access_admin_settings),
-        can_access_linen_admin:
-          effectiveBoolean(role, profile.can_access_linen_admin),
+        ...permissions,
+        permissions,
       },
       error: null,
     };
