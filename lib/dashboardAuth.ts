@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from './supabaseAdmin';
 
 export type DashboardRole =
   | 'SUPERUSER'
@@ -96,7 +95,12 @@ export async function getDashboardUserFromRequest(
       return { user: null, error: 'Invalid session' };
     }
 
-    const { data: profile, error: profileError } = await supabaseAdmin
+    const profileClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data: profile, error: profileError } = await profileClient
       .from('user_profiles')
       .select(
         `
