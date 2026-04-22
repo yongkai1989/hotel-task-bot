@@ -34,9 +34,6 @@ export async function GET(req: NextRequest) {
         email,
         name,
         role,
-        can_create_task,
-        can_edit_task,
-        can_delete_task,
         can_access_preventive_maintenance,
         can_access_maintenance_ot,
         can_access_hk_special_project,
@@ -49,7 +46,9 @@ export async function GET(req: NextRequest) {
         can_access_daily_forms,
         can_access_management_tasks,
         can_access_admin_settings,
-        can_access_linen_admin
+        can_create_task,
+        can_edit_task,
+        can_delete_task
       `)
       .order('role', { ascending: true })
       .order('name', { ascending: true });
