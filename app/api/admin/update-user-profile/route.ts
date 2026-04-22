@@ -31,29 +31,19 @@ export async function POST(req: NextRequest) {
     const { user, error } = await getDashboardUserFromRequest(req);
 
     if (!user) {
-      return NextResponse.json(
-        { ok: false, error: error || 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: false, error: error || 'Unauthorized' }, { status: 401 });
     }
 
     if (user.role !== 'SUPERUSER') {
-      return NextResponse.json(
-        { ok: false, error: 'Superuser only' },
-        { status: 403 }
-      );
+      return NextResponse.json({ ok: false, error: 'Superuser only' }, { status: 403 });
     }
 
     const body = (await req.json()) as UpdateBody;
-
     const targetUserId = String(body.user_id || '').trim();
     const targetEmail = String(body.email || '').trim().toLowerCase();
 
     if (!targetUserId) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing user_id' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: 'Missing user_id' }, { status: 400 });
     }
 
     const supabase = createClient(
@@ -90,10 +80,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (existingError) {
-      return NextResponse.json(
-        { ok: false, error: existingError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
     }
 
     if (existing) {
@@ -103,26 +90,15 @@ export async function POST(req: NextRequest) {
         .eq('user_id', targetUserId);
 
       if (updateError) {
-        return NextResponse.json(
-          { ok: false, error: updateError.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
       }
     } else {
       const { error: insertError } = await supabase
         .from('user_profiles')
-        .insert([
-          {
-            user_id: targetUserId,
-            ...payload,
-          },
-        ]);
+        .insert([{ user_id: targetUserId, ...payload }]);
 
       if (insertError) {
-        return NextResponse.json(
-          { ok: false, error: insertError.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
       }
     }
 
@@ -153,16 +129,10 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (freshError) {
-      return NextResponse.json(
-        { ok: false, error: freshError.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, error: freshError.message }, { status: 500 });
     }
 
-    return NextResponse.json({
-      ok: true,
-      user: freshRow,
-    });
+    return NextResponse.json({ ok: true, user: freshRow });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || 'Unknown error' },
