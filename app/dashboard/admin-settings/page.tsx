@@ -448,7 +448,7 @@ export default function AdminSettingsPage() {
     }
   }
 
-  function renderToggle(key: keyof UserProfile, label: string) {
+function renderToggle(key: keyof UserProfile, label: string) {
     if (!draft) return null;
     const savedValue = !!draft[key];
 
@@ -456,7 +456,7 @@ export default function AdminSettingsPage() {
       <label key={String(key)} style={styles.toggleRow}>
         <div>
           <div style={styles.toggleLabel}>{label}</div>
-          <div style={styles.toggleSubtext}>Saved access: {savedValue ? 'Allowed' : 'Blocked'}</div>
+          <div style={styles.toggleSubtext}>{savedValue ? 'Allowed' : 'Blocked'}</div>
         </div>
         <button
           type="button"
@@ -497,9 +497,7 @@ export default function AdminSettingsPage() {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
-  const selectedSavedUser = users.find((u) => u.user_id === selectedUserId) || null;
-  const saved = selectedSavedUser ? buildSavedPayload(selectedSavedUser) : null;
-  const preview = saved ? getPreviewAccess(saved) : null;
+  const preview = draft ? getPreviewAccess(buildSavedPayload(draft)) : null;
 
   return (
     <main style={styles.page}>
@@ -610,31 +608,14 @@ export default function AdminSettingsPage() {
                     </div>
                   </div>
 
-                  {saved && preview ? (
+                  {preview ? (
                     <div style={styles.effectiveBox}>
-                      <div style={styles.effectiveTitle}>Current Access Preview</div>
+                      <div style={styles.effectiveTitle}>Actual Access Granted</div>
                       <div style={styles.helperBanner}>
-                        Saved Access shows the actual database toggles. Real App Access Preview shows actual app access. Superuser preview is always full green.
+                        SUPERUSER has full access. Other users receive only the access enabled below.
                       </div>
 
-                      <div style={styles.sectionMiniTitle}>Saved Access</div>
-                      <div style={styles.effectiveChips}>
-                        {accessFieldDefs.map((item) => (
-                          <span
-                            key={`saved-${String(item.key)}`}
-                            style={{
-                              ...styles.effectiveChip,
-                              background: saved[item.key] ? '#ecfdf5' : '#f8fafc',
-                              color: saved[item.key] ? '#166534' : '#475569',
-                              borderColor: saved[item.key] ? '#bbf7d0' : '#e2e8f0',
-                            }}
-                          >
-                            {item.label}: {saved[item.key] ? 'Yes' : 'No'}
-                          </span>
-                        ))}
-                      </div>
-
-                      <div style={{ ...styles.sectionMiniTitle, marginTop: 14 }}>Real App Access Preview</div>
+                      <div style={styles.sectionMiniTitle}>Access Preview</div>
                       <div style={styles.effectiveChips}>
                         {accessFieldDefs.map((item) => (
                           <span
