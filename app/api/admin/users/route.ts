@@ -109,66 +109,9 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      const { data: authUser, error: authUserError } =
-        await supabase.auth.admin.getUserById(requestedUserId);
-
-      if (authUserError || !authUser?.user) {
-        return NextResponse.json(
-          { ok: false, error: authUserError?.message || 'User not found' },
-          { status: 404 }
-        );
-      }
-
       return NextResponse.json(
-        {
-          ok: true,
-          user: {
-            user_id: authUser.user.id,
-            email: authUser.user.email || '',
-            name:
-              String(authUser.user.user_metadata?.name || '').trim() ||
-              authUser.user.email ||
-              'User',
-            role: 'FO',
-            can_access_preventive_maintenance: false,
-            can_access_maintenance_ot: false,
-            can_access_hk_special_project: false,
-            can_access_chambermaid_entry: false,
-            can_access_supervisor_update: false,
-            can_access_laundry_count: false,
-            can_access_stock_card: false,
-            can_access_damaged: false,
-            can_access_linen_history: false,
-            can_access_daily_forms: false,
-            can_access_management_tasks: false,
-            can_access_admin_settings: false,
-            can_create_task: false,
-            can_edit_task: false,
-            can_delete_task: false,
-            permissions: {
-              can_access_preventive_maintenance: false,
-              can_access_maintenance_ot: false,
-              can_access_hk_special_project: false,
-              can_access_chambermaid_entry: false,
-              can_access_supervisor_update: false,
-              can_access_laundry_count: false,
-              can_access_stock_card: false,
-              can_access_damaged: false,
-              can_access_linen_history: false,
-              can_access_daily_forms: false,
-              can_access_management_tasks: false,
-              can_access_admin_settings: false,
-              can_create_task: false,
-              can_edit_task: false,
-              can_delete_task: false,
-            },
-          },
-        },
-        {
-          headers: {
-            'Cache-Control': 'no-store, max-age=0',
-          },
-        }
+        { ok: false, error: 'User profile not found' },
+        { status: 404 }
       );
     }
 
@@ -206,16 +149,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { data: authUsers, error: authUsersError } =
-      await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-
-    if (authUsersError) {
-      return NextResponse.json(
-        { ok: false, error: authUsersError.message },
-        { status: 500 }
-      );
-    }
-
     const profilesByUserId = new Map<string, any>();
 
     for (const profile of profiles || []) {
@@ -229,51 +162,8 @@ export async function GET(req: NextRequest) {
     }
 
     const profileRows = [...profilesByUserId.values()].map(normalizeProfileRow);
-    const missingProfileRows = (authUsers?.users || [])
-      .filter((authUser) => !profilesByUserId.has(authUser.id))
-      .map((authUser) => ({
-        user_id: authUser.id,
-        email: authUser.email || '',
-        name:
-          String(authUser.user_metadata?.name || '').trim() ||
-          authUser.email ||
-          'User',
-        role: 'FO',
-        can_access_preventive_maintenance: false,
-        can_access_maintenance_ot: false,
-        can_access_hk_special_project: false,
-        can_access_chambermaid_entry: false,
-        can_access_supervisor_update: false,
-        can_access_laundry_count: false,
-        can_access_stock_card: false,
-        can_access_damaged: false,
-        can_access_linen_history: false,
-        can_access_daily_forms: false,
-        can_access_management_tasks: false,
-        can_access_admin_settings: false,
-        can_create_task: false,
-        can_edit_task: false,
-        can_delete_task: false,
-        permissions: {
-          can_access_preventive_maintenance: false,
-          can_access_maintenance_ot: false,
-          can_access_hk_special_project: false,
-          can_access_chambermaid_entry: false,
-          can_access_supervisor_update: false,
-          can_access_laundry_count: false,
-          can_access_stock_card: false,
-          can_access_damaged: false,
-          can_access_linen_history: false,
-          can_access_daily_forms: false,
-          can_access_management_tasks: false,
-          can_access_admin_settings: false,
-          can_create_task: false,
-          can_edit_task: false,
-          can_delete_task: false,
-        },
-      }));
 
-    const users = [...profileRows, ...missingProfileRows].sort((a, b) => {
+    const users = profileRows.sort((a, b) => {
       const roleCompare = String(a.role || '').localeCompare(String(b.role || ''));
       if (roleCompare !== 0) return roleCompare;
       return String(a.name || '').localeCompare(String(b.name || ''));
