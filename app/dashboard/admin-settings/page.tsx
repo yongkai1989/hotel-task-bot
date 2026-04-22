@@ -154,44 +154,8 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
   };
 }
 
-function getPreviewAccess(user: EditableUser) {
-  if (user.role === 'SUPERUSER') {
-    return {
-      can_access_preventive_maintenance: true,
-      can_access_maintenance_ot: true,
-      can_access_hk_special_project: true,
-      can_access_chambermaid_entry: true,
-      can_access_supervisor_update: true,
-      can_access_laundry_count: true,
-      can_access_stock_card: true,
-      can_access_damaged: true,
-      can_access_linen_history: true,
-      can_access_daily_forms: true,
-      can_access_management_tasks: true,
-      can_access_admin_settings: true,
-      can_create_task: true,
-      can_edit_task: true,
-      can_delete_task: true,
-    };
-  }
-
-  return {
-    can_access_preventive_maintenance: toPermissionBoolean(user.can_access_preventive_maintenance),
-    can_access_maintenance_ot: toPermissionBoolean(user.can_access_maintenance_ot),
-    can_access_hk_special_project: toPermissionBoolean(user.can_access_hk_special_project),
-    can_access_chambermaid_entry: toPermissionBoolean(user.can_access_chambermaid_entry),
-    can_access_supervisor_update: toPermissionBoolean(user.can_access_supervisor_update),
-    can_access_laundry_count: toPermissionBoolean(user.can_access_laundry_count),
-    can_access_stock_card: toPermissionBoolean(user.can_access_stock_card),
-    can_access_damaged: toPermissionBoolean(user.can_access_damaged),
-    can_access_linen_history: toPermissionBoolean(user.can_access_linen_history),
-    can_access_daily_forms: toPermissionBoolean(user.can_access_daily_forms),
-    can_access_management_tasks: toPermissionBoolean(user.can_access_management_tasks),
-    can_access_admin_settings: toPermissionBoolean(user.can_access_admin_settings),
-    can_create_task: toPermissionBoolean(user.can_create_task),
-    can_edit_task: toPermissionBoolean(user.can_edit_task),
-    can_delete_task: toPermissionBoolean(user.can_delete_task),
-  };
+function getActualAccessValue(user: EditableUser, key: AccessKey) {
+  return user.role === 'SUPERUSER' || toPermissionBoolean(user[key]);
 }
 
 export default function AdminSettingsPage() {
@@ -549,7 +513,6 @@ function renderToggle(key: AccessKey, label: string) {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
-  const preview = draft ? getPreviewAccess(draft) : null;
 
   return (
     <main style={styles.page}>
@@ -660,28 +623,37 @@ function renderToggle(key: AccessKey, label: string) {
                     </div>
                   </div>
 
-                  {preview ? (
+                  {draft ? (
                     <div style={styles.effectiveBox}>
                       <div style={styles.effectiveTitle}>Actual Access Granted</div>
                       <div style={styles.helperBanner}>
                         SUPERUSER has full access. Other users receive only the access enabled below.
                       </div>
+                      <div style={styles.debugLine}>
+                        Selected: {draft.email || draft.user_id} | Role: {draft.role} | Enabled: {
+                          accessFieldDefs.filter((item) => getActualAccessValue(draft, item.key)).length
+                        }/{accessFieldDefs.length}
+                      </div>
 
                       <div style={styles.sectionMiniTitle}>Access Preview</div>
                       <div style={styles.effectiveChips}>
-                        {accessFieldDefs.map((item) => (
-                          <span
-                            key={`preview-${String(item.key)}`}
-                            style={{
-                              ...styles.effectiveChip,
-                              background: preview[item.key] ? '#ecfdf5' : '#f8fafc',
-                              color: preview[item.key] ? '#166534' : '#475569',
-                              borderColor: preview[item.key] ? '#bbf7d0' : '#e2e8f0',
-                            }}
-                          >
-                            {item.label}: {preview[item.key] ? 'Yes' : 'No'}
-                          </span>
-                        ))}
+                        {accessFieldDefs.map((item) => {
+                          const allowed = getActualAccessValue(draft, item.key);
+
+                          return (
+                            <span
+                              key={`preview-${String(item.key)}-${allowed ? 'yes' : 'no'}`}
+                              style={{
+                                ...styles.effectiveChip,
+                                background: allowed ? '#ecfdf5' : '#f8fafc',
+                                color: allowed ? '#166534' : '#475569',
+                                borderColor: allowed ? '#bbf7d0' : '#e2e8f0',
+                              }}
+                            >
+                              {item.label}: {allowed ? 'Yes' : 'No'}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : null}
@@ -751,6 +723,7 @@ const styles: Record<string, React.CSSProperties> = {
   effectiveTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' },
   sectionMiniTitle: { fontSize: '13px', color: '#0f172a', fontWeight: 800, marginBottom: '8px' },
   helperBanner: { marginBottom: '10px', border: '1px solid #dbeafe', background: '#eff6ff', color: '#1e3a8a', borderRadius: '14px', padding: '10px 12px', fontSize: '13px', lineHeight: 1.5, fontWeight: 700 },
+  debugLine: { marginBottom: '10px', color: '#475569', fontSize: '12px', fontWeight: 800 },
   effectiveChips: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
   effectiveChip: { border: '1px solid #e2e8f0', borderRadius: '999px', padding: '7px 10px', fontSize: '12px', fontWeight: 800 },
   permissionGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '8px' },
