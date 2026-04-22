@@ -9,11 +9,7 @@ function toPermissionBoolean(value: unknown) {
 }
 
 function normalizeProfileRow(row: any) {
-  return {
-    user_id: String(row.user_id || ''),
-    email: String(row.email || '').toLowerCase(),
-    name: String(row.name || ''),
-    role: String(row.role || 'FO'),
+  const permissions = {
     can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
     can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
     can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
@@ -29,6 +25,15 @@ function normalizeProfileRow(row: any) {
     can_create_task: toPermissionBoolean(row.can_create_task),
     can_edit_task: toPermissionBoolean(row.can_edit_task),
     can_delete_task: toPermissionBoolean(row.can_delete_task),
+  };
+
+  return {
+    user_id: String(row.user_id || ''),
+    email: String(row.email || '').toLowerCase(),
+    name: String(row.name || ''),
+    role: String(row.role || 'FO'),
+    ...permissions,
+    permissions,
     updated_at: row.updated_at || null,
   };
 }
@@ -138,6 +143,23 @@ export async function GET(req: NextRequest) {
         can_create_task: false,
         can_edit_task: false,
         can_delete_task: false,
+        permissions: {
+          can_access_preventive_maintenance: false,
+          can_access_maintenance_ot: false,
+          can_access_hk_special_project: false,
+          can_access_chambermaid_entry: false,
+          can_access_supervisor_update: false,
+          can_access_laundry_count: false,
+          can_access_stock_card: false,
+          can_access_damaged: false,
+          can_access_linen_history: false,
+          can_access_daily_forms: false,
+          can_access_management_tasks: false,
+          can_access_admin_settings: false,
+          can_create_task: false,
+          can_edit_task: false,
+          can_delete_task: false,
+        },
       }));
 
     const users = [...profileRows, ...missingProfileRows].sort((a, b) => {
