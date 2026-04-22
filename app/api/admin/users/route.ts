@@ -4,6 +4,35 @@ import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 
+function toPermissionBoolean(value: unknown) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function normalizeProfileRow(row: any) {
+  return {
+    user_id: String(row.user_id || ''),
+    email: String(row.email || '').toLowerCase(),
+    name: String(row.name || ''),
+    role: String(row.role || 'FO'),
+    can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
+    can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
+    can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
+    can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
+    can_access_supervisor_update: toPermissionBoolean(row.can_access_supervisor_update),
+    can_access_laundry_count: toPermissionBoolean(row.can_access_laundry_count),
+    can_access_stock_card: toPermissionBoolean(row.can_access_stock_card),
+    can_access_damaged: toPermissionBoolean(row.can_access_damaged),
+    can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
+    can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
+    can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
+    can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
+    can_create_task: toPermissionBoolean(row.can_create_task),
+    can_edit_task: toPermissionBoolean(row.can_edit_task),
+    can_delete_task: toPermissionBoolean(row.can_delete_task),
+    updated_at: row.updated_at || null,
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { user, error } = await getDashboardUserFromRequest(req);
@@ -83,7 +112,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const profileRows = [...profilesByUserId.values()];
+    const profileRows = [...profilesByUserId.values()].map(normalizeProfileRow);
     const missingProfileRows = (authUsers?.users || [])
       .filter((authUser) => !profilesByUserId.has(authUser.id))
       .map((authUser) => ({
