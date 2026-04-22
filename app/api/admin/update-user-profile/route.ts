@@ -114,6 +114,40 @@ function withPermissions(row: any) {
   return { ...row, ...permissions, permissions };
 }
 
+async function findAuthUserIdByEmail(serviceClient: any, email: string) {
+  if (!email) return '';
+
+  let page = 1;
+
+  while (page <= 20) {
+    const { data, error } = await serviceClient.auth.admin.listUsers({
+      page,
+      perPage: 1000,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const users = data?.users || [];
+    const match = users.find(
+      (user: any) => String(user.email || '').trim().toLowerCase() === email
+    );
+
+    if (match?.id) {
+      return match.id;
+    }
+
+    if (users.length < 1000) {
+      return '';
+    }
+
+    page += 1;
+  }
+
+  return '';
+}
+
 async function getRequester(req: NextRequest, serviceClient: any) {
   const token = getBearerToken(req);
 
@@ -207,33 +241,103 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data: existing, error: existingError } = await serviceClient
+    const { error: exactProfileError } = await serviceClient
       .from('user_profiles')
       .select('user_id')
       .eq('user_id', targetUserId)
       .maybeSingle();
 
-    if (existingError) {
-      return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
+    if (exactProfileError) {
+      return NextResponse.json({ ok: false, error: exactProfileError.message }, { status: 500 });
     }
 
-    const { error: writeError } = await (existing
-      ? serviceClient
-          .from('user_profiles')
-          .update(payload)
-          .eq('user_id', targetUserId)
-      : serviceClient
-          .from('user_profiles')
-          .insert([{ user_id: targetUserId, ...payload }]));
+    const authUserId = targetEmail
+      ? await findAuthUserIdByEmail(serviceClient, targetEmail)
+      : '';
 
-    if (writeError) {
-      return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
+    const { data: emailProfiles, error: emailProfilesError } = targetEmail
+      ? await serviceClient
+          .from('user_profiles')
+          .select('user_id')
+          .ilike('email', targetEmail)
+      : { data: [], error: null };
+
+    if (emailProfilesError) {
+      return NextResponse.json(
+        { ok: false, error: emailProfilesError.message },
+        { status: 500 }
+      );
+    }
+
+    const targetUserIds = new Set<string>();
+    targetUserIds.add(targetUserId);
+
+    if (authUserId) {
+      targetUserIds.add(authUserId);
+    }
+
+    for (const profile of emailProfiles || []) {
+      if (profile?.user_id) {
+        targetUserIds.add(profile.user_id);
+      }
+    }
+
+    const touchedUserIds: string[] = [];
+
+    for (const userId of targetUserIds) {
+      const { data: profile, error: profileError } = await serviceClient
+        .from('user_profiles')
+        .select('user_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (profileError) {
+        return NextResponse.json({ ok: false, error: profileError.message }, { status: 500 });
+      }
+
+      const rowPayload =
+        userId === targetUserId
+          ? payload
+          : {
+              ...payload,
+              user_id: undefined,
+            };
+      delete rowPayload.user_id;
+
+      const { error: rowWriteError } = await (profile
+        ? serviceClient
+            .from('user_profiles')
+            .update(rowPayload)
+            .eq('user_id', userId)
+        : serviceClient
+            .from('user_profiles')
+            .insert([{ user_id: userId, ...payload }]));
+
+      if (rowWriteError) {
+        return NextResponse.json({ ok: false, error: rowWriteError.message }, { status: 500 });
+      }
+
+      touchedUserIds.push(userId);
+    }
+
+    if (targetEmail) {
+      const { error: emailWriteError } = await serviceClient
+        .from('user_profiles')
+        .update(payload)
+        .ilike('email', targetEmail);
+
+      if (emailWriteError) {
+        return NextResponse.json(
+          { ok: false, error: emailWriteError.message },
+          { status: 500 }
+        );
+      }
     }
 
     const { data: freshRow, error: freshError } = await serviceClient
       .from('user_profiles')
       .select(profileSelect)
-      .eq('user_id', targetUserId)
+      .eq('user_id', authUserId || targetUserId)
       .single();
 
     if (freshError) {
@@ -245,6 +349,9 @@ export async function POST(req: NextRequest) {
         ok: true,
         user: withPermissions(freshRow),
         source: 'direct-admin-update-user-profile',
+        touchedUserIds,
+        selectedUserId: targetUserId,
+        authUserId: authUserId || null,
       },
       {
         headers: {
