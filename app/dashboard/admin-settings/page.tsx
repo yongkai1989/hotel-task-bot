@@ -75,13 +75,28 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
 }
 
 function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: string; name?: string; role?: Role }): UserProfile {
+  const normalizedRole = (row.role || 'FO') as Role;
+
   return {
     user_id: String(row.user_id || ''),
     email: String(row.email || '').toLowerCase(),
     name: String(row.name || ''),
-    role: (row.role || 'FO') as Role,
-    ...emptyPermissions(),
-    ...row,
+    role: normalizedRole,
+    can_access_preventive_maintenance: row.can_access_preventive_maintenance === true,
+    can_access_maintenance_ot: row.can_access_maintenance_ot === true,
+    can_access_hk_special_project: row.can_access_hk_special_project === true,
+    can_access_chambermaid_entry: row.can_access_chambermaid_entry === true,
+    can_access_supervisor_update: row.can_access_supervisor_update === true,
+    can_access_laundry_count: row.can_access_laundry_count === true,
+    can_access_stock_card: row.can_access_stock_card === true,
+    can_access_damaged: row.can_access_damaged === true,
+    can_access_linen_history: row.can_access_linen_history === true,
+    can_access_daily_forms: row.can_access_daily_forms === true,
+    can_access_management_tasks: row.can_access_management_tasks === true,
+    can_access_admin_settings: row.can_access_admin_settings === true,
+    can_create_task: row.can_create_task === true,
+    can_edit_task: row.can_edit_task === true,
+    can_delete_task: row.can_delete_task === true,
   };
 }
 
@@ -240,8 +255,14 @@ export default function AdminSettingsPage() {
     setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
-  async function refreshUsers(keepSelectedId?: string) {
-    const nextUsers = await fetchUsersRaw();
+  async function refreshUsers(keepSelectedId?: string, authoritativeUser?: UserProfile) {
+    const nextUsersRaw = await fetchUsersRaw();
+    const nextUsers = authoritativeUser
+      ? nextUsersRaw.map((u) =>
+          u.user_id === authoritativeUser.user_id ? authoritativeUser : u
+        )
+      : nextUsersRaw;
+
     setUsers(nextUsers);
     if (keepSelectedId) {
       setSelectedUserId(keepSelectedId);
@@ -325,7 +346,11 @@ export default function AdminSettingsPage() {
       );
 
       setStatusMsg('User access updated successfully');
-      await refreshUsers(returnedUser.user_id);
+      void refreshUsers(returnedUser.user_id, returnedUser).catch(() => {
+        setUsers((prev) =>
+          prev.map((u) => (u.user_id === returnedUser.user_id ? returnedUser : u))
+        );
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to update user');
     } finally {
