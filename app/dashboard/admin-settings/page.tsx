@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
@@ -167,6 +167,7 @@ export default function AdminSettingsPage() {
   const [draft, setDraft] = useState<EditableUser | null>(null);
   const [persistedAccess, setPersistedAccess] = useState<UserProfile | null>(null);
   const [selectedLoading, setSelectedLoading] = useState(false);
+  const selectedLoadSeq = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -187,6 +188,9 @@ export default function AdminSettingsPage() {
   }, []);
 
   useEffect(() => {
+    const loadSeq = selectedLoadSeq.current + 1;
+    selectedLoadSeq.current = loadSeq;
+
     if (!selectedUserId) {
       setDraft(null);
       setPersistedAccess(null);
@@ -200,6 +204,8 @@ export default function AdminSettingsPage() {
 
     void fetchUserRaw(selectedUserId)
       .then((freshUser) => {
+        if (selectedLoadSeq.current !== loadSeq) return;
+
         setUsers((prev) =>
           prev.some((u) => u.user_id === freshUser.user_id)
             ? prev.map((u) => (u.user_id === freshUser.user_id ? freshUser : u))
@@ -212,10 +218,13 @@ export default function AdminSettingsPage() {
         setPersistedAccess(freshUser);
       })
       .catch((err: any) => {
+        if (selectedLoadSeq.current !== loadSeq) return;
         setErrorMsg(err?.message || 'Failed to load selected user access');
       })
       .finally(() => {
-        setSelectedLoading(false);
+        if (selectedLoadSeq.current === loadSeq) {
+          setSelectedLoading(false);
+        }
       });
   }, [selectedUserId]);
 
@@ -319,7 +328,9 @@ export default function AdminSettingsPage() {
       setSelectedUserId(keepSelectedId);
       const selected = authoritativeUser || nextUsers.find((u) => u.user_id === keepSelectedId);
       setDraft(selected ? { ...selected, newPassword: '' } : null);
-      setPersistedAccess(selected || null);
+      if (!authoritativeUser) {
+        setPersistedAccess(selected || null);
+      }
     }
   }
 
@@ -413,21 +424,28 @@ export default function AdminSettingsPage() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update user');
 
       const returnedUser = normalizeUser(json.user || savedPayload);
+      const confirmedUserId = String(json.returnedUserId || json.authUserId || returnedUser.user_id || draft.user_id);
+      const confirmedUser =
+        confirmedUserId && confirmedUserId !== returnedUser.user_id
+          ? { ...returnedUser, user_id: confirmedUserId }
+          : returnedUser;
+
+      selectedLoadSeq.current += 1;
 
       setUsers((prev) =>
-        prev.some((u) => u.user_id === returnedUser.user_id)
-          ? prev.map((u) => (u.user_id === returnedUser.user_id ? returnedUser : u))
-          : [...prev, returnedUser]
+        prev.some((u) => u.user_id === confirmedUser.user_id)
+          ? prev.map((u) => (u.user_id === confirmedUser.user_id ? confirmedUser : u))
+          : [...prev, confirmedUser]
       );
       setDraft((prev) =>
-        prev ? { ...returnedUser, newPassword: prev.newPassword || '' } : prev
+        prev ? { ...confirmedUser, newPassword: prev.newPassword || '' } : prev
       );
-      setPersistedAccess(returnedUser);
+      setPersistedAccess(confirmedUser);
 
       setStatusMsg('User access updated successfully');
-      void refreshUsers(returnedUser.user_id, returnedUser).catch(() => {
+      void refreshUsers(confirmedUser.user_id, confirmedUser).catch(() => {
         setUsers((prev) =>
-          prev.map((u) => (u.user_id === returnedUser.user_id ? returnedUser : u))
+          prev.map((u) => (u.user_id === confirmedUser.user_id ? confirmedUser : u))
         );
       });
     } catch (err: any) {
