@@ -166,6 +166,7 @@ export default function AdminSettingsPage() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [draft, setDraft] = useState<EditableUser | null>(null);
   const [persistedAccess, setPersistedAccess] = useState<UserProfile | null>(null);
+  const [selectedLoading, setSelectedLoading] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -189,12 +190,13 @@ export default function AdminSettingsPage() {
     if (!selectedUserId) {
       setDraft(null);
       setPersistedAccess(null);
+      setSelectedLoading(false);
       return;
     }
 
-    const selected = users.find((u) => u.user_id === selectedUserId);
-    setDraft(selected ? { ...selected, newPassword: '' } : null);
+    setDraft(null);
     setPersistedAccess(null);
+    setSelectedLoading(true);
 
     void fetchUserRaw(selectedUserId)
       .then((freshUser) => {
@@ -211,6 +213,9 @@ export default function AdminSettingsPage() {
       })
       .catch((err: any) => {
         setErrorMsg(err?.message || 'Failed to load selected user access');
+      })
+      .finally(() => {
+        setSelectedLoading(false);
       });
   }, [selectedUserId]);
 
@@ -384,6 +389,7 @@ export default function AdminSettingsPage() {
   async function handleSaveUser() {
     try {
       if (!draft) throw new Error('No user selected');
+      if (selectedLoading || !persistedAccess) throw new Error('Selected user access is still loading');
       if (!draft.user_id) throw new Error('Selected user is missing user_id');
       if (!draft.name.trim()) throw new Error('Name cannot be blank');
 
@@ -633,7 +639,9 @@ function renderToggle(key: AccessKey, label: string) {
               <div style={styles.panelTitle}>Current Access</div>
 
               {!draft ? (
-                <div style={styles.emptyState}>Select a user to view and edit current access.</div>
+                <div style={styles.emptyState}>
+                  {selectedLoading ? 'Loading selected user access...' : 'Select a user to view and edit current access.'}
+                </div>
               ) : (
                 <>
                   <div style={styles.formGrid}>
@@ -720,7 +728,7 @@ function renderToggle(key: AccessKey, label: string) {
                     <button type="button" onClick={() => void handleDeleteUser()} style={{ ...styles.deleteBtn, opacity: deleting ? 0.65 : 1 }} disabled={deleting}>
                       {deleting ? 'Deleting...' : 'Delete User'}
                     </button>
-                    <button type="button" onClick={() => void handleSaveUser()} style={{ ...styles.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
+                    <button type="button" onClick={() => void handleSaveUser()} style={{ ...styles.primaryBtn, opacity: saving || selectedLoading ? 0.65 : 1 }} disabled={saving || selectedLoading}>
                       {saving ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
