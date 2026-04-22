@@ -32,8 +32,10 @@ type EditableUser = UserProfile & { newPassword?: string };
 
 const roleOptions: Role[] = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'];
 
+type AccessKey = Exclude<keyof UserProfile, 'user_id' | 'email' | 'name' | 'role'>;
+
 const accessFieldDefs: Array<{
-  key: keyof UserProfile;
+  key: AccessKey;
   label: string;
   group: 'Maintenance' | 'Housekeeping' | 'Management' | 'Actions';
 }> = [
@@ -74,6 +76,10 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
   };
 }
 
+function toPermissionBoolean(value: unknown) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
 function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: string; name?: string; role?: Role }): UserProfile {
   const normalizedRole = (row.role || 'FO') as Role;
 
@@ -82,21 +88,21 @@ function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: s
     email: String(row.email || '').toLowerCase(),
     name: String(row.name || ''),
     role: normalizedRole,
-    can_access_preventive_maintenance: row.can_access_preventive_maintenance === true,
-    can_access_maintenance_ot: row.can_access_maintenance_ot === true,
-    can_access_hk_special_project: row.can_access_hk_special_project === true,
-    can_access_chambermaid_entry: row.can_access_chambermaid_entry === true,
-    can_access_supervisor_update: row.can_access_supervisor_update === true,
-    can_access_laundry_count: row.can_access_laundry_count === true,
-    can_access_stock_card: row.can_access_stock_card === true,
-    can_access_damaged: row.can_access_damaged === true,
-    can_access_linen_history: row.can_access_linen_history === true,
-    can_access_daily_forms: row.can_access_daily_forms === true,
-    can_access_management_tasks: row.can_access_management_tasks === true,
-    can_access_admin_settings: row.can_access_admin_settings === true,
-    can_create_task: row.can_create_task === true,
-    can_edit_task: row.can_edit_task === true,
-    can_delete_task: row.can_delete_task === true,
+    can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
+    can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
+    can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
+    can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
+    can_access_supervisor_update: toPermissionBoolean(row.can_access_supervisor_update),
+    can_access_laundry_count: toPermissionBoolean(row.can_access_laundry_count),
+    can_access_stock_card: toPermissionBoolean(row.can_access_stock_card),
+    can_access_damaged: toPermissionBoolean(row.can_access_damaged),
+    can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
+    can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
+    can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
+    can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
+    can_create_task: toPermissionBoolean(row.can_create_task),
+    can_edit_task: toPermissionBoolean(row.can_edit_task),
+    can_delete_task: toPermissionBoolean(row.can_delete_task),
   };
 }
 
@@ -106,25 +112,25 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     email: draft.email,
     name: draft.name.trim(),
     role: draft.role,
-    can_access_preventive_maintenance: !!draft.can_access_preventive_maintenance,
-    can_access_maintenance_ot: !!draft.can_access_maintenance_ot,
-    can_access_hk_special_project: !!draft.can_access_hk_special_project,
-    can_access_chambermaid_entry: !!draft.can_access_chambermaid_entry,
-    can_access_supervisor_update: !!draft.can_access_supervisor_update,
-    can_access_laundry_count: !!draft.can_access_laundry_count,
-    can_access_stock_card: !!draft.can_access_stock_card,
-    can_access_damaged: !!draft.can_access_damaged,
-    can_access_linen_history: !!draft.can_access_linen_history,
-    can_access_daily_forms: !!draft.can_access_daily_forms,
-    can_access_management_tasks: !!draft.can_access_management_tasks,
-    can_access_admin_settings: !!draft.can_access_admin_settings,
-    can_create_task: !!draft.can_create_task,
-    can_edit_task: !!draft.can_edit_task,
-    can_delete_task: !!draft.can_delete_task,
+    can_access_preventive_maintenance: toPermissionBoolean(draft.can_access_preventive_maintenance),
+    can_access_maintenance_ot: toPermissionBoolean(draft.can_access_maintenance_ot),
+    can_access_hk_special_project: toPermissionBoolean(draft.can_access_hk_special_project),
+    can_access_chambermaid_entry: toPermissionBoolean(draft.can_access_chambermaid_entry),
+    can_access_supervisor_update: toPermissionBoolean(draft.can_access_supervisor_update),
+    can_access_laundry_count: toPermissionBoolean(draft.can_access_laundry_count),
+    can_access_stock_card: toPermissionBoolean(draft.can_access_stock_card),
+    can_access_damaged: toPermissionBoolean(draft.can_access_damaged),
+    can_access_linen_history: toPermissionBoolean(draft.can_access_linen_history),
+    can_access_daily_forms: toPermissionBoolean(draft.can_access_daily_forms),
+    can_access_management_tasks: toPermissionBoolean(draft.can_access_management_tasks),
+    can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
+    can_create_task: toPermissionBoolean(draft.can_create_task),
+    can_edit_task: toPermissionBoolean(draft.can_edit_task),
+    can_delete_task: toPermissionBoolean(draft.can_delete_task),
   };
 }
 
-function getPreviewAccess(user: UserProfile) {
+function getPreviewAccess(user: EditableUser) {
   if (user.role === 'SUPERUSER') {
     return {
       can_access_preventive_maintenance: true,
@@ -144,7 +150,24 @@ function getPreviewAccess(user: UserProfile) {
       can_delete_task: true,
     };
   }
-  return buildSavedPayload({ ...user });
+
+  return {
+    can_access_preventive_maintenance: toPermissionBoolean(user.can_access_preventive_maintenance),
+    can_access_maintenance_ot: toPermissionBoolean(user.can_access_maintenance_ot),
+    can_access_hk_special_project: toPermissionBoolean(user.can_access_hk_special_project),
+    can_access_chambermaid_entry: toPermissionBoolean(user.can_access_chambermaid_entry),
+    can_access_supervisor_update: toPermissionBoolean(user.can_access_supervisor_update),
+    can_access_laundry_count: toPermissionBoolean(user.can_access_laundry_count),
+    can_access_stock_card: toPermissionBoolean(user.can_access_stock_card),
+    can_access_damaged: toPermissionBoolean(user.can_access_damaged),
+    can_access_linen_history: toPermissionBoolean(user.can_access_linen_history),
+    can_access_daily_forms: toPermissionBoolean(user.can_access_daily_forms),
+    can_access_management_tasks: toPermissionBoolean(user.can_access_management_tasks),
+    can_access_admin_settings: toPermissionBoolean(user.can_access_admin_settings),
+    can_create_task: toPermissionBoolean(user.can_create_task),
+    can_edit_task: toPermissionBoolean(user.can_edit_task),
+    can_delete_task: toPermissionBoolean(user.can_delete_task),
+  };
 }
 
 export default function AdminSettingsPage() {
@@ -448,9 +471,9 @@ export default function AdminSettingsPage() {
     }
   }
 
-function renderToggle(key: keyof UserProfile, label: string) {
+function renderToggle(key: AccessKey, label: string) {
     if (!draft) return null;
-    const savedValue = !!draft[key];
+    const savedValue = toPermissionBoolean(draft[key]);
 
     return (
       <label key={String(key)} style={styles.toggleRow}>
@@ -460,7 +483,12 @@ function renderToggle(key: keyof UserProfile, label: string) {
         </div>
         <button
           type="button"
-          onClick={() => setDraftField(key as keyof EditableUser, !draft[key] as any)}
+          onClick={(event) => {
+            event.preventDefault();
+            setDraft((prev) =>
+              prev ? { ...prev, [key]: !toPermissionBoolean(prev[key]) } : prev
+            );
+          }}
           style={{
             ...styles.toggleBtn,
             ...(savedValue ? styles.toggleBtnOn : styles.toggleBtnOff),
@@ -497,7 +525,7 @@ function renderToggle(key: keyof UserProfile, label: string) {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
-  const preview = draft ? getPreviewAccess(buildSavedPayload(draft)) : null;
+  const preview = draft ? getPreviewAccess(draft) : null;
 
   return (
     <main style={styles.page}>
