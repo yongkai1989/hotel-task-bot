@@ -21,7 +21,6 @@ function effectiveBoolean(role: DashboardRole, value: unknown) {
 
 function buildUser(profile: any, authEmail: string) {
   const role = String(profile.role || 'FO') as DashboardRole;
-
   const permissions = {
     can_create_task: effectiveBoolean(role, profile.can_create_task),
     can_edit_task: effectiveBoolean(role, profile.can_edit_task),
