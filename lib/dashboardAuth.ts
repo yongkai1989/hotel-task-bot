@@ -40,7 +40,7 @@ function getBearerToken(req: NextRequest) {
 }
 
 function savedBoolean(value: unknown) {
-  return value === true;
+  return value === true || value === 'true' || value === 1 || value === '1';
 }
 
 function effectiveBoolean(role: DashboardRole, value: unknown) {
