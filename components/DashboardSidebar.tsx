@@ -62,78 +62,46 @@ type EffectiveProfile = Required<
 function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | null {
   if (!profile) return null;
 
-  const rawLinenAdmin = !!profile.can_access_linen_admin;
   const role = profile.role;
+  const isSuperuser = role === 'SUPERUSER';
 
   return {
     user_id: String(profile.user_id || ''),
     email: String(profile.email || '').toLowerCase(),
     name: String(profile.name || ''),
     role,
-    can_create_task: !!profile.can_create_task,
-    can_edit_task: !!profile.can_edit_task,
-    can_delete_task: !!profile.can_delete_task,
-    can_access_preventive_maintenance: !!profile.can_access_preventive_maintenance,
-    can_access_maintenance_ot: !!profile.can_access_maintenance_ot,
-    can_access_hk_special_project: !!profile.can_access_hk_special_project,
-    can_access_chambermaid_entry: !!profile.can_access_chambermaid_entry,
+    can_create_task: isSuperuser || profile.can_create_task === true,
+    can_edit_task: isSuperuser || profile.can_edit_task === true,
+    can_delete_task: isSuperuser || profile.can_delete_task === true,
+    can_access_preventive_maintenance:
+      isSuperuser || profile.can_access_preventive_maintenance === true,
+    can_access_maintenance_ot:
+      isSuperuser || profile.can_access_maintenance_ot === true,
+    can_access_hk_special_project:
+      isSuperuser || profile.can_access_hk_special_project === true,
+    can_access_chambermaid_entry:
+      isSuperuser || profile.can_access_chambermaid_entry === true,
     can_access_supervisor_update:
-      profile.can_access_supervisor_update ?? rawLinenAdmin,
+      isSuperuser || profile.can_access_supervisor_update === true,
     can_access_laundry_count:
-      profile.can_access_laundry_count ?? rawLinenAdmin,
+      isSuperuser || profile.can_access_laundry_count === true,
     can_access_stock_card:
-      profile.can_access_stock_card ?? rawLinenAdmin,
+      isSuperuser || profile.can_access_stock_card === true,
     can_access_damaged:
-      profile.can_access_damaged ?? rawLinenAdmin,
+      isSuperuser || profile.can_access_damaged === true,
     can_access_linen_history:
-      profile.can_access_linen_history ?? rawLinenAdmin,
-    can_access_daily_forms: !!profile.can_access_daily_forms,
-    can_access_management_tasks: !!profile.can_access_management_tasks,
-    can_access_admin_settings: !!profile.can_access_admin_settings,
+      isSuperuser || profile.can_access_linen_history === true,
+    can_access_daily_forms:
+      isSuperuser || profile.can_access_daily_forms === true,
+    can_access_management_tasks:
+      isSuperuser || profile.can_access_management_tasks === true,
+    can_access_admin_settings:
+      isSuperuser || profile.can_access_admin_settings === true,
   };
 }
 
 function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile | null {
-  if (!profile) return null;
-
-  const isSuper = profile.role === 'SUPERUSER';
-  const isManager = profile.role === 'MANAGER';
-  const isSupervisor = profile.role === 'SUPERVISOR';
-  const isMt = profile.role === 'MT';
-
-  return {
-    ...profile,
-    can_access_preventive_maintenance:
-      isSuper || isManager || isMt || profile.can_access_preventive_maintenance,
-    can_access_maintenance_ot:
-      isSuper || isManager || isMt || profile.can_access_maintenance_ot,
-    can_access_hk_special_project:
-      isSuper || isManager || profile.can_access_hk_special_project,
-    can_access_chambermaid_entry:
-      isSuper || isManager || isSupervisor || profile.can_access_chambermaid_entry,
-    can_access_supervisor_update:
-      isSuper || isManager || isSupervisor || profile.can_access_supervisor_update,
-    can_access_laundry_count:
-      isSuper || isManager || isSupervisor || profile.can_access_laundry_count,
-    can_access_stock_card:
-      isSuper || isManager || isSupervisor || profile.can_access_stock_card,
-    can_access_damaged:
-      isSuper || isManager || isSupervisor || profile.can_access_damaged,
-    can_access_linen_history:
-      isSuper || isManager || isSupervisor || profile.can_access_linen_history,
-    can_access_daily_forms:
-      isSuper || isManager || profile.can_access_daily_forms,
-    can_access_management_tasks:
-      isSuper || isManager || profile.can_access_management_tasks,
-    can_access_admin_settings:
-      isSuper || profile.can_access_admin_settings,
-    can_create_task:
-      isSuper || profile.can_create_task,
-    can_edit_task:
-      isSuper || profile.can_edit_task,
-    can_delete_task:
-      isSuper || profile.can_delete_task,
-  };
+  return profile;
 }
 
 export default function DashboardSidebar({
@@ -189,44 +157,27 @@ export default function DashboardSidebar({
         } = await supabase.auth.getSession();
 
         if (sessionError) throw sessionError;
-        if (!session?.user) {
+        if (!session?.access_token) {
           if (mounted) setResolvedProfile(normalizeProfile(profile));
           return;
         }
 
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .select(
-            `
-            user_id,
-            email,
-            name,
-            role,
-            can_create_task,
-            can_edit_task,
-            can_delete_task,
-            can_access_preventive_maintenance,
-            can_access_maintenance_ot,
-            can_access_hk_special_project,
-            can_access_chambermaid_entry,
-            can_access_supervisor_update,
-            can_access_laundry_count,
-            can_access_stock_card,
-            can_access_damaged,
-            can_access_linen_history,
-            can_access_daily_forms,
-            can_access_management_tasks,
-            can_access_admin_settings,
-            can_access_linen_admin
-          `
-          )
-          .eq('user_id', session.user.id)
-          .maybeSingle();
+        const res = await fetch(`/api/session-profile?t=${Date.now()}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: 'no-store',
+        });
 
-        if (error) throw error;
+        const json = await res.json();
+
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || `Request failed (${res.status})`);
+        }
 
         if (mounted) {
-          setResolvedProfile(normalizeProfile((data as SidebarProfile | null) ?? profile));
+          setResolvedProfile(normalizeProfile((json.user as SidebarProfile | null) ?? profile));
         }
       } catch {
         if (mounted) {
@@ -278,7 +229,6 @@ export default function DashboardSidebar({
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
 
   const canOpenPasswordModal = !!currentProfile;
-  const isManager = currentProfile?.role === 'MANAGER';
   const isSuperuser = currentProfile?.role === 'SUPERUSER';
 
   function closeSidebar() {
@@ -399,7 +349,7 @@ export default function DashboardSidebar({
       setPasswordModalOpen(true);
       closeSidebar();
 
-      if (isManager || isSuperuser) {
+      if (isSuperuser) {
         const token = await getAccessToken();
 
         const json = await fetchJson('/api/admin/users', {
@@ -448,7 +398,7 @@ export default function DashboardSidebar({
       setPasswordError('');
       setPasswordSuccess('');
 
-      if (isManager || isSuperuser) {
+      if (isSuperuser) {
         if (!passwordTargetEmail) {
           throw new Error('Please select a user');
         }
@@ -707,7 +657,7 @@ export default function DashboardSidebar({
                 onClick={openPasswordModal}
                 style={styles.secondaryAction}
               >
-                {isManager || isSuperuser ? 'Change User Password' : 'Change Password'}
+                {isSuperuser ? 'Change User Password' : 'Change Password'}
               </button>
 
               <button
@@ -798,10 +748,10 @@ export default function DashboardSidebar({
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard}>
             <div style={styles.modalTitle}>
-              {isManager || isSuperuser ? 'Change User Password' : 'Change Password'}
+              {isSuperuser ? 'Change User Password' : 'Change Password'}
             </div>
 
-            {isManager || isSuperuser ? (
+            {isSuperuser ? (
               <>
                 <div style={styles.modalLabel}>User</div>
                 <select
@@ -820,7 +770,7 @@ export default function DashboardSidebar({
               </>
             ) : null}
 
-            <div style={{ ...styles.modalLabel, marginTop: (isManager || isSuperuser) ? 12 : 0 }}>
+            <div style={{ ...styles.modalLabel, marginTop: isSuperuser ? 12 : 0 }}>
               New Password
             </div>
             <input
