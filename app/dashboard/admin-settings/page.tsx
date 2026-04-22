@@ -33,6 +33,7 @@ type EditableUser = UserProfile & { newPassword?: string };
 const roleOptions: Role[] = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'];
 
 type AccessKey = Exclude<keyof UserProfile, 'user_id' | 'email' | 'name' | 'role'>;
+type PermissionRecord = Partial<Record<AccessKey, unknown>>;
 
 const accessFieldDefs: Array<{
   key: AccessKey;
@@ -80,29 +81,52 @@ function toPermissionBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
 }
 
-function normalizeUser(row: Partial<UserProfile> & { user_id?: string; email?: string; name?: string; role?: Role }): UserProfile {
+function normalizeUser(
+  row: Partial<UserProfile> & {
+    user_id?: string;
+    email?: string;
+    name?: string;
+    role?: Role;
+    permissions?: PermissionRecord;
+  }
+): UserProfile {
   const normalizedRole = (row.role || 'FO') as Role;
+  const permissions = row.permissions || {};
+  const permissionValue = (key: AccessKey) =>
+    permissions[key] !== undefined ? permissions[key] : row[key];
 
   return {
     user_id: String(row.user_id || ''),
     email: String(row.email || '').toLowerCase(),
     name: String(row.name || ''),
     role: normalizedRole,
-    can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
-    can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
-    can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
-    can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
-    can_access_supervisor_update: toPermissionBoolean(row.can_access_supervisor_update),
-    can_access_laundry_count: toPermissionBoolean(row.can_access_laundry_count),
-    can_access_stock_card: toPermissionBoolean(row.can_access_stock_card),
-    can_access_damaged: toPermissionBoolean(row.can_access_damaged),
-    can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
-    can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
-    can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
-    can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
-    can_create_task: toPermissionBoolean(row.can_create_task),
-    can_edit_task: toPermissionBoolean(row.can_edit_task),
-    can_delete_task: toPermissionBoolean(row.can_delete_task),
+    can_access_preventive_maintenance:
+      toPermissionBoolean(permissionValue('can_access_preventive_maintenance')),
+    can_access_maintenance_ot:
+      toPermissionBoolean(permissionValue('can_access_maintenance_ot')),
+    can_access_hk_special_project:
+      toPermissionBoolean(permissionValue('can_access_hk_special_project')),
+    can_access_chambermaid_entry:
+      toPermissionBoolean(permissionValue('can_access_chambermaid_entry')),
+    can_access_supervisor_update:
+      toPermissionBoolean(permissionValue('can_access_supervisor_update')),
+    can_access_laundry_count:
+      toPermissionBoolean(permissionValue('can_access_laundry_count')),
+    can_access_stock_card:
+      toPermissionBoolean(permissionValue('can_access_stock_card')),
+    can_access_damaged:
+      toPermissionBoolean(permissionValue('can_access_damaged')),
+    can_access_linen_history:
+      toPermissionBoolean(permissionValue('can_access_linen_history')),
+    can_access_daily_forms:
+      toPermissionBoolean(permissionValue('can_access_daily_forms')),
+    can_access_management_tasks:
+      toPermissionBoolean(permissionValue('can_access_management_tasks')),
+    can_access_admin_settings:
+      toPermissionBoolean(permissionValue('can_access_admin_settings')),
+    can_create_task: toPermissionBoolean(permissionValue('can_create_task')),
+    can_edit_task: toPermissionBoolean(permissionValue('can_edit_task')),
+    can_delete_task: toPermissionBoolean(permissionValue('can_delete_task')),
   };
 }
 
