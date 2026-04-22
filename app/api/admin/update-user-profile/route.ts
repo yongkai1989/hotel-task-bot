@@ -52,6 +52,29 @@ function withPermissions(row: any) {
   return { ...row, ...permissions, permissions };
 }
 
+const profileSelect = `
+  user_id,
+  email,
+  name,
+  role,
+  can_access_preventive_maintenance,
+  can_access_maintenance_ot,
+  can_access_hk_special_project,
+  can_access_chambermaid_entry,
+  can_access_supervisor_update,
+  can_access_laundry_count,
+  can_access_stock_card,
+  can_access_damaged,
+  can_access_linen_history,
+  can_access_daily_forms,
+  can_access_management_tasks,
+  can_access_admin_settings,
+  can_create_task,
+  can_edit_task,
+  can_delete_task,
+  updated_at
+`;
+
 export async function POST(req: NextRequest) {
   try {
     const { user, error } = await getDashboardUserFromRequest(req);
@@ -99,30 +122,34 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    const { data: existing, error: existingError } = await supabase
+      .from('user_profiles')
+      .select('user_id')
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+
+    if (existingError) {
+      return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
+    }
+
+    const writeQuery = existing
+      ? supabase
+          .from('user_profiles')
+          .update(payload)
+          .eq('user_id', targetUserId)
+      : supabase
+          .from('user_profiles')
+          .insert([{ user_id: targetUserId, ...payload }]);
+
+    const { error: writeError } = await writeQuery;
+
+    if (writeError) {
+      return NextResponse.json({ ok: false, error: writeError.message }, { status: 500 });
+    }
+
     const { data: freshRow, error: freshError } = await supabase
       .from('user_profiles')
-      .upsert([{ user_id: targetUserId, ...payload }], { onConflict: 'user_id' })
-      .select(`
-        user_id,
-        email,
-        name,
-        role,
-        can_access_preventive_maintenance,
-        can_access_maintenance_ot,
-        can_access_hk_special_project,
-        can_access_chambermaid_entry,
-        can_access_supervisor_update,
-        can_access_laundry_count,
-        can_access_stock_card,
-        can_access_damaged,
-        can_access_linen_history,
-        can_access_daily_forms,
-        can_access_management_tasks,
-        can_access_admin_settings,
-        can_create_task,
-        can_edit_task,
-        can_delete_task
-      `)
+      .select(profileSelect)
       .eq('user_id', targetUserId)
       .single();
 
