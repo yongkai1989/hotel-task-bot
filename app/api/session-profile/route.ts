@@ -19,6 +19,44 @@ function effectiveBoolean(role: DashboardRole, value: unknown) {
   return role === 'SUPERUSER' || toPermissionBoolean(value);
 }
 
+const permissionKeys = [
+  'can_create_task',
+  'can_edit_task',
+  'can_delete_task',
+  'can_access_preventive_maintenance',
+  'can_access_maintenance_ot',
+  'can_access_hk_special_project',
+  'can_access_chambermaid_entry',
+  'can_access_supervisor_update',
+  'can_access_laundry_count',
+  'can_access_stock_card',
+  'can_access_damaged',
+  'can_access_linen_history',
+  'can_access_daily_forms',
+  'can_access_management_tasks',
+  'can_access_admin_settings',
+  'can_access_linen_admin',
+];
+
+function enabledCount(profile: any) {
+  const role = String(profile?.role || 'FO') as DashboardRole;
+  if (role === 'SUPERUSER') return permissionKeys.length;
+  return permissionKeys.filter((key) => toPermissionBoolean(profile?.[key])).length;
+}
+
+function pickBestProfile(profiles: any[]) {
+  return profiles
+    .filter(Boolean)
+    .sort((a, b) => {
+      const accessDiff = enabledCount(b) - enabledCount(a);
+      if (accessDiff !== 0) return accessDiff;
+
+      const bTime = b?.updated_at ? Date.parse(b.updated_at) : 0;
+      const aTime = a?.updated_at ? Date.parse(a.updated_at) : 0;
+      return bTime - aTime;
+    })[0] || null;
+}
+
 function buildUser(profile: any, authEmail: string) {
   const role = String(profile.role || 'FO') as DashboardRole;
   const permissions = {
@@ -103,7 +141,7 @@ export async function GET(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data: profile, error: profileError } = await serviceClient
+    const { data: profileByUserId, error: profileError } = await serviceClient
       .from('user_profiles')
       .select(`
         user_id,
@@ -125,7 +163,8 @@ export async function GET(req: NextRequest) {
         can_access_daily_forms,
         can_access_management_tasks,
         can_access_admin_settings,
-        can_access_linen_admin
+        can_access_linen_admin,
+        updated_at
       `)
       .eq('user_id', authUser.id)
       .maybeSingle();
@@ -136,6 +175,42 @@ export async function GET(req: NextRequest) {
         { status: 500 }
       );
     }
+
+    const { data: emailProfiles, error: emailProfilesError } = await serviceClient
+      .from('user_profiles')
+      .select(`
+        user_id,
+        email,
+        name,
+        role,
+        can_create_task,
+        can_edit_task,
+        can_delete_task,
+        can_access_preventive_maintenance,
+        can_access_maintenance_ot,
+        can_access_hk_special_project,
+        can_access_chambermaid_entry,
+        can_access_supervisor_update,
+        can_access_laundry_count,
+        can_access_stock_card,
+        can_access_damaged,
+        can_access_linen_history,
+        can_access_daily_forms,
+        can_access_management_tasks,
+        can_access_admin_settings,
+        can_access_linen_admin,
+        updated_at
+      `)
+      .ilike('email', authUser.email);
+
+    if (emailProfilesError) {
+      return NextResponse.json(
+        { ok: false, error: emailProfilesError.message },
+        { status: 500 }
+      );
+    }
+
+    const profile = pickBestProfile([profileByUserId, ...(emailProfiles || [])]);
 
     if (!profile) {
       return NextResponse.json(
@@ -149,6 +224,17 @@ export async function GET(req: NextRequest) {
         ok: true,
         user: buildUser(profile, authUser.email),
         source: 'direct-service-role-session-profile',
+        matchedProfileUserId: profile.user_id,
+        authUserId: authUser.id,
+        matchedProfiles: [profileByUserId, ...(emailProfiles || [])]
+          .filter(Boolean)
+          .map((row) => ({
+            user_id: row.user_id,
+            email: row.email,
+            role: row.role,
+            enabled: enabledCount(row),
+            updated_at: row.updated_at || null,
+          })),
       },
       {
         headers: {
