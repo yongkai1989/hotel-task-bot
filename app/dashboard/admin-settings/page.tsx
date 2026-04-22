@@ -258,9 +258,11 @@ export default function AdminSettingsPage() {
   async function refreshUsers(keepSelectedId?: string, authoritativeUser?: UserProfile) {
     const nextUsersRaw = await fetchUsersRaw();
     const nextUsers = authoritativeUser
-      ? nextUsersRaw.map((u) =>
-          u.user_id === authoritativeUser.user_id ? authoritativeUser : u
-        )
+      ? nextUsersRaw.some((u) => u.user_id === authoritativeUser.user_id)
+        ? nextUsersRaw.map((u) =>
+            u.user_id === authoritativeUser.user_id ? authoritativeUser : u
+          )
+        : [...nextUsersRaw, authoritativeUser]
       : nextUsersRaw;
 
     setUsers(nextUsers);
@@ -282,9 +284,13 @@ export default function AdminSettingsPage() {
       setErrorMsg('');
       setStatusMsg('');
 
+      const token = await getAccessToken();
       const res = await fetch('/api/admin/create-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           name: createName.trim(),
           email: createEmail.trim().toLowerCase(),
@@ -298,12 +304,30 @@ export default function AdminSettingsPage() {
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to create user');
 
+      const createdUser = normalizeUser(json.user || {
+        user_id: json.user_id,
+        name: createName.trim(),
+        email: createEmail.trim().toLowerCase(),
+        role: createRole,
+        ...emptyPermissions(),
+        can_access_admin_settings: createRole === 'SUPERUSER',
+      });
+
+      setUsers((prev) => {
+        const exists = prev.some((u) => u.user_id === createdUser.user_id);
+        return exists
+          ? prev.map((u) => (u.user_id === createdUser.user_id ? createdUser : u))
+          : [...prev, createdUser];
+      });
+      setSelectedUserId(createdUser.user_id);
+      setDraft({ ...createdUser, newPassword: '' });
+
       setStatusMsg('User created successfully');
       setCreateName('');
       setCreateEmail('');
       setCreatePassword('');
       setCreateRole('FO');
-      await refreshUsers(json.user_id);
+      void refreshUsers(createdUser.user_id, createdUser);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to create user');
     } finally {
