@@ -189,9 +189,26 @@ export default function AdminSettingsPage() {
       setDraft(null);
       return;
     }
+
     const selected = users.find((u) => u.user_id === selectedUserId);
     setDraft(selected ? { ...selected, newPassword: '' } : null);
-  }, [selectedUserId, users]);
+
+    void fetchUserRaw(selectedUserId)
+      .then((freshUser) => {
+        setUsers((prev) =>
+          prev.some((u) => u.user_id === freshUser.user_id)
+            ? prev.map((u) => (u.user_id === freshUser.user_id ? freshUser : u))
+            : [...prev, freshUser]
+        );
+        setDraft((prev) => ({
+          ...freshUser,
+          newPassword: prev?.newPassword || '',
+        }));
+      })
+      .catch((err: any) => {
+        setErrorMsg(err?.message || 'Failed to load selected user access');
+      });
+  }, [selectedUserId]);
 
   async function getAccessToken() {
     const {
@@ -214,6 +231,18 @@ export default function AdminSettingsPage() {
       headers: { Authorization: `Bearer ${token}` },
     });
     return (json.users || []).map(normalizeUser) as UserProfile[];
+  }
+
+  async function fetchUserRaw(userId: string) {
+    const token = await getAccessToken();
+    const json = await fetchJson(
+      `/api/admin/users?user_id=${encodeURIComponent(userId)}&t=${Date.now()}`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    return normalizeUser(json.user) as UserProfile;
   }
 
   async function bootstrap() {
@@ -279,7 +308,7 @@ export default function AdminSettingsPage() {
     setUsers(nextUsers);
     if (keepSelectedId) {
       setSelectedUserId(keepSelectedId);
-      const selected = nextUsers.find((u) => u.user_id === keepSelectedId);
+      const selected = authoritativeUser || nextUsers.find((u) => u.user_id === keepSelectedId);
       setDraft(selected ? { ...selected, newPassword: '' } : null);
     }
   }
