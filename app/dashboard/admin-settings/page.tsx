@@ -448,8 +448,9 @@ export default function AdminSettingsPage() {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
-  const saved = draft ? buildSavedPayload(draft) : null;
-  const preview = draft ? getPreviewAccess(buildSavedPayload(draft)) : null;
+  const selectedSavedUser = users.find((u) => u.user_id === selectedUserId) || null;
+  const saved = selectedSavedUser ? buildSavedPayload(selectedSavedUser) : null;
+  const preview = saved ? getPreviewAccess(saved) : null;
 
   return (
     <main style={styles.page}>
