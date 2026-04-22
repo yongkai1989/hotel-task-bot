@@ -132,7 +132,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: freshError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, user: freshRow });
+    return NextResponse.json(
+      { ok: true, user: freshRow },
+      {
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+        },
+      }
+    );
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message || 'Unknown error' },
