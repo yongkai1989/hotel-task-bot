@@ -48,12 +48,14 @@ function pickBestProfile(profiles: any[]) {
   return profiles
     .filter(Boolean)
     .sort((a, b) => {
-      const accessDiff = enabledCount(b) - enabledCount(a);
-      if (accessDiff !== 0) return accessDiff;
-
       const bTime = b?.updated_at ? Date.parse(b.updated_at) : 0;
       const aTime = a?.updated_at ? Date.parse(a.updated_at) : 0;
-      return bTime - aTime;
+
+      if (bTime !== aTime) {
+        return bTime - aTime;
+      }
+
+      return enabledCount(b) - enabledCount(a);
     })[0] || null;
 }
 
