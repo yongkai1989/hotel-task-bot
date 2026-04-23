@@ -24,6 +24,11 @@ type RoomRow = {
 
 type StatusValue = 'VACANT' | 'CHECKOUT' | 'STAYOVER';
 
+type StatusMeta = {
+  updated_by_name: string | null;
+  updated_at: string | null;
+};
+
 const BLOCKS = [1, 2];
 const FLOORS_BY_BLOCK: Record<number, number[]> = {
   1: [1, 2, 3, 5],
@@ -53,6 +58,21 @@ function statusLabel(status: StatusValue) {
   if (status === 'CHECKOUT') return 'CHECK OUT';
   if (status === 'STAYOVER') return 'STAY OVER';
   return 'VACANT';
+}
+
+function formatUpdatedAt(value?: string | null) {
+  if (!value) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return date.toLocaleString('en-SG', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 function nextStatus(status: StatusValue): StatusValue {
@@ -105,6 +125,7 @@ export default function SupervisorUpdatePage() {
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [statusMap, setStatusMap] = useState<Record<string, StatusValue>>({});
+  const [statusMetaMap, setStatusMetaMap] = useState<Record<string, StatusMeta>>({});
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -225,7 +246,7 @@ export default function SupervisorUpdatePage() {
       if (roomNumbers.length > 0) {
         const { data, error: statusError } = await supabase
           .from('linen_room_status')
-          .select('room_number, status')
+          .select('room_number, status, updated_by_name, updated_at')
           .eq('service_date', serviceDate)
           .in('room_number', roomNumbers);
 
@@ -234,20 +255,31 @@ export default function SupervisorUpdatePage() {
       }
 
       const nextStatusMap: Record<string, StatusValue> = {};
+      const nextStatusMetaMap: Record<string, StatusMeta> = {};
       (roomRows || []).forEach((room: any) => {
         nextStatusMap[room.room_number] = 'VACANT';
+        nextStatusMetaMap[room.room_number] = {
+          updated_by_name: null,
+          updated_at: null,
+        };
       });
       statusRows.forEach((row: any) => {
         nextStatusMap[row.room_number] =
           (row.status as StatusValue) || 'VACANT';
+        nextStatusMetaMap[row.room_number] = {
+          updated_by_name: row.updated_by_name || null,
+          updated_at: row.updated_at || null,
+        };
       });
 
       setRooms((roomRows || []) as RoomRow[]);
       setStatusMap(nextStatusMap);
+      setStatusMetaMap(nextStatusMetaMap);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load rooms');
       setRooms([]);
       setStatusMap({});
+      setStatusMetaMap({});
     } finally {
       setPageLoading(false);
     }
@@ -257,6 +289,7 @@ export default function SupervisorUpdatePage() {
     if (!profile || !canAccess) {
       setRooms([]);
       setStatusMap({});
+      setStatusMetaMap({});
       setPageLoading(false);
       return;
     }
@@ -277,11 +310,24 @@ export default function SupervisorUpdatePage() {
     }
 
     const currentStatus = statusMap[roomNumber] || 'VACANT';
+    const currentMeta = statusMetaMap[roomNumber] || {
+      updated_by_name: null,
+      updated_at: null,
+    };
     const newStatus = nextStatus(currentStatus);
+    const changedAt = new Date().toISOString();
+    const changedBy = profile.name || profile.email;
 
     setStatusMap((prev) => ({
       ...prev,
       [roomNumber]: newStatus,
+    }));
+    setStatusMetaMap((prev) => ({
+      ...prev,
+      [roomNumber]: {
+        updated_by_name: changedBy,
+        updated_at: changedAt,
+      },
     }));
 
     setSaving(true);
@@ -289,40 +335,35 @@ export default function SupervisorUpdatePage() {
     setSuccessMsg('');
 
     try {
-      if (newStatus === 'VACANT') {
-        const { error } = await supabase
-          .from('linen_room_status')
-          .delete()
-          .eq('service_date', serviceDate)
-          .eq('room_number', roomNumber);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('linen_room_status')
-          .upsert(
-            [
-              {
-                service_date: serviceDate,
-                room_number: roomNumber,
-                status: newStatus,
-                updated_by_user_id: profile.user_id,
-                updated_by_name: profile.name || profile.email,
-              },
-            ],
+      const { error } = await supabase
+        .from('linen_room_status')
+        .upsert(
+          [
             {
-              onConflict: 'service_date,room_number',
-            }
-          );
+              service_date: serviceDate,
+              room_number: roomNumber,
+              status: newStatus,
+              updated_by_user_id: profile.user_id,
+              updated_by_name: changedBy,
+              updated_at: changedAt,
+            },
+          ],
+          {
+            onConflict: 'service_date,room_number',
+          }
+        );
 
-        if (error) throw error;
-      }
+      if (error) throw error;
 
       setSuccessMsg(`Saved ${roomNumber} as ${statusLabel(newStatus)}.`);
     } catch (err: any) {
       setStatusMap((prev) => ({
         ...prev,
         [roomNumber]: currentStatus,
+      }));
+      setStatusMetaMap((prev) => ({
+        ...prev,
+        [roomNumber]: currentMeta,
       }));
       setErrorMsg(err?.message || `Failed to save ${roomNumber}`);
     } finally {
@@ -348,14 +389,22 @@ export default function SupervisorUpdatePage() {
       setSuccessMsg('');
 
       const nextMap: Record<string, StatusValue> = {};
+      const nextMetaMap: Record<string, StatusMeta> = {};
+      const changedAt = new Date().toISOString();
+      const changedBy = profile.name || profile.email;
       const rows = rooms.map((room) => {
         nextMap[room.room_number] = 'CHECKOUT';
+        nextMetaMap[room.room_number] = {
+          updated_by_name: changedBy,
+          updated_at: changedAt,
+        };
         return {
           service_date: serviceDate,
           room_number: room.room_number,
           status: 'CHECKOUT' as StatusValue,
           updated_by_user_id: profile.user_id,
-          updated_by_name: profile.name || profile.email,
+          updated_by_name: changedBy,
+          updated_at: changedAt,
         };
       });
 
@@ -370,6 +419,7 @@ export default function SupervisorUpdatePage() {
       }
 
       setStatusMap(nextMap);
+      setStatusMetaMap(nextMetaMap);
       setSuccessMsg(
         `Marked all rooms on Block ${selectedBlock} Floor ${selectedFloor} as Check Out.`
       );
@@ -387,29 +437,49 @@ export default function SupervisorUpdatePage() {
       return;
     }
 
+    if (!profile?.user_id) {
+      setErrorMsg('User not found.');
+      return;
+    }
+
     try {
       setSaving(true);
       setErrorMsg('');
       setSuccessMsg('');
 
-      const roomNumbers = rooms.map((room) => room.room_number);
+      const changedAt = new Date().toISOString();
+      const changedBy = profile.name || profile.email;
+      const rows = rooms.map((room) => ({
+        service_date: serviceDate,
+        room_number: room.room_number,
+        status: 'VACANT' as StatusValue,
+        updated_by_user_id: profile.user_id,
+        updated_by_name: changedBy,
+        updated_at: changedAt,
+      }));
 
-      if (roomNumbers.length > 0) {
+      if (rows.length > 0) {
         const { error } = await supabase
           .from('linen_room_status')
-          .delete()
-          .eq('service_date', serviceDate)
-          .in('room_number', roomNumbers);
+          .upsert(rows, {
+            onConflict: 'service_date,room_number',
+          });
 
         if (error) throw error;
       }
 
       const nextMap: Record<string, StatusValue> = {};
+      const nextMetaMap: Record<string, StatusMeta> = {};
       rooms.forEach((room) => {
         nextMap[room.room_number] = 'VACANT';
+        nextMetaMap[room.room_number] = {
+          updated_by_name: changedBy,
+          updated_at: changedAt,
+        };
       });
 
       setStatusMap(nextMap);
+      setStatusMetaMap(nextMetaMap);
       setSuccessMsg(`Cleared Block ${selectedBlock} Floor ${selectedFloor}.`);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to clear floor');
@@ -610,6 +680,8 @@ export default function SupervisorUpdatePage() {
             <div style={styles.roomGrid}>
               {rooms.map((room) => {
                 const status = statusMap[room.room_number] || 'VACANT';
+                const meta = statusMetaMap[room.room_number];
+                const updatedAt = formatUpdatedAt(meta?.updated_at);
 
                 return (
                   <button
@@ -625,6 +697,11 @@ export default function SupervisorUpdatePage() {
                     <div style={styles.roomNo}>{room.room_number}</div>
                     <div style={styles.roomType}>{room.room_type}</div>
                     <div style={styles.roomStatus}>{statusLabel(status)}</div>
+                    <div style={styles.roomMeta}>
+                      {meta?.updated_by_name && updatedAt
+                        ? `Last: ${meta.updated_by_name} · ${updatedAt}`
+                        : 'No update yet'}
+                    </div>
                   </button>
                 );
               })}
@@ -818,6 +895,15 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     fontWeight: 800,
     letterSpacing: '0.05em',
+  },
+  roomMeta: {
+    marginTop: '10px',
+    paddingTop: '8px',
+    borderTop: '1px solid rgba(15,23,42,0.12)',
+    fontSize: '11px',
+    lineHeight: 1.35,
+    fontWeight: 700,
+    opacity: 0.78,
   },
   errorBox: {
     marginTop: '14px',
