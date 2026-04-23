@@ -773,7 +773,7 @@ export default function DashboardPage() {
     return !!profile?.can_create_task;
   }
 
-  function canEditTask() {
+  function canEditTask(_task?: Task) {
     if (!profile) return false;
     return !!profile.can_edit_task;
   }
