@@ -44,13 +44,16 @@ type CreatePhotoItem = {
 type DashboardUser = {
   email: string;
   name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
+  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
+  can_create_task?: boolean;
+  can_edit_task?: boolean;
+  can_delete_task?: boolean;
 };
 
 type AdminUser = {
   email: string;
   name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'FO' | 'HK' | 'MT';
+  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 };
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
@@ -767,33 +770,23 @@ export default function DashboardPage() {
   }
 
   function canCreateTask() {
-    return !!profile;
+    return !!profile?.can_create_task;
   }
 
-  function canEditTask(task: Task) {
+  function canEditTask() {
     if (!profile) return false;
-      if (profile.role === 'SUPERUSER' || profile.role === 'MANAGER') return true;
-    if (profile.role === 'HK') return task.department === 'HK';
-    if (profile.role === 'MT') return task.department === 'MT';
-    return false;
+    return !!profile.can_edit_task;
   }
 
 function canEditTaskDetails(task: Task) {
   if (!profile) return false;
 
-  // SUPERUSER override (but still OPEN only)
-  if (profile.role === 'SUPERUSER') {
-    return task.status === 'OPEN';
-  }
-
-  if (!task.created_by_email) return false;
-
   if (task.status !== 'OPEN') return false;
+  return !!profile.can_edit_task;
+}
 
-  return (
-    profile.email.trim().toLowerCase() ===
-    task.created_by_email.trim().toLowerCase()
-  );
+function canDeleteTask() {
+  return !!profile?.can_delete_task;
 }
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
@@ -901,7 +894,7 @@ function canEditTaskDetails(task: Task) {
 
   function openEditModal(task: Task) {
     if (!canEditTaskDetails(task)) {
-      alert('Only the task creator can edit this task.');
+      alert('You are not allowed to edit this task.');
       return;
     }
 
@@ -976,7 +969,7 @@ function canEditTaskDetails(task: Task) {
   }
 async function handleDeleteTask(taskId: string) {
   try {
-    if (!profile || profile.role !== 'SUPERUSER') {
+    if (!profile || !profile.can_delete_task) {
       alert('Unauthorized');
       return;
     }
@@ -988,11 +981,22 @@ async function handleDeleteTask(taskId: string) {
 
     const token = await getAccessToken();
 
-    await fetchJson(`/api/tasks/${taskId}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${token}`,
+    await fetchJson(
+      `/api/tasks/${taskId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       },
+      45000
+    );
+
+    setTasks((prev) => {
+      const next = prev.filter((task) => task.id !== taskId);
+      saveTasksToCache(next);
+      lastTasksFingerprintRef.current = buildTasksFingerprint(next);
+      return next;
     });
 
     await loadTasks(false);
@@ -1619,7 +1623,7 @@ async function handleDeleteTask(taskId: string) {
     Edit
   </button>
 ) : null}
-{profile?.role === 'SUPERUSER' ? (
+{canDeleteTask() ? (
   <button
     style={styles.deleteTaskBtn}
     onClick={() => handleDeleteTask(task.id)}
@@ -1849,7 +1853,7 @@ async function handleDeleteTask(taskId: string) {
               <div>
                 <div style={styles.createModalTitle}>Edit Task</div>
                 <div style={styles.createModalSubtitle}>
-                  Only the creator of this task can edit it
+                  Users with edit access can update OPEN tasks
                 </div>
               </div>
 
