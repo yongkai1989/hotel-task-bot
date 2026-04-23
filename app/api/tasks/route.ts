@@ -5,6 +5,7 @@ import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 const GET_TASK_LIMIT = 300;
 
@@ -183,10 +184,7 @@ export async function POST(req: NextRequest) {
 
     // 2) Permission check
     if (!user.can_create_task) {
-      return NextResponse.json(
-        { ok: false, error: 'Not allowed to create tasks' },
-        { status: 403 }
-      );
+      return jsonNoCache({ ok: false, error: 'Not allowed to create tasks' }, 403);
     }
 
     const body = await req.json();
@@ -301,36 +299,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const telegramMessageId = await sendTelegramTaskCard({
-      chatId: telegramChatId,
-      task: {
-        id: task.id,
-        task_code: task.task_code,
-        room: task.room,
-        department: task.department,
-        task_text: task.task_text,
-        created_by_name: task.created_by_name,
-        image_url: task.image_url,
-        status: task.status,
-        done_by_name: task.done_by_name,
-        done_at: task.done_at,
-        reopened_at: null,
-        last_updated_by_name: task.last_updated_by_name,
-      },
-    });
+    let telegramWarning = '';
 
-    if (telegramMessageId) {
-      await supabaseAdmin
-        .from('tasks')
-        .update({ telegram_task_message_id: telegramMessageId })
-        .eq('id', task.id);
-
-      await supabaseAdmin.from('telegram_messages').insert({
-        telegram_message_id: telegramMessageId,
-        chat_id: telegramChatId,
-        task_id: task.id,
-        message_type: 'TASK_CARD',
+    try {
+      const telegramMessageId = await sendTelegramTaskCard({
+        chatId: telegramChatId,
+        task: {
+          id: task.id,
+          task_code: task.task_code,
+          room: task.room,
+          department: task.department,
+          task_text: task.task_text,
+          created_by_name: task.created_by_name,
+          image_url: task.image_url,
+          status: task.status,
+          done_by_name: task.done_by_name,
+          done_at: task.done_at,
+          reopened_at: null,
+          last_updated_by_name: task.last_updated_by_name,
+        },
       });
+
+      if (telegramMessageId) {
+        await supabaseAdmin
+          .from('tasks')
+          .update({ telegram_task_message_id: telegramMessageId })
+          .eq('id', task.id);
+
+        await supabaseAdmin.from('telegram_messages').insert({
+          telegram_message_id: telegramMessageId,
+          chat_id: telegramChatId,
+          task_id: task.id,
+          message_type: 'TASK_CARD',
+        });
+      }
+    } catch (error: any) {
+      telegramWarning = error?.message || 'Telegram notification failed';
     }
 
     const { data: taskImages, error: finalImagesError } = await supabaseAdmin
@@ -352,6 +356,7 @@ export async function POST(req: NextRequest) {
 
     return jsonNoCache({
       ok: true,
+      warning: telegramWarning || undefined,
       task: {
         ...task,
         task_images: taskImages || [],
