@@ -1,11 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { buildTaskInlineKeyboard, buildTaskMessageText } from '../../../lib/telegram';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
-type Dept = 'HK' | 'MT' | 'FO';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -28,44 +30,49 @@ function normalizeStatus(value: string): TaskStatus | null {
   return null;
 }
 
-function canEditTask(role: string, dept: Dept) {
-  if (role === 'MANAGER') return true;
-  if (role === 'SUPERUSER') return true;
-  if (role === 'HK') return dept === 'HK';
-  if (role === 'MT') return dept === 'MT';
-  return false;
+function jsonNoCache(body: any, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    },
+  });
 }
 
 async function refreshTelegramTaskCard(taskId: string) {
-  const { data: task, error } = await supabaseAdmin
-    .from('tasks')
-    .select(`
-      id,
-      task_code,
-      room,
-      department,
-      task_text,
-      status,
-      created_by_name,
-      image_url,
-      done_by_name,
-      done_at,
-      reopened_at,
-      last_updated_by_name,
-      telegram_task_message_id,
-      chat_id
-    `)
-    .eq('id', taskId)
-    .single();
+  try {
+    const { data: task, error } = await supabaseAdmin
+      .from('tasks')
+      .select(`
+        id,
+        task_code,
+        room,
+        department,
+        task_text,
+        status,
+        created_by_name,
+        image_url,
+        done_by_name,
+        done_at,
+        reopened_at,
+        last_updated_by_name,
+        telegram_task_message_id,
+        chat_id
+      `)
+      .eq('id', taskId)
+      .single();
 
-  if (error || !task?.telegram_task_message_id || !task?.chat_id) return;
+    if (error || !task?.telegram_task_message_id || !task?.chat_id) return;
 
-  await telegram('editMessageText', {
-    chat_id: task.chat_id,
-    message_id: task.telegram_task_message_id,
-    text: buildTaskMessageText(task as any),
-    reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus)
-  });
+    await telegram('editMessageText', {
+      chat_id: task.chat_id,
+      message_id: task.telegram_task_message_id,
+      text: buildTaskMessageText(task as any),
+      reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus)
+    });
+  } catch {
+    // The dashboard status update is already saved; Telegram refresh should not fail it.
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -73,9 +80,9 @@ export async function POST(req: NextRequest) {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
 
     if (!user) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: authError || 'Unauthorized' },
-        { status: 401 }
+        401
       );
     }
 
@@ -85,36 +92,36 @@ export async function POST(req: NextRequest) {
     const requestedStatus = normalizeStatus(body.status || body.command || body.action);
 
     if (!taskId) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: 'Missing taskId' },
-        { status: 400 }
+        400
       );
     }
 
     if (!requestedStatus) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: 'Invalid status' },
-        { status: 400 }
+        400
       );
     }
 
     const { data: existingTask, error: existingTaskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, department')
+      .select('id')
       .eq('id', taskId)
       .single();
 
     if (existingTaskError || !existingTask) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: 'Task not found' },
-        { status: 404 }
+        404
       );
     }
 
-    if (!canEditTask(user.role, existingTask.department as Dept)) {
-      return NextResponse.json(
+    if (!user.can_edit_task) {
+      return jsonNoCache(
         { ok: false, error: 'You do not have permission to update this task' },
-        { status: 403 }
+        403
       );
     }
 
@@ -149,9 +156,9 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json(
+      return jsonNoCache(
         { ok: false, error: error.message },
-        { status: 500 }
+        500
       );
     }
 
@@ -167,18 +174,18 @@ export async function POST(req: NextRequest) {
 
     await refreshTelegramTaskCard(task.id);
 
-    return NextResponse.json({
+    return jsonNoCache({
       ok: true,
       task
     });
   } catch (error: any) {
-    return NextResponse.json(
+    return jsonNoCache(
       { ok: false, error: error?.message || 'Unknown error' },
-      { status: 500 }
+      500
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true });
+  return jsonNoCache({ ok: true });
 }
