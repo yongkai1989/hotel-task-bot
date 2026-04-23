@@ -4,6 +4,7 @@ import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -81,7 +82,7 @@ export async function PUT(
     const { data: existingTask, error: fetchError } =
       await supabaseAdmin
         .from('tasks')
-        .select('id, created_by_email')
+        .select('id, status')
         .eq('id', taskId)
         .single();
 
@@ -92,28 +93,49 @@ export async function PUT(
       );
     }
 
-    if (
-      !existingTask.created_by_email ||
-      existingTask.created_by_email.toLowerCase() !==
-        user.email.toLowerCase()
-    ) {
+    if (!user.can_edit_task) {
       return jsonNoCache(
         { ok: false, error: 'You are not allowed to edit this task' },
         403
       );
     }
 
-    if (keepImageIds.length > 0) {
-      await supabaseAdmin
+    if (existingTask.status !== 'OPEN') {
+      return jsonNoCache(
+        { ok: false, error: 'Only OPEN tasks can be edited' },
+        400
+      );
+    }
+
+    const { data: existingImages, error: existingImagesError } = await supabaseAdmin
+      .from('task_images')
+      .select('id')
+      .eq('task_id', taskId);
+
+    if (existingImagesError) {
+      return jsonNoCache(
+        { ok: false, error: existingImagesError.message },
+        500
+      );
+    }
+
+    const keepIdSet = new Set(keepImageIds.map((id) => String(id)));
+    const removeImageIds = (existingImages || [])
+      .filter((image) => !keepIdSet.has(String(image.id)))
+      .map((image) => image.id);
+
+    if (removeImageIds.length > 0) {
+      const { error: deleteImagesError } = await supabaseAdmin
         .from('task_images')
         .delete()
-        .eq('task_id', taskId)
-        .not('id', 'in', `(${keepImageIds.join(',')})`);
-    } else {
-      await supabaseAdmin
-        .from('task_images')
-        .delete()
-        .eq('task_id', taskId);
+        .in('id', removeImageIds);
+
+      if (deleteImagesError) {
+        return jsonNoCache(
+          { ok: false, error: deleteImagesError.message },
+          500
+        );
+      }
     }
 
     if (newImageUrls.length > 0) {
@@ -221,9 +243,9 @@ export async function DELETE(
       );
     }
 
-    if (user.role !== 'SUPERUSER') {
+    if (!user.can_delete_task) {
       return jsonNoCache(
-        { ok: false, error: 'Only SUPERUSER can delete tasks' },
+        { ok: false, error: 'You are not allowed to delete tasks' },
         403
       );
     }
@@ -236,35 +258,42 @@ export async function DELETE(
       .from('tasks')
       .select('id')
       .eq('id', taskId)
-      .single();
+      .maybeSingle();
 
-    if (fetchError || !existingTask) {
+    if (fetchError) {
       return jsonNoCache(
-        { ok: false, error: 'Task not found' },
-        404
-      );
-    }
-
-    const { error: imageDeleteError } = await supabaseAdmin
-      .from('task_images')
-      .delete()
-      .eq('task_id', taskId);
-
-    if (imageDeleteError) {
-      return jsonNoCache(
-        { ok: false, error: imageDeleteError.message },
+        { ok: false, error: fetchError.message },
         500
       );
     }
 
-    const { error: eventDeleteError } = await supabaseAdmin
-      .from('task_events')
-      .delete()
-      .eq('task_id', taskId);
-
-    if (eventDeleteError) {
+    if (!existingTask) {
       return jsonNoCache(
-        { ok: false, error: eventDeleteError.message },
+        { ok: true, deletedTaskId: taskId, alreadyDeleted: true }
+      );
+    }
+
+    const [imageDeleteResult, eventDeleteResult] = await Promise.all([
+      supabaseAdmin
+        .from('task_images')
+        .delete()
+        .eq('task_id', taskId),
+      supabaseAdmin
+        .from('task_events')
+        .delete()
+        .eq('task_id', taskId),
+    ]);
+
+    if (imageDeleteResult.error) {
+      return jsonNoCache(
+        { ok: false, error: imageDeleteResult.error.message },
+        500
+      );
+    }
+
+    if (eventDeleteResult.error) {
+      return jsonNoCache(
+        { ok: false, error: eventDeleteResult.error.message },
         500
       );
     }
