@@ -182,9 +182,20 @@ export default function AdminSettingsPage() {
   const [createEmail, setCreateEmail] = useState('');
   const [createPassword, setCreatePassword] = useState('');
   const [createRole, setCreateRole] = useState<Role>('FO');
+  const [viewportWidth, setViewportWidth] = useState<number>(1280);
 
   useEffect(() => {
     void bootstrap();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const syncViewport = () => setViewportWidth(window.innerWidth || 1280);
+    syncViewport();
+
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
   useEffect(() => {
@@ -576,28 +587,115 @@ function renderToggle(key: AccessKey, label: string) {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
+  const isMobile = viewportWidth <= 768;
+  const isTablet = viewportWidth > 768 && viewportWidth <= 1120;
+
+  const layoutStyle = {
+    ...styles.layout,
+    gridTemplateColumns: isMobile
+      ? '1fr'
+      : isTablet
+        ? '1fr'
+        : styles.layout.gridTemplateColumns,
+    gap: isMobile ? '12px' : isTablet ? '14px' : '16px',
+  } as React.CSSProperties;
+
+  const panelStyle = {
+    ...styles.panel,
+    borderRadius: isMobile ? '18px' : styles.panel.borderRadius,
+    padding: isMobile ? '14px' : styles.panel.padding,
+  } as React.CSSProperties;
+
+  const formGridStyle = {
+    ...styles.formGrid,
+    gridTemplateColumns: isMobile
+      ? '1fr'
+      : isTablet
+        ? 'repeat(2, minmax(0, 1fr))'
+        : styles.formGrid.gridTemplateColumns,
+    gap: isMobile ? '10px' : styles.formGrid.gap,
+  } as React.CSSProperties;
+
+  const permissionGridStyle = {
+    ...styles.permissionGrid,
+    gridTemplateColumns: isMobile
+      ? '1fr'
+      : isTablet
+        ? 'repeat(2, minmax(0, 1fr))'
+        : styles.permissionGrid.gridTemplateColumns,
+  } as React.CSSProperties;
+
+  const heroStyle = {
+    ...styles.hero,
+    alignItems: isMobile ? 'stretch' : styles.hero.alignItems,
+  } as React.CSSProperties;
+
+  const backBtnStyle = {
+    ...styles.backBtn,
+    width: isMobile ? '100%' : undefined,
+  } as React.CSSProperties;
+
+  const panelActionsStyle = {
+    ...styles.panelActions,
+    justifyContent: isMobile ? 'stretch' : styles.panelActions.justifyContent,
+  } as React.CSSProperties;
+
+  const primaryBtnStyle = {
+    ...styles.primaryBtn,
+    width: isMobile ? '100%' : undefined,
+  } as React.CSSProperties;
+
+  const deleteBtnStyle = {
+    ...styles.deleteBtn,
+    width: isMobile ? '100%' : undefined,
+  } as React.CSSProperties;
+
+  const secondaryBtnStyle = {
+    ...styles.secondaryBtn,
+    width: isMobile ? '100%' : undefined,
+  } as React.CSSProperties;
+
+  const inlineActionRowStyle = {
+    ...styles.inlineActionRow,
+    flexDirection: isMobile ? 'column' : 'row',
+  } as React.CSSProperties;
+
+  const bottomActionsStyle = {
+    ...styles.bottomActions,
+    flexDirection: isMobile ? 'column-reverse' : 'row',
+  } as React.CSSProperties;
+
+  const selectedUserCardStyle = {
+    ...styles.selectedUserCard,
+    padding: isMobile ? '14px' : styles.selectedUserCard.padding,
+  } as React.CSSProperties;
+
+  const effectiveBoxStyle = {
+    ...styles.effectiveBox,
+    padding: isMobile ? '12px' : styles.effectiveBox.padding,
+  } as React.CSSProperties;
 
   return (
     <main style={styles.page}>
       <div style={styles.shell}>
-        <div style={styles.hero}>
+        <div style={heroStyle}>
           <div>
             <div style={styles.heroTitle}>Admin Settings</div>
             <div style={styles.heroSub}>
               Manage all users, department roles, passwords, page visibility, and task permissions.
             </div>
           </div>
-          <Link href="/dashboard" style={styles.backBtn}>Back to Dashboard</Link>
+          <Link href="/dashboard" style={backBtnStyle}>Back to Dashboard</Link>
         </div>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
         {statusMsg ? <div style={styles.successBox}>{statusMsg}</div> : null}
 
-        <div style={styles.layout}>
-          <section style={styles.panel}>
+        <div style={layoutStyle}>
+          <section style={panelStyle}>
             <div style={styles.panelTitle}>Create User</div>
 
-            <div style={styles.formGrid}>
+            <div style={formGridStyle}>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Full Name</label>
                 <input value={createName} onChange={(e) => setCreateName(e.target.value)} style={styles.input} placeholder="Enter name" />
@@ -618,15 +716,15 @@ function renderToggle(key: AccessKey, label: string) {
               </div>
             </div>
 
-            <div style={styles.panelActions}>
-              <button type="button" onClick={() => void handleCreateUser()} style={{ ...styles.primaryBtn, opacity: creating ? 0.65 : 1 }} disabled={creating}>
+            <div style={panelActionsStyle}>
+              <button type="button" onClick={() => void handleCreateUser()} style={{ ...primaryBtnStyle, opacity: creating ? 0.65 : 1 }} disabled={creating}>
                 {creating ? 'Creating...' : 'Add User'}
               </button>
             </div>
           </section>
 
           <section style={styles.leftRail}>
-            <div style={styles.panel}>
+            <div style={panelStyle}>
               <div style={styles.panelTitle}>Select User</div>
               <div style={styles.formGroup}>
                 <label style={styles.label}>All Users</label>
@@ -641,7 +739,7 @@ function renderToggle(key: AccessKey, label: string) {
               </div>
 
               {draft ? (
-                <div style={styles.selectedUserCard}>
+                <div style={selectedUserCardStyle}>
                   <div style={styles.selectedUserName}>{draft.name || 'Unnamed User'}</div>
                   <div style={styles.selectedUserEmail}>{draft.email}</div>
                   <div style={styles.selectedUserRole}>{draft.role}</div>
@@ -653,7 +751,7 @@ function renderToggle(key: AccessKey, label: string) {
           </section>
 
           <section style={styles.rightRail}>
-            <div style={styles.panel}>
+            <div style={panelStyle}>
               <div style={styles.panelTitle}>Current Access</div>
 
               {!draft ? (
@@ -662,7 +760,7 @@ function renderToggle(key: AccessKey, label: string) {
                 </div>
               ) : (
                 <>
-                  <div style={styles.formGrid}>
+                  <div style={formGridStyle}>
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Name</label>
                       <input value={draft.name} onChange={(e) => setDraftField('name', e.target.value)} style={styles.input} placeholder="User name" />
@@ -679,9 +777,9 @@ function renderToggle(key: AccessKey, label: string) {
                     </div>
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Reset Password</label>
-                      <div style={styles.inlineActionRow}>
+                      <div style={inlineActionRowStyle}>
                         <input value={draft.newPassword || ''} onChange={(e) => setDraftField('newPassword', e.target.value)} style={styles.input} placeholder="Enter new password" type="password" />
-                        <button type="button" onClick={() => void handleResetPassword()} style={{ ...styles.secondaryBtn, opacity: changingPassword ? 0.65 : 1 }} disabled={changingPassword}>
+                        <button type="button" onClick={() => void handleResetPassword()} style={{ ...secondaryBtnStyle, opacity: changingPassword ? 0.65 : 1 }} disabled={changingPassword}>
                           {changingPassword ? 'Saving...' : 'Update'}
                         </button>
                       </div>
@@ -689,7 +787,7 @@ function renderToggle(key: AccessKey, label: string) {
                   </div>
 
                   {persistedAccess ? (
-                    <div style={styles.effectiveBox}>
+                    <div style={effectiveBoxStyle}>
                       <div style={styles.effectiveTitle}>Actual Access Granted</div>
                       <div style={styles.helperBanner}>
                         This preview shows the access currently confirmed by the backend. Save changes to update it.
@@ -723,7 +821,7 @@ function renderToggle(key: AccessKey, label: string) {
                     </div>
                   ) : null}
 
-                  <div style={styles.permissionGrid}>
+                  <div style={permissionGridStyle}>
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Maintenance Access</div>
                       {maintenanceToggles.map((item) => renderToggle(item.key, item.label))}
@@ -742,11 +840,11 @@ function renderToggle(key: AccessKey, label: string) {
                     </div>
                   </div>
 
-                  <div style={styles.bottomActions}>
-                    <button type="button" onClick={() => void handleDeleteUser()} style={{ ...styles.deleteBtn, opacity: deleting ? 0.65 : 1 }} disabled={deleting}>
+                  <div style={bottomActionsStyle}>
+                    <button type="button" onClick={() => void handleDeleteUser()} style={{ ...deleteBtnStyle, opacity: deleting ? 0.65 : 1 }} disabled={deleting}>
                       {deleting ? 'Deleting...' : 'Delete User'}
                     </button>
-                    <button type="button" onClick={() => void handleSaveUser()} style={{ ...styles.primaryBtn, opacity: saving || selectedLoading ? 0.65 : 1 }} disabled={saving || selectedLoading}>
+                    <button type="button" onClick={() => void handleSaveUser()} style={{ ...primaryBtnStyle, opacity: saving || selectedLoading ? 0.65 : 1 }} disabled={saving || selectedLoading}>
                       {saving ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
