@@ -920,7 +920,7 @@ export default function LaundryCountPage() {
                 {alreadyRanToday ? 'Already Ran Today' : runningNewDay ? 'Running...' : 'New Day'}
               </button>
             ) : null}
-            <Link href="/dashboard" style={responsiveStyles.secondaryBtn}>Back to Dashboard</Link>
+            <Link href="/dashboard" style={responsiveStyles.secondaryBtn}>{isMobile ? 'Dashboard' : 'Back to Dashboard'}</Link>
           </div>
         </div>
 
