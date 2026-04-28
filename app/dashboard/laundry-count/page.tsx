@@ -760,7 +760,8 @@ export default function LaundryCountPage() {
       } as React.CSSProperties,
       secondaryBtn: {
         ...styles.secondaryBtn,
-        width: isMobile ? '100%' : undefined,
+        width: isMobile ? 'fit-content' : undefined,
+        alignSelf: isMobile ? 'flex-start' : undefined,
       } as React.CSSProperties,
       newDayBtn: {
         ...styles.newDayBtn,
