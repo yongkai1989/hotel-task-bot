@@ -227,10 +227,21 @@ export default function LaundryCountPage() {
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
   const [savingBill, setSavingBill] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(1200);
 
   const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
 
   const serviceDate = getTodayLocalDateString();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const onResize = () => setViewportWidth(window.innerWidth);
+    onResize();
+    window.addEventListener('resize', onResize);
+
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -282,6 +293,9 @@ export default function LaundryCountPage() {
   const isLaundryOnlyUser = useMemo(() => {
     return (profile?.email || '').trim().toLowerCase() === LAUNDRY_ONLY_EMAIL;
   }, [profile]);
+
+  const isMobile = viewportWidth < 768;
+  const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
@@ -652,7 +666,7 @@ export default function LaundryCountPage() {
     return (
       <section style={styles.billCard}>
         <div style={styles.billCardTitle}>{floor.label}</div>
-        <div style={styles.billGrid}>
+        <div style={responsiveStyles.billGrid}>
           {ITEM_DEFS.map((item) => (
             <div key={`${floor.key}-${item.key}`} style={styles.formGroup}>
               <label style={styles.formLabel}>{item.label}</label>
@@ -672,6 +686,105 @@ export default function LaundryCountPage() {
 
   const billGrandTotals = useMemo(() => aggregateBillEntriesByBlock(billEntryMap), [billEntryMap]);
 
+  const responsiveStyles = useMemo(() => {
+    return {
+      panel: {
+        ...styles.panel,
+        borderRadius: isMobile ? '18px' : styles.panel.borderRadius,
+        padding: isMobile ? '14px' : isTablet ? '15px' : styles.panel.padding,
+      } as React.CSSProperties,
+      topBar: {
+        ...styles.topBar,
+        alignItems: isMobile ? 'stretch' : styles.topBar.alignItems,
+      } as React.CSSProperties,
+      topBarActions: {
+        ...styles.topBarActions,
+        width: isMobile ? '100%' : undefined,
+        justifyContent: isMobile ? 'stretch' : undefined,
+        flexDirection: isMobile ? 'column' : 'row',
+      } as React.CSSProperties,
+      summaryRow: {
+        ...styles.summaryRow,
+        gridTemplateColumns: isMobile
+          ? '1fr'
+          : isTablet
+            ? 'repeat(2, minmax(0, 1fr))'
+            : styles.summaryRow.gridTemplateColumns,
+      } as React.CSSProperties,
+      modeRow: {
+        ...styles.modeRow,
+        flexDirection: isMobile ? 'column' : 'row',
+      } as React.CSSProperties,
+      modeBtn: {
+        ...styles.modeBtn,
+        width: isMobile ? '100%' : undefined,
+        textAlign: 'center',
+      } as React.CSSProperties,
+      selectorRow: {
+        ...styles.selectorRow,
+        flexDirection: isMobile ? 'column' : 'row',
+      } as React.CSSProperties,
+      selectorBtn: {
+        ...styles.selectorBtn,
+        width: isMobile ? '100%' : undefined,
+        textAlign: 'center',
+        whiteSpace: isMobile ? 'normal' : 'nowrap',
+      } as React.CSSProperties,
+      itemGrid: {
+        ...styles.itemGrid,
+        gridTemplateColumns: isMobile
+          ? '1fr'
+          : isTablet
+            ? 'repeat(2, minmax(0, 1fr))'
+            : styles.itemGrid.gridTemplateColumns,
+      } as React.CSSProperties,
+      billGrid: {
+        ...styles.billGrid,
+        gridTemplateColumns: isMobile
+          ? '1fr'
+          : isTablet
+            ? 'repeat(2, minmax(0, 1fr))'
+            : styles.billGrid.gridTemplateColumns,
+      } as React.CSSProperties,
+      billGrandGrid: {
+        ...styles.billGrandGrid,
+        gridTemplateColumns: isMobile
+          ? '1fr'
+          : isTablet
+            ? 'repeat(2, minmax(0, 1fr))'
+            : styles.billGrandGrid.gridTemplateColumns,
+      } as React.CSSProperties,
+      primaryBtn: {
+        ...styles.primaryBtn,
+        width: isMobile ? '100%' : undefined,
+      } as React.CSSProperties,
+      secondaryBtn: {
+        ...styles.secondaryBtn,
+        width: isMobile ? '100%' : undefined,
+      } as React.CSSProperties,
+      newDayBtn: {
+        ...styles.newDayBtn,
+        width: isMobile ? '100%' : undefined,
+      } as React.CSSProperties,
+      billActionRow: {
+        ...styles.billActionRow,
+        justifyContent: isMobile ? 'stretch' : styles.billActionRow.justifyContent,
+      } as React.CSSProperties,
+      pageTitle: {
+        ...styles.pageTitle,
+        fontSize: isMobile ? '24px' : styles.pageTitle.fontSize,
+      } as React.CSSProperties,
+      sectionTitle: {
+        ...styles.sectionTitle,
+        fontSize: isMobile ? '20px' : styles.sectionTitle.fontSize,
+      } as React.CSSProperties,
+      metricValue: {
+        ...styles.metricValue,
+        fontSize: isMobile ? '20px' : styles.metricValue.fontSize,
+      } as React.CSSProperties,
+    };
+  }, [isMobile, isTablet]);
+
   function renderBillGrandTotalCard(
     label: string,
     totals: LinenTotals,
@@ -680,7 +793,7 @@ export default function LaundryCountPage() {
     return (
       <section style={{ ...styles.billCard, ...styles.billGrandCard }}>
         <div style={{ ...styles.billCardTitle, marginBottom: '12px' }}>{label}</div>
-        <div style={styles.billGrandGrid}>
+        <div style={responsiveStyles.billGrandGrid}>
           {ITEM_DEFS.map((item) => (
             <div key={`${label}-${item.key}`} style={styles.billGrandMetric}>
               <div style={styles.billGrandMetricLabel}>{item.label}</div>
@@ -730,9 +843,9 @@ export default function LaundryCountPage() {
     return (
       <main style={styles.page}>
         <div style={styles.shell}>
-          <div style={styles.topBar}>
+          <div style={responsiveStyles.topBar}>
             <div>
-              <div style={styles.pageTitle}>Laundry Bill</div>
+              <div style={responsiveStyles.pageTitle}>Laundry Bill</div>
               <div style={styles.pageSubTitle}>Service Date: {serviceDate} · {profile.name}</div>
             </div>
           </div>
@@ -740,20 +853,20 @@ export default function LaundryCountPage() {
           {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
           {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Laundry Bill</div>
-            <div style={styles.modeRow}>
+          <section style={responsiveStyles.panel}>
+            <div style={responsiveStyles.sectionTitle}>Laundry Bill</div>
+            <div style={responsiveStyles.modeRow}>
               <button
                 type="button"
                 onClick={() => setPageTab('BILL_ENTRY')}
-                style={{ ...styles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
+                style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
               >
                 Laundry Bill Entry
               </button>
               <button
                 type="button"
                 onClick={() => setPageTab('BILL_GRAND')}
-                style={{ ...styles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
+                style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
               >
                 Laundry Bill Grand Total
               </button>
@@ -770,12 +883,12 @@ export default function LaundryCountPage() {
                 <div style={styles.groupMeta}>Only Laundry Bill tabs are available for this account.</div>
                 {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
 
-                <div style={styles.billActionRow}>
+                <div style={responsiveStyles.billActionRow}>
                   <button
                     type="button"
                     onClick={handleSaveBill}
                     disabled={savingBill}
-                    style={{ ...styles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
+                    style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
                   >
                     {savingBill ? 'Saving...' : 'Save Laundry Bill'}
                   </button>
@@ -791,30 +904,30 @@ export default function LaundryCountPage() {
   return (
     <main style={styles.page}>
       <div style={styles.shell}>
-        <div style={styles.topBar}>
+        <div style={responsiveStyles.topBar}>
           <div>
-            <div style={styles.pageTitle}>Laundry Count</div>
+            <div style={responsiveStyles.pageTitle}>Laundry Count</div>
             <div style={styles.pageSubTitle}>Service Date: {serviceDate} · {profile.name} ({profile.role})</div>
           </div>
-          <div style={styles.topBarActions}>
+          <div style={responsiveStyles.topBarActions}>
             {canRunNewDay ? (
               <button
                 type="button"
                 onClick={handleNewDay}
                 disabled={runningNewDay || alreadyRanToday}
-                style={{ ...styles.newDayBtn, opacity: runningNewDay || alreadyRanToday ? 0.55 : 1 }}
+                style={{ ...responsiveStyles.newDayBtn, opacity: runningNewDay || alreadyRanToday ? 0.55 : 1 }}
               >
                 {alreadyRanToday ? 'Already Ran Today' : runningNewDay ? 'Running...' : 'New Day'}
               </button>
             ) : null}
-            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
+            <Link href="/dashboard" style={responsiveStyles.secondaryBtn}>Back to Dashboard</Link>
           </div>
         </div>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
         {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
-        <div style={styles.summaryRow}>
+        <div style={responsiveStyles.summaryRow}>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Rooms to Service</div>
             <div style={styles.summaryValue}>{summaries.grand.roomCount}</div>
@@ -833,28 +946,28 @@ export default function LaundryCountPage() {
           </div>
         </div>
 
-        <section style={styles.panel}>
-          <div style={styles.sectionTitle}>Page</div>
+        <section style={responsiveStyles.panel}>
+          <div style={responsiveStyles.sectionTitle}>Page</div>
 
-          <div style={styles.modeRow}>
+          <div style={responsiveStyles.modeRow}>
             <button
               type="button"
               onClick={() => setPageTab('COUNT')}
-              style={{ ...styles.modeBtn, ...(pageTab === 'COUNT' ? styles.modeBtnActive : {}) }}
+              style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'COUNT' ? styles.modeBtnActive : {}) }}
             >
               Laundry Count
             </button>
             <button
               type="button"
               onClick={() => setPageTab('BILL_ENTRY')}
-              style={{ ...styles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
+              style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
             >
               Laundry Bill Entry
             </button>
             <button
               type="button"
               onClick={() => setPageTab('BILL_GRAND')}
-              style={{ ...styles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
+              style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
             >
               Laundry Bill Grand Total
             </button>
@@ -862,28 +975,28 @@ export default function LaundryCountPage() {
         </section>
 
         {pageTab === 'BILL_ENTRY' ? (
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Laundry Bill Entry</div>
+          <section style={responsiveStyles.panel}>
+            <div style={responsiveStyles.sectionTitle}>Laundry Bill Entry</div>
             <div style={styles.groupMeta}>
               Enter the contractor bill totals for each floor. Block totals and grand totals are calculated from these entries.
             </div>
 
             {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
 
-            <div style={styles.billActionRow}>
+            <div style={responsiveStyles.billActionRow}>
               <button
                 type="button"
                 onClick={handleSaveBill}
                 disabled={savingBill}
-                style={{ ...styles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
+                style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
               >
                 {savingBill ? 'Saving...' : 'Save Laundry Bill'}
               </button>
             </div>
           </section>
         ) : pageTab === 'BILL_GRAND' ? (
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Laundry Bill Grand Total</div>
+          <section style={responsiveStyles.panel}>
+            <div style={responsiveStyles.sectionTitle}>Laundry Bill Grand Total</div>
             <div style={styles.groupMeta}>
               Totals below add up all floors in Block 1 and Block 2 from Laundry Bill Entry.
             </div>
@@ -892,41 +1005,41 @@ export default function LaundryCountPage() {
           </section>
         ) : (
           <>
-            <section style={styles.panel}>
-              <div style={styles.sectionTitle}>View</div>
+            <section style={responsiveStyles.panel}>
+              <div style={responsiveStyles.sectionTitle}>View</div>
 
-              <div style={styles.modeRow}>
+              <div style={responsiveStyles.modeRow}>
                 <button
                   type="button"
                   onClick={() => setViewMode('FLOOR')}
-                  style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
+                  style={{ ...responsiveStyles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
                 >
                   By Floor
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode('BLOCK')}
-                  style={{ ...styles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
+                  style={{ ...responsiveStyles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
                 >
                   By Block
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewMode('GRAND')}
-                  style={{ ...styles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
+                  style={{ ...responsiveStyles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
                 >
                   Grand Total
                 </button>
               </div>
 
               {viewMode === 'FLOOR' ? (
-                <div style={styles.selectorRow}>
+                <div style={responsiveStyles.selectorRow}>
                   {summaries.floorList.map((group) => (
                     <button
                       key={group.key}
                       type="button"
                       onClick={() => setSelectedFloorKey(group.key)}
-                      style={{ ...styles.selectorBtn, ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}) }}
+                      style={{ ...responsiveStyles.selectorBtn, ...(selectedFloorKey === group.key ? styles.selectorBtnActive : {}) }}
                     >
                       {group.label}
                     </button>
@@ -935,13 +1048,13 @@ export default function LaundryCountPage() {
               ) : null}
 
               {viewMode === 'BLOCK' ? (
-                <div style={styles.selectorRow}>
+                <div style={responsiveStyles.selectorRow}>
                   {summaries.blockList.map((group) => (
                     <button
                       key={group.key}
                       type="button"
                       onClick={() => setSelectedBlockKey(group.key)}
-                      style={{ ...styles.selectorBtn, ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}) }}
+                      style={{ ...responsiveStyles.selectorBtn, ...(selectedBlockKey === group.key ? styles.selectorBtnActive : {}) }}
                     >
                       {group.label}
                     </button>
@@ -951,19 +1064,19 @@ export default function LaundryCountPage() {
             </section>
 
             {loading ? (
-              <section style={styles.panel}>
+              <section style={responsiveStyles.panel}>
                 <div style={styles.emptyState}>Loading laundry count...</div>
               </section>
             ) : !selectedSummary ? (
-              <section style={styles.panel}>
+              <section style={responsiveStyles.panel}>
                 <div style={styles.emptyState}>No supervisor-marked rooms for today yet.</div>
               </section>
             ) : (
-              <section style={styles.panel}>
-                <div style={styles.sectionTitle}>{selectedSummary.label}</div>
+              <section style={responsiveStyles.panel}>
+                <div style={responsiveStyles.sectionTitle}>{selectedSummary.label}</div>
                 <div style={styles.groupMeta}>Rooms: {selectedSummary.roomCount} · DND: {selectedSummary.dndCount}</div>
 
-                <div style={styles.itemGrid}>
+                <div style={responsiveStyles.itemGrid}>
                   {ITEM_DEFS.map((item) => {
                     const diffValue = selectedSummary.difference[item.key];
                     return (
@@ -972,21 +1085,21 @@ export default function LaundryCountPage() {
 
                         <div style={styles.metricRow}>
                           <span style={styles.metricLabel}>Expected</span>
-                          <span style={styles.metricValue}>{selectedSummary.expected[item.key]}</span>
+                          <span style={responsiveStyles.metricValue}>{selectedSummary.expected[item.key]}</span>
                         </div>
 
                         <div style={styles.metricRow}>
                           <span style={styles.metricLabel}>Actual Maid Used</span>
-                          <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
+                          <span style={responsiveStyles.metricValue}>{selectedSummary.actual[item.key]}</span>
                         </div>
 
                         <div style={styles.metricRow}>
                           <span style={styles.metricLabel}>In Bill</span>
-                          <span style={styles.metricValue}>{selectedSummary.inBill[item.key]}</span>
+                          <span style={responsiveStyles.metricValue}>{selectedSummary.inBill[item.key]}</span>
                         </div>
                         <div style={styles.metricRow}>
                           <span style={styles.metricLabel}>Difference</span>
-                          <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
+                          <span style={{ ...responsiveStyles.metricValue, ...diffStyle(diffValue) }}>
                             {formatDiff(diffValue)}
                           </span>
                         </div>
