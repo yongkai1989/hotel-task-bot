@@ -12,6 +12,52 @@ type DashboardUser = {
 };
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
+type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND';
+
+type RoomMasterRow = {
+  room_number: string;
+  block_no: number;
+  floor_no: number;
+  room_type: string;
+};
+
+type StatusRow = {
+  room_number: string;
+  status: 'VACANT' | 'CHECKOUT' | 'STAYOVER';
+};
+
+type EntryRow = {
+  room_number: string;
+  is_dnd: boolean;
+  bedsheet_king: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
+};
+
+type LinenMapRow = {
+  room_type: string;
+  bedsheet_king: number;
+  pillow_case: number;
+  bath_towel: number;
+  bath_mat: number;
+  duvet_cover_king: number;
+  duvet_cover_single: number;
+};
+
+type LinenBillRow = {
+  service_date: string;
+  block_no: number;
+  floor_no?: number | null;
+  bedsheet_king: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
+};
 
 type LinenTotals = {
   bedsheet_king: number;
@@ -37,6 +83,13 @@ type SnapshotRow = {
   difference_json: any;
 };
 
+type HistoryData = {
+  snapshot: SnapshotRow | null;
+  floorBillMap: Record<string, LinenTotals>;
+  blockBillTotals: Record<string, LinenTotals>;
+  source: 'live' | 'snapshot';
+};
+
 const FLOOR_OPTIONS = [
   { key: 'B1F1', label: 'Block 1 Floor 1' },
   { key: 'B1F2', label: 'Block 1 Floor 2' },
@@ -51,6 +104,17 @@ const FLOOR_OPTIONS = [
 const BLOCK_OPTIONS = [
   { key: 'B1', label: 'Block 1' },
   { key: 'B2', label: 'Block 2' },
+] as const;
+
+const FLOOR_CONFIG = [
+  { key: 'B1F1', blockNo: 1, floorNo: 1, label: 'Block 1 Floor 1' },
+  { key: 'B1F2', blockNo: 1, floorNo: 2, label: 'Block 1 Floor 2' },
+  { key: 'B1F3', blockNo: 1, floorNo: 3, label: 'Block 1 Floor 3' },
+  { key: 'B1F5', blockNo: 1, floorNo: 5, label: 'Block 1 Floor 5' },
+  { key: 'B2F3', blockNo: 2, floorNo: 3, label: 'Block 2 Floor 3' },
+  { key: 'B2F5', blockNo: 2, floorNo: 5, label: 'Block 2 Floor 5' },
+  { key: 'B2F6', blockNo: 2, floorNo: 6, label: 'Block 2 Floor 6' },
+  { key: 'B2F7', blockNo: 2, floorNo: 7, label: 'Block 2 Floor 7' },
 ] as const;
 
 const ITEM_DEFS: Array<{
@@ -84,9 +148,191 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function shiftDateString(baseDate: string, offsetDays: number) {
+  const d = new Date(`${baseDate}T00:00:00`);
+  d.setDate(d.getDate() + offsetDays);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function safeNumber(value: unknown) {
   const num = Number(value || 0);
   return Number.isFinite(num) ? num : 0;
+}
+
+function zeroTotals(): LinenTotals {
+  return {
+    bedsheet_king: 0,
+    pillow_case: 0,
+    bath_towel: 0,
+    bath_mat: 0,
+    duvet_cover_king: 0,
+    duvet_cover_single: 0,
+  };
+}
+
+function addTotals(target: LinenTotals, source: Partial<LinenTotals> | null | undefined) {
+  if (!source) return;
+  target.bedsheet_king += safeNumber(source.bedsheet_king);
+  target.pillow_case += safeNumber(source.pillow_case);
+  target.bath_towel += safeNumber(source.bath_towel);
+  target.bath_mat += safeNumber(source.bath_mat);
+  target.duvet_cover_king += safeNumber(source.duvet_cover_king);
+  target.duvet_cover_single += safeNumber(source.duvet_cover_single);
+}
+
+function subtractTotals(left: LinenTotals, right: LinenTotals): LinenTotals {
+  return {
+    bedsheet_king: left.bedsheet_king - right.bedsheet_king,
+    pillow_case: left.pillow_case - right.pillow_case,
+    bath_towel: left.bath_towel - right.bath_towel,
+    bath_mat: left.bath_mat - right.bath_mat,
+    duvet_cover_king: left.duvet_cover_king - right.duvet_cover_king,
+    duvet_cover_single: left.duvet_cover_single - right.duvet_cover_single,
+  };
+}
+
+function countNonVacantStatus(status: StatusRow['status']) {
+  return status === 'CHECKOUT' || status === 'STAYOVER';
+}
+
+function floorKey(blockNo: number, floorNo: number) {
+  return `B${blockNo}F${floorNo}`;
+}
+
+function buildBillMaps(rows: LinenBillRow[]) {
+  const floorBillMap: Record<string, LinenTotals> = {};
+  const blockBillTotals: Record<string, LinenTotals> = {
+    B1: zeroTotals(),
+    B2: zeroTotals(),
+  };
+
+  FLOOR_CONFIG.forEach((floor) => {
+    floorBillMap[floor.key] = zeroTotals();
+  });
+
+  rows.forEach((row) => {
+    const totals = parseTotals(row);
+    const blockKey = `B${row.block_no}`;
+
+    addTotals(blockBillTotals[blockKey] || (blockBillTotals[blockKey] = zeroTotals()), totals);
+
+    if (typeof row.floor_no === 'number') {
+      floorBillMap[floorKey(row.block_no, row.floor_no)] = totals;
+    }
+  });
+
+  return { floorBillMap, blockBillTotals };
+}
+
+function buildSnapshotFromLiveData(
+  rooms: RoomMasterRow[],
+  statuses: StatusRow[],
+  entries: EntryRow[],
+  linenMap: LinenMapRow[],
+  serviceDate: string
+): SnapshotRow {
+  const roomByNumber = new Map<string, RoomMasterRow>();
+  const mapByRoomType = new Map<string, LinenMapRow>();
+  const entryByRoom = new Map<string, EntryRow>();
+
+  rooms.forEach((room) => roomByNumber.set(room.room_number, room));
+  linenMap.forEach((row) => mapByRoomType.set(row.room_type, row));
+  entries.forEach((row) => entryByRoom.set(row.room_number, row));
+
+  const expectedFloors: Record<string, LinenTotals> = {};
+  const actualFloors: Record<string, LinenTotals> = {};
+  const expectedBlocks: Record<string, LinenTotals> = {};
+  const actualBlocks: Record<string, LinenTotals> = {};
+  const grandExpected = zeroTotals();
+  const grandActual = zeroTotals();
+
+  const ensureTotals = (container: Record<string, LinenTotals>, key: string) => {
+    if (!container[key]) {
+      container[key] = zeroTotals();
+    }
+    return container[key];
+  };
+
+  statuses.forEach((statusRow) => {
+    if (!countNonVacantStatus(statusRow.status)) return;
+
+    const room = roomByNumber.get(statusRow.room_number);
+    if (!room) return;
+
+    const roomTypeMap = mapByRoomType.get(room.room_type);
+    const entry = entryByRoom.get(room.room_number);
+    const isDnd = Boolean(entry?.is_dnd);
+
+    const roomExpected = zeroTotals();
+    if (!isDnd && roomTypeMap) addTotals(roomExpected, roomTypeMap);
+
+    const roomActual = zeroTotals();
+    if (entry && !isDnd) {
+      addTotals(roomActual, {
+        bedsheet_king: entry.bedsheet_king,
+        pillow_case: entry.pillow_case,
+        bath_towel: entry.bath_towel,
+        bath_mat: entry.bath_mat,
+        duvet_cover_king: entry.duvet_cover_king,
+        duvet_cover_single: entry.duvet_cover_single,
+      });
+    }
+
+    const floorGroupKey = floorKey(room.block_no, room.floor_no);
+    const blockGroupKey = `B${room.block_no}`;
+
+    addTotals(ensureTotals(expectedFloors, floorGroupKey), roomExpected);
+    addTotals(ensureTotals(actualFloors, floorGroupKey), roomActual);
+    addTotals(ensureTotals(expectedBlocks, blockGroupKey), roomExpected);
+    addTotals(ensureTotals(actualBlocks, blockGroupKey), roomActual);
+    addTotals(grandExpected, roomExpected);
+    addTotals(grandActual, roomActual);
+  });
+
+  const differenceFloors: Record<string, LinenTotals> = {};
+  const differenceBlocks: Record<string, LinenTotals> = {};
+
+  Object.keys(expectedFloors).forEach((key) => {
+    differenceFloors[key] = subtractTotals(actualFloors[key] || zeroTotals(), expectedFloors[key] || zeroTotals());
+  });
+
+  Object.keys(actualFloors).forEach((key) => {
+    if (!differenceFloors[key]) {
+      differenceFloors[key] = subtractTotals(actualFloors[key] || zeroTotals(), expectedFloors[key] || zeroTotals());
+    }
+  });
+
+  Object.keys(expectedBlocks).forEach((key) => {
+    differenceBlocks[key] = subtractTotals(actualBlocks[key] || zeroTotals(), expectedBlocks[key] || zeroTotals());
+  });
+
+  Object.keys(actualBlocks).forEach((key) => {
+    if (!differenceBlocks[key]) {
+      differenceBlocks[key] = subtractTotals(actualBlocks[key] || zeroTotals(), expectedBlocks[key] || zeroTotals());
+    }
+  });
+
+  return {
+    service_date: serviceDate,
+    expected_json: {
+      floors: expectedFloors,
+      blocks: expectedBlocks,
+      grand_total: grandExpected,
+    },
+    actual_json: {
+      floors: actualFloors,
+      blocks: actualBlocks,
+      grand_total: grandActual,
+    },
+    difference_json: {
+      floors: differenceFloors,
+      blocks: differenceBlocks,
+      grand_total: subtractTotals(grandActual, grandExpected),
+    },
+  };
 }
 
 function parseTotals(raw: any): LinenTotals {
@@ -117,9 +363,13 @@ export default function LinenHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const [selectedDate, setSelectedDate] = useState(getTodayLocalDateString());
-  const [snapshot, setSnapshot] = useState<SnapshotRow | null>(null);
+  const today = getTodayLocalDateString();
+  const oldestAllowedDate = shiftDateString(today, -6);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [historyData, setHistoryData] = useState<HistoryData | null>(null);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
 
+  const [pageTab, setPageTab] = useState<PageTab>('COUNT');
   const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
@@ -185,7 +435,7 @@ export default function LinenHistoryPage() {
     );
   }, [profile]);
 
-  async function loadSnapshot() {
+  async function loadHistory() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
       setErrorMsg('Supabase is not configured.');
@@ -196,15 +446,100 @@ export default function LinenHistoryPage() {
       setLoading(true);
       setErrorMsg('');
 
-      const { data, error } = await supabase
+      if (selectedDate < oldestAllowedDate || selectedDate > today) {
+        setHistoryData(null);
+        setErrorMsg(`Linen History only keeps the last 7 days (${oldestAllowedDate} to ${today}).`);
+        return;
+      }
+
+      const { data: recentSnapshots, error: recentError } = await supabase
         .from('linen_daily_snapshot')
-        .select('service_date, expected_json, actual_json, difference_json')
-        .eq('service_date', selectedDate)
-        .maybeSingle();
+        .select('service_date')
+        .gte('service_date', oldestAllowedDate)
+        .lte('service_date', today)
+        .order('service_date', { ascending: false });
 
-      if (error) throw error;
+      if (recentError) throw recentError;
 
-      setSnapshot((data || null) as SnapshotRow | null);
+      const nextAvailableDates = Array.from(
+        new Set([today, ...((recentSnapshots || []).map((row: any) => row.service_date).filter(Boolean))])
+      ).sort((a, b) => (a < b ? 1 : -1));
+      setAvailableDates(nextAvailableDates);
+
+      if (selectedDate === today) {
+        const [roomRes, statusRes, entryRes, mapRes, billRes] = await Promise.all([
+          supabase
+            .from('room_master')
+            .select('room_number, block_no, floor_no, room_type')
+            .eq('is_active', true)
+            .order('room_number', { ascending: true }),
+          supabase
+            .from('linen_room_status')
+            .select('room_number, status')
+            .eq('service_date', selectedDate),
+          supabase
+            .from('linen_room_entry')
+            .select('room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+            .eq('service_date', selectedDate),
+          supabase
+            .from('linen_room_type_map')
+            .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+          supabase
+            .from('linen_laundry_bill')
+            .select('service_date, block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+            .eq('service_date', selectedDate)
+            .order('block_no', { ascending: true }),
+        ]);
+
+        if (roomRes.error) throw roomRes.error;
+        if (statusRes.error) throw statusRes.error;
+        if (entryRes.error) throw entryRes.error;
+        if (mapRes.error) throw mapRes.error;
+        if (billRes.error) throw billRes.error;
+
+        const liveSnapshot = buildSnapshotFromLiveData(
+          (roomRes.data || []) as RoomMasterRow[],
+          (statusRes.data || []) as StatusRow[],
+          (entryRes.data || []) as EntryRow[],
+          (mapRes.data || []) as LinenMapRow[],
+          selectedDate
+        );
+
+        const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
+
+        setHistoryData({
+          snapshot: liveSnapshot,
+          floorBillMap,
+          blockBillTotals,
+          source: 'live',
+        });
+        return;
+      }
+
+      const [snapshotRes, billRes] = await Promise.all([
+        supabase
+          .from('linen_daily_snapshot')
+          .select('service_date, expected_json, actual_json, difference_json')
+          .eq('service_date', selectedDate)
+          .maybeSingle(),
+        supabase
+          .from('linen_laundry_bill')
+          .select('service_date, block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate)
+          .order('block_no', { ascending: true }),
+      ]);
+
+      if (snapshotRes.error) throw snapshotRes.error;
+      if (billRes.error) throw billRes.error;
+
+      const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
+
+      setHistoryData({
+        snapshot: (snapshotRes.data || null) as SnapshotRow | null,
+        floorBillMap,
+        blockBillTotals,
+        source: 'snapshot',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load linen history');
     } finally {
@@ -218,13 +553,13 @@ export default function LinenHistoryPage() {
       return;
     }
 
-    void loadSnapshot();
+    void loadHistory();
   }, [profile, canAccess, selectedDate]);
 
   const selectedSummary = useMemo(() => {
-    const expected = snapshot?.expected_json || {};
-    const actual = snapshot?.actual_json || {};
-    const difference = snapshot?.difference_json || {};
+    const expected = historyData?.snapshot?.expected_json || {};
+    const actual = historyData?.snapshot?.actual_json || {};
+    const difference = historyData?.snapshot?.difference_json || {};
 
     if (viewMode === 'FLOOR') {
       const floorExpected = expected?.floors?.[selectedFloorKey];
@@ -261,7 +596,21 @@ export default function LinenHistoryPage() {
       actual: parseTotals(actual?.grand_total),
       difference: parseTotals(difference?.grand_total),
     } as GroupSummary;
-  }, [snapshot, viewMode, selectedFloorKey, selectedBlockKey]);
+  }, [historyData, viewMode, selectedFloorKey, selectedBlockKey]);
+
+  const selectedBillTotals = useMemo(() => {
+    if (!historyData) return zeroTotals();
+
+    if (pageTab === 'BILL_ENTRY') {
+      return historyData.floorBillMap[selectedFloorKey] || zeroTotals();
+    }
+
+    if (pageTab === 'BILL_GRAND') {
+      return historyData.blockBillTotals[selectedBlockKey] || zeroTotals();
+    }
+
+    return zeroTotals();
+  }, [historyData, pageTab, selectedFloorKey, selectedBlockKey]);
 
   if (authLoading) {
     return (
@@ -323,92 +672,204 @@ export default function LinenHistoryPage() {
 
         <section style={styles.panel}>
           <div style={styles.sectionTitle}>Date</div>
+          <div style={styles.historyHint}>
+            Linen History shows the current day plus the previous 6 days. Older history is cleaned by the New Day archive flow.
+          </div>
 
           <div style={styles.dateRow}>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
+              min={oldestAllowedDate}
+              max={today}
               style={styles.dateInput}
             />
+            {availableDates.length > 0 ? (
+              <select
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                style={styles.dateInput}
+              >
+                {availableDates.map((date) => (
+                  <option key={date} value={date}>
+                    {date}
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
         </section>
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>View</div>
+          <div style={styles.sectionTitle}>Page</div>
 
           <div style={styles.modeRow}>
             <button
               type="button"
-              onClick={() => setViewMode('FLOOR')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
+              onClick={() => setPageTab('COUNT')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'COUNT' ? styles.modeBtnActive : {}) }}
             >
-              By Floor
+              Laundry Count
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('BLOCK')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
+              onClick={() => setPageTab('BILL_ENTRY')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
             >
-              By Block
+              Laundry Bill Entry
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('GRAND')}
-              style={{ ...styles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
+              onClick={() => setPageTab('BILL_GRAND')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
             >
-              Grand Total
+              Laundry Bill Grand Total
             </button>
           </div>
-
-          {viewMode === 'FLOOR' ? (
-            <div style={styles.selectorRow}>
-              {FLOOR_OPTIONS.map((floor) => (
-                <button
-                  key={floor.key}
-                  type="button"
-                  onClick={() => setSelectedFloorKey(floor.key)}
-                  style={{
-                    ...styles.selectorBtn,
-                    ...(selectedFloorKey === floor.key ? styles.selectorBtnActive : {}),
-                  }}
-                >
-                  {floor.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {viewMode === 'BLOCK' ? (
-            <div style={styles.selectorRow}>
-              {BLOCK_OPTIONS.map((block) => (
-                <button
-                  key={block.key}
-                  type="button"
-                  onClick={() => setSelectedBlockKey(block.key)}
-                  style={{
-                    ...styles.selectorBtn,
-                    ...(selectedBlockKey === block.key ? styles.selectorBtnActive : {}),
-                  }}
-                >
-                  {block.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </section>
+
+        {pageTab === 'COUNT' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>View</div>
+
+            <div style={styles.modeRow}>
+              <button
+                type="button"
+                onClick={() => setViewMode('FLOOR')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'FLOOR' ? styles.modeBtnActive : {}) }}
+              >
+                By Floor
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('BLOCK')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'BLOCK' ? styles.modeBtnActive : {}) }}
+              >
+                By Block
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('GRAND')}
+                style={{ ...styles.modeBtn, ...(viewMode === 'GRAND' ? styles.modeBtnActive : {}) }}
+              >
+                Grand Total
+              </button>
+            </div>
+
+            {viewMode === 'FLOOR' ? (
+              <div style={styles.selectorRow}>
+                {FLOOR_OPTIONS.map((floor) => (
+                  <button
+                    key={floor.key}
+                    type="button"
+                    onClick={() => setSelectedFloorKey(floor.key)}
+                    style={{
+                      ...styles.selectorBtn,
+                      ...(selectedFloorKey === floor.key ? styles.selectorBtnActive : {}),
+                    }}
+                  >
+                    {floor.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {viewMode === 'BLOCK' ? (
+              <div style={styles.selectorRow}>
+                {BLOCK_OPTIONS.map((block) => (
+                  <button
+                    key={block.key}
+                    type="button"
+                    onClick={() => setSelectedBlockKey(block.key)}
+                    style={{
+                      ...styles.selectorBtn,
+                      ...(selectedBlockKey === block.key ? styles.selectorBtnActive : {}),
+                    }}
+                  >
+                    {block.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>
+              {pageTab === 'BILL_ENTRY' ? 'Laundry Bill Entry History' : 'Laundry Bill Grand Total History'}
+            </div>
+            <div style={styles.modeRow}>
+              {pageTab === 'BILL_ENTRY' ? (
+                FLOOR_OPTIONS.map((floor) => (
+                  <button
+                    key={floor.key}
+                    type="button"
+                    onClick={() => setSelectedFloorKey(floor.key)}
+                    style={{
+                      ...styles.selectorBtn,
+                      ...(selectedFloorKey === floor.key ? styles.selectorBtnActive : {}),
+                    }}
+                  >
+                    {floor.label}
+                  </button>
+                ))
+              ) : (
+                BLOCK_OPTIONS.map((block) => (
+                  <button
+                    key={block.key}
+                    type="button"
+                    onClick={() => setSelectedBlockKey(block.key)}
+                    style={{
+                      ...styles.selectorBtn,
+                      ...(selectedBlockKey === block.key ? styles.selectorBtnActive : {}),
+                    }}
+                  >
+                    {block.label}
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+        )}
 
         {loading ? (
           <section style={styles.panel}>
             <div style={styles.emptyState}>Loading linen history...</div>
           </section>
-        ) : !snapshot ? (
+        ) : !historyData?.snapshot ? (
           <section style={styles.panel}>
             <div style={styles.emptyState}>No snapshot found for this date.</div>
+          </section>
+        ) : pageTab !== 'COUNT' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>
+              {pageTab === 'BILL_ENTRY'
+                ? FLOOR_OPTIONS.find((floor) => floor.key === selectedFloorKey)?.label || selectedFloorKey
+                : BLOCK_OPTIONS.find((block) => block.key === selectedBlockKey)?.label || selectedBlockKey}
+            </div>
+            <div style={styles.groupMeta}>
+              Source: {historyData.source === 'live' ? 'Today live data' : 'Archived day snapshot'}
+            </div>
+            <div style={styles.itemGrid}>
+              {ITEM_DEFS.map((item) => (
+                <div key={item.key} style={styles.itemCard}>
+                  <div style={styles.itemTitle}>{item.label}</div>
+                  <div style={styles.metricRow}>
+                    <span style={styles.metricLabel}>
+                      {pageTab === 'BILL_ENTRY' ? 'Saved Floor Total' : 'Saved Block Total'}
+                    </span>
+                    <span style={styles.metricValue}>{selectedBillTotals[item.key]}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
         ) : (
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>{selectedSummary.label}</div>
+            <div style={styles.groupMeta}>
+              Source: {historyData.source === 'live' ? 'Today live data' : 'Archived day snapshot'}
+            </div>
 
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => {
@@ -498,6 +959,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '12px',
     flexWrap: 'wrap',
+  },
+  historyHint: {
+    fontSize: '14px',
+    color: '#64748b',
+    marginBottom: '12px',
+    fontWeight: 700,
+    lineHeight: 1.5,
   },
   dateInput: {
     width: '220px',
