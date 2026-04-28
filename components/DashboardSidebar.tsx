@@ -127,6 +127,8 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
   return profile;
 }
 
+const PROFILE_CACHE_KEY = 'dashboard-session-profile';
+
 export default function DashboardSidebar({
   profile,
   sidebarOpen,
@@ -172,7 +174,21 @@ export default function DashboardSidebar({
 
     async function refreshProfileFromDb() {
       try {
-        setProfileLoading(true);
+        const cached =
+          typeof window !== 'undefined'
+            ? window.sessionStorage.getItem(PROFILE_CACHE_KEY)
+            : null;
+
+        if (!profile && cached && mounted) {
+          try {
+            setResolvedProfile(normalizeProfile(JSON.parse(cached) as SidebarProfile));
+          } catch {}
+        }
+
+        const shouldShowLoading = !normalizeProfile(profile) && !resolvedProfile;
+        if (shouldShowLoading) {
+          setProfileLoading(true);
+        }
 
         const {
           data: { session },
@@ -200,7 +216,11 @@ export default function DashboardSidebar({
         }
 
         if (mounted) {
-          setResolvedProfile(normalizeProfile((json.user as SidebarProfile | null) ?? profile));
+          const nextRaw = (json.user as SidebarProfile | null) ?? profile;
+          setResolvedProfile(normalizeProfile(nextRaw));
+          if (typeof window !== 'undefined' && nextRaw) {
+            window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(nextRaw));
+          }
         }
       } catch {
         if (mounted) {
@@ -216,7 +236,7 @@ export default function DashboardSidebar({
     return () => {
       mounted = false;
     };
-  }, [profile, supabase, sidebarOpen]);
+  }, [profile?.user_id, profile?.email, supabase]);
 
   const currentProfile = resolvedProfile;
   const effectiveProfile = getEffectiveProfile(currentProfile);
@@ -522,7 +542,7 @@ export default function DashboardSidebar({
           </button>
         </div>
 
-        {profileLoading ? (
+        {profileLoading && !currentProfile ? (
           <div style={styles.loadingBox}>Loading access…</div>
         ) : null}
 
