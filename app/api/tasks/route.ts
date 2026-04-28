@@ -12,6 +12,76 @@ const GET_TASK_LIMIT = 300;
 // Department-specific Telegram group chat IDs
 const MT_CHAT_ID = -1003860980789;
 const HK_CHAT_ID = -1003784764929;
+const DEPARTMENT_KEYWORDS: Record<Dept, string[]> = {
+  MT: [
+    'aircond',
+    'air con',
+    'lampu',
+    'light',
+    'tv',
+    'remote',
+    'paip',
+    'pipe',
+    'sink',
+    'toilet',
+    'tandas',
+    'flush',
+    'heater',
+    'water heater',
+    'socket',
+    'plug',
+    'bocor',
+    'leaking',
+    'tersumbat',
+    'rosak',
+    'pintu',
+    'kunci',
+    'lock',
+    'jammed',
+    'electric',
+    'elektrik',
+  ],
+  HK: [
+    'towel',
+    'bath towel',
+    'bath mat',
+    'bedsheet',
+    'bed sheet',
+    'selimut',
+    'duvet',
+    'bantal',
+    'pillow',
+    'linen',
+    'room not cleaned',
+    'bilik kotor',
+    'make up room',
+    'makeup room',
+    'topup',
+    'sabun',
+    'shampoo',
+    'sampah',
+    'clean',
+    'housekeeping',
+    'amenities',
+  ],
+  FO: [
+    'check in',
+    'check-in',
+    'check out',
+    'checkout',
+    'booking',
+    'reservation',
+    'payment',
+    'deposit',
+    'refund',
+    'receipt',
+    'resit',
+    'extend stay',
+    'late checkout',
+    'guest complain service',
+    'front office',
+  ],
+};
 
 function normalizeDept(value: string): Dept | null {
   const v = String(value || '').trim().toUpperCase();
@@ -21,6 +91,42 @@ function normalizeDept(value: string): Dept | null {
   if (v === 'FO') return 'FO';
 
   return null;
+}
+
+function normalizeParserText(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^\w\s/-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractRoomFromText(value: string) {
+  const match = String(value || '').match(/\b\d{3,5}\b/);
+  return match ? match[0] : '';
+}
+
+function inferDepartmentFromText(value: string): Dept | null {
+  const normalized = normalizeParserText(value);
+  const scores: Record<Dept, number> = { HK: 0, MT: 0, FO: 0 };
+
+  (Object.keys(DEPARTMENT_KEYWORDS) as Dept[]).forEach((dept) => {
+    DEPARTMENT_KEYWORDS[dept].forEach((keyword) => {
+      if (normalized.includes(keyword)) {
+        scores[dept] += keyword.includes(' ') ? 2 : 1;
+      }
+    });
+  });
+
+  const ranked = (Object.keys(scores) as Dept[])
+    .map((dept) => ({ dept, score: scores[dept] }))
+    .sort((a, b) => b.score - a.score);
+
+  if (!ranked[0] || ranked[0].score <= 0) {
+    return null;
+  }
+
+  return ranked[0].dept;
 }
 
 function normalizeImageUrls(body: any): string[] {
@@ -189,9 +295,13 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const room = String(body.room || '').trim();
-    const department = normalizeDept(body.department);
-    const taskText = String(body.task_text || body.taskText || '').trim();
+    const sourceMessage = String(body.source_message || body.sourceMessage || '').trim();
+    const rawTaskText = String(body.task_text || body.taskText || '').trim();
+    const room = String(body.room || '').trim() || extractRoomFromText(sourceMessage) || extractRoomFromText(rawTaskText);
+    const taskText = rawTaskText || sourceMessage;
+    const department =
+      normalizeDept(body.department) ||
+      inferDepartmentFromText(sourceMessage || taskText);
     const imageUrls = normalizeImageUrls(body);
     const imageCaptions = normalizeImageCaptions(body, imageUrls.length);
 
