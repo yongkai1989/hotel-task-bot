@@ -28,7 +28,8 @@ type MaintenanceOtEntry = {
 type ViewMode = 'ENTRY' | 'PAST' | 'REPORT';
 type TimeSlot = { start: string; end: string };
 
-const STAFF_OPTIONS = ['Izzuddin', 'Yazid', 'Panjang', 'Jimmy', 'Paiz', 'Ezwan', 'Harraz'] as const;
+const DEFAULT_STAFF_OPTIONS = ['Izzuddin', 'Yazid', 'Panjang', 'Jimmy', 'Paiz', 'Ezwan', 'Harraz'];
+const STAFF_STORAGE_KEY = 'maintenance-ot-staff-options';
 
 const TIME_OPTIONS = [
   '00:00', '00:30', '01:00', '01:30', '02:00', '02:30',
@@ -131,6 +132,21 @@ function entryToSlots(entry: MaintenanceOtEntry): TimeSlot[] {
   return [{ start: entry.start_time || '', end: entry.end_time || '' }];
 }
 
+function normalizeStaffList(values: string[]) {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  values.forEach((value) => {
+    const trimmed = String(value || '').trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) return;
+    seen.add(key);
+    cleaned.push(trimmed);
+  });
+
+  return cleaned;
+}
+
 export default function MaintenanceOtPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -144,6 +160,9 @@ export default function MaintenanceOtPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [staffOptions, setStaffOptions] = useState<string[]>(DEFAULT_STAFF_OPTIONS);
+  const [newStaffName, setNewStaffName] = useState('');
+  const [staffManageBusy, setStaffManageBusy] = useState(false);
   const [staffName, setStaffName] = useState('');
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([{ start: '', end: '' }]);
   const [reason, setReason] = useState('');
@@ -187,9 +206,30 @@ export default function MaintenanceOtPage() {
   }, []);
 
   const canAccess = useMemo(() => !!profile && (profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'MT'), [profile]);
+  const isSuperuser = profile?.role === 'SUPERUSER';
   const today = getTodayLocalDateString();
   const totalHours = useMemo(() => sumSlotHours(timeSlots), [timeSlots]);
   const needsReason = totalHours > 3;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const stored = window.localStorage.getItem(STAFF_STORAGE_KEY);
+    if (!stored) {
+      setStaffOptions(DEFAULT_STAFF_OPTIONS);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        const normalized = normalizeStaffList(parsed.map((value) => String(value)));
+        setStaffOptions(normalized.length ? normalized : DEFAULT_STAFF_OPTIONS);
+      }
+    } catch {
+      setStaffOptions(DEFAULT_STAFF_OPTIONS);
+    }
+  }, []);
 
   async function loadEntries() {
     const supabase = getSupabaseSafe();
@@ -237,6 +277,59 @@ export default function MaintenanceOtPage() {
 
   function removeSlot(index: number) {
     setTimeSlots((prev) => prev.length === 1 ? prev : prev.filter((_, i) => i !== index));
+  }
+
+  function persistStaffOptions(nextOptions: string[]) {
+    const normalized = normalizeStaffList(nextOptions);
+    setStaffOptions(normalized);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(STAFF_STORAGE_KEY, JSON.stringify(normalized));
+    }
+  }
+
+  function handleAddStaffName() {
+    if (!isSuperuser) return;
+
+    const trimmed = newStaffName.trim();
+    if (!trimmed) {
+      setErrorMsg('Please enter a name to add.');
+      return;
+    }
+
+    setStaffManageBusy(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const exists = staffOptions.some((option) => option.toLowerCase() === trimmed.toLowerCase());
+    if (exists) {
+      setStaffManageBusy(false);
+      setErrorMsg('That staff name already exists.');
+      return;
+    }
+
+    persistStaffOptions([...staffOptions, trimmed]);
+    setNewStaffName('');
+    setSuccessMsg(`Added ${trimmed} to Maintenance OT staff list.`);
+    setStaffManageBusy(false);
+  }
+
+  function handleRemoveStaffName(name: string) {
+    if (!isSuperuser) return;
+
+    const confirmed = window.confirm(`Remove ${name} from the available OT name list?`);
+    if (!confirmed) return;
+
+    setStaffManageBusy(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const next = staffOptions.filter((option) => option.toLowerCase() !== name.toLowerCase());
+    persistStaffOptions(next.length ? next : []);
+    if (staffName.toLowerCase() === name.toLowerCase()) {
+      setStaffName('');
+    }
+    setSuccessMsg(`Removed ${name} from Maintenance OT staff list.`);
+    setStaffManageBusy(false);
   }
 
   async function sendTelegramIfNeeded(name: string, hours: number, submitReason: string) {
@@ -519,11 +612,52 @@ export default function MaintenanceOtPage() {
                 <span style={styles.todayValue}>{formatDate(today)}</span>
               </div>
 
+              {isSuperuser ? (
+                <div style={styles.staffManagerBox}>
+                  <div style={styles.staffManagerTitle}>Manage Staff Names</div>
+                  <div style={styles.staffManagerSubTitle}>Only superuser can add or remove names from the OT list.</div>
+                  <div style={styles.staffManagerRow}>
+                    <input
+                      type="text"
+                      value={newStaffName}
+                      onChange={(e) => setNewStaffName(e.target.value)}
+                      style={styles.input}
+                      placeholder="Add new staff name"
+                      disabled={staffManageBusy || saving}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddStaffName}
+                      style={styles.primaryBtn}
+                      disabled={staffManageBusy || saving}
+                    >
+                      Add Name
+                    </button>
+                  </div>
+                  <div style={styles.staffTagWrap}>
+                    {staffOptions.map((name) => (
+                      <div key={name} style={styles.staffTag}>
+                        <span>{name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStaffName(name)}
+                          style={styles.staffTagRemoveBtn}
+                          disabled={staffManageBusy || saving}
+                          title={`Remove ${name}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Staff Name</label>
                 <select value={staffName} onChange={(e) => setStaffName(e.target.value)} style={styles.select} disabled={saving}>
                   <option value="">Select staff</option>
-                  {STAFF_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+                  {normalizeStaffList(staffName && !staffOptions.includes(staffName) ? [...staffOptions, staffName] : staffOptions).map((name) => <option key={name} value={name}>{name}</option>)}
                 </select>
               </div>
 
@@ -747,6 +881,13 @@ const styles: Record<string, React.CSSProperties> = {
   todayBar: { display: 'inline-flex', gap: '10px', alignItems: 'center', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '10px 14px', marginBottom: '14px' },
   todayLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
   todayValue: { fontSize: '16px', fontWeight: 800, color: '#0f172a' },
+  staffManagerBox: { border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: '16px', padding: '14px', marginBottom: '14px' },
+  staffManagerTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' },
+  staffManagerSubTitle: { fontSize: '13px', color: '#64748b', fontWeight: 600, lineHeight: 1.45, marginBottom: '12px' },
+  staffManagerRow: { display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' },
+  staffTagWrap: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
+  staffTag: { display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid #bfdbfe', background: '#ffffff', color: '#1e3a8a', borderRadius: '999px', padding: '8px 12px', fontWeight: 700 },
+  staffTagRemoveBtn: { width: '24px', height: '24px', borderRadius: '999px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: 800, lineHeight: 1 },
   formGroup: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' },
   formGroupCompact: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' },
   label: { fontSize: '14px', color: '#334155', fontWeight: 700 },
