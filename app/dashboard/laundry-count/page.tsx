@@ -864,7 +864,7 @@ export default function LaundryCountPage() {
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>Laundry Bill Entry</div>
             <div style={styles.groupMeta}>
-              Enter the contractor bill totals for each floor. Block totals and grand totals are calculated from these entries.
+              Enter each floor's count accordingly
             </div>
 
             {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
