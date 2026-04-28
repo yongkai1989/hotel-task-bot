@@ -210,10 +210,6 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
     'bilik ok',
     'hold dulu jangan jual',
     'hold dulu jgn jual',
-    'block',
-    'boleh jual',
-    'jual',
-    'bersih',
   ],
 };
 
@@ -556,6 +552,7 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [viewportWidth, setViewportWidth] = useState(1200);
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
@@ -599,6 +596,100 @@ export default function DashboardPage() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   const [envError, setEnvError] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const onResize = () => setViewportWidth(window.innerWidth);
+    onResize();
+    window.addEventListener('resize', onResize);
+
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const isMobile = viewportWidth < 768;
+  const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
+  const modalResponsive = useMemo(
+    () => ({
+      overlay: {
+        ...styles.createModalOverlay,
+        padding: isMobile ? 10 : isTablet ? 14 : 20,
+        alignItems: isMobile ? 'flex-end' : 'center',
+      } as React.CSSProperties,
+      card: {
+        ...styles.createModalCard,
+        maxWidth: isMobile ? '100%' : 760,
+        maxHeight: isMobile ? '94vh' : styles.createModalCard.maxHeight,
+        borderRadius: isMobile ? 20 : styles.createModalCard.borderRadius,
+        padding: isMobile ? 14 : isTablet ? 16 : styles.createModalCard.padding,
+      } as React.CSSProperties,
+      top: {
+        ...styles.createModalTop,
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : styles.createModalTop.alignItems,
+      } as React.CSSProperties,
+      title: {
+        ...styles.createModalTitle,
+        fontSize: isMobile ? 20 : styles.createModalTitle.fontSize,
+      } as React.CSSProperties,
+      subtitle: {
+        ...styles.createModalSubtitle,
+        fontSize: isMobile ? 13 : styles.createModalSubtitle.fontSize,
+        lineHeight: 1.45,
+      } as React.CSSProperties,
+      closeBtn: {
+        ...styles.createModalCloseBtn,
+        alignSelf: isMobile ? 'flex-end' : undefined,
+      } as React.CSSProperties,
+      textInput: {
+        ...styles.textInput,
+        fontSize: isMobile ? 16 : styles.textInput.fontSize,
+      } as React.CSSProperties,
+      selectInput: {
+        ...styles.selectInput,
+        fontSize: isMobile ? 16 : styles.selectInput.fontSize,
+      } as React.CSSProperties,
+      textArea: {
+        ...styles.textArea,
+        minHeight: isMobile ? 100 : styles.textArea.minHeight,
+        fontSize: isMobile ? 16 : styles.textArea.fontSize,
+      } as React.CSSProperties,
+      photoPreviewGrid: {
+        ...styles.photoPreviewGrid,
+        gridTemplateColumns: isMobile
+          ? 'repeat(2, minmax(0, 1fr))'
+          : styles.photoPreviewGrid.gridTemplateColumns,
+      } as React.CSSProperties,
+      actions: {
+        ...styles.createModalActions,
+        flexDirection: isMobile ? 'column-reverse' : 'row',
+        justifyContent: isMobile ? 'stretch' : styles.createModalActions.justifyContent,
+      } as React.CSSProperties,
+      secondaryBtn: {
+        ...styles.secondaryBtn,
+        width: isMobile ? '100%' : undefined,
+      } as React.CSSProperties,
+      primaryBtn: {
+        ...styles.primaryBtn,
+        width: isMobile ? '100%' : undefined,
+      } as React.CSSProperties,
+      smartDraftRow: {
+        ...styles.smartDraftRow,
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : styles.smartDraftRow.alignItems,
+      } as React.CSSProperties,
+      multiDeptRow: {
+        ...styles.multiDeptRow,
+        flexDirection: isMobile ? 'column' : 'row',
+      } as React.CSSProperties,
+      multiDeptChip: {
+        ...styles.multiDeptChip,
+        width: isMobile ? '100%' : undefined,
+        justifyContent: isMobile ? 'flex-start' : undefined,
+      } as React.CSSProperties,
+    }),
+    [isMobile, isTablet]
+  );
 
   const lastTasksFingerprintRef = useRef('');
   const hasHydratedFromCacheRef = useRef(false);
@@ -2057,19 +2148,19 @@ async function handleDeleteTask(taskId: string) {
       ) : null}
 
       {createModalOpen ? (
-        <div style={styles.createModalOverlay} onClick={closeCreateModal}>
-          <div style={styles.createModalCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.createModalTop}>
+        <div style={modalResponsive.overlay} onClick={closeCreateModal}>
+          <div style={modalResponsive.card} onClick={(e) => e.stopPropagation()}>
+            <div style={modalResponsive.top}>
               <div>
-                <div style={styles.createModalTitle}>Create New Task</div>
-                <div style={styles.createModalSubtitle}>
+                <div style={modalResponsive.title}>Create New Task</div>
+                <div style={modalResponsive.subtitle}>
                   Add a task from dashboard and push it to Telegram
                 </div>
               </div>
 
               <button
                 onClick={closeCreateModal}
-                style={styles.createModalCloseBtn}
+                style={modalResponsive.closeBtn}
                 aria-label="Close create task modal"
                 disabled={createSubmitting}
               >
@@ -2087,15 +2178,15 @@ async function handleDeleteTask(taskId: string) {
                   setCreateSmartMessage(e.target.value);
                   if (createSmartHint) setCreateSmartHint('');
                 }}
-                style={styles.textArea}
+                style={modalResponsive.textArea}
                 placeholder="e.g. 1208 aircond tak sejuk"
                 disabled={createSubmitting}
               />
-              <div style={styles.smartDraftRow}>
+              <div style={modalResponsive.smartDraftRow}>
                 <button
                   type="button"
                   onClick={applySmartCreateDraft}
-                  style={styles.secondaryBtn}
+                  style={modalResponsive.secondaryBtn}
                   disabled={createSubmitting || !createSmartMessage.trim()}
                 >
                   Auto Fill
@@ -2110,7 +2201,7 @@ async function handleDeleteTask(taskId: string) {
                 type="text"
                 value={createRoom}
                 onChange={(e) => setCreateRoom(e.target.value)}
-                style={styles.textInput}
+                style={modalResponsive.textInput}
                 placeholder="e.g. 1308"
                 disabled={createSubmitting}
               />
@@ -2118,12 +2209,12 @@ async function handleDeleteTask(taskId: string) {
 
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Department</label>
-              <div style={styles.multiDeptRow}>
+              <div style={modalResponsive.multiDeptRow}>
                 {(['HK', 'MT', 'FO'] as const).map((dept) => (
                   <label
                     key={dept}
                     style={{
-                      ...styles.multiDeptChip,
+                      ...modalResponsive.multiDeptChip,
                       ...(createDepts.includes(dept) ? styles.multiDeptChipActive : {}),
                       opacity: createSubmitting ? 0.65 : 1,
                     }}
@@ -2149,7 +2240,7 @@ async function handleDeleteTask(taskId: string) {
               <textarea
                 value={createTaskText}
                 onChange={(e) => setCreateTaskText(e.target.value)}
-                style={styles.textArea}
+                style={modalResponsive.textArea}
                 placeholder="Enter task details"
                 disabled={createSubmitting}
               />
@@ -2164,7 +2255,7 @@ async function handleDeleteTask(taskId: string) {
                 onChange={handleCreatePhotoChange}
                 disabled={createSubmitting}
               />
-              <div style={styles.photoPreviewGrid}>
+              <div style={modalResponsive.photoPreviewGrid}>
                 {createPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
                     <img src={photo.dataUrl} alt={photo.name} style={styles.photoPreviewImg} />
@@ -2185,11 +2276,11 @@ async function handleDeleteTask(taskId: string) {
               </div>
             </div>
 
-            <div style={styles.createModalActions}>
+            <div style={modalResponsive.actions}>
               <button
                 type="button"
                 onClick={closeCreateModal}
-                style={styles.secondaryBtn}
+                style={modalResponsive.secondaryBtn}
                 disabled={createSubmitting}
               >
                 Cancel
@@ -2198,7 +2289,7 @@ async function handleDeleteTask(taskId: string) {
               <button
                 type="button"
                 onClick={submitCreateTask}
-                style={styles.primaryBtn}
+                style={modalResponsive.primaryBtn}
                 disabled={createSubmitting}
               >
                 {createSubmitting ? 'Creating...' : 'Create Task'}
