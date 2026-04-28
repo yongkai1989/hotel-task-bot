@@ -25,11 +25,16 @@ type MaintenanceOtEntry = {
   updated_at: string;
 };
 
+type MaintenanceOtStaff = {
+  id: string;
+  staff_name: string;
+  created_at?: string;
+};
+
 type ViewMode = 'ENTRY' | 'PAST' | 'REPORT';
 type TimeSlot = { start: string; end: string };
 
 const DEFAULT_STAFF_OPTIONS = ['Izzuddin', 'Yazid', 'Panjang', 'Jimmy', 'Paiz', 'Ezwan', 'Harraz'];
-const STAFF_STORAGE_KEY = 'maintenance-ot-staff-options';
 
 const TIME_OPTIONS = [
   '00:00', '00:30', '01:00', '01:30', '02:00', '02:30',
@@ -211,25 +216,23 @@ export default function MaintenanceOtPage() {
   const totalHours = useMemo(() => sumSlotHours(timeSlots), [timeSlots]);
   const needsReason = totalHours > 3;
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  async function loadStaffOptions() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
 
-    const stored = window.localStorage.getItem(STAFF_STORAGE_KEY);
-    if (!stored) {
-      setStaffOptions(DEFAULT_STAFF_OPTIONS);
-      return;
-    }
+    const { data, error } = await supabase
+      .from('maintenance_ot_staff')
+      .select('id, staff_name, created_at')
+      .order('staff_name', { ascending: true });
 
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        const normalized = normalizeStaffList(parsed.map((value) => String(value)));
-        setStaffOptions(normalized.length ? normalized : DEFAULT_STAFF_OPTIONS);
-      }
-    } catch {
-      setStaffOptions(DEFAULT_STAFF_OPTIONS);
-    }
-  }, []);
+    if (error) throw error;
+
+    const nextNames = normalizeStaffList(
+      ((data || []) as MaintenanceOtStaff[]).map((row) => row.staff_name)
+    );
+
+    setStaffOptions(nextNames.length ? nextNames : DEFAULT_STAFF_OPTIONS);
+  }
 
   async function loadEntries() {
     const supabase = getSupabaseSafe();
@@ -257,7 +260,14 @@ export default function MaintenanceOtPage() {
       setPageLoading(false);
       return;
     }
-    void loadEntries();
+    void (async () => {
+      await loadEntries();
+      try {
+        await loadStaffOptions();
+      } catch (err: any) {
+        setErrorMsg(err?.message || 'Failed to load OT staff list');
+      }
+    })();
   }, [profile, canAccess]);
 
   function resetForm() {
@@ -279,15 +289,9 @@ export default function MaintenanceOtPage() {
     setTimeSlots((prev) => prev.length === 1 ? prev : prev.filter((_, i) => i !== index));
   }
 
-  function persistStaffOptions(nextOptions: string[]) {
-    const normalized = normalizeStaffList(nextOptions);
-    setStaffOptions(normalized);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(STAFF_STORAGE_KEY, JSON.stringify(normalized));
-    }
-  }
-
-  function handleAddStaffName() {
+  async function handleAddStaffName() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return setErrorMsg('Supabase is not configured.');
     if (!isSuperuser) return;
 
     const trimmed = newStaffName.trim();
@@ -307,13 +311,26 @@ export default function MaintenanceOtPage() {
       return;
     }
 
-    persistStaffOptions([...staffOptions, trimmed]);
-    setNewStaffName('');
-    setSuccessMsg(`Added ${trimmed} to Maintenance OT staff list.`);
-    setStaffManageBusy(false);
+    try {
+      const { error } = await supabase
+        .from('maintenance_ot_staff')
+        .insert([{ staff_name: trimmed }]);
+
+      if (error) throw error;
+
+      await loadStaffOptions();
+      setNewStaffName('');
+      setSuccessMsg(`Added ${trimmed} to Maintenance OT staff list.`);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to add staff name.');
+    } finally {
+      setStaffManageBusy(false);
+    }
   }
 
-  function handleRemoveStaffName(name: string) {
+  async function handleRemoveStaffName(name: string) {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return setErrorMsg('Supabase is not configured.');
     if (!isSuperuser) return;
 
     const confirmed = window.confirm(`Remove ${name} from the available OT name list?`);
@@ -323,13 +340,24 @@ export default function MaintenanceOtPage() {
     setErrorMsg('');
     setSuccessMsg('');
 
-    const next = staffOptions.filter((option) => option.toLowerCase() !== name.toLowerCase());
-    persistStaffOptions(next.length ? next : []);
-    if (staffName.toLowerCase() === name.toLowerCase()) {
-      setStaffName('');
+    try {
+      const { error } = await supabase
+        .from('maintenance_ot_staff')
+        .delete()
+        .ilike('staff_name', name);
+
+      if (error) throw error;
+
+      await loadStaffOptions();
+      if (staffName.toLowerCase() === name.toLowerCase()) {
+        setStaffName('');
+      }
+      setSuccessMsg(`Removed ${name} from Maintenance OT staff list.`);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to remove staff name.');
+    } finally {
+      setStaffManageBusy(false);
     }
-    setSuccessMsg(`Removed ${name} from Maintenance OT staff list.`);
-    setStaffManageBusy(false);
   }
 
   async function sendTelegramIfNeeded(name: string, hours: number, submitReason: string) {
