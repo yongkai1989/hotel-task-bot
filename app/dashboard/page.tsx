@@ -64,6 +64,10 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
   MT: [
     'aircond',
     'air con',
+    'ac',
+    'tak sejuk',
+    'panas',
+    'guest complain panas',
     'lampu',
     'light',
     'tv',
@@ -76,6 +80,7 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
     'flush',
     'heater',
     'water heater',
+    'tak panas',
     'socket',
     'plug',
     'bocor',
@@ -88,15 +93,48 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
     'jammed',
     'electric',
     'elektrik',
+    'tak ada air',
+    'x ada air',
+    'tak ada supply',
+    'supply',
+    'pressure',
+    'shower',
+    'minibar',
+    'banjir',
+    'tak boleh buka',
+    'tak ada channel',
+    'channel',
+    'trip',
+    'tak ada electric',
+    'tingkap',
+    'tak ada lampu',
+    'ceiling basah',
+    'safety box',
+    'safe box',
+    'katil rosak',
+    'kerusi rosak',
+    'chair rosak',
+    'patah',
+    'floor trap',
+    'sumbat',
+    'sinki',
+    'flush rosak',
+    'tak boleh flush',
+    'battery',
+    'tak function',
+    'kettle',
+    'longgar',
   ],
   HK: [
     'towel',
     'bath towel',
     'bath mat',
+    'bathmat',
     'bedsheet',
     'bed sheet',
     'selimut',
     'duvet',
+    'blanket',
     'bantal',
     'pillow',
     'linen',
@@ -111,8 +149,47 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
     'clean',
     'housekeeping',
     'amenities',
+    'tukar',
+    'kotor',
+    'stain',
+    'tak ada shampoo',
+    'bathfoam',
+    'carpet kotor',
+    'toilet kotor',
+    'ada bau',
+    'bau',
+    'sejadah',
+    'toilet paper',
+    'extra pillow',
+    'extra bed',
+    'katil asing',
+    'keringkan lantai',
+    'guest extend',
+    'make up room',
+    'jagan kemas',
+    'jangan kemas',
+    'nak kemas',
+    'lantai licin',
+    'bedbug',
+    'semut',
+    'cicak',
+    'tangkap cicak',
+    'lipas',
+    'nyamuk',
+    'tukar bilik',
   ],
   FO: [
+    'guest marah',
+    'minta tukar bilik',
+    'guest minta tukar bilik',
+    'minta extend',
+    'guest minta extend',
+    'nak extend',
+    'guest nak extend',
+    'translate',
+    'guest minta translate',
+    'bilik block',
+    'guest complain',
     'check in',
     'check-in',
     'check out',
@@ -128,6 +205,11 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
     'late checkout',
     'guest complain service',
     'front office',
+    'bilik release',
+    'bilik boleh jual',
+    'bilik ok',
+    'hold dulu jangan jual',
+    'hold dulu jgn jual',
   ],
 };
 
@@ -207,6 +289,17 @@ function getYesterdayLocalDateString() {
 function normalizeParserText(value: string) {
   return String(value || '')
     .toLowerCase()
+    .replace(/\bjgn\b/g, 'jangan')
+    .replace(/\bx\b/g, 'tak')
+    .replace(/\bxda\b/g, 'tak ada')
+    .replace(/\bblm\b/g, 'belum')
+    .replace(/\bac\b/g, 'aircond')
+    .replace(/\baircon\b/g, 'aircond')
+    .replace(/\bair cond\b/g, 'aircond')
+    .replace(/\bsinki\b/g, 'sink')
+    .replace(/\bsafebox\b/g, 'safe box')
+    .replace(/\bsafebox\b/g, 'safe box')
+    .replace(/\bbathmat\b/g, 'bath mat')
     .replace(/[^\w\s/-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -225,11 +318,25 @@ function inferDepartmentFromMessage(value: string): {
   const normalized = normalizeParserText(value);
   const scores: Record<ParsedDept, number> = { HK: 0, MT: 0, FO: 0 };
   const matches: Record<ParsedDept, string[]> = { HK: [], MT: [], FO: [] };
+  const weakKeywords = new Set([
+    'guest complain',
+    'guest marah',
+    'guest extend',
+    'nak extend',
+    'minta extend',
+  ]);
 
   (Object.keys(DEPARTMENT_KEYWORDS) as ParsedDept[]).forEach((dept) => {
     DEPARTMENT_KEYWORDS[dept].forEach((keyword) => {
       if (normalized.includes(keyword)) {
-        scores[dept] += keyword.includes(' ') ? 2 : 1;
+        const weight = weakKeywords.has(keyword)
+          ? 1
+          : keyword.split(' ').length >= 3
+          ? 3
+          : keyword.includes(' ')
+          ? 2
+          : 1;
+        scores[dept] += weight;
         matches[dept].push(keyword);
       }
     });
@@ -246,9 +353,9 @@ function inferDepartmentFromMessage(value: string): {
   const top = ranked[0];
   const runnerUp = ranked[1];
   const confidence =
-    top.score >= 3 && top.score > (runnerUp?.score || 0)
+    top.score >= 4 && top.score >= (runnerUp?.score || 0) + 2
       ? 'high'
-      : top.score >= 2
+      : top.score >= 2 && top.score > (runnerUp?.score || 0)
       ? 'medium'
       : 'low';
 
@@ -454,7 +561,7 @@ export default function DashboardPage() {
   const [createSmartMessage, setCreateSmartMessage] = useState('');
   const [createSmartHint, setCreateSmartHint] = useState('');
   const [createRoom, setCreateRoom] = useState('');
-  const [createDept, setCreateDept] = useState<'HK' | 'MT' | 'FO' | ''>('');
+  const [createDepts, setCreateDepts] = useState<Array<'HK' | 'MT' | 'FO'>>([]);
   const [createTaskText, setCreateTaskText] = useState('');
   const [createPhotos, setCreatePhotos] = useState<CreatePhotoItem[]>([]);
   const [createSubmitting, setCreateSubmitting] = useState(false);
@@ -1039,7 +1146,7 @@ function canDeleteTask() {
     setCreateSmartMessage('');
     setCreateSmartHint('');
     setCreateRoom('');
-    setCreateDept('');
+    setCreateDepts([]);
     setCreateTaskText('');
     setCreatePhotos([]);
     setCreateError('');
@@ -1058,7 +1165,7 @@ function canDeleteTask() {
     }
 
     if (parsed.department) {
-      setCreateDept(parsed.department);
+      setCreateDepts((prev) => (prev.includes(parsed.department as 'HK' | 'MT' | 'FO') ? prev : [...prev, parsed.department as 'HK' | 'MT' | 'FO']));
     }
 
     if (parsed.taskText) {
@@ -1082,6 +1189,12 @@ function canDeleteTask() {
       `${label} suggested (${parsed.confidence} confidence)${
         parsed.matches.length ? ` from: ${parsed.matches.slice(0, 3).join(', ')}` : ''
       }`
+    );
+  }
+
+  function toggleCreateDept(dept: 'HK' | 'MT' | 'FO') {
+    setCreateDepts((prev) =>
+      prev.includes(dept) ? prev.filter((value) => value !== dept) : [...prev, dept]
     );
   }
 
@@ -1269,15 +1382,21 @@ async function handleDeleteTask(taskId: string) {
       const parsed = parseSmartTaskMessage(createSmartMessage);
       const room = (createRoom.trim() || parsed.room).trim();
       const taskText = (createTaskText.trim() || parsed.taskText).trim();
-      const department = (createDept || parsed.department || '') as 'HK' | 'MT' | 'FO' | '';
+      const departments = createDepts.length
+        ? createDepts
+        : parsed.department
+          ? [parsed.department as 'HK' | 'MT' | 'FO']
+          : [];
 
       if (!room) throw new Error('Room Number is required');
       if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
-      if (!department) throw new Error('Select department');
+      if (!departments.length) throw new Error('Select at least one department');
       if (!taskText) throw new Error('Task description required');
 
       if (room !== createRoom) setCreateRoom(room);
-      if (department !== createDept) setCreateDept(department);
+      if (departments.length !== createDepts.length || departments.some((dept) => !createDepts.includes(dept))) {
+        setCreateDepts(departments);
+      }
       if (taskText !== createTaskText) setCreateTaskText(taskText);
 
       setCreateSubmitting(true);
@@ -1312,7 +1431,8 @@ async function handleDeleteTask(taskId: string) {
           },
           body: JSON.stringify({
             room,
-            department,
+            department: departments[0],
+            departments,
             task_text: taskText,
             source_message: createSmartMessage.trim() || null,
             image_urls: uploadedUrls,
@@ -1994,17 +2114,30 @@ async function handleDeleteTask(taskId: string) {
 
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Department</label>
-              <select
-                value={createDept}
-                onChange={(e) => setCreateDept(e.target.value as 'HK' | 'MT' | 'FO' | '')}
-                style={styles.selectInput}
-                disabled={createSubmitting}
-              >
-                <option value="">Select department</option>
-                <option value="HK">HK</option>
-                <option value="MT">MT</option>
-                <option value="FO">FO</option>
-              </select>
+              <div style={styles.multiDeptRow}>
+                {(['HK', 'MT', 'FO'] as const).map((dept) => (
+                  <label
+                    key={dept}
+                    style={{
+                      ...styles.multiDeptChip,
+                      ...(createDepts.includes(dept) ? styles.multiDeptChipActive : {}),
+                      opacity: createSubmitting ? 0.65 : 1,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={createDepts.includes(dept)}
+                      onChange={() => toggleCreateDept(dept)}
+                      disabled={createSubmitting}
+                      style={styles.multiDeptCheckbox}
+                    />
+                    {dept}
+                  </label>
+                ))}
+              </div>
+              <div style={styles.multiDeptHint}>
+                Select one or more departments. Multiple selections will create separate tasks for each department.
+              </div>
             </div>
 
             <div style={styles.formBlock}>
@@ -3408,6 +3541,38 @@ deleteTaskBtn: {
     color: '#475467',
     fontWeight: 700,
     lineHeight: 1.45,
+  },
+  multiDeptRow: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  multiDeptChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: 999,
+    padding: '10px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  multiDeptChipActive: {
+    background: '#0f172a',
+    color: '#ffffff',
+    borderColor: '#0f172a',
+  },
+  multiDeptCheckbox: {
+    margin: 0,
+  },
+  multiDeptHint: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: 700,
+    lineHeight: 1.45,
+    marginTop: 8,
   },
   secondaryBtn: {
     border: '1px solid #dbe3ee',
