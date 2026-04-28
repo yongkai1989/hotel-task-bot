@@ -210,6 +210,7 @@ const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
     'bilik ok',
     'hold dulu jangan jual',
     'hold dulu jgn jual',
+    'block',
   ],
 };
 
