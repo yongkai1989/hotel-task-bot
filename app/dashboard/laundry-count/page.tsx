@@ -437,6 +437,7 @@ export default function LaundryCountPage() {
         roomCount: 0,
         dndCount: 0,
       };
+      next.inBill = toTotalsFromBillRow(billEntryMap[key as FloorKey]);
       floorGroups.set(key, next);
       return next;
     }
@@ -509,7 +510,7 @@ export default function LaundryCountPage() {
     addTotals(grandInBill, billBlock2);
 
     floorGroups.forEach((group) => {
-      group.difference = subtractTotals(group.actual, group.expected);
+      group.difference = subtractTotals(group.inBill, group.actual);
     });
     blockGroups.forEach((group) => {
       group.difference = subtractTotals(group.inBill, group.actual);
@@ -864,7 +865,7 @@ export default function LaundryCountPage() {
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>Laundry Bill Entry</div>
             <div style={styles.groupMeta}>
-              Enter each floor's count accordingly
+              Enter the contractor bill totals for each floor. Block totals and grand totals are calculated from these entries.
             </div>
 
             {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
@@ -979,20 +980,16 @@ export default function LaundryCountPage() {
                           <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
                         </div>
 
-                        {viewMode !== 'FLOOR' ? (
-                          <>
-                            <div style={styles.metricRow}>
-                              <span style={styles.metricLabel}>In Bill</span>
-                              <span style={styles.metricValue}>{selectedSummary.inBill[item.key]}</span>
-                            </div>
-                            <div style={styles.metricRow}>
-                              <span style={styles.metricLabel}>Difference</span>
-                              <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
-                                {formatDiff(diffValue)}
-                              </span>
-                            </div>
-                          </>
-                        ) : null}
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>In Bill</span>
+                          <span style={styles.metricValue}>{selectedSummary.inBill[item.key]}</span>
+                        </div>
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>Difference</span>
+                          <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
+                            {formatDiff(diffValue)}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
