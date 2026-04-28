@@ -49,6 +49,7 @@ type LinenBillRow = {
   id?: string;
   service_date: string;
   block_no: number;
+  floor_no?: number | null;
   bedsheet_king: number | null;
   pillow_case: number | null;
   bath_towel: number | null;
@@ -79,11 +80,22 @@ type GroupSummary = {
 };
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
-type PageTab = 'COUNT' | 'BILL';
+type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND';
+type FloorKey = (typeof FLOOR_KEYS)[number];
 
 const FLOOR_KEYS = ['B1F1', 'B1F2', 'B1F3', 'B1F5', 'B2F3', 'B2F5', 'B2F6', 'B2F7'] as const;
 const BLOCK_KEYS = ['B1', 'B2'] as const;
 const LAUNDRY_ONLY_EMAIL = 'laundry@hotelhallmark.com';
+const FLOOR_CONFIG: Array<{ key: FloorKey; blockNo: 1 | 2; floorNo: number; label: string }> = [
+  { key: 'B1F1', blockNo: 1, floorNo: 1, label: 'Block 1 Floor 1' },
+  { key: 'B1F2', blockNo: 1, floorNo: 2, label: 'Block 1 Floor 2' },
+  { key: 'B1F3', blockNo: 1, floorNo: 3, label: 'Block 1 Floor 3' },
+  { key: 'B1F5', blockNo: 1, floorNo: 5, label: 'Block 1 Floor 5' },
+  { key: 'B2F3', blockNo: 2, floorNo: 3, label: 'Block 2 Floor 3' },
+  { key: 'B2F5', blockNo: 2, floorNo: 5, label: 'Block 2 Floor 5' },
+  { key: 'B2F6', blockNo: 2, floorNo: 6, label: 'Block 2 Floor 6' },
+  { key: 'B2F7', blockNo: 2, floorNo: 7, label: 'Block 2 Floor 7' },
+];
 
 const ITEM_DEFS: Array<{ key: keyof LinenTotals; label: string }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
@@ -172,6 +184,29 @@ function toTotalsFromBillRow(row?: Partial<LinenBillRow> | null): LinenTotals {
   };
 }
 
+function emptyBillEntryMap(): Record<FloorKey, LinenTotals> {
+  return FLOOR_CONFIG.reduce((acc, floor) => {
+    acc[floor.key] = zeroTotals();
+    return acc;
+  }, {} as Record<FloorKey, LinenTotals>);
+}
+
+function aggregateBillEntriesByBlock(entryMap: Record<FloorKey, LinenTotals>) {
+  const block1 = zeroTotals();
+  const block2 = zeroTotals();
+
+  FLOOR_CONFIG.forEach((floor) => {
+    const source = entryMap[floor.key] || zeroTotals();
+    if (floor.blockNo === 1) {
+      addTotals(block1, source);
+    } else {
+      addTotals(block2, source);
+    }
+  });
+
+  return { block1, block2 };
+}
+
 export default function LaundryCountPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -193,8 +228,7 @@ export default function LaundryCountPage() {
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
   const [savingBill, setSavingBill] = useState(false);
 
-  const [billBlock1, setBillBlock1] = useState<LinenTotals>(zeroTotals());
-  const [billBlock2, setBillBlock2] = useState<LinenTotals>(zeroTotals());
+  const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
 
   const serviceDate = getTodayLocalDateString();
 
@@ -335,10 +369,18 @@ export default function LaundryCountPage() {
       setLinenMap((mapRes.data || []) as LinenMapRow[]);
       setBillRows((billRes.data || []) as LinenBillRow[]);
 
-      const b1 = (billRes.data || []).find((row: any) => Number(row.block_no) === 1);
-      const b2 = (billRes.data || []).find((row: any) => Number(row.block_no) === 2);
-      setBillBlock1(toTotalsFromBillRow(b1));
-      setBillBlock2(toTotalsFromBillRow(b2));
+      const nextBillEntryMap = emptyBillEntryMap();
+      const detailedRows = (billRes.data || []).filter((row: any) =>
+        typeof row.floor_no === 'number' && !Number.isNaN(Number(row.floor_no))
+      );
+
+      detailedRows.forEach((row: any) => {
+        const key = floorKey(Number(row.block_no), Number(row.floor_no)) as FloorKey;
+        if (!FLOOR_KEYS.includes(key)) return;
+        nextBillEntryMap[key] = toTotalsFromBillRow(row);
+      });
+
+      setBillEntryMap(nextBillEntryMap);
 
       await checkAlreadyRanToday();
     } catch (err: any) {
@@ -354,7 +396,7 @@ export default function LaundryCountPage() {
 
   useEffect(() => {
     if (isLaundryOnlyUser) {
-      setPageTab('BILL');
+      setPageTab('BILL_ENTRY');
     }
   }, [isLaundryOnlyUser]);
 
@@ -367,6 +409,7 @@ export default function LaundryCountPage() {
     linenMap.forEach((row) => mapByRoomType.set(row.room_type, row));
     entries.forEach((row) => entryByRoom.set(row.room_number, row));
 
+    const { block1: billBlock1, block2: billBlock2 } = aggregateBillEntriesByBlock(billEntryMap);
     const billByBlock = new Map<number, LinenTotals>([
       [1, billBlock1],
       [2, billBlock2],
@@ -487,7 +530,7 @@ export default function LaundryCountPage() {
     };
 
     return { floorList, blockList, grand };
-  }, [rooms, statuses, entries, linenMap, billBlock1, billBlock2]);
+  }, [rooms, statuses, entries, linenMap, billEntryMap]);
 
   useEffect(() => {
     if (summaries.floorList.length > 0 && !summaries.floorList.find((g) => g.key === selectedFloorKey)) {
@@ -550,20 +593,17 @@ export default function LaundryCountPage() {
     }
   }
 
-  function updateBillValue(block: 1 | 2, key: keyof LinenTotals, rawValue: string) {
+  function updateBillValue(floorKeyValue: FloorKey, key: keyof LinenTotals, rawValue: string) {
     const parsed = rawValue === '' ? 0 : Math.max(0, Number(rawValue || 0));
     if (Number.isNaN(parsed)) return;
 
-    const updater = (prev: LinenTotals): LinenTotals => ({
+    setBillEntryMap((prev) => ({
       ...prev,
-      [key]: parsed,
-    });
-
-    if (block === 1) {
-      setBillBlock1(updater);
-    } else {
-      setBillBlock2(updater);
-    }
+      [floorKeyValue]: {
+        ...(prev[floorKeyValue] || zeroTotals()),
+        [key]: parsed,
+      },
+    }));
   }
 
   async function handleSaveBill() {
@@ -585,18 +625,12 @@ export default function LaundryCountPage() {
 
       if (deleteError) throw deleteError;
 
-      const rows = [
-        {
-          service_date: serviceDate,
-          block_no: 1,
-          ...billBlock1,
-        },
-        {
-          service_date: serviceDate,
-          block_no: 2,
-          ...billBlock2,
-        },
-      ];
+      const rows = FLOOR_CONFIG.map((floor) => ({
+        service_date: serviceDate,
+        block_no: floor.blockNo,
+        floor_no: floor.floorNo,
+        ...billEntryMap[floor.key],
+      }));
 
       const { error: insertError } = await supabase
         .from('linen_laundry_bill')
@@ -613,21 +647,45 @@ export default function LaundryCountPage() {
     }
   }
 
-  function renderBillEditor(blockNo: 1 | 2, totals: LinenTotals) {
+  function renderBillEditor(floor: { key: FloorKey; blockNo: 1 | 2; floorNo: number; label: string }, totals: LinenTotals) {
     return (
       <section style={styles.billCard}>
-        <div style={styles.billCardTitle}>Block {blockNo}</div>
+        <div style={styles.billCardTitle}>{floor.label}</div>
         <div style={styles.billGrid}>
           {ITEM_DEFS.map((item) => (
-            <div key={`${blockNo}-${item.key}`} style={styles.formGroup}>
+            <div key={`${floor.key}-${item.key}`} style={styles.formGroup}>
               <label style={styles.formLabel}>{item.label}</label>
               <input
                 type="number"
                 min="0"
                 value={totals[item.key]}
-                onChange={(e) => updateBillValue(blockNo, item.key, e.target.value)}
+                onChange={(e) => updateBillValue(floor.key, item.key, e.target.value)}
                 style={styles.numberInput}
               />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  const billGrandTotals = useMemo(() => aggregateBillEntriesByBlock(billEntryMap), [billEntryMap]);
+
+  function renderBillGrandTotalCard(
+    label: string,
+    totals: LinenTotals,
+    accent: React.CSSProperties
+  ) {
+    return (
+      <section style={{ ...styles.billCard, ...styles.billGrandCard }}>
+        <div style={{ ...styles.billCardTitle, marginBottom: '12px' }}>{label}</div>
+        <div style={styles.billGrandGrid}>
+          {ITEM_DEFS.map((item) => (
+            <div key={`${label}-${item.key}`} style={styles.billGrandMetric}>
+              <div style={styles.billGrandMetricLabel}>{item.label}</div>
+              <div style={{ ...styles.billGrandMetricValue, ...accent }}>
+                {totals[item.key]}
+              </div>
             </div>
           ))}
         </div>
@@ -682,21 +740,47 @@ export default function LaundryCountPage() {
           {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
           <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Laundry Bill Entry</div>
-            <div style={styles.groupMeta}>Only Laundry Bill is available for this account.</div>
-            {renderBillEditor(1, billBlock1)}
-            {renderBillEditor(2, billBlock2)}
-
-            <div style={styles.billActionRow}>
+            <div style={styles.sectionTitle}>Laundry Bill</div>
+            <div style={styles.modeRow}>
               <button
                 type="button"
-                onClick={handleSaveBill}
-                disabled={savingBill}
-                style={{ ...styles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
+                onClick={() => setPageTab('BILL_ENTRY')}
+                style={{ ...styles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
               >
-                {savingBill ? 'Saving...' : 'Save Laundry Bill'}
+                Laundry Bill Entry
+              </button>
+              <button
+                type="button"
+                onClick={() => setPageTab('BILL_GRAND')}
+                style={{ ...styles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
+              >
+                Laundry Bill Grand Total
               </button>
             </div>
+
+            {pageTab === 'BILL_GRAND' ? (
+              <>
+                <div style={styles.groupMeta}>Only Laundry Bill tabs are available for this account.</div>
+                {renderBillGrandTotalCard('Block 1 Grand Total', billGrandTotals.block1, { color: '#166534' })}
+                {renderBillGrandTotalCard('Block 2 Grand Total', billGrandTotals.block2, { color: '#1d4ed8' })}
+              </>
+            ) : (
+              <>
+                <div style={styles.groupMeta}>Only Laundry Bill tabs are available for this account.</div>
+                {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
+
+                <div style={styles.billActionRow}>
+                  <button
+                    type="button"
+                    onClick={handleSaveBill}
+                    disabled={savingBill}
+                    style={{ ...styles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
+                  >
+                    {savingBill ? 'Saving...' : 'Save Laundry Bill'}
+                  </button>
+                </div>
+              </>
+            )}
           </section>
         </div>
       </main>
@@ -761,23 +845,29 @@ export default function LaundryCountPage() {
             </button>
             <button
               type="button"
-              onClick={() => setPageTab('BILL')}
-              style={{ ...styles.modeBtn, ...(pageTab === 'BILL' ? styles.modeBtnActive : {}) }}
+              onClick={() => setPageTab('BILL_ENTRY')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'BILL_ENTRY' ? styles.modeBtnActive : {}) }}
             >
-              Laundry Bill
+              Laundry Bill Entry
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab('BILL_GRAND')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
+            >
+              Laundry Bill Grand Total
             </button>
           </div>
         </section>
 
-        {pageTab === 'BILL' ? (
+        {pageTab === 'BILL_ENTRY' ? (
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>Laundry Bill Entry</div>
             <div style={styles.groupMeta}>
-              Enter the contractor bill totals for each block. These will appear as In Bill under By Block and Grand Total.
+              Enter the contractor bill totals for each floor. Block totals and grand totals are calculated from these entries.
             </div>
 
-            {renderBillEditor(1, billBlock1)}
-            {renderBillEditor(2, billBlock2)}
+            {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
 
             <div style={styles.billActionRow}>
               <button
@@ -789,6 +879,15 @@ export default function LaundryCountPage() {
                 {savingBill ? 'Saving...' : 'Save Laundry Bill'}
               </button>
             </div>
+          </section>
+        ) : pageTab === 'BILL_GRAND' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Laundry Bill Grand Total</div>
+            <div style={styles.groupMeta}>
+              Totals below add up all floors in Block 1 and Block 2 from Laundry Bill Entry.
+            </div>
+            {renderBillGrandTotalCard('Block 1 Grand Total', billGrandTotals.block1, { color: '#166534' })}
+            {renderBillGrandTotalCard('Block 2 Grand Total', billGrandTotals.block2, { color: '#1d4ed8' })}
           </section>
         ) : (
           <>
@@ -1171,6 +1270,33 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
     gap: '12px',
+  },
+  billGrandCard: {
+    background: '#f8fafc',
+  },
+  billGrandGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '12px',
+  },
+  billGrandMetric: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '16px',
+    background: '#ffffff',
+    padding: '14px',
+  },
+  billGrandMetricLabel: {
+    fontSize: '13px',
+    color: '#64748b',
+    fontWeight: 700,
+    marginBottom: '8px',
+    lineHeight: 1.35,
+  },
+  billGrandMetricValue: {
+    fontSize: '28px',
+    color: '#0f172a',
+    fontWeight: 800,
+    lineHeight: 1,
   },
   formGroup: {
     display: 'flex',
