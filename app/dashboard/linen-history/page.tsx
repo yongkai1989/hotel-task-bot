@@ -87,7 +87,8 @@ type HistoryData = {
   snapshot: SnapshotRow | null;
   floorBillMap: Record<string, LinenTotals>;
   blockBillTotals: Record<string, LinenTotals>;
-  source: 'live' | 'snapshot';
+  source: 'live' | 'snapshot' | 'snapshot-next-day-fallback';
+  snapshotServiceDate?: string | null;
 };
 
 const FLOOR_OPTIONS = [
@@ -516,12 +517,14 @@ export default function LinenHistoryPage() {
         return;
       }
 
+      const fallbackSnapshotDate = shiftDateString(selectedDate, 1);
+
       const [snapshotRes, billRes] = await Promise.all([
         supabase
           .from('linen_daily_snapshot')
           .select('service_date, expected_json, actual_json, difference_json')
-          .eq('service_date', selectedDate)
-          .maybeSingle(),
+          .in('service_date', [selectedDate, fallbackSnapshotDate])
+          .order('service_date', { ascending: true }),
         supabase
           .from('linen_laundry_bill')
           .select('service_date, block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
@@ -532,13 +535,23 @@ export default function LinenHistoryPage() {
       if (snapshotRes.error) throw snapshotRes.error;
       if (billRes.error) throw billRes.error;
 
+      const snapshotRows = (snapshotRes.data || []) as SnapshotRow[];
+      const exactSnapshot =
+        snapshotRows.find((row) => row.service_date === selectedDate) || null;
+      const nextDayFallbackSnapshot =
+        !exactSnapshot
+          ? snapshotRows.find((row) => row.service_date === fallbackSnapshotDate) || null
+          : null;
+      const resolvedSnapshot = exactSnapshot || nextDayFallbackSnapshot;
+
       const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
 
       setHistoryData({
-        snapshot: (snapshotRes.data || null) as SnapshotRow | null,
+        snapshot: resolvedSnapshot,
         floorBillMap,
         blockBillTotals,
-        source: 'snapshot',
+        source: exactSnapshot ? 'snapshot' : nextDayFallbackSnapshot ? 'snapshot-next-day-fallback' : 'snapshot',
+        snapshotServiceDate: resolvedSnapshot?.service_date || null,
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load linen history');
@@ -611,6 +624,17 @@ export default function LinenHistoryPage() {
 
     return zeroTotals();
   }, [historyData, pageTab, selectedFloorKey, selectedBlockKey]);
+
+  const historySourceLabel = useMemo(() => {
+    if (!historyData) return '';
+    if (historyData.source === 'live') return 'Today live data';
+    if (historyData.source === 'snapshot-next-day-fallback') {
+      return historyData.snapshotServiceDate
+        ? `Archived day snapshot (loaded from ${historyData.snapshotServiceDate})`
+        : 'Archived day snapshot (next-day fallback)';
+    }
+    return 'Archived day snapshot';
+  }, [historyData]);
 
   if (authLoading) {
     return (
@@ -848,7 +872,7 @@ export default function LinenHistoryPage() {
                 : BLOCK_OPTIONS.find((block) => block.key === selectedBlockKey)?.label || selectedBlockKey}
             </div>
             <div style={styles.groupMeta}>
-              Source: {historyData.source === 'live' ? 'Today live data' : 'Archived day snapshot'}
+              Source: {historySourceLabel}
             </div>
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => (
@@ -868,7 +892,7 @@ export default function LinenHistoryPage() {
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>{selectedSummary.label}</div>
             <div style={styles.groupMeta}>
-              Source: {historyData.source === 'live' ? 'Today live data' : 'Archived day snapshot'}
+              Source: {historySourceLabel}
             </div>
 
             <div style={styles.itemGrid}>
