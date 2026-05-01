@@ -158,6 +158,19 @@ function shiftDateString(baseDate: string, offsetDays: number) {
   return `${year}-${month}-${day}`;
 }
 
+function formatHistoryDateLabel(value: string, today: string) {
+  if (value === today) return 'Today';
+  if (value === shiftDateString(today, -1)) return 'Yesterday';
+
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+
+  return d.toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+  });
+}
+
 function safeNumber(value: unknown) {
   const num = Number(value || 0);
   return Number.isFinite(num) ? num : 0;
@@ -375,6 +388,11 @@ export default function LinenHistoryPage() {
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
 
+  const historyDateOptions = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => shiftDateString(today, -index)),
+    [today]
+  );
+
   useEffect(() => {
     let mounted = true;
 
@@ -462,9 +480,10 @@ export default function LinenHistoryPage() {
 
       if (recentError) throw recentError;
 
-      const nextAvailableDates = Array.from(
-        new Set([today, ...((recentSnapshots || []).map((row: any) => row.service_date).filter(Boolean))])
-      ).sort((a, b) => (a < b ? 1 : -1));
+      const nextAvailableDates = historyDateOptions.filter((date) => {
+        if (date === today) return true;
+        return (recentSnapshots || []).some((row: any) => row.service_date === date || row.service_date === shiftDateString(date, 1));
+      });
       setAvailableDates(nextAvailableDates);
 
       if (selectedDate === today) {
@@ -700,23 +719,25 @@ export default function LinenHistoryPage() {
             Linen History shows the current day plus the previous 6 days. Older history is cleaned by the New Day archive flow.
           </div>
 
-          <div style={styles.dateRow}>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              min={oldestAllowedDate}
-              max={today}
-              list="linen-history-available-dates"
-              style={styles.dateInput}
-            />
-            {availableDates.length > 0 ? (
-              <datalist id="linen-history-available-dates">
-                {availableDates.map((date) => (
-                  <option key={date} value={date} />
-                ))}
-              </datalist>
-            ) : null}
+          <div style={styles.selectorRow}>
+            {historyDateOptions.map((date) => {
+              const isAvailable = availableDates.includes(date);
+              return (
+                <button
+                  key={date}
+                  type="button"
+                  onClick={() => setSelectedDate(date)}
+                  style={{
+                    ...styles.selectorBtn,
+                    ...(selectedDate === date ? styles.selectorBtnActive : {}),
+                    opacity: isAvailable ? 1 : 0.55,
+                  }}
+                  title={isAvailable ? date : `${date} (no archived snapshot found yet)`}
+                >
+                  {formatHistoryDateLabel(date, today)}
+                </button>
+              );
+            })}
           </div>
         </section>
 
