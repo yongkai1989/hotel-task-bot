@@ -1744,6 +1744,72 @@ async function handleDeleteTask(taskId: string) {
     };
   }, [tasks, todayLocal]);
 
+  const recentActivity = useMemo(() => {
+    return [...tasks]
+      .map((task) => {
+        const activityAt = task.done_at || task.edited_at || task.created_at;
+        const actor =
+          task.done_by_name ||
+          task.edited_by_name ||
+          task.last_updated_by_name ||
+          task.created_by_name ||
+          'Unknown';
+        const verb =
+          task.status === 'DONE'
+            ? 'completed task'
+            : task.status === 'IN_PROGRESS'
+            ? 'updated task status'
+            : 'created task';
+
+        return {
+          id: task.id,
+          actor,
+          verb,
+          label: `${task.task_text} (${task.room})`,
+          at: activityAt,
+        };
+      })
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .slice(0, 5);
+  }, [tasks]);
+
+  const dashboardAlerts = useMemo(() => {
+    const openTasks = tasks.filter((task) => task.status === 'OPEN');
+    const doingTasks = tasks.filter((task) => task.status === 'IN_PROGRESS');
+    const overdueTasks = openTasks
+      .filter((task) => {
+        const ageHours = (Date.now() - new Date(task.created_at).getTime()) / (1000 * 60 * 60);
+        return ageHours >= 6;
+      })
+      .slice(0, 3);
+
+    const items = [
+      openTasks.length > 0
+        ? {
+            id: 'open',
+            title: `${openTasks.length} open tasks require attention`,
+            subtitle: 'Operations dashboard',
+          }
+        : null,
+      doingTasks.length > 0
+        ? {
+            id: 'doing',
+            title: `${doingTasks.length} tasks are in progress`,
+            subtitle: 'Department teams',
+          }
+        : null,
+      overdueTasks.length > 0
+        ? {
+            id: 'overdue',
+            title: `${overdueTasks.length} older tasks may be overdue`,
+            subtitle: 'Review oldest open tasks',
+          }
+        : null,
+    ].filter(Boolean) as Array<{ id: string; title: string; subtitle: string }>;
+
+    return items.slice(0, 4);
+  }, [tasks]);
+
   const pageTitle =
     sidebarView === 'DASHBOARD' ? 'Operations Dashboard' : 'Past Task Archive';
 
@@ -1813,13 +1879,7 @@ async function handleDeleteTask(taskId: string) {
             </div>
           ) : (
             <>
-              {sidebarView === 'DASHBOARD' ? (
-                <section style={styles.summaryGrid}>
-                  <SummaryCard title="Open" value={summary.open} tone="open" />
-                  <SummaryCard title="DOING" value={summary.doing} tone="doing" />
-                  <SummaryCard title="DONE TODAY" value={summary.doneToday} tone="done" />
-                </section>
-              ) : null}
+              {sidebarView === 'DASHBOARD' ? null : null}
 
               <section style={styles.filterPanel}>
                 <div style={styles.filterHeader}>
@@ -1910,6 +1970,13 @@ async function handleDeleteTask(taskId: string) {
                 )}
               </section>
 
+              <div
+                style={{
+                  ...styles.workspaceLayout,
+                  gridTemplateColumns: isMobile || isTablet ? 'minmax(0, 1fr)' : styles.workspaceLayout.gridTemplateColumns,
+                }}
+              >
+                <div style={styles.workspacePrimary}>
               <section style={styles.resultBar}>
                 <div style={styles.resultText}>
                   {loading
@@ -2115,6 +2182,67 @@ async function handleDeleteTask(taskId: string) {
                   })}
                 </div>
               )}
+                </div>
+
+              {sidebarView === 'DASHBOARD' ? (
+                <div style={styles.workspaceRail}>
+                <div style={styles.sideInfoGrid}>
+                  <section style={styles.sidePanel}>
+                    <div style={styles.sidePanelHeader}>
+                      <div style={styles.sidePanelTitle}>Alerts & Notifications</div>
+                      <div style={styles.sidePanelCount}>{dashboardAlerts.length}</div>
+                    </div>
+
+                    {dashboardAlerts.length === 0 ? (
+                      <div style={styles.sideEmpty}>No active alerts right now.</div>
+                    ) : (
+                      <div style={styles.sideList}>
+                        {dashboardAlerts.map((item) => (
+                          <div key={item.id} style={styles.sideListItem}>
+                            <div style={styles.sideListIcon}>!</div>
+                            <div style={styles.sideListBody}>
+                              <div style={styles.sideListTitle}>{item.title}</div>
+                              <div style={styles.sideListSubtitle}>{item.subtitle}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  <section style={styles.sidePanel}>
+                    <div style={styles.sidePanelHeader}>
+                      <div style={styles.sidePanelTitle}>Recent Activity</div>
+                    </div>
+
+                    {recentActivity.length === 0 ? (
+                      <div style={styles.sideEmpty}>No activity yet.</div>
+                    ) : (
+                      <div style={styles.sideList}>
+                        {recentActivity.map((item) => (
+                          <div key={item.id} style={styles.sideListItem}>
+                            <div style={styles.sideListIcon}>o</div>
+                            <div style={styles.sideListBody}>
+                              <div style={styles.sideListTitle}>
+                                {item.actor} {item.verb}
+                              </div>
+                              <div style={styles.sideListSubtitle}>{item.label}</div>
+                            </div>
+                            <div style={styles.sideListTime}>
+                              {new Date(item.at).toLocaleTimeString([], {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
+                </div>
+              ) : null}
+              </div>
             </>
           )}
         </section>
@@ -3010,6 +3138,18 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
 
   },
+  workspaceBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    padding: '10px 14px',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    border: '1px solid #bfdbfe',
+    fontSize: 12,
+    fontWeight: 800,
+  },
   refreshBtn: {
     width: 40,
     height: 40,
@@ -3149,6 +3289,18 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 10px 22px rgba(15, 23, 42, 0.04)',
 
   },
+  workspaceLayout: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.8fr) minmax(280px, 0.9fr)',
+    gap: 16,
+    alignItems: 'start',
+  },
+  workspacePrimary: {
+    minWidth: 0,
+  },
+  workspaceRail: {
+    minWidth: 0,
+  },
   resultText: {
     fontSize: 12,
     color: '#33507a',
@@ -3168,8 +3320,8 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     overflowX: 'hidden',
     boxSizing: 'border-box',
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    display: 'flex',
+    flexDirection: 'column',
     gap: 10,
 
   },
@@ -3185,6 +3337,92 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 14,
     boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
 
+  },
+  sideInfoGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: 14,
+    marginTop: 16,
+  },
+  sidePanel: {
+    background: 'rgba(255,255,255,0.94)',
+    border: '1px solid #dfe9f5',
+    borderRadius: 22,
+    padding: 18,
+    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
+  },
+  sidePanelHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  sidePanelTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  sidePanelCount: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 999,
+    background: '#fee2e2',
+    color: '#dc2626',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 800,
+    fontSize: 12,
+  },
+  sideEmpty: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: 700,
+  },
+  sideList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
+  sideListItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  sideListIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    background: '#eff6ff',
+    color: '#2563eb',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    flexShrink: 0,
+  },
+  sideListBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sideListTitle: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: '#0f172a',
+    lineHeight: 1.35,
+  },
+  sideListSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 4,
+    lineHeight: 1.4,
+  },
+  sideListTime: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
   },
   taskMainRow: {
     display: 'flex',
