@@ -1078,7 +1078,7 @@ export default function DashboardPage() {
     try {
       const today = getTodayLocalDateString();
 
-      const [{ data: statusRows, error: statusError }, { count: overduePmCount, error: overduePmError }, { data: hkRuns, error: hkRunsError }] =
+      const [{ data: statusRows, error: statusError }, { data: pmRuns, error: pmRunsError }, { data: hkRuns, error: hkRunsError }] =
         await Promise.all([
           supabase
             .from('linen_room_status')
@@ -1087,8 +1087,8 @@ export default function DashboardPage() {
             .in('status', ['CHECKOUT', 'STAYOVER']),
           supabase
             .from('pm_task_runs')
-            .select('id', { count: 'exact', head: true })
-            .eq('status', 'OVERDUE'),
+            .select('due_date, status')
+            .neq('status', 'DONE'),
           supabase
             .from('hk_special_project_task_runs')
             .select('id, status, created_at')
@@ -1097,7 +1097,7 @@ export default function DashboardPage() {
         ]);
 
       if (statusError) throw statusError;
-      if (overduePmError) throw overduePmError;
+      if (pmRunsError) throw pmRunsError;
       if (hkRunsError) throw hkRunsError;
 
       const roomNumbers = Array.from(
@@ -1143,11 +1143,16 @@ export default function DashboardPage() {
         Math.min(100, Math.round((specialProjectDoneRooms / 156) * 100))
       );
 
+      const overduePm = ((pmRuns || []) as Array<{ due_date: string; status: string }>).filter((row) => {
+        if (!row?.due_date) return false;
+        return row.due_date < today && row.status !== 'DONE';
+      }).length;
+
       setInsights({
         roomPendingSave,
         specialProjectCompletion,
         specialProjectDoneRooms,
-        overduePm: overduePmCount || 0,
+        overduePm,
       });
     } catch {
       // keep the current cards stable if an auxiliary metric fails
@@ -1961,9 +1966,26 @@ async function handleDeleteTask(taskId: string) {
     <main style={styles.page}>
       <section style={styles.content}>
           <div style={styles.headerCard}>
-            <div style={styles.brandBand}>
-              <div style={styles.brandCenter}>
-                <div style={styles.logoWrap}>
+            <div
+              style={{
+                ...styles.brandBand,
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : styles.brandBand.alignItems,
+              }}
+            >
+              <div
+                style={{
+                  ...styles.brandCenter,
+                  justifyContent: isMobile ? 'flex-start' : 'center',
+                }}
+              >
+                <div
+                  style={{
+                    ...styles.logoWrap,
+                    width: isMobile ? 46 : styles.logoWrap.width,
+                    height: isMobile ? 46 : styles.logoWrap.height,
+                  }}
+                >
                   <Image
                     src="/logo.png"
                     alt="Hallmark Crown Hotel logo"
@@ -1973,11 +1995,17 @@ async function handleDeleteTask(taskId: string) {
                   />
                 </div>
                 <div style={styles.headerTextWrap}>
-                  <div style={styles.eyebrow}>Hotel Hallmark</div>
+                  <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
                   <h1 style={styles.title}>{pageTitle}</h1>
                 </div>
               </div>
-              <div style={styles.brandActions}>
+              <div
+                style={{
+                  ...styles.brandActions,
+                  width: isMobile ? '100%' : undefined,
+                  justifyContent: isMobile ? 'space-between' : 'flex-end',
+                }}
+              >
                 <button
                   onClick={() => loadTasks(false)}
                   style={styles.headerGhostBtn}
@@ -3153,13 +3181,13 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
-    background: 'linear-gradient(180deg, #0b1b45 0%, #102659 100%)',
-    border: '1px solid rgba(96, 165, 250, 0.16)',
+    background: 'linear-gradient(135deg, #fffdf8 0%, #f8f6f1 42%, #eef4ff 100%)',
+    border: '1px solid #e7ddcf',
     borderRadius: 24,
     padding: 16,
     marginBottom: 12,
     overflow: 'hidden',
-    boxShadow: '0 24px 40px rgba(2, 6, 23, 0.2)',
+    boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)',
   },
   brandBand: {
     display: 'flex',
@@ -3180,13 +3208,13 @@ const styles: Record<string, React.CSSProperties> = {
     width: 52,
     height: 52,
     borderRadius: 14,
-    background: 'rgba(255,255,255,0.08)',
+    background: 'rgba(255,255,255,0.76)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.12)',
+    border: '1px solid #eadfce',
   },
   headerTextWrap: {
     minWidth: 0,
@@ -3199,14 +3227,14 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
   },
   headerGhostBtn: {
-    border: '1px solid rgba(255,255,255,0.16)',
-    background: 'rgba(255,255,255,0.08)',
-    color: '#ffffff',
+    border: '1px solid #d7e3f2',
+    background: 'rgba(255,255,255,0.92)',
+    color: '#1e3a8a',
     borderRadius: 14,
     padding: '10px 16px',
     fontWeight: 800,
     cursor: 'pointer',
-    boxShadow: 'none',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
   },
   overviewGrid: {
     display: 'grid',
@@ -3262,7 +3290,7 @@ const styles: Record<string, React.CSSProperties> = {
   eyebrow: {
     fontSize: 11,
     fontWeight: 800,
-    color: 'rgba(255,255,255,0.72)',
+    color: '#8a6a43',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -3270,7 +3298,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 24,
     lineHeight: 1.12,
     margin: '4px 0 0',
-    color: '#ffffff',
+    color: '#0f172a',
     fontWeight: 900,
     wordBreak: 'break-word',
   },
