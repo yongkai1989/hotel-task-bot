@@ -136,7 +136,7 @@ export default function DashboardLayout({
       style={{
         display: 'flex',
         minHeight: '100vh',
-        background: '#f8fafc',
+        background: 'linear-gradient(180deg, #f4f8ff 0%, #eef4fb 100%)',
       }}
     >
       <DashboardSidebar
@@ -149,24 +149,30 @@ export default function DashboardLayout({
         style={{
           flex: 1,
           minWidth: 0,
-          padding: '20px 16px 40px',
+          padding: '18px 18px 40px',
         }}
       >
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 18 }}>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             style={{
-              border: '1px solid #cbd5e1',
-              background: '#ffffff',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
+              border: '1px solid #d7e3f2',
+              background: 'rgba(255,255,255,0.92)',
               color: '#0f172a',
-              borderRadius: 12,
+              borderRadius: 14,
               padding: '12px 16px',
-              fontWeight: 700,
+              fontWeight: 800,
               cursor: 'pointer',
+              boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+              backdropFilter: 'blur(10px)',
             }}
           >
-            ☰ Menu
+            <span style={{ fontSize: 13, lineHeight: 1 }}>||</span>
+            <span>Menu</span>
           </button>
         </div>
 
