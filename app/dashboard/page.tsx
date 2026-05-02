@@ -1879,7 +1879,40 @@ async function handleDeleteTask(taskId: string) {
             </div>
           ) : (
             <>
-              {sidebarView === 'DASHBOARD' ? null : null}
+              {sidebarView === 'DASHBOARD' ? (
+                <section
+                  style={{
+                    ...styles.overviewGrid,
+                    gridTemplateColumns: isMobile
+                      ? '1fr'
+                      : isTablet
+                      ? 'repeat(2, minmax(0, 1fr))'
+                      : 'repeat(3, minmax(0, 1fr))',
+                  }}
+                >
+                  <article style={styles.overviewCard}>
+                    <div style={styles.overviewIconBlue}>O</div>
+                    <div style={styles.overviewContent}>
+                      <div style={styles.overviewLabel}>Open Tasks</div>
+                      <div style={styles.overviewValue}>{summary.open}</div>
+                    </div>
+                  </article>
+                  <article style={styles.overviewCard}>
+                    <div style={styles.overviewIconAmber}>D</div>
+                    <div style={styles.overviewContent}>
+                      <div style={styles.overviewLabel}>Doing</div>
+                      <div style={styles.overviewValue}>{summary.doing}</div>
+                    </div>
+                  </article>
+                  <article style={styles.overviewCard}>
+                    <div style={styles.overviewIconGreen}>C</div>
+                    <div style={styles.overviewContent}>
+                      <div style={styles.overviewLabel}>Done Today</div>
+                      <div style={styles.overviewValue}>{summary.doneToday}</div>
+                    </div>
+                  </article>
+                </section>
+              ) : null}
 
               <section style={styles.filterPanel}>
                 <div style={styles.filterHeader}>
@@ -3035,6 +3068,72 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: 'pointer',
     boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+  },
+  overviewGrid: {
+    display: 'grid',
+    gap: 14,
+    marginBottom: 16,
+  },
+  overviewCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    background: 'rgba(255,255,255,0.94)',
+    border: '1px solid #dfe9f5',
+    borderRadius: 22,
+    padding: 18,
+    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
+  },
+  overviewContent: {
+    minWidth: 0,
+  },
+  overviewLabel: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#5b6b82',
+    marginBottom: 6,
+  },
+  overviewValue: {
+    fontSize: 42,
+    lineHeight: 1,
+    fontWeight: 900,
+    color: '#0f172a',
+  },
+  overviewIconBlue: {
+    width: 56,
+    height: 56,
+    borderRadius: 999,
+    background: '#dbeafe',
+    color: '#2563eb',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    flexShrink: 0,
+  },
+  overviewIconAmber: {
+    width: 56,
+    height: 56,
+    borderRadius: 999,
+    background: '#fef3c7',
+    color: '#d97706',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    flexShrink: 0,
+  },
+  overviewIconGreen: {
+    width: 56,
+    height: 56,
+    borderRadius: 999,
+    background: '#dcfce7',
+    color: '#16a34a',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    flexShrink: 0,
   },
   eyebrow: {
     fontSize: 11,
