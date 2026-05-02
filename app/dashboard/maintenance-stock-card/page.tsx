@@ -173,6 +173,8 @@ export default function MaintenanceStockCardPage() {
     return profile.can_access_stock_card === true;
   }, [profile]);
 
+  const isSuperuser = profile?.role === 'SUPERUSER';
+
   async function loadData() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
@@ -287,6 +289,45 @@ export default function MaintenanceStockCardPage() {
       await loadData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to add stock item.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteItem(item: ItemSummary) {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    if (!isSuperuser) {
+      setErrorMsg('Only superusers can delete items.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete "${item.itemName}"?\n\nThis will also remove its stock movement history and linked damaged records.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase
+        .from('maintenance_stock_items')
+        .delete()
+        .eq('id', item.id);
+
+      if (error) throw error;
+
+      setSuccessMsg(`Deleted ${item.itemName}.`);
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to delete stock item.');
     } finally {
       setSaving(false);
     }
@@ -593,6 +634,16 @@ export default function MaintenanceStockCardPage() {
                     <button type="button" onClick={() => openMovementModal('TRANSFER', item)} style={styles.actionBtn}>
                       Move Branch
                     </button>
+                    {isSuperuser ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteItem(item)}
+                        style={styles.deleteBtn}
+                        disabled={saving}
+                      >
+                        Delete Item
+                      </button>
+                    ) : null}
                   </div>
                 </article>
               ))}
@@ -933,6 +984,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     padding: '10px 12px',
     fontWeight: 700,
+    cursor: 'pointer',
+  },
+  deleteBtn: {
+    border: '1px solid #ef4444',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontWeight: 800,
     cursor: 'pointer',
   },
   logList: {
