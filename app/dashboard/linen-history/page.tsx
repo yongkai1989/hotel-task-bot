@@ -87,7 +87,7 @@ type HistoryData = {
   snapshot: SnapshotRow | null;
   floorBillMap: Record<string, LinenTotals>;
   blockBillTotals: Record<string, LinenTotals>;
-  source: 'live' | 'snapshot' | 'snapshot-next-day-fallback';
+  source: 'live' | 'snapshot' | 'snapshot-next-day-fallback' | 'historical-live-fallback';
   snapshotServiceDate?: string | null;
 };
 
@@ -538,7 +538,7 @@ export default function LinenHistoryPage() {
 
       const fallbackSnapshotDate = shiftDateString(selectedDate, 1);
 
-      const [snapshotRes, billRes] = await Promise.all([
+      const [snapshotRes, billRes, roomRes, statusRes, entryRes, mapRes] = await Promise.all([
         supabase
           .from('linen_daily_snapshot')
           .select('service_date, expected_json, actual_json, difference_json')
@@ -549,10 +549,30 @@ export default function LinenHistoryPage() {
           .select('service_date, block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', selectedDate)
           .order('block_no', { ascending: true }),
+        supabase
+          .from('room_master')
+          .select('room_number, block_no, floor_no, room_type')
+          .eq('is_active', true)
+          .order('room_number', { ascending: true }),
+        supabase
+          .from('linen_room_status')
+          .select('room_number, status')
+          .eq('service_date', selectedDate),
+        supabase
+          .from('linen_room_entry')
+          .select('room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate),
+        supabase
+          .from('linen_room_type_map')
+          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
       ]);
 
       if (snapshotRes.error) throw snapshotRes.error;
       if (billRes.error) throw billRes.error;
+      if (roomRes.error) throw roomRes.error;
+      if (statusRes.error) throw statusRes.error;
+      if (entryRes.error) throw entryRes.error;
+      if (mapRes.error) throw mapRes.error;
 
       const snapshotRows = (snapshotRes.data || []) as SnapshotRow[];
       const exactSnapshot =
@@ -561,7 +581,24 @@ export default function LinenHistoryPage() {
         !exactSnapshot
           ? snapshotRows.find((row) => row.service_date === fallbackSnapshotDate) || null
           : null;
-      const resolvedSnapshot = exactSnapshot || nextDayFallbackSnapshot;
+      const fallbackLiveSnapshot =
+        !exactSnapshot && !nextDayFallbackSnapshot
+          ? buildSnapshotFromLiveData(
+              (roomRes.data || []) as RoomMasterRow[],
+              (statusRes.data || []) as StatusRow[],
+              (entryRes.data || []) as EntryRow[],
+              (mapRes.data || []) as LinenMapRow[],
+              selectedDate
+            )
+          : null;
+      const hasHistoricalLiveData =
+        !!fallbackLiveSnapshot &&
+        (
+          Object.keys(fallbackLiveSnapshot.expected_json?.floors || {}).length > 0 ||
+          Object.keys(fallbackLiveSnapshot.actual_json?.floors || {}).length > 0 ||
+          ((billRes.data || []) as LinenBillRow[]).length > 0
+        );
+      const resolvedSnapshot = exactSnapshot || nextDayFallbackSnapshot || (hasHistoricalLiveData ? fallbackLiveSnapshot : null);
 
       const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
 
@@ -569,8 +606,14 @@ export default function LinenHistoryPage() {
         snapshot: resolvedSnapshot,
         floorBillMap,
         blockBillTotals,
-        source: exactSnapshot ? 'snapshot' : nextDayFallbackSnapshot ? 'snapshot-next-day-fallback' : 'snapshot',
-        snapshotServiceDate: resolvedSnapshot?.service_date || null,
+        source: exactSnapshot
+          ? 'snapshot'
+          : nextDayFallbackSnapshot
+            ? 'snapshot-next-day-fallback'
+            : hasHistoricalLiveData
+              ? 'historical-live-fallback'
+              : 'snapshot',
+        snapshotServiceDate: resolvedSnapshot?.service_date || selectedDate || null,
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load linen history');
@@ -651,6 +694,11 @@ export default function LinenHistoryPage() {
       return historyData.snapshotServiceDate
         ? `Archived day snapshot (loaded from ${historyData.snapshotServiceDate})`
         : 'Archived day snapshot (next-day fallback)';
+    }
+    if (historyData.source === 'historical-live-fallback') {
+      return historyData.snapshotServiceDate
+        ? `Historical live-data fallback (${historyData.snapshotServiceDate})`
+        : 'Historical live-data fallback';
     }
     return 'Archived day snapshot';
   }, [historyData]);
