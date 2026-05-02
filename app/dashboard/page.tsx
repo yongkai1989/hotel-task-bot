@@ -1775,6 +1775,31 @@ async function handleDeleteTask(taskId: string) {
                 <p style={styles.subtitle}>{pageSubtitle}</p>
               </div>
             </div>
+            <div style={styles.headerActionRow}>
+              <button
+                onClick={() => loadTasks(false)}
+                style={styles.headerGhostBtn}
+                disabled={refreshing || loading}
+                title="Refresh tasks"
+              >
+                Refresh
+              </button>
+
+              {sidebarView === 'DASHBOARD' ? (
+                <button
+                  onClick={openCreateModal}
+                  style={styles.addTaskBtn}
+                  aria-label="Create task"
+                  title="Create new task"
+                >
+                  <span style={styles.addTaskBtnIcon}>+</span>
+                  <span style={styles.addTaskBtnTextWrap}>
+                    <span style={styles.addTaskBtnEyebrow}>Quick action</span>
+                    <span style={styles.addTaskBtnText}>Create Task</span>
+                  </span>
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {envError ? <div style={styles.errorBox}>{envError}</div> : null}
@@ -1800,11 +1825,11 @@ async function handleDeleteTask(taskId: string) {
                 <div style={styles.filterHeader}>
                   <div style={styles.filterHeaderText}>
                     <div style={styles.filterPanelTitle}>
-                      {sidebarView === 'DASHBOARD' ? 'Live Task Filters' : 'Archive Filters'}
+                      {sidebarView === 'DASHBOARD' ? 'Task Workspace' : 'Archive Workspace'}
                     </div>
                     <div style={styles.filterPanelSubtitle}>
                       {sidebarView === 'DASHBOARD'
-                        ? 'Filter active and today-completed tasks'
+                        ? 'Filter active and today-completed tasks across departments'
                         : 'Search older completed tasks by department and date'}
                     </div>
                   </div>
@@ -2863,6 +2888,26 @@ const styles: Record<string, React.CSSProperties> = {
   headerTextWrap: {
     minWidth: 0,
   },
+  headerActionRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+    marginTop: 18,
+    paddingTop: 16,
+    borderTop: '1px solid rgba(37, 99, 235, 0.12)',
+  },
+  headerGhostBtn: {
+    border: '1px solid #d7e3f2',
+    background: 'rgba(255,255,255,0.92)',
+    color: '#1e3a8a',
+    borderRadius: 14,
+    padding: '12px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+  },
   eyebrow: {
     fontSize: 11,
     fontWeight: 800,
@@ -2959,7 +3004,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   },
   filterHeaderButtons: {
-    display: 'flex',
+    display: 'none',
     gap: 8,
     flexWrap: 'wrap',
     alignItems: 'center',
@@ -3097,8 +3142,11 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     marginBottom: 12,
     flexWrap: 'wrap',
-    background: 'transparent',
-    padding: '0 2px',
+    background: '#ffffff',
+    border: '1px solid #dbe7f5',
+    borderRadius: 18,
+    padding: '12px 14px',
+    boxShadow: '0 10px 22px rgba(15, 23, 42, 0.04)',
 
   },
   resultText: {
@@ -3120,8 +3168,8 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     overflowX: 'hidden',
     boxSizing: 'border-box',
-    display: 'flex',
-    flexDirection: 'column',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
     gap: 10,
 
   },
@@ -3140,8 +3188,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   taskMainRow: {
     display: 'flex',
-    gap: 12,
-    alignItems: 'stretch',
+    gap: 14,
+    alignItems: 'flex-start',
     width: '100%',
     minWidth: 0,
 
@@ -3231,7 +3279,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   metaGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
     gap: 8,
     marginTop: 12,
 
