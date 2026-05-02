@@ -73,6 +73,7 @@ type GroupSummary = {
   label: string;
   expected: LinenTotals;
   actual: LinenTotals;
+  inBill: LinenTotals;
   difference: LinenTotals;
 };
 
@@ -634,42 +635,55 @@ export default function LinenHistoryPage() {
   const selectedSummary = useMemo(() => {
     const expected = historyData?.snapshot?.expected_json || {};
     const actual = historyData?.snapshot?.actual_json || {};
-    const difference = historyData?.snapshot?.difference_json || {};
+    const blockBillTotals = historyData?.blockBillTotals || {};
+    const floorBillMap = historyData?.floorBillMap || {};
 
     if (viewMode === 'FLOOR') {
       const floorExpected = expected?.floors?.[selectedFloorKey];
       const floorActual = actual?.floors?.[selectedFloorKey];
-      const floorDifference = difference?.floors?.[selectedFloorKey];
+      const floorInBill = floorBillMap[selectedFloorKey] || zeroTotals();
+      const floorActualTotals = parseTotals(floorActual);
 
       return {
         key: selectedFloorKey,
         label: FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey)?.label || selectedFloorKey,
         expected: parseTotals(floorExpected),
-        actual: parseTotals(floorActual),
-        difference: parseTotals(floorDifference),
+        actual: floorActualTotals,
+        inBill: floorInBill,
+        difference: subtractTotals(floorInBill, floorActualTotals),
       } as GroupSummary;
     }
 
     if (viewMode === 'BLOCK') {
       const blockExpected = expected?.blocks?.[selectedBlockKey];
       const blockActual = actual?.blocks?.[selectedBlockKey];
-      const blockDifference = difference?.blocks?.[selectedBlockKey];
+      const blockInBill = blockBillTotals[selectedBlockKey] || zeroTotals();
+      const blockActualTotals = parseTotals(blockActual);
 
       return {
         key: selectedBlockKey,
         label: BLOCK_OPTIONS.find((b) => b.key === selectedBlockKey)?.label || selectedBlockKey,
         expected: parseTotals(blockExpected),
-        actual: parseTotals(blockActual),
-        difference: parseTotals(blockDifference),
+        actual: blockActualTotals,
+        inBill: blockInBill,
+        difference: subtractTotals(blockInBill, blockActualTotals),
       } as GroupSummary;
     }
+
+    const grandExpectedTotals = parseTotals(expected?.grand_total);
+    const grandActualTotals = parseTotals(actual?.grand_total);
+    const grandInBillTotals = Object.values(blockBillTotals).reduce((acc, totals) => {
+      addTotals(acc, totals);
+      return acc;
+    }, zeroTotals());
 
     return {
       key: 'GRAND',
       label: 'Grand Total',
-      expected: parseTotals(expected?.grand_total),
-      actual: parseTotals(actual?.grand_total),
-      difference: parseTotals(difference?.grand_total),
+      expected: grandExpectedTotals,
+      actual: grandActualTotals,
+      inBill: grandInBillTotals,
+      difference: subtractTotals(grandInBillTotals, grandActualTotals),
     } as GroupSummary;
   }, [historyData, viewMode, selectedFloorKey, selectedBlockKey]);
 
@@ -974,6 +988,11 @@ export default function LinenHistoryPage() {
                     <div style={styles.metricRow}>
                       <span style={styles.metricLabel}>Actual</span>
                       <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
+                    </div>
+
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>In Bill</span>
+                      <span style={styles.metricValue}>{selectedSummary.inBill[item.key]}</span>
                     </div>
 
                     <div style={styles.metricRow}>
