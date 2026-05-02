@@ -50,6 +50,13 @@ type DashboardUser = {
   can_delete_task?: boolean;
 };
 
+type DashboardInsights = {
+  roomPendingSave: number;
+  specialProjectCompletion: number;
+  specialProjectDoneRooms: number;
+  overduePm: number;
+};
+
 type AdminUser = {
   email: string;
   name: string;
@@ -540,6 +547,42 @@ function SummaryCard({
   );
 }
 
+function OverviewMetricCard({
+  title,
+  value,
+  note,
+  tone,
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  note?: string;
+  tone: 'open' | 'doing' | 'done' | 'violet' | 'danger';
+  icon: string;
+}) {
+  const theme =
+    tone === 'open'
+      ? { bg: '#eff6ff', fg: '#2563eb' }
+      : tone === 'doing'
+      ? { bg: '#fff7ed', fg: '#d97706' }
+      : tone === 'done'
+      ? { bg: '#ecfdf5', fg: '#16a34a' }
+      : tone === 'violet'
+      ? { bg: '#f5f3ff', fg: '#7c3aed' }
+      : { bg: '#fef2f2', fg: '#dc2626' };
+
+  return (
+    <article style={styles.overviewCard}>
+      <div style={{ ...styles.overviewIcon, background: theme.bg, color: theme.fg }}>{icon}</div>
+      <div style={styles.overviewContent}>
+        <div style={styles.overviewLabel}>{title}</div>
+        <div style={styles.overviewValue}>{value}</div>
+        {note ? <div style={styles.overviewNote}>{note}</div> : null}
+      </div>
+    </article>
+  );
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
@@ -553,6 +596,12 @@ export default function DashboardPage() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [viewportWidth, setViewportWidth] = useState(1200);
+  const [insights, setInsights] = useState<DashboardInsights>({
+    roomPendingSave: 0,
+    specialProjectCompletion: 0,
+    specialProjectDoneRooms: 0,
+    overduePm: 0,
+  });
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [selectedTaskImages, setSelectedTaskImages] = useState<TaskImage[]>([]);
@@ -946,6 +995,8 @@ export default function DashboardPage() {
       return;
     }
 
+    void loadDashboardInsights();
+
     const cachedTasks = readTasksFromCache();
 
     if (cachedTasks && cachedTasks.length > 0) {
@@ -1020,6 +1071,89 @@ export default function DashboardPage() {
     setProfile(json.user);
   }
 
+  async function loadDashboardInsights() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+
+    try {
+      const today = getTodayLocalDateString();
+
+      const [{ data: statusRows, error: statusError }, { count: overduePmCount, error: overduePmError }, { data: hkRuns, error: hkRunsError }] =
+        await Promise.all([
+          supabase
+            .from('linen_room_status')
+            .select('room_number')
+            .eq('service_date', today)
+            .in('status', ['CHECKOUT', 'STAYOVER']),
+          supabase
+            .from('pm_task_runs')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'OVERDUE'),
+          supabase
+            .from('hk_special_project_task_runs')
+            .select('id, status, created_at')
+            .order('created_at', { ascending: false })
+            .limit(20),
+        ]);
+
+      if (statusError) throw statusError;
+      if (overduePmError) throw overduePmError;
+      if (hkRunsError) throw hkRunsError;
+
+      const roomNumbers = Array.from(
+        new Set(((statusRows || []) as Array<{ room_number: string }>).map((row) => row.room_number).filter(Boolean))
+      );
+
+      let savedRoomCount = 0;
+      if (roomNumbers.length > 0) {
+        const { data: entryRows, error: entryError } = await supabase
+          .from('linen_room_entry')
+          .select('room_number')
+          .eq('service_date', today)
+          .in('room_number', roomNumbers);
+
+        if (entryError) throw entryError;
+
+        savedRoomCount = new Set(
+          ((entryRows || []) as Array<{ room_number: string }>).map((row) => row.room_number).filter(Boolean)
+        ).size;
+      }
+
+      const roomPendingSave = Math.max(0, roomNumbers.length - savedRoomCount);
+
+      const pickedRun =
+        ((hkRuns || []) as Array<{ id: string; status: string; created_at?: string | null }>).find(
+          (run) => run.status === 'OPEN' || run.status === 'OVERDUE'
+        ) || ((hkRuns || []) as Array<{ id: string; status: string; created_at?: string | null }>)[0] || null;
+
+      let specialProjectDoneRooms = 0;
+      if (pickedRun?.id) {
+        const { data: projectRows, error: projectRowsError } = await supabase
+          .from('hk_special_project_task_run_rooms')
+          .select('is_done')
+          .eq('hk_special_project_task_run_id', pickedRun.id);
+
+        if (projectRowsError) throw projectRowsError;
+
+        specialProjectDoneRooms = ((projectRows || []) as Array<{ is_done: boolean }>).filter((row) => row.is_done).length;
+      }
+
+      const specialProjectCompletion = Math.max(
+        0,
+        Math.min(100, Math.round((specialProjectDoneRooms / 156) * 100))
+      );
+
+      setInsights({
+        roomPendingSave,
+        specialProjectCompletion,
+        specialProjectDoneRooms,
+        overduePm: overduePmCount || 0,
+      });
+    } catch {
+      // keep the current cards stable if an auxiliary metric fails
+    }
+  }
+
   async function loadTasks(
     showLoader = false,
     options?: { silent?: boolean; onlyIfChanged?: boolean }
@@ -1051,6 +1185,9 @@ export default function DashboardPage() {
       lastTasksFingerprintRef.current = nextFingerprint;
       saveTasksToCache(nextTasks);
       setErrorMsg('');
+      if (profile) {
+        void loadDashboardInsights();
+      }
       return true;
     } catch (err: any) {
       if (!silent) {
@@ -1815,7 +1952,7 @@ async function handleDeleteTask(taskId: string) {
 
   const pageSubtitle =
     sidebarView === 'DASHBOARD'
-      ? 'Live task board for housekeeping, maintenance, and front office'
+      ? ''
       : 'Browse previously completed tasks by completed date';
 
   const taskMainRowStyle: React.CSSProperties = styles.taskMainRow;
@@ -1824,47 +1961,43 @@ async function handleDeleteTask(taskId: string) {
     <main style={styles.page}>
       <section style={styles.content}>
           <div style={styles.headerCard}>
-            <div style={styles.headerTop}>
-              <div style={styles.logoWrap}>
-                <Image
-                  src="/logo.png"
-                  alt="Hallmark Crown Hotel logo"
-                  width={56}
-                  height={56}
-                  style={styles.logo as React.CSSProperties}
-                />
+            <div style={styles.brandBand}>
+              <div style={styles.brandCenter}>
+                <div style={styles.logoWrap}>
+                  <Image
+                    src="/logo.png"
+                    alt="Hallmark Crown Hotel logo"
+                    width={56}
+                    height={56}
+                    style={styles.logo as React.CSSProperties}
+                  />
+                </div>
+                <div style={styles.headerTextWrap}>
+                  <div style={styles.eyebrow}>Hotel Hallmark</div>
+                  <h1 style={styles.title}>{pageTitle}</h1>
+                </div>
               </div>
-
-              <div style={styles.headerTextWrap}>
-                <div style={styles.eyebrow}>Hallmark Crown Hotel</div>
-                <h1 style={styles.title}>{pageTitle}</h1>
-                <p style={styles.subtitle}>{pageSubtitle}</p>
-              </div>
-            </div>
-            <div style={styles.headerActionRow}>
-              <button
-                onClick={() => loadTasks(false)}
-                style={styles.headerGhostBtn}
-                disabled={refreshing || loading}
-                title="Refresh tasks"
-              >
-                Refresh
-              </button>
-
-              {sidebarView === 'DASHBOARD' ? (
+              <div style={styles.brandActions}>
                 <button
-                  onClick={openCreateModal}
-                  style={styles.addTaskBtn}
-                  aria-label="Create task"
-                  title="Create new task"
+                  onClick={() => loadTasks(false)}
+                  style={styles.headerGhostBtn}
+                  disabled={refreshing || loading}
+                  title="Refresh tasks"
                 >
-                  <span style={styles.addTaskBtnIcon}>+</span>
-                  <span style={styles.addTaskBtnTextWrap}>
-                    <span style={styles.addTaskBtnEyebrow}>Quick action</span>
-                    <span style={styles.addTaskBtnText}>Create Task</span>
-                  </span>
+                  Refresh
                 </button>
-              ) : null}
+                {sidebarView === 'DASHBOARD' ? (
+                  <button
+                    onClick={openCreateModal}
+                    style={styles.addTaskBtn}
+                    aria-label="Create task"
+                    title="Create new task"
+                  >
+                    <span style={styles.addTaskBtnIcon}>+</span>
+                    <span style={styles.addTaskBtnText}>Create Task</span>
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -1884,33 +2017,36 @@ async function handleDeleteTask(taskId: string) {
                   style={{
                     ...styles.overviewGrid,
                     gridTemplateColumns: isMobile
-                      ? '1fr'
-                      : isTablet
                       ? 'repeat(2, minmax(0, 1fr))'
+                      : isTablet
+                      ? 'repeat(3, minmax(0, 1fr))'
                       : 'repeat(3, minmax(0, 1fr))',
                   }}
                 >
-                  <article style={styles.overviewCard}>
-                    <div style={styles.overviewIconBlue}>O</div>
-                    <div style={styles.overviewContent}>
-                      <div style={styles.overviewLabel}>Open Tasks</div>
-                      <div style={styles.overviewValue}>{summary.open}</div>
-                    </div>
-                  </article>
-                  <article style={styles.overviewCard}>
-                    <div style={styles.overviewIconAmber}>D</div>
-                    <div style={styles.overviewContent}>
-                      <div style={styles.overviewLabel}>Doing</div>
-                      <div style={styles.overviewValue}>{summary.doing}</div>
-                    </div>
-                  </article>
-                  <article style={styles.overviewCard}>
-                    <div style={styles.overviewIconGreen}>C</div>
-                    <div style={styles.overviewContent}>
-                      <div style={styles.overviewLabel}>Done Today</div>
-                      <div style={styles.overviewValue}>{summary.doneToday}</div>
-                    </div>
-                  </article>
+                  <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="O" />
+                  <OverviewMetricCard title="Doing" value={summary.doing} note="In progress now" tone="doing" icon="D" />
+                  <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="C" />
+                  <OverviewMetricCard
+                    title="Room Pending Save"
+                    value={insights.roomPendingSave}
+                    note="Chambermaid entries not saved"
+                    tone="violet"
+                    icon="R"
+                  />
+                  <OverviewMetricCard
+                    title="Special Project Completion"
+                    value={`${insights.specialProjectCompletion}%`}
+                    note={`${insights.specialProjectDoneRooms}/156 rooms completed`}
+                    tone="doing"
+                    icon="S"
+                  />
+                  <OverviewMetricCard
+                    title="Overdue PM"
+                    value={insights.overduePm}
+                    note="Preventive maintenance overdue"
+                    tone="danger"
+                    icon="P"
+                  />
                 </section>
               ) : null}
 
@@ -1918,11 +2054,11 @@ async function handleDeleteTask(taskId: string) {
                 <div style={styles.filterHeader}>
                   <div style={styles.filterHeaderText}>
                     <div style={styles.filterPanelTitle}>
-                      {sidebarView === 'DASHBOARD' ? 'Task Workspace' : 'Archive Workspace'}
+                      {sidebarView === 'DASHBOARD' ? 'Task Filters' : 'Archive Filters'}
                     </div>
                     <div style={styles.filterPanelSubtitle}>
                       {sidebarView === 'DASHBOARD'
-                        ? 'Filter active and today-completed tasks across departments'
+                        ? 'Filter the task list below'
                         : 'Search older completed tasks by department and date'}
                     </div>
                   </div>
@@ -3017,140 +3153,126 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
-    background: 'linear-gradient(135deg, #ffffff 0%, #f6faff 38%, #edf4ff 100%)',
-    border: '1px solid #dbe7f5',
-    borderRadius: 22,
-    padding: 14,
+    background: 'linear-gradient(180deg, #0b1b45 0%, #102659 100%)',
+    border: '1px solid rgba(96, 165, 250, 0.16)',
+    borderRadius: 24,
+    padding: 16,
     marginBottom: 12,
     overflow: 'hidden',
-    boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)',
-
+    boxShadow: '0 24px 40px rgba(2, 6, 23, 0.2)',
   },
-  headerTop: {
+  brandBand: {
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    gap: 14,
+    flexWrap: 'wrap',
+  },
+  brandCenter: {
+    flex: 1,
     minWidth: 0,
-
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   logoWrap: {
-    width: 46,
-    height: 46,
+    width: 52,
+    height: 52,
     borderRadius: 14,
-    background: 'linear-gradient(180deg, #ffffff 0%, #eef4ff 100%)',
+    background: 'rgba(255,255,255,0.08)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     overflow: 'hidden',
-    border: '1px solid #dbe7f5',
-
+    border: '1px solid rgba(255,255,255,0.12)',
   },
   headerTextWrap: {
     minWidth: 0,
+    textAlign: 'left',
   },
-  headerActionRow: {
+  brandActions: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTop: '1px solid rgba(37, 99, 235, 0.12)',
   },
   headerGhostBtn: {
-    border: '1px solid #d7e3f2',
-    background: 'rgba(255,255,255,0.92)',
-    color: '#1e3a8a',
-    borderRadius: 12,
-    padding: '10px 14px',
+    border: '1px solid rgba(255,255,255,0.16)',
+    background: 'rgba(255,255,255,0.08)',
+    color: '#ffffff',
+    borderRadius: 14,
+    padding: '10px 16px',
     fontWeight: 800,
     cursor: 'pointer',
-    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+    boxShadow: 'none',
   },
   overviewGrid: {
     display: 'grid',
-    gap: 10,
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: 14,
   },
   overviewCard: {
     display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    background: 'rgba(255,255,255,0.94)',
-    border: '1px solid #dfe9f5',
-    borderRadius: 16,
-    padding: 12,
-    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
+    alignItems: 'flex-start',
+    gap: 12,
+    background: 'rgba(255,255,255,0.98)',
+    border: '1px solid #e5edf7',
+    borderRadius: 18,
+    padding: 14,
+    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
   },
   overviewContent: {
     minWidth: 0,
+    flex: 1,
   },
   overviewLabel: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#5b6b82',
-    marginBottom: 6,
+    fontSize: 11,
+    fontWeight: 800,
+    color: '#64748b',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   overviewValue: {
-    fontSize: 28,
+    fontSize: 30,
     lineHeight: 1,
     fontWeight: 900,
     color: '#0f172a',
   },
-  overviewIconBlue: {
-    width: 42,
-    height: 42,
-    borderRadius: 999,
-    background: '#dbeafe',
-    color: '#2563eb',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 900,
-    flexShrink: 0,
+  overviewNote: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 1.35,
+    color: '#64748b',
+    fontWeight: 600,
   },
-  overviewIconAmber: {
-    width: 42,
-    height: 42,
+  overviewIcon: {
+    width: 40,
+    height: 40,
     borderRadius: 999,
-    background: '#fef3c7',
-    color: '#d97706',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontWeight: 900,
     flexShrink: 0,
-  },
-  overviewIconGreen: {
-    width: 42,
-    height: 42,
-    borderRadius: 999,
-    background: '#dcfce7',
-    color: '#16a34a',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 900,
-    flexShrink: 0,
+    fontSize: 14,
   },
   eyebrow: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: 800,
-    color: '#2563eb',
+    color: 'rgba(255,255,255,0.72)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-
   },
   title: {
-    fontSize: 18,
+    fontSize: 24,
     lineHeight: 1.12,
     margin: '4px 0 0',
-    color: '#0f172a',
-    fontWeight: 800,
+    color: '#ffffff',
+    fontWeight: 900,
     wordBreak: 'break-word',
-
   },
   subtitle: {
     margin: '6px 0 0',
@@ -3261,26 +3383,26 @@ const styles: Record<string, React.CSSProperties> = {
 
   },
   addTaskBtn: {
-    minHeight: 56,
+    minHeight: 48,
     borderRadius: 14,
-    border: '1px solid rgba(37, 99, 235, 0.16)',
+    border: '1px solid rgba(255,255,255,0.16)',
     background: 'linear-gradient(135deg, #173fb8 0%, #2563eb 52%, #60a5fa 100%)',
     color: '#ffffff',
     cursor: 'pointer',
     fontWeight: 800,
     lineHeight: 1,
     boxShadow: '0 14px 24px rgba(37, 99, 235, 0.24)',
-    padding: '8px 14px',
+    padding: '8px 16px',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     position: 'relative',
     overflow: 'hidden',
   },
   addTaskBtnIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 8,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3307,7 +3429,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
   },
   addTaskBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: 900,
     color: '#ffffff',
     lineHeight: 1.1,
