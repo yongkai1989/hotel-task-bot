@@ -259,7 +259,7 @@ export default function DashboardSidebar({
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
   const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
 
-  const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT;
+  const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT || canSeeStockCard || canSeeDamaged;
   const showHousekeepingGroup =
     canSeeHkSpecialProject ||
     canSeeChambermaid ||
@@ -582,6 +582,26 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   Maintenance OT
+                </Link>
+              ) : null}
+
+              {canSeeStockCard ? (
+                <Link
+                  href="/dashboard/maintenance-stock-card"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Maintenance Stock Card
+                </Link>
+              ) : null}
+
+              {canSeeDamaged ? (
+                <Link
+                  href="/dashboard/maintenance-damaged"
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  Maintenance Damaged
                 </Link>
               ) : null}
             </GroupSection>
