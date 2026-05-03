@@ -743,6 +743,8 @@ export default function DashboardPage() {
   const lastTasksFingerprintRef = useRef('');
   const hasHydratedFromCacheRef = useRef(false);
   const lastVisibilityCheckRef = useRef(0);
+  const lastTasksRequestAtRef = useRef(0);
+  const tasksRequestInFlightRef = useRef<Promise<boolean> | null>(null);
 
   function buildTasksFingerprint(taskList: Task[]) {
     return JSON.stringify(
@@ -1166,8 +1168,20 @@ export default function DashboardPage() {
   ) {
     const silent = options?.silent ?? false;
     const onlyIfChanged = options?.onlyIfChanged ?? false;
+    const now = Date.now();
 
-    try {
+    if (tasksRequestInFlightRef.current) {
+      return tasksRequestInFlightRef.current;
+    }
+
+    if (silent && now - lastTasksRequestAtRef.current < 3000) {
+      return false;
+    }
+
+    const requestPromise = (async () => {
+      try {
+        lastTasksRequestAtRef.current = now;
+
       if (!silent) {
         if (showLoader) {
           setLoading(true);
@@ -1195,17 +1209,22 @@ export default function DashboardPage() {
         void loadDashboardInsights();
       }
       return true;
-    } catch (err: any) {
+      } catch (err: any) {
       if (!silent) {
         setErrorMsg(err?.message || 'Failed to load tasks');
       }
       return false;
-    } finally {
+      } finally {
       if (!silent) {
         setLoading(false);
         setRefreshing(false);
       }
-    }
+        tasksRequestInFlightRef.current = null;
+      }
+    })();
+
+    tasksRequestInFlightRef.current = requestPromise;
+    return requestPromise;
   }
 
   async function handleLogin() {
