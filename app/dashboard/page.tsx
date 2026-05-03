@@ -1087,7 +1087,8 @@ export default function DashboardPage() {
             .in('status', ['CHECKOUT', 'STAYOVER']),
           supabase
             .from('pm_task_runs')
-            .select('due_date, status, pm_tasks!inner(id)')
+            .select('due_date, status, pm_tasks!inner(id, is_active)')
+            .eq('pm_tasks.is_active', true)
             .neq('status', 'DONE'),
           supabase
             .from('hk_special_project_task_runs')
