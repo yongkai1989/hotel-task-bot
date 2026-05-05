@@ -58,6 +58,8 @@ function getSupabaseSafe() {
 }
 
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
+const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
+const PROFILE_REFRESH_MIN_MS = 180000;
 
 export default function DashboardLayout({
   children,
@@ -81,6 +83,15 @@ export default function DashboardLayout({
           try {
             setProfile(JSON.parse(cached) as DashboardUser);
           } catch {}
+        }
+
+        const cachedAt =
+          typeof window !== 'undefined'
+            ? Number(window.sessionStorage.getItem(PROFILE_CACHE_TS_KEY) || '0')
+            : 0;
+
+        if (cached && cachedAt && Date.now() - cachedAt < PROFILE_REFRESH_MIN_MS) {
+          return;
         }
 
         const supabase = getSupabaseSafe();
@@ -112,11 +123,13 @@ export default function DashboardLayout({
           setProfile(nextProfile);
           if (typeof window !== 'undefined') {
             window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(nextProfile));
+            window.sessionStorage.setItem(PROFILE_CACHE_TS_KEY, String(Date.now()));
           }
         } else {
           setProfile(null);
           if (typeof window !== 'undefined') {
             window.sessionStorage.removeItem(PROFILE_CACHE_KEY);
+            window.sessionStorage.removeItem(PROFILE_CACHE_TS_KEY);
           }
         }
       } catch {
