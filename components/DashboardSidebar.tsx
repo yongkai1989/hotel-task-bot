@@ -143,7 +143,6 @@ export default function DashboardSidebar({
   const [resolvedProfile, setResolvedProfile] = useState<EffectiveProfile | null>(
     normalizeProfile(profile)
   );
-  const [profileLoading, setProfileLoading] = useState(false);
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -166,77 +165,18 @@ export default function DashboardSidebar({
   const [managementOpen, setManagementOpen] = useState(false);
 
   useEffect(() => {
-    setResolvedProfile(normalizeProfile(profile));
-  }, [profile]);
+    const next = normalizeProfile(profile);
+    setResolvedProfile(next);
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function refreshProfileFromDb() {
-      try {
-        const cached =
-          typeof window !== 'undefined'
-            ? window.sessionStorage.getItem(PROFILE_CACHE_KEY)
-            : null;
-
-        if (!profile && cached && mounted) {
-          try {
-            setResolvedProfile(normalizeProfile(JSON.parse(cached) as SidebarProfile));
-          } catch {}
-        }
-
-        const shouldShowLoading = !normalizeProfile(profile) && !resolvedProfile;
-        if (shouldShowLoading) {
-          setProfileLoading(true);
-        }
-
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
-        if (sessionError) throw sessionError;
-        if (!session?.access_token) {
-          if (mounted) setResolvedProfile(normalizeProfile(profile));
-          return;
-        }
-
-        const res = await fetch(`/api/session-profile?t=${Date.now()}`, {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: 'no-store',
-        });
-
-        const json = await res.json();
-
-        if (!res.ok || !json?.ok) {
-          throw new Error(json?.error || `Request failed (${res.status})`);
-        }
-
-        if (mounted) {
-          const nextRaw = (json.user as SidebarProfile | null) ?? profile;
-          setResolvedProfile(normalizeProfile(nextRaw));
-          if (typeof window !== 'undefined' && nextRaw) {
-            window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(nextRaw));
-          }
-        }
-      } catch {
-        if (mounted) {
-          setResolvedProfile(normalizeProfile(profile));
-        }
-      } finally {
-        if (mounted) setProfileLoading(false);
+    if (!next && typeof window !== 'undefined') {
+      const cached = window.sessionStorage.getItem(PROFILE_CACHE_KEY);
+      if (cached) {
+        try {
+          setResolvedProfile(normalizeProfile(JSON.parse(cached) as SidebarProfile));
+        } catch {}
       }
     }
-
-    void refreshProfileFromDb();
-
-    return () => {
-      mounted = false;
-    };
-  }, [profile?.user_id, profile?.email, supabase]);
+  }, [profile]);
 
   const currentProfile = resolvedProfile;
   const effectiveProfile = getEffectiveProfile(currentProfile);
@@ -542,8 +482,8 @@ export default function DashboardSidebar({
           </button>
         </div>
 
-        {profileLoading && !currentProfile ? (
-          <div style={styles.loadingBox}>Loading access…</div>
+        {!currentProfile ? (
+          <div style={styles.loadingBox}>Loading access...</div>
         ) : null}
 
         <nav style={styles.nav}>
@@ -1159,3 +1099,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
   },
 };
+
