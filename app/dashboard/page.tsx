@@ -59,8 +59,11 @@ type DashboardInsights = {
 
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
+const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
+const DASHBOARD_PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
 const SILENT_TASK_REFRESH_MIN_MS = 60000;
 const INSIGHTS_REFRESH_MIN_MS = 180000;
+const PROFILE_REFRESH_MIN_MS = 180000;
 
 type AdminUser = {
   email: string;
@@ -1099,6 +1102,18 @@ export default function DashboardPage() {
   }
 
   async function loadProfile(token: string) {
+    if (typeof window !== 'undefined') {
+      const cachedRaw = window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_KEY);
+      const cachedAt = Number(window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_TS_KEY) || '0');
+
+      if (cachedRaw && cachedAt && Date.now() - cachedAt < PROFILE_REFRESH_MIN_MS) {
+        try {
+          setProfile(JSON.parse(cachedRaw));
+          return;
+        } catch {}
+      }
+    }
+
     const json = await fetchJson('/api/session-profile', {
       method: 'GET',
       headers: {
@@ -1107,6 +1122,11 @@ export default function DashboardPage() {
     });
 
     setProfile(json.user);
+
+    if (typeof window !== 'undefined' && json.user) {
+      window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_KEY, JSON.stringify(json.user));
+      window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_TS_KEY, String(Date.now()));
+    }
   }
 
   async function loadDashboardInsights() {
