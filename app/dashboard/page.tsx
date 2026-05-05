@@ -57,6 +57,11 @@ type DashboardInsights = {
   overduePm: number;
 };
 
+const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
+const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
+const SILENT_TASK_REFRESH_MIN_MS = 60000;
+const INSIGHTS_REFRESH_MIN_MS = 180000;
+
 type AdminUser = {
   email: string;
   name: string;
@@ -649,11 +654,20 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const onResize = () => setViewportWidth(window.innerWidth);
+    let frame = 0;
+    const onResize = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        setViewportWidth((prev) => (prev === window.innerWidth ? prev : window.innerWidth));
+      });
+    };
     onResize();
     window.addEventListener('resize', onResize);
 
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
   const isMobile = viewportWidth < 768;
@@ -745,28 +759,17 @@ export default function DashboardPage() {
   const lastVisibilityCheckRef = useRef(0);
   const lastTasksRequestAtRef = useRef(0);
   const tasksRequestInFlightRef = useRef<Promise<boolean> | null>(null);
+  const lastInsightsRequestAtRef = useRef(0);
+  const insightsRequestInFlightRef = useRef<Promise<void> | null>(null);
 
   function buildTasksFingerprint(taskList: Task[]) {
     return JSON.stringify(
       (taskList || []).map((task) => ({
         id: task.id,
-        task_code: task.task_code,
-        room: task.room,
-        department: task.department,
-        task_text: task.task_text,
         status: task.status,
-        created_at: task.created_at,
         done_at: task.done_at || null,
-        done_by_name: task.done_by_name || null,
-        last_updated_by_name: task.last_updated_by_name || null,
-        image_url: task.image_url || null,
-        created_by_name: task.created_by_name || null,
         edited_at: task.edited_at || null,
-        edited_by_name: task.edited_by_name || null,
         image_count: Array.isArray(task.task_images) ? task.task_images.length : 0,
-        image_keys: Array.isArray(task.task_images)
-          ? task.task_images.map((img) => `${img.id}-${img.image_url}-${img.caption || ''}`)
-          : [],
       }))
     );
   }
@@ -781,7 +784,7 @@ export default function DashboardPage() {
         savedAt: Date.now(),
       };
 
-      sessionStorage.setItem('dashboard_tasks_cache', JSON.stringify(payload));
+      sessionStorage.setItem(DASHBOARD_TASKS_CACHE_KEY, JSON.stringify(payload));
     } catch {
       // ignore cache write failure
     }
@@ -791,7 +794,7 @@ export default function DashboardPage() {
     if (typeof window === 'undefined') return null;
 
     try {
-      const raw = sessionStorage.getItem('dashboard_tasks_cache');
+      const raw = sessionStorage.getItem(DASHBOARD_TASKS_CACHE_KEY);
       if (!raw) return null;
 
       const parsed = JSON.parse(raw);
@@ -801,6 +804,39 @@ export default function DashboardPage() {
         parsed.fingerprint || buildTasksFingerprint(parsed.tasks);
 
       return parsed.tasks as Task[];
+    } catch {
+      return null;
+    }
+  }
+
+  function saveInsightsToCache(nextInsights: DashboardInsights) {
+    if (typeof window === 'undefined') return;
+
+    try {
+      sessionStorage.setItem(
+        DASHBOARD_INSIGHTS_CACHE_KEY,
+        JSON.stringify({
+          insights: nextInsights,
+          savedAt: Date.now(),
+        })
+      );
+    } catch {
+      // ignore cache write failure
+    }
+  }
+
+  function readInsightsFromCache(maxAgeMs = INSIGHTS_REFRESH_MIN_MS): DashboardInsights | null {
+    if (typeof window === 'undefined') return null;
+
+    try {
+      const raw = sessionStorage.getItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw);
+      if (!parsed?.insights || typeof parsed.savedAt !== 'number') return null;
+      if (Date.now() - parsed.savedAt > maxAgeMs) return null;
+
+      return parsed.insights as DashboardInsights;
     } catch {
       return null;
     }
@@ -1020,7 +1056,7 @@ export default function DashboardPage() {
       const now = Date.now();
 
       if (checking) return;
-      if (now - lastVisibilityCheckRef.current < 1500) return;
+      if (now - lastVisibilityCheckRef.current < 30000) return;
 
       lastVisibilityCheckRef.current = now;
       checking = true;
@@ -1077,7 +1113,24 @@ export default function DashboardPage() {
     const supabase = getSupabaseSafe();
     if (!supabase) return;
 
-    try {
+    const now = Date.now();
+
+    if (insightsRequestInFlightRef.current) {
+      return insightsRequestInFlightRef.current;
+    }
+
+    const cachedInsights = readInsightsFromCache();
+    if (cachedInsights) {
+      setInsights(cachedInsights);
+    }
+
+    if (now - lastInsightsRequestAtRef.current < INSIGHTS_REFRESH_MIN_MS) {
+      return;
+    }
+
+    const requestPromise = (async () => {
+      try {
+      lastInsightsRequestAtRef.current = now;
       const today = getTodayLocalDateString();
 
       const [{ data: statusRows, error: statusError }, { data: pmRuns, error: pmRunsError }, { data: hkRuns, error: hkRunsError }] =
@@ -1151,15 +1204,24 @@ export default function DashboardPage() {
         return row.due_date < today && row.status !== 'DONE';
       }).length;
 
-      setInsights({
+      const nextInsights = {
         roomPendingSave,
         specialProjectCompletion,
         specialProjectDoneRooms,
         overduePm,
-      });
+      };
+
+      setInsights(nextInsights);
+      saveInsightsToCache(nextInsights);
     } catch {
       // keep the current cards stable if an auxiliary metric fails
-    }
+      } finally {
+        insightsRequestInFlightRef.current = null;
+      }
+    })();
+
+    insightsRequestInFlightRef.current = requestPromise;
+    return requestPromise;
   }
 
   async function loadTasks(
@@ -1174,7 +1236,7 @@ export default function DashboardPage() {
       return tasksRequestInFlightRef.current;
     }
 
-    if (silent && now - lastTasksRequestAtRef.current < 3000) {
+    if (silent && now - lastTasksRequestAtRef.current < SILENT_TASK_REFRESH_MIN_MS) {
       return false;
     }
 
@@ -1205,7 +1267,7 @@ export default function DashboardPage() {
       lastTasksFingerprintRef.current = nextFingerprint;
       saveTasksToCache(nextTasks);
       setErrorMsg('');
-      if (profile) {
+      if (profile && now - lastInsightsRequestAtRef.current >= INSIGHTS_REFRESH_MIN_MS) {
         void loadDashboardInsights();
       }
       return true;
@@ -1276,7 +1338,8 @@ export default function DashboardPage() {
       setTasks([]);
       setLoginOpen(false);
       setPasswordModalOpen(false);
-      sessionStorage.removeItem('dashboard_tasks_cache');
+      sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+      sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
 
       window.location.replace('/dashboard');
     } catch (err: any) {
