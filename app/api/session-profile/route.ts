@@ -7,6 +7,30 @@ export const fetchCache = 'force-no-store';
 
 type DashboardRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 
+const PROFILE_SELECT = `
+  user_id,
+  email,
+  name,
+  role,
+  can_create_task,
+  can_edit_task,
+  can_delete_task,
+  can_access_preventive_maintenance,
+  can_access_maintenance_ot,
+  can_access_hk_special_project,
+  can_access_chambermaid_entry,
+  can_access_supervisor_update,
+  can_access_laundry_count,
+  can_access_stock_card,
+  can_access_damaged,
+  can_access_linen_history,
+  can_access_daily_forms,
+  can_access_management_tasks,
+  can_access_admin_settings,
+  can_access_linen_admin,
+  updated_at
+`;
+
 function getBearerToken(req: NextRequest) {
   const authHeader = req.headers.get('authorization') || '';
   if (!authHeader.startsWith('Bearer ')) return '';
@@ -104,9 +128,30 @@ function buildUser(profile: any, authEmail: string) {
   };
 }
 
+function buildDebugPayload(profileByUserId: any, emailProfiles: any[], authUserId: string) {
+  const selectedProfile = profileByUserId || pickBestProfile(emailProfiles || []);
+
+  return {
+    source: 'direct-service-role-session-profile-auth-row-first',
+    matchedProfileUserId: selectedProfile?.user_id || null,
+    authUserId,
+    selectedProfileReason: profileByUserId ? 'auth-user-id-row' : 'latest-email-row',
+    matchedProfiles: [profileByUserId, ...(emailProfiles || [])]
+      .filter(Boolean)
+      .map((row) => ({
+        user_id: row.user_id,
+        email: row.email,
+        role: row.role,
+        enabled: enabledCount(row),
+        updated_at: row.updated_at || null,
+      })),
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const token = getBearerToken(req);
+    const includeDebug = req.nextUrl.searchParams.get('debug') === '1';
 
     if (!token) {
       return NextResponse.json(
@@ -146,29 +191,7 @@ export async function GET(req: NextRequest) {
 
     const { data: profileByUserId, error: profileError } = await serviceClient
       .from('user_profiles')
-      .select(`
-        user_id,
-        email,
-        name,
-        role,
-        can_create_task,
-        can_edit_task,
-        can_delete_task,
-        can_access_preventive_maintenance,
-        can_access_maintenance_ot,
-        can_access_hk_special_project,
-        can_access_chambermaid_entry,
-        can_access_supervisor_update,
-        can_access_laundry_count,
-        can_access_stock_card,
-        can_access_damaged,
-        can_access_linen_history,
-        can_access_daily_forms,
-        can_access_management_tasks,
-        can_access_admin_settings,
-        can_access_linen_admin,
-        updated_at
-      `)
+      .select(PROFILE_SELECT)
       .eq('user_id', authUser.id)
       .maybeSingle();
 
@@ -179,31 +202,26 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (profileByUserId) {
+      return NextResponse.json(
+        {
+          ok: true,
+          user: buildUser(profileByUserId, authUser.email),
+          ...(includeDebug
+            ? buildDebugPayload(profileByUserId, [profileByUserId], authUser.id)
+            : {}),
+        },
+        {
+          headers: {
+            'Cache-Control': 'no-store, max-age=0',
+          },
+        }
+      );
+    }
+
     const { data: emailProfiles, error: emailProfilesError } = await serviceClient
       .from('user_profiles')
-      .select(`
-        user_id,
-        email,
-        name,
-        role,
-        can_create_task,
-        can_edit_task,
-        can_delete_task,
-        can_access_preventive_maintenance,
-        can_access_maintenance_ot,
-        can_access_hk_special_project,
-        can_access_chambermaid_entry,
-        can_access_supervisor_update,
-        can_access_laundry_count,
-        can_access_stock_card,
-        can_access_damaged,
-        can_access_linen_history,
-        can_access_daily_forms,
-        can_access_management_tasks,
-        can_access_admin_settings,
-        can_access_linen_admin,
-        updated_at
-      `)
+      .select(PROFILE_SELECT)
       .ilike('email', authUser.email);
 
     if (emailProfilesError) {
@@ -213,7 +231,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const profile = profileByUserId || pickBestProfile(emailProfiles || []);
+    const profile = pickBestProfile(emailProfiles || []);
 
     if (!profile) {
       return NextResponse.json(
@@ -226,19 +244,7 @@ export async function GET(req: NextRequest) {
       {
         ok: true,
         user: buildUser(profile, authUser.email),
-        source: 'direct-service-role-session-profile-auth-row-first',
-        matchedProfileUserId: profile.user_id,
-        authUserId: authUser.id,
-        selectedProfileReason: profileByUserId ? 'auth-user-id-row' : 'latest-email-row',
-        matchedProfiles: [profileByUserId, ...(emailProfiles || [])]
-          .filter(Boolean)
-          .map((row) => ({
-            user_id: row.user_id,
-            email: row.email,
-            role: row.role,
-            enabled: enabledCount(row),
-            updated_at: row.updated_at || null,
-          })),
+        ...(includeDebug ? buildDebugPayload(null, emailProfiles || [], authUser.id) : {}),
       },
       {
         headers: {
