@@ -357,8 +357,7 @@ export async function GET() {
           id,
           task_id,
           image_url,
-          caption,
-          created_at
+          caption
         `
         )
         .in('task_id', taskIds)
@@ -375,7 +374,6 @@ export async function GET() {
           id: img.id,
           image_url: img.image_url,
           caption: img.caption,
-          created_at: img.created_at,
         });
         imageMap.set(key, existing);
       }
