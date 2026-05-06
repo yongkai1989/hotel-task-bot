@@ -14,7 +14,7 @@ type DashboardUser = {
 
 type BranchName = 'Crown' | 'Leisure' | 'Express' | 'View';
 type MovementType = 'RESTOCK' | 'TAKE_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
-type ItemCategory = 'Electrical' | 'Plumbing' | 'Air-Con';
+type ItemCategory = 'Electrical' | 'Plumbing' | 'Air-Con' | 'Others';
 
 type StockItemRow = {
   id: string;
@@ -61,7 +61,7 @@ type ItemSummary = {
 };
 
 const BRANCHES: BranchName[] = ['Crown', 'Leisure', 'Express', 'View'];
-const ITEM_CATEGORIES: ItemCategory[] = ['Electrical', 'Plumbing', 'Air-Con'];
+const ITEM_CATEGORIES: ItemCategory[] = ['Electrical', 'Plumbing', 'Air-Con', 'Others'];
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -89,7 +89,7 @@ function emptyBranchStocks() {
 }
 
 function normalizeCategory(value: unknown): ItemCategory {
-  if (value === 'Electrical' || value === 'Plumbing' || value === 'Air-Con') {
+  if (value === 'Electrical' || value === 'Plumbing' || value === 'Air-Con' || value === 'Others') {
     return value;
   }
   return 'Electrical';
@@ -124,6 +124,7 @@ export default function MaintenanceStockCardPage() {
     Electrical: true,
     Plumbing: false,
     'Air-Con': false,
+    Others: false,
   });
   const [actionMenuItemId, setActionMenuItemId] = useState<string | null>(null);
 
@@ -281,6 +282,7 @@ export default function MaintenanceStockCardPage() {
       Electrical: [],
       Plumbing: [],
       'Air-Con': [],
+      Others: [],
     };
 
     itemSummaries.forEach((item) => {
