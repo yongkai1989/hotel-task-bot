@@ -898,6 +898,8 @@ export default function DashboardPage() {
   const tasksRequestInFlightRef = useRef<Promise<boolean> | null>(null);
   const lastInsightsRequestAtRef = useRef(0);
   const insightsRequestInFlightRef = useRef<Promise<void> | null>(null);
+  const lastLoadedProfileKeyRef = useRef('');
+  const profileKey = profile?.email?.toLowerCase() || '';
 
   function buildTasksFingerprint(taskList: Task[]) {
     return JSON.stringify(
@@ -1144,12 +1146,19 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!profile) {
+    if (!profileKey) {
+      lastLoadedProfileKeyRef.current = '';
       setTasks([]);
       setLoading(false);
       return;
     }
 
+    if (lastLoadedProfileKeyRef.current === profileKey) {
+      void loadDashboardInsights();
+      return;
+    }
+
+    lastLoadedProfileKeyRef.current = profileKey;
     void loadDashboardInsights();
 
     const cachedTasks = readTasksFromCache();
@@ -1161,15 +1170,15 @@ export default function DashboardPage() {
       return;
     }
 
-    void loadTasks(true);
-  }, [profile]);
+    void loadTasks(tasks.length === 0);
+  }, [profileKey]);
 
   useEffect(() => {
     lastVisibilityCheckRef.current = Date.now();
-  }, [profile]);
+  }, [profileKey]);
 
   useEffect(() => {
-    if (!profile) return;
+    if (!profileKey) return;
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
     const timer = window.setInterval(() => {
@@ -1184,7 +1193,7 @@ export default function DashboardPage() {
     }, DASHBOARD_AUTO_REFRESH_MS);
 
     return () => window.clearInterval(timer);
-  }, [profile, loginOpen, createModalOpen, editModalOpen, passwordModalOpen, imageModalOpen]);
+  }, [profileKey, loginOpen, createModalOpen, editModalOpen, passwordModalOpen, imageModalOpen]);
 
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
