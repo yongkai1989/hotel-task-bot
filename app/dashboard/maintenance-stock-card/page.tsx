@@ -407,6 +407,10 @@ export default function MaintenanceStockCardPage() {
     setActionMenuItemId((prev) => (prev === itemId ? null : itemId));
   }
 
+  function closeActionMenu() {
+    setActionMenuItemId(null);
+  }
+
   async function submitMovement() {
     const supabase = getSupabaseSafe();
     if (!supabase || !activeItem) {
@@ -729,57 +733,57 @@ export default function MaintenanceStockCardPage() {
                                     onClick={() => toggleActionMenu(item.id)}
                                     style={styles.actionMenuBtn}
                                   >
-                                    Actions
+                                    {actionOpen ? 'Close' : 'Actions'}
                                   </button>
-
-                                  {actionOpen ? (
-                                    <div style={styles.actionMenu}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setActionMenuItemId(null);
-                                          openMovementModal('RESTOCK', item);
-                                        }}
-                                        style={styles.actionMenuItem}
-                                      >
-                                        Restock
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setActionMenuItemId(null);
-                                          openMovementModal('TAKE_OUT', item);
-                                        }}
-                                        style={styles.actionMenuItem}
-                                      >
-                                        Stock Out
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setActionMenuItemId(null);
-                                          openMovementModal('TRANSFER', item);
-                                        }}
-                                        style={styles.actionMenuItem}
-                                      >
-                                        Move Branch
-                                      </button>
-                                      {isSuperuser ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setActionMenuItemId(null);
-                                            void handleDeleteItem(item);
-                                          }}
-                                          style={styles.actionMenuDelete}
-                                          disabled={saving}
-                                        >
-                                          Delete
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
                                 </div>
+
+                                {actionOpen ? (
+                                  <div style={styles.inlineActionBar}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        closeActionMenu();
+                                        openMovementModal('RESTOCK', item);
+                                      }}
+                                      style={styles.inlineActionBtn}
+                                    >
+                                      Restock
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        closeActionMenu();
+                                        openMovementModal('TAKE_OUT', item);
+                                      }}
+                                      style={styles.inlineActionBtn}
+                                    >
+                                      Stock Out
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        closeActionMenu();
+                                        openMovementModal('TRANSFER', item);
+                                      }}
+                                      style={styles.inlineActionBtn}
+                                    >
+                                      Move Branch
+                                    </button>
+                                    {isSuperuser ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          closeActionMenu();
+                                          void handleDeleteItem(item);
+                                        }}
+                                        style={styles.inlineDeleteBtn}
+                                        disabled={saving}
+                                      >
+                                        Delete
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </article>
                             );
                           })}
@@ -1068,7 +1072,6 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     background: '#ffffff',
-    overflow: 'hidden',
   },
   categoryToggle: {
     width: '100%',
@@ -1110,19 +1113,18 @@ const styles: Record<string, React.CSSProperties> = {
   },
   stockList: {
     display: 'grid',
-    gap: '10px',
-    padding: '0 12px 12px',
+    gap: '8px',
+    padding: '0 10px 10px',
   },
   stockRow: {
-    position: 'relative',
     display: 'flex',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: '12px',
+    gap: '10px',
     border: '1px solid #e7edf5',
-    borderRadius: '14px',
+    borderRadius: '12px',
     background: '#ffffff',
-    padding: '12px',
+    padding: '10px 12px',
     flexWrap: 'wrap',
   },
   stockRowMain: {
@@ -1137,85 +1139,78 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
   },
   stockName: {
-    fontSize: '15px',
+    fontSize: '14px',
     fontWeight: 800,
     color: '#0f172a',
     lineHeight: 1.35,
   },
   stockDescription: {
-    marginTop: '6px',
-    fontSize: '13px',
+    marginTop: '4px',
+    fontSize: '12px',
     color: '#64748b',
     lineHeight: 1.45,
   },
   stockBalanceWrap: {
-    minWidth: '82px',
-    borderRadius: '12px',
+    minWidth: '74px',
+    borderRadius: '10px',
     background: '#eff6ff',
     border: '1px solid #dbeafe',
-    padding: '8px 10px',
+    padding: '6px 8px',
     textAlign: 'center',
     flexShrink: 0,
   },
   stockBalanceLabel: {
-    fontSize: '11px',
+    fontSize: '10px',
     color: '#1d4ed8',
     fontWeight: 700,
   },
   stockBalanceValue: {
-    marginTop: '4px',
-    fontSize: '20px',
+    marginTop: '2px',
+    fontSize: '16px',
     color: '#0f172a',
     fontWeight: 900,
     lineHeight: 1,
   },
   stockRowActions: {
-    position: 'relative',
     alignSelf: 'center',
   },
   actionMenuBtn: {
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
-    borderRadius: '12px',
-    padding: '10px 12px',
+    borderRadius: '10px',
+    padding: '8px 10px',
     fontWeight: 800,
     cursor: 'pointer',
-    minWidth: '96px',
+    minWidth: '84px',
   },
-  actionMenu: {
-    position: 'absolute',
-    right: 0,
-    top: 'calc(100% + 8px)',
-    zIndex: 20,
-    minWidth: '170px',
-    background: '#ffffff',
-    border: '1px solid #dfe7f2',
-    borderRadius: '14px',
-    boxShadow: '0 18px 34px rgba(15,23,42,0.12)',
-    padding: '6px',
+  inlineActionBar: {
+    width: '100%',
     display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
     gap: '6px',
+    paddingTop: '8px',
+    borderTop: '1px solid #eef2f7',
   },
-  actionMenuItem: {
-    border: 'none',
+  inlineActionBtn: {
+    border: '1px solid #d8e1ec',
     background: '#f8fafc',
     color: '#0f172a',
     borderRadius: '10px',
-    padding: '10px 12px',
+    padding: '9px 10px',
     fontWeight: 700,
     cursor: 'pointer',
-    textAlign: 'left',
+    textAlign: 'center',
   },
-  actionMenuDelete: {
-    border: 'none',
+  inlineDeleteBtn: {
+    border: '1px solid #fecaca',
     background: '#fef2f2',
     color: '#b91c1c',
     borderRadius: '10px',
-    padding: '10px 12px',
+    padding: '9px 10px',
     fontWeight: 800,
     cursor: 'pointer',
-    textAlign: 'left',
+    textAlign: 'center',
   },
   actionRow: {
     display: 'flex',
