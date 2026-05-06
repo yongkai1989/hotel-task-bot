@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 
 type SidebarProfile = {
@@ -140,7 +140,6 @@ export default function DashboardSidebar({
   setSidebarOpen: (value: boolean) => void;
 }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
 
   const [resolvedProfile, setResolvedProfile] = useState<EffectiveProfile | null>(
@@ -183,7 +182,7 @@ export default function DashboardSidebar({
 
   useEffect(() => {
     setSidebarOpen(false);
-  }, [pathname, searchParams, setSidebarOpen]);
+  }, [pathname, setSidebarOpen]);
 
   const currentProfile = resolvedProfile;
   const effectiveProfile = getEffectiveProfile(currentProfile);
