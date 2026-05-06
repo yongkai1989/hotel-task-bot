@@ -485,27 +485,31 @@ async function compressImageToDataUrl(
 function departmentFilterStyle(label: string, active: boolean): React.CSSProperties {
   const base =
     label === 'HK'
-      ? '#16a34a'
+      ? '#059669'
       : label === 'MT'
       ? '#2563eb'
       : label === 'FO'
-      ? '#eab308'
-      : '#64748b';
+      ? '#d97706'
+      : '#1d4ed8';
 
   return {
     ...styles.filterPill,
-    background: active ? base : '#ffffff',
-    color: active ? '#ffffff' : '#334155',
-    borderColor: active ? base : '#dbe3ee',
+    background: active ? base : 'transparent',
+    color: active ? '#ffffff' : '#34455f',
+    borderColor: active ? base : 'transparent',
+    boxShadow: active
+      ? `0 10px 20px ${base}24, inset 0 1px 0 rgba(255,255,255,0.22)`
+      : 'none',
   };
 }
 
 function statusFilterStyle(active: boolean): React.CSSProperties {
   return {
     ...styles.filterPill,
-    background: active ? '#0f172a' : '#ffffff',
-    color: active ? '#ffffff' : '#334155',
-    borderColor: active ? '#0f172a' : '#dbe3ee',
+    background: active ? '#0f172a' : 'transparent',
+    color: active ? '#ffffff' : '#34455f',
+    borderColor: active ? '#0f172a' : 'transparent',
+    boxShadow: active ? '0 10px 20px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255,255,255,0.12)' : 'none',
   };
 }
 
@@ -2354,53 +2358,64 @@ async function handleDeleteTask(taskId: string) {
                   </div>
                 </div>
 
-                <div style={styles.filterBlock}>
-                  <div style={styles.filterLabel}>Department</div>
-                  <div style={styles.pillRow}>
-                    {departments.map((d) => (
-                      <button
-                        key={d}
-                        onClick={() => setDept(d)}
-                        style={departmentFilterStyle(d, dept === d)}
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {sidebarView === 'DASHBOARD' ? (
+                <div style={styles.filterControlsGrid}>
                   <div style={styles.filterBlock}>
-                    <div style={styles.filterLabel}>Status</div>
+                    <div style={styles.filterLabelRow}>
+                      <div style={styles.filterLabel}>Department</div>
+                      <div style={styles.filterHint}>{dept === 'ALL' ? 'All teams' : `${dept} only`}</div>
+                    </div>
                     <div style={styles.pillRow}>
-                      {liveStatuses.map((s) => (
+                      {departments.map((d) => (
                         <button
-                          key={s}
-                          onClick={() => setStatus(s)}
-                          style={statusFilterStyle(status === s)}
+                          key={d}
+                          onClick={() => setDept(d)}
+                          style={departmentFilterStyle(d, dept === d)}
                         >
-                          {labelForStatus(s)}
+                          {d}
                         </button>
                       ))}
                     </div>
                   </div>
-                ) : (
-                  <div style={styles.filterBlock}>
-                    <div style={styles.filterLabel}>Completed Date</div>
-                    <div style={styles.dateFilterRow}>
-                      <input
-                        type="date"
-                        value={pastTaskDate}
-                        max={getYesterdayLocalDateString()}
-                        onChange={(e) => setPastTaskDate(e.target.value)}
-                        style={styles.dateInput}
-                      />
-                      <div style={styles.dateHint}>
-                        Tasks here are filtered using completion date
+
+                  {sidebarView === 'DASHBOARD' ? (
+                    <div style={styles.filterBlock}>
+                      <div style={styles.filterLabelRow}>
+                        <div style={styles.filterLabel}>Status</div>
+                        <div style={styles.filterHint}>{labelForStatus(status)}</div>
+                      </div>
+                      <div style={styles.pillRow}>
+                        {liveStatuses.map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => setStatus(s)}
+                            style={statusFilterStyle(status === s)}
+                          >
+                            {labelForStatus(s)}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div style={styles.filterBlock}>
+                      <div style={styles.filterLabelRow}>
+                        <div style={styles.filterLabel}>Completed Date</div>
+                        <div style={styles.filterHint}>Archive</div>
+                      </div>
+                      <div style={styles.dateFilterRow}>
+                        <input
+                          type="date"
+                          value={pastTaskDate}
+                          max={getYesterdayLocalDateString()}
+                          onChange={(e) => setPastTaskDate(e.target.value)}
+                          style={styles.dateInput}
+                        />
+                        <div style={styles.dateHint}>
+                          Tasks here are filtered using completion date
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </section>
 
               <div
@@ -3624,21 +3639,21 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
-    background: 'rgba(255,255,255,0.94)',
-    border: '1px solid rgba(213, 226, 241, 0.95)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(248,251,255,0.95) 100%)',
+    border: '1px solid rgba(205, 220, 239, 0.98)',
     borderRadius: 16,
-    padding: 12,
+    padding: 14,
     marginBottom: 10,
     overflow: 'hidden',
-    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
+    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.95)',
 
   },
   filterHeader: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 10,
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
     flexWrap: 'wrap',
 
   },
@@ -3646,16 +3661,25 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
   },
   filterPanelTitle: {
-    fontSize: 13,
-    fontWeight: 800,
-    color: '#1e3a8a',
+    display: 'inline-flex',
+    alignItems: 'center',
+    width: 'fit-content',
+    borderRadius: 999,
+    padding: '5px 9px',
+    background: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    fontSize: 10,
+    fontWeight: 900,
+    color: '#1d4ed8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   filterPanelSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 1.25,
-    margin: '4px 0 0',
+    margin: '7px 0 0',
     color: '#0f172a',
-    fontWeight: 800,
+    fontWeight: 900,
     wordBreak: 'break-word',
 
   },
@@ -3744,38 +3768,64 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.1,
     whiteSpace: 'nowrap',
   },
+  filterControlsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: 10,
+    alignItems: 'stretch',
+  },
   filterBlock: {
-    marginTop: 8,
+    minWidth: 0,
+    borderRadius: 14,
+    border: '1px solid #dce8f6',
+    background: 'rgba(255,255,255,0.78)',
+    padding: 8,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.92)',
 
+  },
+  filterLabelRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 7,
+    padding: '0 2px',
   },
   filterLabel: {
     fontSize: 10,
-    fontWeight: 800,
+    fontWeight: 900,
     color: '#64748b',
     textTransform: 'uppercase',
     letterSpacing: 0.7,
-    marginBottom: 6,
 
+  },
+  filterHint: {
+    fontSize: 10,
+    fontWeight: 800,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
   },
   pillRow: {
     display: 'flex',
-    gap: 4,
+    gap: 3,
     flexWrap: 'wrap',
-    background: '#f5f9ff',
+    background: '#f3f7fd',
     padding: 4,
-    borderRadius: 12,
-    border: '1px solid #e4edf8',
+    borderRadius: 11,
+    border: '1px solid #e1eaf6',
+    boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.035)',
 
   },
   filterPill: {
-    border: '1px solid #dbe3ee',
-    borderRadius: 9,
-    padding: '8px 10px',
+    border: '1px solid transparent',
+    borderRadius: 8,
+    padding: '7px 11px',
     background: '#ffffff',
     cursor: 'pointer',
-    fontWeight: 800,
+    fontWeight: 900,
     fontSize: 11,
-    boxShadow: '0 1px 2px rgba(15,23,42,0.02)',
+    minHeight: 32,
+    transition: 'background 160ms ease, color 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
 
   },
   dateFilterRow: {
@@ -3786,8 +3836,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dateInput: {
     width: '100%',
-    maxWidth: 260,
-    padding: '10px 12px',
+    maxWidth: '100%',
+    padding: '9px 11px',
     borderRadius: 10,
     border: '1px solid #dbe3ee',
     background: '#ffffff',
