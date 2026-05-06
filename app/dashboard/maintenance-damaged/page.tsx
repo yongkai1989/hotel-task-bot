@@ -64,7 +64,9 @@ export default function MaintenanceDamagedPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const [selectedBranch, setSelectedBranch] = useState<(typeof BRANCHES)[number]>('ALL');
   const [damagedRows, setDamagedRows] = useState<DamagedRow[]>([]);
@@ -125,6 +127,8 @@ export default function MaintenanceDamagedPage() {
     return profile.can_access_damaged === true;
   }, [profile]);
 
+  const isSuperuser = profile?.role === 'SUPERUSER';
+
   async function loadData() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
@@ -135,6 +139,7 @@ export default function MaintenanceDamagedPage() {
     try {
       setLoading(true);
       setErrorMsg('');
+      setSuccessMsg('');
 
       let query = supabase
         .from('maintenance_damaged_items')
@@ -186,6 +191,45 @@ export default function MaintenanceDamagedPage() {
     () => damagedRows.reduce((sum, row) => sum + safeNumber(row.qty), 0),
     [damagedRows]
   );
+
+  async function handleDeleteRow(row: DamagedRow) {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    if (!isSuperuser) {
+      setErrorMsg('Only superusers can delete damaged entries.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete damaged entry for "${row.item_name || 'Maintenance Item'}" (Qty ${row.qty})?\n\nThis removes only the damaged log entry and will not reverse stock movements automatically.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase
+        .from('maintenance_damaged_items')
+        .delete()
+        .eq('id', row.id);
+
+      if (error) throw error;
+
+      setSuccessMsg('Damaged entry deleted.');
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to delete damaged entry.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (authLoading) {
     return (
@@ -241,6 +285,7 @@ export default function MaintenanceDamagedPage() {
         </div>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+        {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
         <section style={styles.panel}>
           <div style={styles.sectionTitle}>Overview</div>
@@ -294,8 +339,20 @@ export default function MaintenanceDamagedPage() {
               {damagedRows.map((row) => (
                 <article key={row.id} style={styles.logCard}>
                   <div style={styles.logHeader}>
-                    <div style={styles.logTitle}>{row.item_name || 'Maintenance Item'}</div>
-                    <div style={styles.qtyBadge}>Qty {row.qty}</div>
+                    <div style={styles.logHeaderLeft}>
+                      <div style={styles.logTitle}>{row.item_name || 'Maintenance Item'}</div>
+                      <div style={styles.qtyBadge}>Qty {row.qty}</div>
+                    </div>
+                    {isSuperuser ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteRow(row)}
+                        style={styles.deleteBtn}
+                        disabled={saving}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
 
                   <div style={styles.metaGrid}>
@@ -453,6 +510,13 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     flexWrap: 'wrap',
   },
+  logHeaderLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap',
+    minWidth: 0,
+  },
   logTitle: {
     fontSize: '18px',
     color: '#0f172a',
@@ -510,6 +574,15 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.5,
     wordBreak: 'break-word',
   },
+  deleteBtn: {
+    border: '1px solid #ef4444',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    borderRadius: '10px',
+    padding: '8px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
   secondaryBtn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -527,6 +600,15 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fef2f2',
     color: '#b91c1c',
     border: '1px solid #fecaca',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontWeight: 600,
+  },
+  successBox: {
+    marginBottom: '14px',
+    background: '#ecfdf5',
+    color: '#166534',
+    border: '1px solid #bbf7d0',
     borderRadius: '12px',
     padding: '12px 14px',
     fontWeight: 600,
