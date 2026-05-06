@@ -2467,6 +2467,8 @@ async function handleDeleteTask(taskId: string) {
                                 <img
                                   src={thumb}
                                   alt="Task thumbnail"
+                                  loading="lazy"
+                                  decoding="async"
                                   style={styles.thumbImage}
                                 />
                               </button>
@@ -2571,6 +2573,7 @@ async function handleDeleteTask(taskId: string) {
               <img
                 src={selectedTaskImages[selectedImageIndex].image_url}
                 alt={`Task image ${selectedImageIndex + 1}`}
+                decoding="async"
                 style={styles.modalImage}
               />
 
@@ -2711,7 +2714,13 @@ async function handleDeleteTask(taskId: string) {
               <div style={modalResponsive.photoPreviewGrid}>
                 {createPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
-                    <img src={photo.dataUrl} alt={photo.name} style={styles.photoPreviewImg} />
+                    <img
+                      src={photo.dataUrl}
+                      alt={photo.name}
+                      loading="lazy"
+                      decoding="async"
+                      style={styles.photoPreviewImg}
+                    />
                     <div style={styles.photoPreviewName}>{photo.name}</div>
                     <button
                       type="button"
@@ -2833,6 +2842,8 @@ async function handleDeleteTask(taskId: string) {
                         <img
                           src={img.image_url}
                           alt="Existing task image"
+                          loading="lazy"
+                          decoding="async"
                           style={styles.photoPreviewImg}
                         />
 
@@ -2882,6 +2893,8 @@ async function handleDeleteTask(taskId: string) {
                     <img
                       src={photo.dataUrl}
                       alt={photo.name}
+                      loading="lazy"
+                      decoding="async"
                       style={styles.photoPreviewImg}
                     />
                     <div style={styles.photoPreviewName}>{photo.name}</div>
@@ -3688,7 +3701,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 16,
     padding: 10,
     boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
-
+    contentVisibility: 'auto',
+    containIntrinsicSize: '320px',
+    contain: 'layout style paint',
   },
   sideInfoGrid: {
     display: 'grid',
@@ -3702,6 +3717,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 16,
     padding: 12,
     boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
+    contentVisibility: 'auto',
+    containIntrinsicSize: '220px',
+    contain: 'layout style paint',
   },
   sidePanelHeader: {
     display: 'flex',
@@ -3971,7 +3989,7 @@ deleteTaskBtn: {
     width: 72,
     maxWidth: 72,
     position: 'relative',
-
+    contain: 'layout paint',
   },
   thumbButton: {
     display: 'block',
@@ -3989,7 +4007,7 @@ deleteTaskBtn: {
     borderRadius: 14,
     border: '1px solid #e7edf5',
     boxShadow: '0 6px 18px rgba(15,23,42,0.05)',
-
+    background: '#e2e8f0',
   },
   imageCountBadge: {
     position: 'absolute',
