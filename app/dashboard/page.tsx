@@ -72,6 +72,16 @@ type AdminUser = {
 };
 
 type ParsedDept = 'HK' | 'MT' | 'FO';
+type DashboardIconName =
+  | 'clipboard'
+  | 'loader'
+  | 'check'
+  | 'door'
+  | 'progress'
+  | 'alert'
+  | 'refresh'
+  | 'plus'
+  | 'activity';
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
@@ -555,6 +565,121 @@ function SummaryCard({
   );
 }
 
+function DashboardIcon({
+  name,
+  size = 18,
+}: {
+  name: DashboardIconName;
+  size?: number;
+}) {
+  const common: React.SVGProps<SVGSVGElement> = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2.2,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+    focusable: false,
+  };
+
+  if (name === 'clipboard') {
+    return (
+      <svg {...common}>
+        <path d="M9 5h6" />
+        <path d="M9 3h6a2 2 0 0 1 2 2v1H7V5a2 2 0 0 1 2-2Z" />
+        <path d="M7 6H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-1" />
+        <path d="M8 12h8" />
+        <path d="M8 16h5" />
+      </svg>
+    );
+  }
+
+  if (name === 'loader') {
+    return (
+      <svg {...common}>
+        <path d="M12 3v3" />
+        <path d="M12 18v3" />
+        <path d="m4.9 4.9 2.1 2.1" />
+        <path d="m17 17 2.1 2.1" />
+        <path d="M3 12h3" />
+        <path d="M18 12h3" />
+        <path d="m4.9 19.1 2.1-2.1" />
+        <path d="M17 7l2.1-2.1" />
+      </svg>
+    );
+  }
+
+  if (name === 'check') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="m8.5 12.3 2.3 2.3 4.9-5.2" />
+      </svg>
+    );
+  }
+
+  if (name === 'door') {
+    return (
+      <svg {...common}>
+        <path d="M7 21V4.8A1.8 1.8 0 0 1 8.8 3h7.4A1.8 1.8 0 0 1 18 4.8V21" />
+        <path d="M4.5 21h15" />
+        <path d="M14.5 12h.01" />
+      </svg>
+    );
+  }
+
+  if (name === 'progress') {
+    return (
+      <svg {...common}>
+        <path d="M4 13a8 8 0 1 0 2.35-5.65" />
+        <path d="M4 5v5h5" />
+        <path d="m9.2 12.4 2.2 2.2 4.4-5" />
+      </svg>
+    );
+  }
+
+  if (name === 'alert') {
+    return (
+      <svg {...common}>
+        <path d="M12 8v5" />
+        <path d="M12 17h.01" />
+        <path d="M10.4 3.8 2.7 17.2A2 2 0 0 0 4.4 20h15.2a2 2 0 0 0 1.7-2.8L13.6 3.8a1.85 1.85 0 0 0-3.2 0Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'refresh') {
+    return (
+      <svg {...common}>
+        <path d="M20 6v5h-5" />
+        <path d="M4 18v-5h5" />
+        <path d="M18.2 9A7 7 0 0 0 6.4 6.9L4 9" />
+        <path d="M5.8 15A7 7 0 0 0 17.6 17.1L20 15" />
+      </svg>
+    );
+  }
+
+  if (name === 'plus') {
+    return (
+      <svg {...common}>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...common}>
+      <path d="M5 12h3l2-6 4 12 2-6h3" />
+      <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function OverviewMetricCard({
   title,
   value,
@@ -566,7 +691,7 @@ function OverviewMetricCard({
   value: string | number;
   note?: string;
   tone: 'open' | 'doing' | 'done' | 'violet' | 'danger';
-  icon: string;
+  icon: DashboardIconName;
 }) {
   const theme =
     tone === 'open'
@@ -581,7 +706,9 @@ function OverviewMetricCard({
 
   return (
     <article style={styles.overviewCard}>
-      <div style={{ ...styles.overviewIcon, background: theme.bg, color: theme.fg }}>{icon}</div>
+      <div style={{ ...styles.overviewIcon, background: theme.bg, color: theme.fg }}>
+        <DashboardIcon name={icon} size={20} />
+      </div>
       <div style={styles.overviewContent}>
         <div style={styles.overviewLabel}>{title}</div>
         <div style={styles.overviewValue}>{value}</div>
@@ -2114,8 +2241,12 @@ async function handleDeleteTask(taskId: string) {
                   style={styles.headerGhostBtn}
                   disabled={refreshing || loading}
                   title="Refresh tasks"
+                  aria-label="Refresh tasks"
                 >
-                  Refresh
+                  <span style={styles.headerGhostIcon}>
+                    <DashboardIcon name="refresh" size={17} />
+                  </span>
+                  <span style={styles.headerGhostLabel}>Refresh</span>
                 </button>
                 {sidebarView === 'DASHBOARD' ? (
                   <button
@@ -2124,7 +2255,9 @@ async function handleDeleteTask(taskId: string) {
                     aria-label="Create task"
                     title="Create new task"
                   >
-                    <span style={styles.addTaskBtnIcon}>+</span>
+                    <span style={styles.addTaskBtnIcon}>
+                      <DashboardIcon name="plus" size={17} />
+                    </span>
                     <span style={styles.addTaskBtnText}>Create Task</span>
                   </button>
                 ) : null}
@@ -2154,29 +2287,29 @@ async function handleDeleteTask(taskId: string) {
                       : 'repeat(3, minmax(0, 1fr))',
                   }}
                 >
-                  <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="O" />
-                  <OverviewMetricCard title="Doing" value={summary.doing} note="In progress now" tone="doing" icon="D" />
-                  <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="C" />
+                  <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
+                  <OverviewMetricCard title="Doing" value={summary.doing} note="In progress now" tone="doing" icon="loader" />
+                  <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
                   <OverviewMetricCard
                     title="Room Pending Save"
                     value={insights.roomPendingSave}
                     note="Chambermaid entries not saved"
                     tone="violet"
-                    icon="R"
+                    icon="door"
                   />
                   <OverviewMetricCard
                     title="Special Project Completion"
                     value={`${insights.specialProjectCompletion}%`}
                     note={`${insights.specialProjectDoneRooms}/156 rooms completed`}
                     tone="doing"
-                    icon="S"
+                    icon="progress"
                   />
                   <OverviewMetricCard
                     title="Overdue PM"
                     value={insights.overduePm}
                     note="Preventive maintenance overdue"
                     tone="danger"
-                    icon="P"
+                    icon="alert"
                   />
                 </section>
               ) : null}
@@ -2501,7 +2634,9 @@ async function handleDeleteTask(taskId: string) {
                       <div style={styles.sideList}>
                         {dashboardAlerts.map((item) => (
                           <div key={item.id} style={styles.sideListItem}>
-                            <div style={styles.sideListIcon}>!</div>
+                            <div style={{ ...styles.sideListIcon, ...styles.sideListIconAlert }}>
+                              <DashboardIcon name="alert" size={15} />
+                            </div>
                             <div style={styles.sideListBody}>
                               <div style={styles.sideListTitle}>{item.title}</div>
                               <div style={styles.sideListSubtitle}>{item.subtitle}</div>
@@ -2523,7 +2658,9 @@ async function handleDeleteTask(taskId: string) {
                       <div style={styles.sideList}>
                         {recentActivity.map((item) => (
                           <div key={item.id} style={styles.sideListItem}>
-                            <div style={styles.sideListIcon}>o</div>
+                            <div style={styles.sideListIcon}>
+                              <DashboardIcon name="activity" size={15} />
+                            </div>
                             <div style={styles.sideListBody}>
                               <div style={styles.sideListTitle}>
                                 {item.actor} {item.verb}
@@ -3082,7 +3219,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     maxWidth: '100vw',
     overflowX: 'hidden',
-    background: 'linear-gradient(180deg, #f4f7fb 0%, #eef3f8 100%)',
+    background:
+      'radial-gradient(circle at 18% 0%, rgba(59, 130, 246, 0.10), transparent 34%), linear-gradient(180deg, #f6f9fd 0%, #eef4fb 100%)',
 
   },
   layout: {
@@ -3266,7 +3404,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     maxWidth: '100%',
     overflowX: 'hidden',
-    padding: 8,
+    padding: 16,
     boxSizing: 'border-box',
 
   },
@@ -3297,19 +3435,20 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
-    background: 'linear-gradient(135deg, #fffdf8 0%, #f8f6f1 42%, #eef4ff 100%)',
-    border: '1px solid #e7ddcf',
-    borderRadius: 24,
-    padding: 16,
+    background:
+      'linear-gradient(135deg, rgba(255, 253, 248, 0.98) 0%, rgba(255, 255, 255, 0.96) 48%, rgba(239, 246, 255, 0.98) 100%)',
+    border: '1px solid rgba(198, 213, 232, 0.86)',
+    borderRadius: 20,
+    padding: 14,
     marginBottom: 12,
     overflow: 'hidden',
-    boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)',
+    boxShadow: '0 18px 42px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.92)',
   },
   brandBand: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 14,
+    gap: 12,
     flexWrap: 'wrap',
   },
   brandCenter: {
@@ -3321,16 +3460,17 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
   },
   logoWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     background: 'rgba(255,255,255,0.76)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     overflow: 'hidden',
-    border: '1px solid #eadfce',
+    border: '1px solid rgba(234, 223, 206, 0.96)',
+    boxShadow: '0 10px 22px rgba(124, 88, 46, 0.10)',
   },
   headerTextWrap: {
     minWidth: 0,
@@ -3343,36 +3483,59 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
   },
   headerGhostBtn: {
-    border: '1px solid #d7e3f2',
-    background: 'rgba(255,255,255,0.92)',
-    color: '#1e3a8a',
+    height: 44,
+    border: '1px solid #cfe0f5',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    color: '#173b83',
     borderRadius: 14,
-    padding: '10px 16px',
-    fontWeight: 800,
+    padding: '0 14px',
+    fontWeight: 900,
     cursor: 'pointer',
-    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+    boxShadow: '0 12px 26px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255,255,255,0.96)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  headerGhostIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 9,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#eff6ff',
+    color: '#2563eb',
+    flexShrink: 0,
+  },
+  headerGhostLabel: {
+    fontSize: 13,
+    lineHeight: 1,
+    whiteSpace: 'nowrap',
   },
   overviewGrid: {
     display: 'grid',
-    gap: 12,
-    marginBottom: 14,
+    gap: 10,
+    marginBottom: 12,
   },
   overviewCard: {
     display: 'flex',
     alignItems: 'flex-start',
     gap: 12,
-    background: 'rgba(255,255,255,0.98)',
-    border: '1px solid #e5edf7',
-    borderRadius: 18,
-    padding: 14,
-    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(252,254,255,0.98) 100%)',
+    border: '1px solid rgba(218, 229, 243, 0.95)',
+    borderRadius: 16,
+    padding: 12,
+    minHeight: 82,
+    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
   },
   overviewContent: {
     minWidth: 0,
     flex: 1,
   },
   overviewLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: 800,
     color: '#64748b',
     marginBottom: 8,
@@ -3380,28 +3543,28 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 0.4,
   },
   overviewValue: {
-    fontSize: 30,
+    fontSize: 28,
     lineHeight: 1,
     fontWeight: 900,
     color: '#0f172a',
   },
   overviewNote: {
-    marginTop: 8,
-    fontSize: 12,
+    marginTop: 7,
+    fontSize: 11,
     lineHeight: 1.35,
     color: '#64748b',
     fontWeight: 600,
   },
   overviewIcon: {
-    width: 40,
-    height: 40,
+    width: 38,
+    height: 38,
     borderRadius: 999,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontWeight: 900,
     flexShrink: 0,
-    fontSize: 14,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)',
   },
   eyebrow: {
     fontSize: 11,
@@ -3461,13 +3624,13 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
-    background: 'rgba(255,255,255,0.88)',
-    border: '1px solid #dbe7f5',
-    borderRadius: 18,
+    background: 'rgba(255,255,255,0.94)',
+    border: '1px solid rgba(213, 226, 241, 0.95)',
+    borderRadius: 16,
     padding: 12,
     marginBottom: 10,
     overflow: 'hidden',
-    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
+    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
 
   },
   filterHeader: {
@@ -3516,27 +3679,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
   },
   refreshBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 14,
-    border: '1px solid #d7e3f2',
-    background: 'rgba(255,255,255,0.92)',
-    color: '#1e3a8a',
+    border: '1px solid #cfe0f5',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    color: '#2563eb',
     cursor: 'pointer',
-    boxShadow: '0 8px 18px rgba(15, 23, 42, 0.05)',
+    boxShadow: '0 12px 26px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255,255,255,0.96)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
 
   },
   addTaskBtn: {
-    minHeight: 48,
+    height: 44,
+    minHeight: 44,
     borderRadius: 14,
-    border: '1px solid rgba(255,255,255,0.16)',
-    background: 'linear-gradient(135deg, #173fb8 0%, #2563eb 52%, #60a5fa 100%)',
+    border: '1px solid rgba(82, 139, 255, 0.48)',
+    background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 48%, #3b82f6 100%)',
     color: '#ffffff',
     cursor: 'pointer',
     fontWeight: 800,
     lineHeight: 1,
-    boxShadow: '0 14px 24px rgba(37, 99, 235, 0.24)',
-    padding: '8px 16px',
+    boxShadow: '0 16px 30px rgba(37, 99, 235, 0.26), inset 0 1px 0 rgba(255,255,255,0.22)',
+    padding: '0 16px',
     display: 'inline-flex',
     alignItems: 'center',
     gap: 10,
@@ -3544,16 +3711,14 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
   },
   addTaskBtnIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 9,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     background: 'rgba(255,255,255,0.18)',
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 900,
     flexShrink: 0,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
   },
@@ -3573,7 +3738,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1,
   },
   addTaskBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 900,
     color: '#ffffff',
     lineHeight: 1.1,
@@ -3596,7 +3761,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: 4,
     flexWrap: 'wrap',
-    background: '#f6f9fe',
+    background: '#f5f9ff',
     padding: 4,
     borderRadius: 12,
     border: '1px solid #e4edf8',
@@ -3650,8 +3815,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#ffffff',
     border: '1px solid #dbe7f5',
     borderRadius: 14,
-    padding: '10px 12px',
-    boxShadow: '0 10px 22px rgba(15, 23, 42, 0.04)',
+    padding: '9px 12px',
+    boxShadow: '0 10px 22px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255,255,255,0.9)',
 
   },
   workspaceLayout: {
@@ -3712,11 +3877,11 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 12,
   },
   sidePanel: {
-    background: 'rgba(255,255,255,0.94)',
-    border: '1px solid #dfe9f5',
+    background: 'rgba(255,255,255,0.96)',
+    border: '1px solid rgba(218, 229, 243, 0.95)',
     borderRadius: 16,
     padding: 12,
-    boxShadow: '0 16px 32px rgba(15, 23, 42, 0.06)',
+    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
     contentVisibility: 'auto',
     containIntrinsicSize: '220px',
     contain: 'layout style paint',
@@ -3761,8 +3926,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
   },
   sideListIcon: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 999,
     background: '#eff6ff',
     color: '#2563eb',
@@ -3771,6 +3936,10 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     fontWeight: 900,
     flexShrink: 0,
+  },
+  sideListIconAlert: {
+    background: '#fff1f2',
+    color: '#e11d48',
   },
   sideListBody: {
     flex: 1,
