@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode, type SVGProps } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
@@ -52,6 +52,31 @@ type AdminUser = {
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 };
+
+type SidebarIconName =
+  | 'dashboard'
+  | 'archive'
+  | 'maintenance'
+  | 'calendar'
+  | 'clock'
+  | 'package'
+  | 'alert'
+  | 'housekeeping'
+  | 'sparkle'
+  | 'bed'
+  | 'clipboard'
+  | 'laundry'
+  | 'history'
+  | 'management'
+  | 'file'
+  | 'list'
+  | 'settings'
+  | 'lock'
+  | 'logout'
+  | 'login'
+  | 'user'
+  | 'close'
+  | 'chevron';
 
 type EffectiveProfile = Required<
   Pick<
@@ -129,6 +154,278 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
 }
 
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
+
+function SidebarIcon({
+  name,
+  size = 18,
+}: {
+  name: SidebarIconName;
+  size?: number;
+}) {
+  const common: SVGProps<SVGSVGElement> = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2.15,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': true,
+    focusable: false,
+  };
+
+  if (name === 'dashboard') {
+    return (
+      <svg {...common}>
+        <rect x="4" y="4" width="7" height="7" rx="2" />
+        <rect x="13" y="4" width="7" height="7" rx="2" />
+        <rect x="4" y="13" width="7" height="7" rx="2" />
+        <rect x="13" y="13" width="7" height="7" rx="2" />
+      </svg>
+    );
+  }
+
+  if (name === 'archive') {
+    return (
+      <svg {...common}>
+        <path d="M4 7h16" />
+        <path d="M5 7l1 13h12l1-13" />
+        <path d="M8 4h8l1 3H7l1-3Z" />
+        <path d="M9 12h6" />
+      </svg>
+    );
+  }
+
+  if (name === 'maintenance') {
+    return (
+      <svg {...common}>
+        <path d="M14.7 6.3a4 4 0 0 0-5.1 5.1L4.5 16.5a2.1 2.1 0 0 0 3 3l5.1-5.1a4 4 0 0 0 5.1-5.1l-2.6 2.6-3-3 2.6-2.6Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'calendar') {
+    return (
+      <svg {...common}>
+        <rect x="4" y="5" width="16" height="15" rx="3" />
+        <path d="M8 3v4" />
+        <path d="M16 3v4" />
+        <path d="M4 10h16" />
+        <path d="m9 15 2 2 4-4" />
+      </svg>
+    );
+  }
+
+  if (name === 'clock') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M12 8v4l3 2" />
+      </svg>
+    );
+  }
+
+  if (name === 'package') {
+    return (
+      <svg {...common}>
+        <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+        <path d="m4.5 8 7.5 4 7.5-4" />
+        <path d="M12 12v9" />
+      </svg>
+    );
+  }
+
+  if (name === 'alert') {
+    return (
+      <svg {...common}>
+        <path d="M12 8v5" />
+        <path d="M12 17h.01" />
+        <path d="M10.4 3.8 2.7 17.2A2 2 0 0 0 4.4 20h15.2a2 2 0 0 0 1.7-2.8L13.6 3.8a1.85 1.85 0 0 0-3.2 0Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'housekeeping') {
+    return (
+      <svg {...common}>
+        <path d="M15 4 4 15" />
+        <path d="m14 5 5 5" />
+        <path d="M5 14c2 0 5 3 5 5" />
+        <path d="M4 20h7" />
+      </svg>
+    );
+  }
+
+  if (name === 'sparkle') {
+    return (
+      <svg {...common}>
+        <path d="M12 3l1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z" />
+        <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'bed') {
+    return (
+      <svg {...common}>
+        <path d="M4 19V7" />
+        <path d="M20 19v-6a3 3 0 0 0-3-3H4" />
+        <path d="M4 14h16" />
+        <path d="M7 10V8h4v2" />
+      </svg>
+    );
+  }
+
+  if (name === 'clipboard') {
+    return (
+      <svg {...common}>
+        <path d="M9 5h6" />
+        <path d="M9 3h6a2 2 0 0 1 2 2v1H7V5a2 2 0 0 1 2-2Z" />
+        <path d="M7 6H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-1" />
+        <path d="M8 12h8" />
+        <path d="M8 16h5" />
+      </svg>
+    );
+  }
+
+  if (name === 'laundry') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="3" width="14" height="18" rx="3" />
+        <path d="M8 7h.01" />
+        <path d="M12 7h4" />
+        <circle cx="12" cy="14" r="4" />
+        <path d="M9.5 14c1.6-1.2 3.4 1.2 5 0" />
+      </svg>
+    );
+  }
+
+  if (name === 'history') {
+    return (
+      <svg {...common}>
+        <path d="M4 12a8 8 0 1 0 2.3-5.7" />
+        <path d="M4 5v5h5" />
+        <path d="M12 8v5l3 2" />
+      </svg>
+    );
+  }
+
+  if (name === 'management') {
+    return (
+      <svg {...common}>
+        <rect x="4" y="7" width="16" height="13" rx="2" />
+        <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+        <path d="M4 12h16" />
+      </svg>
+    );
+  }
+
+  if (name === 'file') {
+    return (
+      <svg {...common}>
+        <path d="M7 3h7l4 4v14H7V3Z" />
+        <path d="M14 3v5h5" />
+        <path d="M9 13h6" />
+        <path d="M9 17h4" />
+      </svg>
+    );
+  }
+
+  if (name === 'list') {
+    return (
+      <svg {...common}>
+        <path d="M8 6h12" />
+        <path d="M8 12h12" />
+        <path d="M8 18h12" />
+        <path d="M4 6h.01" />
+        <path d="M4 12h.01" />
+        <path d="M4 18h.01" />
+      </svg>
+    );
+  }
+
+  if (name === 'settings') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 3.4-.2-.1a1.8 1.8 0 0 0-2 .1 1.8 1.8 0 0 0-.9 1.7V22H9.3v-.2a1.8 1.8 0 0 0-.9-1.7 1.8 1.8 0 0 0-2-.1l-.2.1-2-3.4.1-.1a1.7 1.7 0 0 0 .3-1.9 1.8 1.8 0 0 0-1.5-1.1H3V10h.2a1.8 1.8 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2-3.4.2.1a1.8 1.8 0 0 0 2-.1 1.8 1.8 0 0 0 .9-1.7V2h5.4v.2a1.8 1.8 0 0 0 .9 1.7 1.8 1.8 0 0 0 2 .1l.2-.1 2 3.4-.1.1a1.7 1.7 0 0 0-.3 1.9 1.8 1.8 0 0 0 1.5 1.1h.2V14h-.2a1.8 1.8 0 0 0-1.6 1Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'lock') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="10" width="14" height="10" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </svg>
+    );
+  }
+
+  if (name === 'logout') {
+    return (
+      <svg {...common}>
+        <path d="M10 17l5-5-5-5" />
+        <path d="M15 12H3" />
+        <path d="M12 4h6a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" />
+      </svg>
+    );
+  }
+
+  if (name === 'login') {
+    return (
+      <svg {...common}>
+        <path d="M14 7l5 5-5 5" />
+        <path d="M19 12H7" />
+        <path d="M12 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+      </svg>
+    );
+  }
+
+  if (name === 'user') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </svg>
+    );
+  }
+
+  if (name === 'close') {
+    return (
+      <svg {...common}>
+        <path d="M6 6l12 12" />
+        <path d="M18 6 6 18" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...common}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
+function SidebarNavContent({
+  icon,
+  children,
+  sub = false,
+}: {
+  icon: SidebarIconName;
+  children: ReactNode;
+  sub?: boolean;
+}) {
+  return (
+    <>
+      <span style={sub ? styles.subNavIcon : styles.navIcon}>
+        <SidebarIcon name={icon} size={sub ? 15 : 17} />
+      </span>
+      <span style={styles.navText}>{children}</span>
+    </>
+  );
+}
 
 export default function DashboardSidebar({
   profile,
@@ -442,11 +739,13 @@ export default function DashboardSidebar({
 
   function GroupSection({
     title,
+    icon,
     open,
     setOpen,
     children,
   }: {
     title: string;
+    icon: SidebarIconName;
     open: boolean;
     setOpen: (value: boolean) => void;
     children: ReactNode;
@@ -458,7 +757,20 @@ export default function DashboardSidebar({
           onClick={() => setOpen(!open)}
           style={styles.groupBtn}
         >
-          <span>{title}</span>
+          <span
+            style={{
+              ...styles.groupChevronIcon,
+              transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            <SidebarIcon name="chevron" size={15} />
+          </span>
+          <span style={styles.groupBtnLeft}>
+            <span style={styles.navIcon}>
+              <SidebarIcon name={icon} size={17} />
+            </span>
+            <span style={styles.navText}>{title}</span>
+          </span>
           <span style={styles.groupChevron}>{open ? '▾' : '▸'}</span>
         </button>
         {open ? <div style={styles.groupContent}>{children}</div> : null}
@@ -478,13 +790,19 @@ export default function DashboardSidebar({
         }}
       >
         <div style={styles.headerRow}>
-          <div style={styles.menuTitle}>Menu</div>
+          <div style={styles.menuTitle}>
+            <span style={styles.menuTitleIcon}>
+              <SidebarIcon name="dashboard" size={17} />
+            </span>
+            <span>Menu</span>
+          </div>
           <button
             type="button"
             onClick={closeSidebar}
             style={styles.closeBtn}
             aria-label="Close menu"
           >
+            <SidebarIcon name="close" size={18} />
             ✕
           </button>
         </div>
@@ -496,19 +814,20 @@ export default function DashboardSidebar({
         <nav style={styles.nav}>
           {canSeeDashboard ? (
             <Link href="/dashboard" onClick={closeSidebar} style={styles.navBtn}>
-              Dashboard
+              <SidebarNavContent icon="dashboard">Dashboard</SidebarNavContent>
             </Link>
           ) : null}
 
           {canSeePastTask ? (
             <Link href="/dashboard?view=past" onClick={closeSidebar} style={styles.navBtn}>
-              Past Task
+              <SidebarNavContent icon="archive">Past Task</SidebarNavContent>
             </Link>
           ) : null}
 
           {showMaintenanceGroup ? (
             <GroupSection
               title="Maintenance"
+              icon="maintenance"
               open={maintenanceOpen}
               setOpen={setMaintenanceOpen}
             >
@@ -518,7 +837,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Preventive Maintenance
+                  <SidebarNavContent icon="calendar" sub>Preventive Maintenance</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -528,7 +847,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Maintenance OT
+                  <SidebarNavContent icon="clock" sub>Maintenance OT</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -538,7 +857,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Maintenance Stock Card
+                  <SidebarNavContent icon="package" sub>Maintenance Stock Card</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -548,7 +867,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Maintenance Damaged
+                  <SidebarNavContent icon="alert" sub>Maintenance Damaged</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
@@ -557,6 +876,7 @@ export default function DashboardSidebar({
           {showHousekeepingGroup ? (
             <GroupSection
               title="Housekeeping"
+              icon="housekeeping"
               open={housekeepingOpen}
               setOpen={setHousekeepingOpen}
             >
@@ -566,7 +886,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  HK Special Project
+                  <SidebarNavContent icon="sparkle" sub>HK Special Project</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -576,7 +896,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Chambermaid Entry
+                  <SidebarNavContent icon="bed" sub>Chambermaid Entry</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -586,7 +906,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Supervisor Update
+                  <SidebarNavContent icon="clipboard" sub>Supervisor Update</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -596,7 +916,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Laundry Count
+                  <SidebarNavContent icon="laundry" sub>Laundry Count</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -606,7 +926,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Stock Card
+                  <SidebarNavContent icon="package" sub>Stock Card</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -616,7 +936,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Damaged
+                  <SidebarNavContent icon="alert" sub>Damaged</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -626,7 +946,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Linen History
+                  <SidebarNavContent icon="history" sub>Linen History</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
@@ -635,6 +955,7 @@ export default function DashboardSidebar({
           {showManagementGroup ? (
             <GroupSection
               title="Management"
+              icon="management"
               open={managementOpen}
               setOpen={setManagementOpen}
             >
@@ -644,7 +965,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Daily Forms
+                  <SidebarNavContent icon="file" sub>Daily Forms</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -654,7 +975,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Management Tasks
+                  <SidebarNavContent icon="list" sub>Management Tasks</SidebarNavContent>
                 </Link>
               ) : null}
 
@@ -664,7 +985,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  Admin Settings
+                  <SidebarNavContent icon="settings" sub>Admin Settings</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
@@ -686,7 +1007,10 @@ export default function DashboardSidebar({
                 onClick={openPasswordModal}
                 style={styles.secondaryAction}
               >
-                {isSuperuser ? 'Change User Password' : 'Change Password'}
+                <span style={styles.actionIcon}>
+                  <SidebarIcon name="lock" size={16} />
+                </span>
+                <span>{isSuperuser ? 'Change User Password' : 'Change Password'}</span>
               </button>
 
               <button
@@ -698,7 +1022,10 @@ export default function DashboardSidebar({
                 }}
                 disabled={logoutBusy}
               >
-                {logoutBusy ? 'Logging out...' : 'Log Out'}
+                <span style={styles.actionIcon}>
+                  <SidebarIcon name="logout" size={16} />
+                </span>
+                <span>{logoutBusy ? 'Logging out...' : 'Log Out'}</span>
               </button>
             </>
           ) : (
@@ -713,7 +1040,10 @@ export default function DashboardSidebar({
                 onClick={openLoginModal}
                 style={styles.primaryAction}
               >
-                Log In
+                <span style={styles.actionIcon}>
+                  <SidebarIcon name="login" size={16} />
+                </span>
+                <span>Log In</span>
               </button>
             </>
           )}
@@ -877,6 +1207,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '20px',
     fontWeight: 800,
     color: '#ffffff',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  menuTitleIcon: {
+    width: '34px',
+    height: '34px',
+    borderRadius: '12px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(37, 99, 235, 0.20)',
+    color: '#93c5fd',
+    border: '1px solid rgba(147, 197, 253, 0.26)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
   },
   closeBtn: {
     border: '1px solid rgba(255,255,255,0.18)',
@@ -887,6 +1232,10 @@ const styles: Record<string, React.CSSProperties> = {
     height: '36px',
     cursor: 'pointer',
     fontWeight: 700,
+    fontSize: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingBox: {
     marginBottom: '10px',
@@ -906,6 +1255,7 @@ const styles: Record<string, React.CSSProperties> = {
   navBtn: {
     display: 'flex',
     alignItems: 'center',
+    gap: '10px',
     width: '100%',
     textDecoration: 'none',
     border: '1px solid rgba(148, 163, 184, 0.14)',
@@ -917,6 +1267,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     boxSizing: 'border-box',
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+  },
+  navIcon: {
+    width: '30px',
+    height: '30px',
+    borderRadius: '11px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(59, 130, 246, 0.14)',
+    color: '#93c5fd',
+    border: '1px solid rgba(147, 197, 253, 0.14)',
+    flexShrink: 0,
+  },
+  navText: {
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   groupWrap: {
     display: 'flex',
@@ -938,10 +1307,28 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     boxSizing: 'border-box',
   },
+  groupBtnLeft: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '10px',
+    minWidth: 0,
+    flex: 1,
+    order: 1,
+  },
   groupChevron: {
-    fontSize: '14px',
-    fontWeight: 800,
+    display: 'none',
+  },
+  groupChevronIcon: {
     color: '#bfdbfe',
+    width: '24px',
+    height: '24px',
+    borderRadius: '8px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'transform 0.18s ease',
+    order: 2,
   },
   groupContent: {
     display: 'flex',
@@ -952,6 +1339,7 @@ const styles: Record<string, React.CSSProperties> = {
   subNavBtn: {
     display: 'flex',
     alignItems: 'center',
+    gap: '9px',
     width: '100%',
     textDecoration: 'none',
     border: '1px solid rgba(148, 163, 184, 0.12)',
@@ -962,6 +1350,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     fontSize: '14px',
     boxSizing: 'border-box',
+  },
+  subNavIcon: {
+    width: '26px',
+    height: '26px',
+    borderRadius: '10px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(255,255,255,0.06)',
+    color: '#bfdbfe',
+    border: '1px solid rgba(147, 197, 253, 0.10)',
+    flexShrink: 0,
   },
   footer: {
     marginTop: '20px',
@@ -1009,6 +1409,10 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 14px',
     fontWeight: 800,
     cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
   },
   primaryAction: {
     border: 'none',
@@ -1019,6 +1423,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     cursor: 'pointer',
     boxShadow: '0 14px 24px rgba(29,78,216,0.34)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+  },
+  actionIcon: {
+    width: '24px',
+    height: '24px',
+    borderRadius: '8px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(255,255,255,0.14)',
+    color: '#ffffff',
+    flexShrink: 0,
   },
   modalOverlay: {
     position: 'fixed',
