@@ -56,6 +56,7 @@ type ItemSummary = {
   itemName: string;
   description: string;
   category: ItemCategory;
+  totalStock: number;
   branchStocks: Record<BranchName, number>;
 };
 
@@ -113,6 +114,7 @@ export default function MaintenanceStockCardPage() {
   const [movements, setMovements] = useState<StockMovementRow[]>([]);
   const [damagedRows, setDamagedRows] = useState<DamagedRow[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<BranchName>('Crown');
+  const [stockView, setStockView] = useState<'BRANCH' | 'TOTAL'>('BRANCH');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [addItemName, setAddItemName] = useState('');
@@ -256,11 +258,14 @@ export default function MaintenanceStockCardPage() {
           branchStocks[movement.branch_name] += sign * safeNumber(movement.qty);
         });
 
+      const totalStock = BRANCHES.reduce((sum, branch) => sum + branchStocks[branch], 0);
+
       return {
         id: item.id,
         itemName: item.item_name,
         description: item.description || '',
         category: normalizeCategory(item.category),
+        totalStock,
         branchStocks,
       } satisfies ItemSummary;
     });
@@ -647,25 +652,55 @@ export default function MaintenanceStockCardPage() {
         </section>
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>Branch Overview</div>
-          <div style={styles.branchRow}>
-            {BRANCHES.map((branch) => (
-              <button
-                key={branch}
-                type="button"
-                onClick={() => setSelectedBranch(branch)}
-                style={branchBadgeStyle(selectedBranch === branch)}
-              >
-                {branch}
-              </button>
-            ))}
+          <div style={styles.sectionTitle}>Stock View</div>
+          <div style={styles.viewTabRow}>
+            <button
+              type="button"
+              onClick={() => setStockView('BRANCH')}
+              style={stockView === 'BRANCH' ? styles.viewTabActive : styles.viewTab}
+            >
+              Branch Stock
+            </button>
+            <button
+              type="button"
+              onClick={() => setStockView('TOTAL')}
+              style={stockView === 'TOTAL' ? styles.viewTabActive : styles.viewTab}
+            >
+              Grand Total
+            </button>
           </div>
+          {stockView === 'BRANCH' ? (
+            <div style={styles.branchRow}>
+              {BRANCHES.map((branch) => (
+                <button
+                  key={branch}
+                  type="button"
+                  onClick={() => setSelectedBranch(branch)}
+                  style={branchBadgeStyle(selectedBranch === branch)}
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.sectionHintCompact}>
+              Showing total stock balance across Crown, Leisure, Express, and View.
+            </div>
+          )}
         </section>
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>Current Stock</div>
+          <div style={styles.sectionTitle}>
+            {stockView === 'BRANCH' ? 'Current Stock' : 'Grand Total Stock'}
+          </div>
           <div style={styles.sectionHint}>
-            Viewing branch balance for <strong>{selectedBranch}</strong>. Expand a category to see items.
+            {stockView === 'BRANCH' ? (
+              <>
+                Viewing branch balance for <strong>{selectedBranch}</strong>. Expand a category to see items.
+              </>
+            ) : (
+              <>Viewing grand total stock balance. Expand a category to see items.</>
+            )}
           </div>
           <div style={styles.searchRow}>
             <input
@@ -708,7 +743,8 @@ export default function MaintenanceStockCardPage() {
                       ) : (
                         <div style={styles.stockList}>
                           {categoryItems.map((item) => {
-                            const branchBalance = item.branchStocks[selectedBranch];
+                            const stockBalance =
+                              stockView === 'BRANCH' ? item.branchStocks[selectedBranch] : item.totalStock;
                             const actionOpen = actionMenuItemId === item.id;
 
                             return (
@@ -722,8 +758,10 @@ export default function MaintenanceStockCardPage() {
                                       ) : null}
                                     </div>
                                     <div style={styles.stockBalanceWrap}>
-                                      <div style={styles.stockBalanceLabel}>{selectedBranch}</div>
-                                      <div style={styles.stockBalanceValue}>{branchBalance}</div>
+                                      <div style={styles.stockBalanceLabel}>
+                                        {stockView === 'BRANCH' ? selectedBranch : 'Total'}
+                                      </div>
+                                      <div style={styles.stockBalanceValue}>{stockBalance}</div>
                                     </div>
                                   </div>
                                 </div>
@@ -997,6 +1035,13 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.45,
     fontWeight: 600,
   },
+  sectionHintCompact: {
+    marginTop: '10px',
+    color: '#64748b',
+    fontSize: '12px',
+    lineHeight: 1.4,
+    fontWeight: 600,
+  },
   searchRow: {
     marginBottom: '14px',
   },
@@ -1050,6 +1095,30 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '8px',
     flexWrap: 'wrap',
+    marginTop: '10px',
+  },
+  viewTabRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
+  viewTab: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '999px',
+    padding: '9px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  viewTabActive: {
+    border: '1px solid #93c5fd',
+    background: '#dbeafe',
+    color: '#1d4ed8',
+    borderRadius: '999px',
+    padding: '9px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
   },
   branchPill: {
     border: '1px solid #cbd5e1',
