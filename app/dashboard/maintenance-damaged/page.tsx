@@ -215,12 +215,16 @@ export default function MaintenanceDamagedPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const { error } = await supabase
+      const { data: deletedRows, error } = await supabase
         .from('maintenance_damaged_items')
         .delete()
-        .eq('id', row.id);
+        .eq('id', row.id)
+        .select('id');
 
       if (error) throw error;
+      if (!deletedRows || deletedRows.length === 0) {
+        throw new Error('Delete was not allowed by the database policy. Please run the updated maintenance stock SQL.');
+      }
 
       setSuccessMsg('Damaged entry deleted.');
       await loadData();
