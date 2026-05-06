@@ -113,6 +113,7 @@ export default function MaintenanceStockCardPage() {
   const [movements, setMovements] = useState<StockMovementRow[]>([]);
   const [damagedRows, setDamagedRows] = useState<DamagedRow[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<BranchName>('Crown');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [addItemName, setAddItemName] = useState('');
   const [addItemDescription, setAddItemDescription] = useState('');
@@ -270,6 +271,7 @@ export default function MaintenanceStockCardPage() {
   }, [movements]);
 
   const groupedItems = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
     const groups: Record<ItemCategory, ItemSummary[]> = {
       Electrical: [],
       Plumbing: [],
@@ -277,11 +279,17 @@ export default function MaintenanceStockCardPage() {
     };
 
     itemSummaries.forEach((item) => {
+      if (normalizedSearch) {
+        const haystack = `${item.itemName} ${item.description} ${item.category}`.toLowerCase();
+        if (!haystack.includes(normalizedSearch)) {
+          return;
+        }
+      }
       groups[item.category].push(item);
     });
 
     return groups;
-  }, [itemSummaries]);
+  }, [itemSummaries, searchTerm]);
 
   async function handleAddItem() {
     const supabase = getSupabaseSafe();
@@ -655,6 +663,14 @@ export default function MaintenanceStockCardPage() {
           <div style={styles.sectionHint}>
             Viewing branch balance for <strong>{selectedBranch}</strong>. Expand a category to see items.
           </div>
+          <div style={styles.searchRow}>
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search item name, description, or category"
+              style={styles.input}
+            />
+          </div>
 
           {loading ? (
             <div style={styles.emptyState}>Loading maintenance stock...</div>
@@ -975,6 +991,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     lineHeight: 1.45,
     fontWeight: 600,
+  },
+  searchRow: {
+    marginBottom: '14px',
   },
   formGrid: {
     display: 'grid',
