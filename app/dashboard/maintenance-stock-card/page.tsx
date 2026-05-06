@@ -715,16 +715,17 @@ export default function MaintenanceStockCardPage() {
                               <article key={item.id} style={styles.stockRow}>
                                 <div style={styles.stockRowMain}>
                                   <div style={styles.stockRowTop}>
-                                    <div style={styles.stockName}>{item.itemName}</div>
+                                    <div style={styles.stockTextBlock}>
+                                      <div style={styles.stockName}>{item.itemName}</div>
+                                      {item.description ? (
+                                        <div style={styles.stockDescriptionInline}>{item.description}</div>
+                                      ) : null}
+                                    </div>
                                     <div style={styles.stockBalanceWrap}>
                                       <div style={styles.stockBalanceLabel}>{selectedBranch}</div>
                                       <div style={styles.stockBalanceValue}>{branchBalance}</div>
                                     </div>
                                   </div>
-
-                                  {item.description ? (
-                                    <div style={styles.stockDescription}>{item.description}</div>
-                                  ) : null}
                                 </div>
 
                                 <div style={styles.stockRowActions}>
@@ -1118,13 +1119,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   stockRow: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '10px',
+    gap: '8px',
     border: '1px solid #e7edf5',
-    borderRadius: '12px',
+    borderRadius: '10px',
     background: '#ffffff',
-    padding: '10px 12px',
+    padding: '8px 10px',
     flexWrap: 'wrap',
   },
   stockRowMain: {
@@ -1133,29 +1134,36 @@ const styles: Record<string, React.CSSProperties> = {
   },
   stockRowTop: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '12px',
-    flexWrap: 'wrap',
+    gap: '8px',
+    flexWrap: 'nowrap',
+  },
+  stockTextBlock: {
+    minWidth: 0,
+    flex: 1,
   },
   stockName: {
-    fontSize: '14px',
+    fontSize: '13px',
     fontWeight: 800,
     color: '#0f172a',
-    lineHeight: 1.35,
+    lineHeight: 1.25,
   },
-  stockDescription: {
-    marginTop: '4px',
-    fontSize: '12px',
+  stockDescriptionInline: {
+    marginTop: '2px',
+    fontSize: '11px',
     color: '#64748b',
-    lineHeight: 1.45,
+    lineHeight: 1.3,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   stockBalanceWrap: {
-    minWidth: '74px',
-    borderRadius: '10px',
+    minWidth: '68px',
+    borderRadius: '8px',
     background: '#eff6ff',
     border: '1px solid #dbeafe',
-    padding: '6px 8px',
+    padding: '5px 6px',
     textAlign: 'center',
     flexShrink: 0,
   },
@@ -1165,31 +1173,34 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
   },
   stockBalanceValue: {
-    marginTop: '2px',
-    fontSize: '16px',
+    marginTop: '1px',
+    fontSize: '15px',
     color: '#0f172a',
     fontWeight: 900,
     lineHeight: 1,
   },
   stockRowActions: {
-    alignSelf: 'center',
+    alignSelf: 'stretch',
+    display: 'flex',
+    alignItems: 'center',
   },
   actionMenuBtn: {
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
-    borderRadius: '10px',
-    padding: '8px 10px',
+    borderRadius: '8px',
+    padding: '7px 10px',
     fontWeight: 800,
     cursor: 'pointer',
-    minWidth: '84px',
+    minWidth: '78px',
+    height: '100%',
   },
   inlineActionBar: {
     width: '100%',
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
     gap: '6px',
-    paddingTop: '8px',
+    paddingTop: '6px',
     borderTop: '1px solid #eef2f7',
   },
   inlineActionBtn: {
