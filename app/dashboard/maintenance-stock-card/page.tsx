@@ -14,11 +14,13 @@ type DashboardUser = {
 
 type BranchName = 'Crown' | 'Leisure' | 'Express' | 'View';
 type MovementType = 'RESTOCK' | 'TAKE_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT';
+type ItemCategory = 'Electrical' | 'Plumbing' | 'Air-Con';
 
 type StockItemRow = {
   id: string;
   item_name: string;
   description: string | null;
+  category: ItemCategory | null;
   created_at?: string | null;
 };
 
@@ -53,11 +55,12 @@ type ItemSummary = {
   id: string;
   itemName: string;
   description: string;
-  totalStock: number;
+  category: ItemCategory;
   branchStocks: Record<BranchName, number>;
 };
 
 const BRANCHES: BranchName[] = ['Crown', 'Leisure', 'Express', 'View'];
+const ITEM_CATEGORIES: ItemCategory[] = ['Electrical', 'Plumbing', 'Air-Con'];
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -84,6 +87,13 @@ function emptyBranchStocks() {
   } as Record<BranchName, number>;
 }
 
+function normalizeCategory(value: unknown): ItemCategory {
+  if (value === 'Electrical' || value === 'Plumbing' || value === 'Air-Con') {
+    return value;
+  }
+  return 'Electrical';
+}
+
 function branchBadgeStyle(active: boolean): React.CSSProperties {
   return {
     ...styles.branchPill,
@@ -106,6 +116,13 @@ export default function MaintenanceStockCardPage() {
 
   const [addItemName, setAddItemName] = useState('');
   const [addItemDescription, setAddItemDescription] = useState('');
+  const [addItemCategory, setAddItemCategory] = useState<ItemCategory>('Electrical');
+  const [openCategories, setOpenCategories] = useState<Record<ItemCategory, boolean>>({
+    Electrical: true,
+    Plumbing: false,
+    'Air-Con': false,
+  });
+  const [actionMenuItemId, setActionMenuItemId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'RESTOCK' | 'TAKE_OUT' | 'TRANSFER'>('RESTOCK');
@@ -189,7 +206,7 @@ export default function MaintenanceStockCardPage() {
       const [itemsRes, movementRes, damagedRes] = await Promise.all([
         supabase
           .from('maintenance_stock_items')
-          .select('id, item_name, description, created_at')
+          .select('id, item_name, description, category, created_at')
           .order('item_name', { ascending: true }),
         supabase
           .from('maintenance_stock_movements')
@@ -238,13 +255,11 @@ export default function MaintenanceStockCardPage() {
           branchStocks[movement.branch_name] += sign * safeNumber(movement.qty);
         });
 
-      const totalStock = BRANCHES.reduce((sum, branch) => sum + branchStocks[branch], 0);
-
       return {
         id: item.id,
         itemName: item.item_name,
         description: item.description || '',
-        totalStock,
+        category: normalizeCategory(item.category),
         branchStocks,
       } satisfies ItemSummary;
     });
@@ -253,6 +268,20 @@ export default function MaintenanceStockCardPage() {
   const recentMovements = useMemo(() => {
     return movements.slice(0, 8);
   }, [movements]);
+
+  const groupedItems = useMemo(() => {
+    const groups: Record<ItemCategory, ItemSummary[]> = {
+      Electrical: [],
+      Plumbing: [],
+      'Air-Con': [],
+    };
+
+    itemSummaries.forEach((item) => {
+      groups[item.category].push(item);
+    });
+
+    return groups;
+  }, [itemSummaries]);
 
   async function handleAddItem() {
     const supabase = getSupabaseSafe();
@@ -276,6 +305,7 @@ export default function MaintenanceStockCardPage() {
         {
           item_name: itemName,
           description: addItemDescription.trim() || null,
+          category: addItemCategory,
           created_by_user_id: profile?.user_id || null,
           created_by_name: profile?.name || profile?.email || null,
         },
@@ -285,6 +315,7 @@ export default function MaintenanceStockCardPage() {
 
       setAddItemName('');
       setAddItemDescription('');
+      setAddItemCategory('Electrical');
       setSuccessMsg('Maintenance stock item added.');
       await loadData();
     } catch (err: any) {
@@ -355,6 +386,17 @@ export default function MaintenanceStockCardPage() {
     setMovementReason('');
     setMovementUsedTo('');
     setReportDamage(false);
+  }
+
+  function toggleCategory(category: ItemCategory) {
+    setOpenCategories((prev) => ({
+      ...prev,
+      [category]: !prev[category],
+    }));
+  }
+
+  function toggleActionMenu(itemId: string) {
+    setActionMenuItemId((prev) => (prev === itemId ? null : itemId));
   }
 
   async function submitMovement() {
@@ -541,7 +583,7 @@ export default function MaintenanceStockCardPage() {
         <div style={styles.topBar}>
           <div>
             <div style={styles.pageTitle}>Maintenance Stock Card</div>
-            <div style={styles.pageSubTitle}>Manage stock, transfers, replacements, and damaged item flow.</div>
+            <div style={styles.pageSubTitle}>Manage stock list, transfers, replacements, and damaged item flow.</div>
           </div>
           <div style={styles.topBarActions}>
             <Link href="/dashboard/maintenance-damaged" style={styles.secondaryBtn}>Damaged Page</Link>
@@ -555,6 +597,18 @@ export default function MaintenanceStockCardPage() {
         <section style={styles.panel}>
           <div style={styles.sectionTitle}>Add Item or Equipment</div>
           <div style={styles.formGrid}>
+            <select
+              value={addItemCategory}
+              onChange={(e) => setAddItemCategory(e.target.value as ItemCategory)}
+              style={styles.input}
+              disabled={saving}
+            >
+              {ITEM_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
             <input
               value={addItemName}
               onChange={(e) => setAddItemName(e.target.value)}
@@ -598,55 +652,127 @@ export default function MaintenanceStockCardPage() {
 
         <section style={styles.panel}>
           <div style={styles.sectionTitle}>Current Stock</div>
+          <div style={styles.sectionHint}>
+            Viewing branch balance for <strong>{selectedBranch}</strong>. Expand a category to see items.
+          </div>
 
           {loading ? (
             <div style={styles.emptyState}>Loading maintenance stock...</div>
           ) : itemSummaries.length === 0 ? (
             <div style={styles.emptyState}>No maintenance stock items yet.</div>
           ) : (
-            <div style={styles.itemGrid}>
-              {itemSummaries.map((item) => (
-                <article key={item.id} style={styles.itemCard}>
-                  <div style={styles.itemTitle}>{item.itemName}</div>
-                  {item.description ? <div style={styles.itemDescription}>{item.description}</div> : null}
+            <div style={styles.categoryList}>
+              {ITEM_CATEGORIES.map((category) => {
+                const categoryItems = groupedItems[category];
+                const isOpen = openCategories[category];
 
-                  <div style={styles.metricRow}>
-                    <span style={styles.metricLabel}>Current stock</span>
-                    <span style={styles.metricValue}>{item.totalStock}</span>
-                  </div>
-
-                  <div style={styles.branchStockGrid}>
-                    {BRANCHES.map((branch) => (
-                      <div key={branch} style={styles.branchStockCard}>
-                        <div style={styles.branchStockLabel}>{branch}</div>
-                        <div style={styles.branchStockValue}>{item.branchStocks[branch]}</div>
+                return (
+                  <section key={category} style={styles.categorySection}>
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(category)}
+                      style={styles.categoryToggle}
+                    >
+                      <div style={styles.categoryToggleLeft}>
+                        <div style={styles.categoryName}>{category}</div>
+                        <div style={styles.categoryCount}>
+                          {categoryItems.length} item{categoryItems.length === 1 ? '' : 's'}
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                      <div style={styles.categoryChevron}>{isOpen ? 'Hide' : 'Show'}</div>
+                    </button>
 
-                  <div style={styles.actionRow}>
-                    <button type="button" onClick={() => openMovementModal('RESTOCK', item)} style={styles.actionBtn}>
-                      Restock
-                    </button>
-                    <button type="button" onClick={() => openMovementModal('TAKE_OUT', item)} style={styles.actionBtn}>
-                      Stock Out
-                    </button>
-                    <button type="button" onClick={() => openMovementModal('TRANSFER', item)} style={styles.actionBtn}>
-                      Move Branch
-                    </button>
-                    {isSuperuser ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteItem(item)}
-                        style={styles.deleteBtn}
-                        disabled={saving}
-                      >
-                        Delete Item
-                      </button>
+                    {isOpen ? (
+                      categoryItems.length === 0 ? (
+                        <div style={styles.emptyStateCompact}>No items in this category yet.</div>
+                      ) : (
+                        <div style={styles.stockList}>
+                          {categoryItems.map((item) => {
+                            const branchBalance = item.branchStocks[selectedBranch];
+                            const actionOpen = actionMenuItemId === item.id;
+
+                            return (
+                              <article key={item.id} style={styles.stockRow}>
+                                <div style={styles.stockRowMain}>
+                                  <div style={styles.stockRowTop}>
+                                    <div style={styles.stockName}>{item.itemName}</div>
+                                    <div style={styles.stockBalanceWrap}>
+                                      <div style={styles.stockBalanceLabel}>{selectedBranch}</div>
+                                      <div style={styles.stockBalanceValue}>{branchBalance}</div>
+                                    </div>
+                                  </div>
+
+                                  {item.description ? (
+                                    <div style={styles.stockDescription}>{item.description}</div>
+                                  ) : null}
+                                </div>
+
+                                <div style={styles.stockRowActions}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleActionMenu(item.id)}
+                                    style={styles.actionMenuBtn}
+                                  >
+                                    Actions
+                                  </button>
+
+                                  {actionOpen ? (
+                                    <div style={styles.actionMenu}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActionMenuItemId(null);
+                                          openMovementModal('RESTOCK', item);
+                                        }}
+                                        style={styles.actionMenuItem}
+                                      >
+                                        Restock
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActionMenuItemId(null);
+                                          openMovementModal('TAKE_OUT', item);
+                                        }}
+                                        style={styles.actionMenuItem}
+                                      >
+                                        Stock Out
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActionMenuItemId(null);
+                                          openMovementModal('TRANSFER', item);
+                                        }}
+                                        style={styles.actionMenuItem}
+                                      >
+                                        Move Branch
+                                      </button>
+                                      {isSuperuser ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActionMenuItemId(null);
+                                            void handleDeleteItem(item);
+                                          }}
+                                          style={styles.actionMenuDelete}
+                                          disabled={saving}
+                                        >
+                                          Delete
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )
                     ) : null}
-                  </div>
-                </article>
-              ))}
+                  </section>
+                );
+              })}
             </div>
           )}
         </section>
@@ -842,6 +968,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     marginBottom: '14px',
   },
+  sectionHint: {
+    marginTop: '-6px',
+    marginBottom: '14px',
+    color: '#64748b',
+    fontSize: '13px',
+    lineHeight: 1.45,
+    fontWeight: 600,
+  },
   formGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -907,69 +1041,162 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#1d4ed8',
     borderColor: '#93c5fd',
   },
-  itemGrid: {
+  categoryList: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
     gap: '12px',
   },
-  itemCard: {
+  categorySection: {
     border: '1px solid #e2e8f0',
     borderRadius: '18px',
     background: '#ffffff',
-    padding: '14px',
+    overflow: 'hidden',
   },
-  itemTitle: {
-    fontSize: '18px',
+  categoryToggle: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+    border: 'none',
+    background: '#f8fbff',
+    padding: '14px 16px',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  categoryToggleLeft: {
+    minWidth: 0,
+  },
+  categoryName: {
+    fontSize: '17px',
     fontWeight: 800,
     color: '#0f172a',
   },
-  itemDescription: {
+  categoryCount: {
+    marginTop: '4px',
+    fontSize: '12px',
+    color: '#64748b',
+    fontWeight: 700,
+  },
+  categoryChevron: {
+    fontSize: '12px',
+    color: '#1d4ed8',
+    fontWeight: 800,
+    flexShrink: 0,
+  },
+  emptyStateCompact: {
+    padding: '14px 16px 16px',
+    color: '#64748b',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  stockList: {
+    display: 'grid',
+    gap: '10px',
+    padding: '0 12px 12px',
+  },
+  stockRow: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '12px',
+    border: '1px solid #e7edf5',
+    borderRadius: '14px',
+    background: '#ffffff',
+    padding: '12px',
+    flexWrap: 'wrap',
+  },
+  stockRowMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  stockRowTop: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  stockName: {
+    fontSize: '15px',
+    fontWeight: 800,
+    color: '#0f172a',
+    lineHeight: 1.35,
+  },
+  stockDescription: {
     marginTop: '6px',
     fontSize: '13px',
     color: '#64748b',
     lineHeight: 1.45,
   },
-  metricRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '10px',
-    marginTop: '12px',
-    paddingTop: '12px',
-    borderTop: '1px solid #eef2f7',
-  },
-  metricLabel: {
-    fontSize: '13px',
-    color: '#64748b',
-    fontWeight: 700,
-  },
-  metricValue: {
-    fontSize: '22px',
-    color: '#0f172a',
-    fontWeight: 900,
-  },
-  branchStockGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '8px',
-    marginTop: '14px',
-  },
-  branchStockCard: {
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
+  stockBalanceWrap: {
+    minWidth: '82px',
     borderRadius: '12px',
-    padding: '10px',
+    background: '#eff6ff',
+    border: '1px solid #dbeafe',
+    padding: '8px 10px',
+    textAlign: 'center',
+    flexShrink: 0,
   },
-  branchStockLabel: {
+  stockBalanceLabel: {
     fontSize: '11px',
-    color: '#64748b',
+    color: '#1d4ed8',
     fontWeight: 700,
   },
-  branchStockValue: {
-    marginTop: '6px',
-    fontSize: '18px',
+  stockBalanceValue: {
+    marginTop: '4px',
+    fontSize: '20px',
     color: '#0f172a',
     fontWeight: 900,
+    lineHeight: 1,
+  },
+  stockRowActions: {
+    position: 'relative',
+    alignSelf: 'center',
+  },
+  actionMenuBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
+    minWidth: '96px',
+  },
+  actionMenu: {
+    position: 'absolute',
+    right: 0,
+    top: 'calc(100% + 8px)',
+    zIndex: 20,
+    minWidth: '170px',
+    background: '#ffffff',
+    border: '1px solid #dfe7f2',
+    borderRadius: '14px',
+    boxShadow: '0 18px 34px rgba(15,23,42,0.12)',
+    padding: '6px',
+    display: 'grid',
+    gap: '6px',
+  },
+  actionMenuItem: {
+    border: 'none',
+    background: '#f8fafc',
+    color: '#0f172a',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  actionMenuDelete: {
+    border: 'none',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
+    textAlign: 'left',
   },
   actionRow: {
     display: 'flex',
