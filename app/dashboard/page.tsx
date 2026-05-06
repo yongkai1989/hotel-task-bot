@@ -61,9 +61,12 @@ const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
 const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const DASHBOARD_PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
-const SILENT_TASK_REFRESH_MIN_MS = 60000;
+const SILENT_TASK_REFRESH_MIN_MS = 120000;
+const DASHBOARD_AUTO_REFRESH_MS = 180000;
 const INSIGHTS_REFRESH_MIN_MS = 180000;
 const PROFILE_REFRESH_MIN_MS = 180000;
+const MAX_RENDERED_TASK_CARDS = 60;
+const MAX_RENDERED_TASK_THUMBNAILS = 20;
 
 type AdminUser = {
   email: string;
@@ -912,35 +915,15 @@ export default function DashboardPage() {
     if (typeof window === 'undefined') return;
 
     try {
-      const payload = {
-        tasks: taskList,
-        fingerprint: buildTasksFingerprint(taskList),
-        savedAt: Date.now(),
-      };
-
-      sessionStorage.setItem(DASHBOARD_TASKS_CACHE_KEY, JSON.stringify(payload));
+      lastTasksFingerprintRef.current = buildTasksFingerprint(taskList);
+      sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
     } catch {
       // ignore cache write failure
     }
   }
 
   function readTasksFromCache(): Task[] | null {
-    if (typeof window === 'undefined') return null;
-
-    try {
-      const raw = sessionStorage.getItem(DASHBOARD_TASKS_CACHE_KEY);
-      if (!raw) return null;
-
-      const parsed = JSON.parse(raw);
-      if (!parsed?.tasks || !Array.isArray(parsed.tasks)) return null;
-
-      lastTasksFingerprintRef.current =
-        parsed.fingerprint || buildTasksFingerprint(parsed.tasks);
-
-      return parsed.tasks as Task[];
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   function saveInsightsToCache(nextInsights: DashboardInsights) {
@@ -1182,44 +1165,26 @@ export default function DashboardPage() {
   }, [profile]);
 
   useEffect(() => {
+    lastVisibilityCheckRef.current = Date.now();
+  }, [profile]);
+
+  useEffect(() => {
     if (!profile) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-    let checking = false;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (loginOpen || createModalOpen || editModalOpen || passwordModalOpen || imageModalOpen) return;
 
-    const checkForChangesWhenVisible = async () => {
       const now = Date.now();
-
-      if (checking) return;
-      if (now - lastVisibilityCheckRef.current < 30000) return;
+      if (now - lastVisibilityCheckRef.current < DASHBOARD_AUTO_REFRESH_MS) return;
 
       lastVisibilityCheckRef.current = now;
-      checking = true;
+      void loadTasks(false, { silent: true, onlyIfChanged: true });
+    }, DASHBOARD_AUTO_REFRESH_MS);
 
-      try {
-        await loadTasks(false, { silent: true, onlyIfChanged: true });
-      } finally {
-        checking = false;
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void checkForChangesWhenVisible();
-      }
-    };
-
-    const handleFocus = () => {
-      void checkForChangesWhenVisible();
-    };
-
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [profile]);
+    return () => window.clearInterval(timer);
+  }, [profile, loginOpen, createModalOpen, editModalOpen, passwordModalOpen, imageModalOpen]);
 
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
@@ -2100,6 +2065,8 @@ async function handleDeleteTask(taskId: string) {
   }, [tasks, dept, pastTaskDate, todayLocal]);
 
   const filtered = sidebarView === 'DASHBOARD' ? liveTasks : pastTasks;
+  const visibleTasks = filtered.slice(0, MAX_RENDERED_TASK_CARDS);
+  const hiddenTaskCount = Math.max(0, filtered.length - visibleTasks.length);
 
   const summary = useMemo(() => {
     return {
@@ -2448,7 +2415,7 @@ async function handleDeleteTask(taskId: string) {
                 </div>
               ) : (
                 <div style={styles.cardList}>
-                  {filtered.map((task) => {
+                  {visibleTasks.map((task, taskIndex) => {
                     const images = Array.isArray(task.task_images) ? task.task_images : [];
                     const thumb =
                       images.length > 0
@@ -2605,7 +2572,7 @@ async function handleDeleteTask(taskId: string) {
                             )}
                           </div>
 
-                          {thumb ? (
+                          {thumb && taskIndex < MAX_RENDERED_TASK_THUMBNAILS ? (
                             <div style={styles.thumbWrap}>
                               <button
                                 onClick={() => openImageModal(task)}
@@ -2630,6 +2597,11 @@ async function handleDeleteTask(taskId: string) {
                       </article>
                     );
                   })}
+                  {hiddenTaskCount > 0 ? (
+                    <div style={styles.renderLimitNotice}>
+                      Showing first {MAX_RENDERED_TASK_CARDS} tasks. Use filters to narrow the list.
+                    </div>
+                  ) : null}
                 </div>
               )}
                 </div>
@@ -3904,6 +3876,18 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: 8,
 
+  },
+  renderLimitNotice: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: 14,
+    padding: '12px 14px',
+    fontSize: 12,
+    fontWeight: 800,
+    textAlign: 'center',
   },
   taskCard: {
     width: '100%',
