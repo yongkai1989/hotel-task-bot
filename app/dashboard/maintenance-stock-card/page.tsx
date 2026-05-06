@@ -361,12 +361,16 @@ export default function MaintenanceStockCardPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const { error } = await supabase
+      const { data: deletedRows, error } = await supabase
         .from('maintenance_stock_items')
         .delete()
-        .eq('id', item.id);
+        .eq('id', item.id)
+        .select('id');
 
       if (error) throw error;
+      if (!deletedRows || deletedRows.length === 0) {
+        throw new Error('Delete was not allowed by the database policy. Please run the updated maintenance stock SQL.');
+      }
 
       setSuccessMsg(`Deleted ${item.itemName}.`);
       await loadData();
