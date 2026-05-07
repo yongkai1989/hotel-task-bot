@@ -21,6 +21,8 @@ type LostFoundEntry = {
   item_description: string;
   location_stored: string;
   handled_by_name: string;
+  sent_by_name?: string | null;
+  received_by_name?: string | null;
   photo_url: string;
   photo_path?: string | null;
   returned: boolean;
@@ -133,6 +135,8 @@ export default function LostFoundPage() {
   const [itemDescription, setItemDescription] = useState('');
   const [locationStored, setLocationStored] = useState('');
   const [handledByName, setHandledByName] = useState('');
+  const [sentByName, setSentByName] = useState('');
+  const [receivedByName, setReceivedByName] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
 
   const [returnEntry, setReturnEntry] = useState<LostFoundEntry | null>(null);
@@ -162,6 +166,12 @@ export default function LostFoundPage() {
       setHandledByName(profile.name);
     }
   }, [profile?.name, handledByName]);
+
+  useEffect(() => {
+    if (profile?.name && !receivedByName) {
+      setReceivedByName(profile.name);
+    }
+  }, [profile?.name, receivedByName]);
 
   async function getAccessToken() {
     const {
@@ -237,6 +247,8 @@ export default function LostFoundPage() {
     setItemDescription('');
     setLocationStored('');
     setHandledByName(profile?.name || '');
+    setSentByName('');
+    setReceivedByName(profile?.name || '');
     setPhotoFile(null);
     const input = document.getElementById('lost-found-photo') as HTMLInputElement | null;
     if (input) input.value = '';
@@ -273,7 +285,8 @@ export default function LostFoundPage() {
       if (!roomNumber.trim()) throw new Error('Room Number is required');
       if (!itemDescription.trim()) throw new Error('Item description is required');
       if (!locationStored.trim()) throw new Error('Location Stored is required');
-      if (!handledByName.trim()) throw new Error('Handled by staff name is required');
+      if (!sentByName.trim()) throw new Error('Staff who sent the item is required');
+      if (!receivedByName.trim()) throw new Error('Staff who received the item is required');
       if (!photoFile) throw new Error('Photo upload is required');
 
       setSaving(true);
@@ -286,7 +299,9 @@ export default function LostFoundPage() {
         room_number: roomNumber.trim(),
         item_description: itemDescription.trim(),
         location_stored: locationStored.trim(),
-        handled_by_name: handledByName.trim(),
+        handled_by_name: receivedByName.trim(),
+        sent_by_name: sentByName.trim(),
+        received_by_name: receivedByName.trim(),
         photo_url: uploaded.photo_url,
         photo_path: uploaded.photo_path,
         returned: false,
@@ -420,7 +435,8 @@ export default function LostFoundPage() {
             <div class="row"><div class="label">Room Number</div><div>${escapeHtml(entry.room_number)}</div></div>
             <div class="row"><div class="label">Item Description</div><div>${escapeHtml(entry.item_description)}</div></div>
             <div class="row"><div class="label">Location Stored</div><div>${escapeHtml(entry.location_stored)}</div></div>
-            <div class="row"><div class="label">Handled By</div><div>${escapeHtml(entry.handled_by_name)}</div></div>
+            <div class="row"><div class="label">Sent By Staff</div><div>${escapeHtml(entry.sent_by_name || '-')}</div></div>
+            <div class="row"><div class="label">Received By Staff</div><div>${escapeHtml(entry.received_by_name || entry.handled_by_name)}</div></div>
             <div class="row"><div class="label">Date of Return</div><div>${escapeHtml(formatDate(entry.return_date))}</div></div>
             <div class="row"><div class="label">Method of Return</div><div>${escapeHtml(entry.return_method || '-')}</div></div>
             <div class="row"><div class="label">Collector Name</div><div>${escapeHtml(entry.collector_name || '')}</div></div>
@@ -464,7 +480,8 @@ export default function LostFoundPage() {
 
           <div style={styles.detailGrid}>
             <div><b>Stored:</b> {entry.location_stored}</div>
-            <div><b>Handled:</b> {entry.handled_by_name}</div>
+            <div><b>Sent By:</b> {entry.sent_by_name || '-'}</div>
+            <div><b>Received By:</b> {entry.received_by_name || entry.handled_by_name}</div>
             <div><b>Created:</b> {formatDateTime(entry.created_at)}</div>
             {entry.returned ? <div><b>Returned:</b> {formatDate(entry.return_date)}</div> : null}
             {entry.return_method ? <div><b>Method:</b> {entry.return_method}</div> : null}
@@ -556,8 +573,12 @@ export default function LostFoundPage() {
               <input value={locationStored} onChange={(e) => setLocationStored(e.target.value)} placeholder="e.g. FO cabinet" style={styles.input} />
             </div>
             <div style={styles.field}>
-              <label style={styles.label}>Handled By</label>
-              <input value={handledByName} onChange={(e) => setHandledByName(e.target.value)} placeholder="Staff name" style={styles.input} />
+              <label style={styles.label}>Sent By Staff</label>
+              <input value={sentByName} onChange={(e) => setSentByName(e.target.value)} placeholder="Staff who sent item" style={styles.input} />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Received By Staff</label>
+              <input value={receivedByName} onChange={(e) => setReceivedByName(e.target.value)} placeholder="Staff who received item" style={styles.input} />
             </div>
           </div>
 
