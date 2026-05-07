@@ -1257,11 +1257,6 @@ export default function DashboardPage() {
     });
 
     setProfile(json.user);
-
-    if (typeof window !== 'undefined' && json.user) {
-      window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_KEY, JSON.stringify(json.user));
-      window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_TS_KEY, String(Date.now()));
-    }
   }
 
   async function loadDashboardInsights() {
