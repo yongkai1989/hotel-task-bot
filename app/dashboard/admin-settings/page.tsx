@@ -23,6 +23,7 @@ type UserProfile = {
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
   can_access_admin_settings: boolean;
+  can_access_lost_found: boolean;
   can_create_task: boolean;
   can_edit_task: boolean;
   can_delete_task: boolean;
@@ -38,7 +39,7 @@ type PermissionRecord = Partial<Record<AccessKey, unknown>>;
 const accessFieldDefs: Array<{
   key: AccessKey;
   label: string;
-  group: 'Maintenance' | 'Housekeeping' | 'Management' | 'Actions';
+  group: 'Maintenance' | 'Housekeeping' | 'Front Office' | 'Management' | 'Actions';
 }> = [
   { key: 'can_access_preventive_maintenance', label: 'Preventive Maintenance', group: 'Maintenance' },
   { key: 'can_access_maintenance_ot', label: 'Maintenance OT', group: 'Maintenance' },
@@ -52,6 +53,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_daily_forms', label: 'Daily Forms', group: 'Management' },
   { key: 'can_access_management_tasks', label: 'Management Tasks', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
+  { key: 'can_access_lost_found', label: 'Lost & Found', group: 'Front Office' },
   { key: 'can_create_task', label: 'Can Create', group: 'Actions' },
   { key: 'can_edit_task', label: 'Can Edit', group: 'Actions' },
   { key: 'can_delete_task', label: 'Can Delete', group: 'Actions' },
@@ -71,6 +73,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_daily_forms: false,
     can_access_management_tasks: false,
     can_access_admin_settings: false,
+    can_access_lost_found: false,
     can_create_task: false,
     can_edit_task: false,
     can_delete_task: false,
@@ -124,6 +127,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_management_tasks')),
     can_access_admin_settings:
       toPermissionBoolean(permissionValue('can_access_admin_settings')),
+    can_access_lost_found:
+      toPermissionBoolean(permissionValue('can_access_lost_found')),
     can_create_task: toPermissionBoolean(permissionValue('can_create_task')),
     can_edit_task: toPermissionBoolean(permissionValue('can_edit_task')),
     can_delete_task: toPermissionBoolean(permissionValue('can_delete_task')),
@@ -148,6 +153,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_daily_forms: toPermissionBoolean(draft.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(draft.can_access_management_tasks),
     can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
+    can_access_lost_found: toPermissionBoolean(draft.can_access_lost_found),
     can_create_task: toPermissionBoolean(draft.can_create_task),
     can_edit_task: toPermissionBoolean(draft.can_edit_task),
     can_delete_task: toPermissionBoolean(draft.can_delete_task),
@@ -585,6 +591,7 @@ function renderToggle(key: AccessKey, label: string) {
 
   const maintenanceToggles = accessFieldDefs.filter((f) => f.group === 'Maintenance');
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
+  const frontOfficeToggles = accessFieldDefs.filter((f) => f.group === 'Front Office');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
   const isMobile = viewportWidth <= 768;
@@ -829,6 +836,10 @@ function renderToggle(key: AccessKey, label: string) {
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Housekeeping Access</div>
                       {housekeepingToggles.map((item) => renderToggle(item.key, item.label))}
+                    </div>
+                    <div style={styles.permissionCard}>
+                      <div style={styles.permissionTitle}>Front Office Access</div>
+                      {frontOfficeToggles.map((item) => renderToggle(item.key, item.label))}
                     </div>
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Management Access</div>
