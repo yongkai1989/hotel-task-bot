@@ -143,8 +143,6 @@ export default function LostFoundPage() {
   const [returnDate, setReturnDate] = useState(todayLocalDate());
   const [returnMethod, setReturnMethod] = useState<ReturnMethod>('Collected In Person');
   const [waybillNumber, setWaybillNumber] = useState('');
-  const [collectorName, setCollectorName] = useState('');
-  const [collectorIc, setCollectorIc] = useState('');
 
   const activeEntries = entries.filter((entry) => !entry.returned);
   const returnedEntries = entries.filter((entry) => entry.returned);
@@ -323,8 +321,6 @@ export default function LostFoundPage() {
     setReturnDate(todayLocalDate());
     setReturnMethod('Collected In Person');
     setWaybillNumber('');
-    setCollectorName('');
-    setCollectorIc('');
     setErrorMsg('');
     setSuccessMsg('');
   }
@@ -344,11 +340,6 @@ export default function LostFoundPage() {
         throw new Error('Waybill Number is required for Courier return');
       }
 
-      if (returnMethod === 'Collected In Person') {
-        if (!collectorName.trim()) throw new Error('Collector name is required');
-        if (!collectorIc.trim()) throw new Error('Collector IC is required');
-      }
-
       setSaving(true);
       setErrorMsg('');
       setSuccessMsg('');
@@ -360,8 +351,8 @@ export default function LostFoundPage() {
           return_date: returnDate,
           return_method: returnMethod,
           waybill_number: returnMethod === 'Courier' ? waybillNumber.trim() : null,
-          collector_name: returnMethod === 'Collected In Person' ? collectorName.trim() : null,
-          collector_ic: returnMethod === 'Collected In Person' ? collectorIc.trim() : null,
+          collector_name: null,
+          collector_ic: null,
           returned_by_user_id: profile.user_id,
           returned_by_name: profile.name || profile.email,
           updated_by_user_id: profile.user_id,
@@ -403,7 +394,8 @@ export default function LostFoundPage() {
     }
   }
 
-  function printAcknowledgement(entry: LostFoundEntry) {
+  function printCollectionForm(entry: LostFoundEntry, selectedReturnDate?: string | null) {
+    const displayReturnDate = selectedReturnDate || entry.return_date || todayLocalDate();
     const html = `
       <!doctype html>
       <html>
@@ -417,8 +409,11 @@ export default function LostFoundPage() {
             .row { display: grid; grid-template-columns: 180px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid #e2e8f0; }
             .row:last-child { border-bottom: none; }
             .label { font-weight: 700; color: #334155; }
+            .fill { min-height: 28px; border-bottom: 1px solid #0f172a; }
+            .notice { margin: 18px 0; font-size: 13px; line-height: 1.6; color: #334155; }
             .sig { margin-top: 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
             .line { border-top: 1px solid #0f172a; padding-top: 8px; }
+            @media print { body { padding: 22px; } }
           </style>
         </head>
         <body>
@@ -431,10 +426,16 @@ export default function LostFoundPage() {
             <div class="row"><div class="label">Location Stored</div><div>${escapeHtml(entry.location_stored)}</div></div>
             <div class="row"><div class="label">Sent By Staff</div><div>${escapeHtml(entry.sent_by_name || '-')}</div></div>
             <div class="row"><div class="label">Received By Staff</div><div>${escapeHtml(entry.received_by_name || entry.handled_by_name)}</div></div>
-            <div class="row"><div class="label">Date of Return</div><div>${escapeHtml(formatDate(entry.return_date))}</div></div>
-            <div class="row"><div class="label">Method of Return</div><div>${escapeHtml(entry.return_method || '-')}</div></div>
-            <div class="row"><div class="label">Collector Name</div><div>${escapeHtml(entry.collector_name || '')}</div></div>
-            <div class="row"><div class="label">Collector IC</div><div>${escapeHtml(entry.collector_ic || '')}</div></div>
+            <div class="row"><div class="label">Date of Return</div><div>${escapeHtml(formatDate(displayReturnDate))}</div></div>
+            <div class="row"><div class="label">Method of Return</div><div>Collected In Person</div></div>
+          </div>
+          <div class="notice">
+            I acknowledge that I have collected the item listed above from Hallmark Crown Hotel in good order.
+          </div>
+          <div class="box">
+            <div class="row"><div class="label">Collector Name</div><div class="fill"></div></div>
+            <div class="row"><div class="label">IC / Passport No.</div><div class="fill"></div></div>
+            <div class="row"><div class="label">Contact Number</div><div class="fill"></div></div>
           </div>
           <div class="sig">
             <div class="line">Collector Signature</div>
@@ -492,8 +493,8 @@ export default function LostFoundPage() {
             ) : null}
 
             {entry.returned && entry.return_method === 'Collected In Person' ? (
-              <button type="button" onClick={() => printAcknowledgement(entry)} style={styles.secondarySmall}>
-                Print Acknowledgement
+              <button type="button" onClick={() => printCollectionForm(entry)} style={styles.secondarySmall}>
+                Print Collection Form
               </button>
             ) : null}
 
@@ -655,15 +656,14 @@ export default function LostFoundPage() {
                 <input value={waybillNumber} onChange={(e) => setWaybillNumber(e.target.value)} placeholder="Required for courier" style={styles.input} />
               </div>
             ) : (
-              <div style={styles.formGrid}>
-                <div style={styles.field}>
-                  <label style={styles.label}>Collector Name</label>
-                  <input value={collectorName} onChange={(e) => setCollectorName(e.target.value)} placeholder="Name of person collecting" style={styles.input} />
+              <div style={styles.printPrompt}>
+                <div>
+                  <div style={styles.printPromptTitle}>Customer fills acknowledgement on paper</div>
+                  <div style={styles.helper}>Print this form, let the customer fill in Name, IC, contact number, and signature, then file the signed copy.</div>
                 </div>
-                <div style={styles.field}>
-                  <label style={styles.label}>Collector IC</label>
-                  <input value={collectorIc} onChange={(e) => setCollectorIc(e.target.value)} placeholder="IC / Passport number" style={styles.input} />
-                </div>
+                <button type="button" onClick={() => printCollectionForm(returnEntry, returnDate)} style={styles.secondaryBtn}>
+                  Print Collection Form
+                </button>
               </div>
             )}
 
@@ -723,6 +723,8 @@ const styles: Record<string, React.CSSProperties> = {
   modal: { width: '100%', maxWidth: 620, background: '#ffffff', borderRadius: 22, border: '1px solid #dbe5f2', padding: 18, boxShadow: '0 24px 70px rgba(15, 23, 42, 0.24)' },
   modalHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
   iconBtn: { width: 38, height: 38, borderRadius: 12, border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontWeight: 900, cursor: 'pointer' },
+  printPrompt: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 16, padding: 14, marginBottom: 12 },
+  printPromptTitle: { fontSize: 14, fontWeight: 900, color: '#1e3a8a', marginBottom: 4 },
   centerCard: { maxWidth: 520, margin: '80px auto', background: '#ffffff', border: '1px solid #dbe5f2', borderRadius: 22, padding: 24, textAlign: 'center', boxShadow: '0 16px 36px rgba(15, 23, 42, 0.08)' },
   centerTitle: { fontSize: 22, fontWeight: 900, marginBottom: 8 },
   centerText: { color: '#64748b', lineHeight: 1.5 },
