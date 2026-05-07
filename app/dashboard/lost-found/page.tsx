@@ -440,6 +440,7 @@ export default function LostFoundPage() {
 
   function printCollectionForm(entry: LostFoundEntry, selectedReturnDate?: string | null) {
     const displayReturnDate = selectedReturnDate || entry.return_date || todayLocalDate();
+    const logoUrl = `${window.location.origin}/logo.png`;
     const html = `
       <!doctype html>
       <html>
@@ -447,6 +448,8 @@ export default function LostFoundPage() {
           <title>Lost & Found Acknowledgement</title>
           <style>
             body { font-family: Arial, sans-serif; color: #0f172a; padding: 32px; }
+            .header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+            .logo { width: 58px; height: 58px; object-fit: contain; }
             h1 { font-size: 24px; margin: 0 0 6px; }
             .sub { color: #475569; margin-bottom: 24px; }
             .box { border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
@@ -461,15 +464,17 @@ export default function LostFoundPage() {
           </style>
         </head>
         <body>
-          <h1>Hallmark Crown Hotel</h1>
-          <div class="sub">Lost & Found Item Collection Acknowledgement</div>
+          <div class="header">
+            <img class="logo" src="${escapeHtml(logoUrl)}" alt="Hallmark Crown Hotel logo" />
+            <div>
+              <h1>Hallmark Crown Hotel</h1>
+              <div class="sub">Lost & Found Item Collection Acknowledgement</div>
+            </div>
+          </div>
           <div class="box">
             <div class="row"><div class="label">Date of Lost</div><div>${escapeHtml(formatDate(entry.lost_date))}</div></div>
             <div class="row"><div class="label">Room Number</div><div>${escapeHtml(entry.room_number)}</div></div>
             <div class="row"><div class="label">Item Description</div><div>${escapeHtml(entry.item_description)}</div></div>
-            <div class="row"><div class="label">Location Stored</div><div>${escapeHtml(entry.location_stored)}</div></div>
-            <div class="row"><div class="label">Sent By Staff</div><div>${escapeHtml(entry.sent_by_name || '-')}</div></div>
-            <div class="row"><div class="label">Received By Staff</div><div>${escapeHtml(entry.received_by_name || entry.handled_by_name)}</div></div>
             <div class="row"><div class="label">Date of Return</div><div>${escapeHtml(formatDate(displayReturnDate))}</div></div>
             <div class="row"><div class="label">Method of Return</div><div>Collected In Person</div></div>
           </div>
