@@ -116,6 +116,14 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function parseWholeNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export default function HkSpecialProjectPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -133,6 +141,7 @@ export default function HkSpecialProjectPage() {
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
   const [newDueDate, setNewDueDate] = useState(getTodayLocalDateString());
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
 
@@ -388,6 +397,7 @@ export default function HkSpecialProjectPage() {
     setSuccessMsg('');
     setNewTitle('');
     setNewDescription('');
+    setNewRepeatEveryDaysInput('30');
     setNewDueDate(getTodayLocalDateString());
     setNewHasRoomChecklist(false);
     setShowCreateModal(true);
@@ -413,6 +423,17 @@ export default function HkSpecialProjectPage() {
     const title = newTitle.trim();
     if (!title) {
       setErrorMsg('Please enter a task title.');
+      return;
+    }
+
+    const parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
+    if (parsedRepeatEveryDays === null) {
+      setErrorMsg('Please enter Repeat Every days.');
+      return;
+    }
+
+    if (parsedRepeatEveryDays <= 0) {
+      setErrorMsg('Repeat Every days must be more than 0.');
       return;
     }
 
@@ -446,7 +467,7 @@ export default function HkSpecialProjectPage() {
           {
             title,
             description: newDescription.trim() || null,
-            repeat_every_days: 0,
+            repeat_every_days: parsedRepeatEveryDays,
             due_in_days: dueInDays,
             has_room_checklist: newHasRoomChecklist,
             is_active: true,
@@ -969,6 +990,20 @@ export default function HkSpecialProjectPage() {
                 onChange={(e) => setNewDescription(e.target.value)}
                 style={styles.textarea}
                 placeholder="Optional notes or SOP"
+                disabled={creatingTask}
+              />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Repeat Every Days</label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={newRepeatEveryDaysInput}
+                onChange={(e) => setNewRepeatEveryDaysInput(e.target.value)}
+                style={styles.input}
+                placeholder="30"
                 disabled={creatingTask}
               />
             </div>
