@@ -813,13 +813,13 @@ export default function DashboardSidebar({
 
         <nav style={styles.nav}>
           {canSeeDashboard ? (
-            <Link href="/dashboard" onClick={closeSidebar} style={styles.navBtn}>
+            <Link href="/dashboard" prefetch={false} onClick={closeSidebar} style={styles.navBtn}>
               <SidebarNavContent icon="dashboard">Dashboard</SidebarNavContent>
             </Link>
           ) : null}
 
           {canSeePastTask ? (
-            <Link href="/dashboard?view=past" onClick={closeSidebar} style={styles.navBtn}>
+            <Link href="/dashboard?view=past" prefetch={false} onClick={closeSidebar} style={styles.navBtn}>
               <SidebarNavContent icon="archive">Past Task</SidebarNavContent>
             </Link>
           ) : null}
@@ -834,6 +834,7 @@ export default function DashboardSidebar({
               {canSeePM ? (
                 <Link
                   href="/dashboard/preventive-maintenance"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -844,6 +845,7 @@ export default function DashboardSidebar({
               {canSeeMaintenanceOT ? (
                 <Link
                   href="/dashboard/maintenance-ot"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -854,6 +856,7 @@ export default function DashboardSidebar({
               {canSeeStockCard ? (
                 <Link
                   href="/dashboard/maintenance-stock-card"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -864,6 +867,7 @@ export default function DashboardSidebar({
               {canSeeDamaged ? (
                 <Link
                   href="/dashboard/maintenance-damaged"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -883,6 +887,7 @@ export default function DashboardSidebar({
               {canSeeHkSpecialProject ? (
                 <Link
                   href="/dashboard/hk-special-project"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -893,6 +898,7 @@ export default function DashboardSidebar({
               {canSeeChambermaid ? (
                 <Link
                   href="/dashboard/chambermaid-entry"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -903,6 +909,7 @@ export default function DashboardSidebar({
               {canSeeSupervisorUpdate ? (
                 <Link
                   href="/dashboard/supervisor-update"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -913,6 +920,7 @@ export default function DashboardSidebar({
               {canSeeLaundryCount ? (
                 <Link
                   href="/dashboard/laundry-count"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -923,6 +931,7 @@ export default function DashboardSidebar({
               {canSeeStockCard ? (
                 <Link
                   href="/dashboard/stock-card"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -933,6 +942,7 @@ export default function DashboardSidebar({
               {canSeeDamaged ? (
                 <Link
                   href="/dashboard/damaged"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -943,6 +953,7 @@ export default function DashboardSidebar({
               {canSeeLinenHistory ? (
                 <Link
                   href="/dashboard/linen-history"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -962,6 +973,7 @@ export default function DashboardSidebar({
               {canSeeDailyForms ? (
                 <Link
                   href="/dashboard/daily-forms"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -972,6 +984,7 @@ export default function DashboardSidebar({
               {canSeeManagementTasks ? (
                 <Link
                   href="/dashboard/management-tasks"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
@@ -982,6 +995,7 @@ export default function DashboardSidebar({
               {canSeeAdminSettings ? (
                 <Link
                   href="/dashboard/admin-settings"
+                  prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
