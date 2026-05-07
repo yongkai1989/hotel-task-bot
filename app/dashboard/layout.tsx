@@ -59,7 +59,7 @@ function getSupabaseSafe() {
 
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
-const PROFILE_REFRESH_MIN_MS = 180000;
+const PROFILE_REFRESH_MIN_MS = 600000;
 
 export default function DashboardLayout({
   children,
@@ -74,6 +74,12 @@ export default function DashboardLayout({
 
     async function loadProfile() {
       try {
+        const runtime =
+          typeof window !== 'undefined'
+            ? (window as typeof window & {
+                __dashboardProfilePromise?: Promise<any> | null;
+              })
+            : null;
         const cached =
           typeof window !== 'undefined'
             ? window.sessionStorage.getItem(PROFILE_CACHE_KEY)
@@ -106,19 +112,45 @@ export default function DashboardLayout({
           return;
         }
 
-        const res = await fetch(`/api/session-profile?t=${Date.now()}`, {
+        if (runtime?.__dashboardProfilePromise) {
+          const json = await runtime.__dashboardProfilePromise;
+          if (!mounted) return;
+          if (json?.ok && json?.user) {
+            const nextProfile = json.user as DashboardUser;
+            setProfile(nextProfile);
+            window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(nextProfile));
+            window.sessionStorage.setItem(PROFILE_CACHE_TS_KEY, String(Date.now()));
+          }
+          return;
+        }
+
+        const profilePromise = fetch('/api/session-profile', {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
           cache: 'no-store',
+        }).then(async (res) => {
+          const json = await res.json();
+          if (!res.ok || !json?.ok) {
+            throw new Error(json?.error || `Request failed (${res.status})`);
+          }
+          return json;
         });
 
-        const json = await res.json();
+        if (runtime) {
+          runtime.__dashboardProfilePromise = profilePromise.finally(() => {
+            runtime.__dashboardProfilePromise = null;
+          });
+        }
+
+        const json = runtime?.__dashboardProfilePromise
+          ? await runtime.__dashboardProfilePromise
+          : await profilePromise;
 
         if (!mounted) return;
 
-        if (res.ok && json?.ok && json?.user) {
+        if (json?.ok && json?.user) {
           const nextProfile = json.user as DashboardUser;
           setProfile(nextProfile);
           if (typeof window !== 'undefined') {
