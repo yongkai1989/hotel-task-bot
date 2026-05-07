@@ -372,6 +372,50 @@ export default function LostFoundPage() {
     }
   }
 
+  async function reverseReturned(entry: LostFoundEntry) {
+    if (!profile?.user_id) {
+      setErrorMsg('Login required');
+      return;
+    }
+
+    const ok = window.confirm(
+      `Move "${entry.item_description}" back into storage? This will clear the return date, method, and waybill.`
+    );
+
+    if (!ok) return;
+
+    try {
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase
+        .from('lost_found_entries')
+        .update({
+          returned: false,
+          return_date: null,
+          return_method: null,
+          waybill_number: null,
+          collector_name: null,
+          collector_ic: null,
+          returned_by_user_id: null,
+          returned_by_name: null,
+          updated_by_user_id: profile.user_id,
+          updated_by_name: profile.name || profile.email,
+        })
+        .eq('id', entry.id);
+
+      if (error) throw error;
+
+      setSuccessMsg('Return reversed. Item is back in storage.');
+      await loadEntries();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to reverse return');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteEntry(entry: LostFoundEntry) {
     if (!isSuperuser) return;
     const ok = window.confirm(`Delete Lost & Found entry for ${entry.item_description}?`);
@@ -495,6 +539,12 @@ export default function LostFoundPage() {
             {entry.returned && entry.return_method === 'Collected In Person' ? (
               <button type="button" onClick={() => printCollectionForm(entry)} style={styles.secondarySmall}>
                 Print Collection Form
+              </button>
+            ) : null}
+
+            {entry.returned ? (
+              <button type="button" onClick={() => void reverseReturned(entry)} disabled={saving} style={styles.warningSmall}>
+                Reverse Return
               </button>
             ) : null}
 
@@ -704,6 +754,7 @@ const styles: Record<string, React.CSSProperties> = {
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: 14, padding: '11px 14px', fontWeight: 900, cursor: 'pointer' },
   primarySmall: { border: 'none', background: '#2563eb', color: '#ffffff', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   secondarySmall: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
+  warningSmall: { border: '1px solid #fed7aa', background: '#fff7ed', color: '#c2410c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   deleteSmall: { border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   errorBox: { border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', borderRadius: 16, padding: '12px 14px', fontWeight: 900 },
   successBox: { border: '1px solid #bbf7d0', background: '#ecfdf5', color: '#166534', borderRadius: 16, padding: '12px 14px', fontWeight: 900 },
