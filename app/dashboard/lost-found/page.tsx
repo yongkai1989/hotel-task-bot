@@ -167,12 +167,6 @@ export default function LostFoundPage() {
     }
   }, [profile?.name, handledByName]);
 
-  useEffect(() => {
-    if (profile?.name && !receivedByName) {
-      setReceivedByName(profile.name);
-    }
-  }, [profile?.name, receivedByName]);
-
   async function getAccessToken() {
     const {
       data: { session },
@@ -248,7 +242,7 @@ export default function LostFoundPage() {
     setLocationStored('');
     setHandledByName(profile?.name || '');
     setSentByName('');
-    setReceivedByName(profile?.name || '');
+    setReceivedByName('');
     setPhotoFile(null);
     const input = document.getElementById('lost-found-photo') as HTMLInputElement | null;
     if (input) input.value = '';
