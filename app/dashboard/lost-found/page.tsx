@@ -612,7 +612,7 @@ export default function LostFoundPage() {
           <div style={styles.formGrid}>
             <div style={styles.field}>
               <label style={styles.label}>Date of Lost</label>
-              <input type="date" value={lostDate} onChange={(e) => setLostDate(e.target.value)} style={styles.input} />
+              <input type="date" value={lostDate} onChange={(e) => setLostDate(e.target.value)} style={styles.dateInput} />
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Room Number</label>
@@ -695,7 +695,7 @@ export default function LostFoundPage() {
             <div style={styles.formGrid}>
               <div style={styles.field}>
                 <label style={styles.label}>Date of Return</label>
-                <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} style={styles.input} />
+                <input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} style={styles.dateInput} />
               </div>
               <div style={styles.field}>
                 <label style={styles.label}>Method of Return</label>
@@ -747,10 +747,11 @@ const styles: Record<string, React.CSSProperties> = {
   panel: { background: '#ffffff', border: '1px solid #dbe5f2', borderRadius: 22, padding: 18, boxShadow: '0 16px 36px rgba(15, 23, 42, 0.055)' },
   panelTitle: { fontSize: 20, fontWeight: 900, color: '#0f172a', marginBottom: 10 },
   sectionHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
-  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 },
-  field: { display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 12 },
+  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))', gap: 12 },
+  field: { display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 12, minWidth: 0 },
   label: { fontSize: 12, fontWeight: 900, color: '#334155' },
-  input: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: '12px 13px', color: '#0f172a', fontSize: 15, outline: 'none', background: '#ffffff' },
+  input: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: '12px 13px', color: '#0f172a', fontSize: 15, outline: 'none', background: '#ffffff' },
+  dateInput: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: '10px 10px', color: '#0f172a', fontSize: 14, outline: 'none', background: '#ffffff', WebkitAppearance: 'none' },
   textarea: { width: '100%', minHeight: 92, boxSizing: 'border-box', resize: 'vertical', border: '1px solid #cbd5e1', borderRadius: 14, padding: '12px 13px', color: '#0f172a', fontSize: 15, outline: 'none', background: '#ffffff' },
   fileInput: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: 11, background: '#f8fafc', color: '#0f172a' },
   helper: { color: '#64748b', fontSize: 13, lineHeight: 1.45, fontWeight: 700 },
@@ -776,7 +777,7 @@ const styles: Record<string, React.CSSProperties> = {
   cardActions: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   empty: { border: '1px dashed #cbd5e1', borderRadius: 16, padding: 22, textAlign: 'center', color: '#64748b', fontWeight: 900, background: '#f8fafc' },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15, 23, 42, 0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 },
-  modal: { width: '100%', maxWidth: 620, background: '#ffffff', borderRadius: 22, border: '1px solid #dbe5f2', padding: 18, boxShadow: '0 24px 70px rgba(15, 23, 42, 0.24)' },
+  modal: { width: '100%', maxWidth: 'min(620px, calc(100vw - 28px))', boxSizing: 'border-box', background: '#ffffff', borderRadius: 22, border: '1px solid #dbe5f2', padding: 16, boxShadow: '0 24px 70px rgba(15, 23, 42, 0.24)', overflowX: 'hidden' },
   modalHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
   iconBtn: { width: 38, height: 38, borderRadius: 12, border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontWeight: 900, cursor: 'pointer' },
   printPrompt: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 16, padding: 14, marginBottom: 12 },
