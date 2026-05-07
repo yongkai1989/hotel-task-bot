@@ -57,6 +57,16 @@ type DashboardInsights = {
   overduePm: number;
 };
 
+type DepartmentPerformance = {
+  department: Task['department'];
+  total: number;
+  completed: number;
+  incomplete: number;
+  completePercent: number;
+  incompletePercent: number;
+  averageResponseLabel: string;
+};
+
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
 const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
@@ -88,6 +98,7 @@ type DashboardIconName =
   | 'activity';
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
+const performanceDepartments: Task['department'][] = ['HK', 'MT', 'FO'];
 const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
   MT: [
@@ -435,6 +446,21 @@ function formatDateLabel(value: string) {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function formatDurationFromMs(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value <= 0) return '-';
+
+  const totalMinutes = Math.round(value / (1000 * 60));
+  if (totalMinutes < 60) return `${Math.max(1, totalMinutes)}m`;
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
 }
 
 function labelForStatus(status: string) {
@@ -2123,70 +2149,36 @@ async function handleDeleteTask(taskId: string) {
     };
   }, [tasks, todayLocal]);
 
-  const recentActivity = useMemo(() => {
-    return [...tasks]
-      .map((task) => {
-        const activityAt = task.done_at || task.edited_at || task.created_at;
-        const actor =
-          task.done_by_name ||
-          task.edited_by_name ||
-          task.last_updated_by_name ||
-          task.created_by_name ||
-          'Unknown';
-        const verb =
-          task.status === 'DONE'
-            ? 'completed task'
-            : task.status === 'IN_PROGRESS'
-            ? 'updated task status'
-            : 'created task';
+  const departmentPerformance = useMemo<DepartmentPerformance[]>(() => {
+    return performanceDepartments.map((department) => {
+      const deptTasks = tasks.filter((task) => task.department === department);
+      const completedTasks = deptTasks.filter((task) => task.status === 'DONE');
+      const incomplete = deptTasks.length - completedTasks.length;
+      const responseDurations = completedTasks
+        .map((task) => {
+          if (!task.created_at || !task.done_at) return null;
+          const createdAt = new Date(task.created_at).getTime();
+          const doneAt = new Date(task.done_at).getTime();
+          if (!Number.isFinite(createdAt) || !Number.isFinite(doneAt) || doneAt < createdAt) return null;
+          return doneAt - createdAt;
+        })
+        .filter((value): value is number => value !== null);
 
-        return {
-          id: task.id,
-          actor,
-          verb,
-          label: `${task.task_text} (${task.room})`,
-          at: activityAt,
-        };
-      })
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-      .slice(0, 5);
-  }, [tasks]);
+      const averageResponseMs =
+        responseDurations.length > 0
+          ? responseDurations.reduce((sum, value) => sum + value, 0) / responseDurations.length
+          : null;
 
-  const dashboardAlerts = useMemo(() => {
-    const openTasks = tasks.filter((task) => task.status === 'OPEN');
-    const doingTasks = tasks.filter((task) => task.status === 'IN_PROGRESS');
-    const overdueTasks = openTasks
-      .filter((task) => {
-        const ageHours = (Date.now() - new Date(task.created_at).getTime()) / (1000 * 60 * 60);
-        return ageHours >= 6;
-      })
-      .slice(0, 3);
-
-    const items = [
-      openTasks.length > 0
-        ? {
-            id: 'open',
-            title: `${openTasks.length} open tasks require attention`,
-            subtitle: 'Operations dashboard',
-          }
-        : null,
-      doingTasks.length > 0
-        ? {
-            id: 'doing',
-            title: `${doingTasks.length} tasks are in progress`,
-            subtitle: 'Department teams',
-          }
-        : null,
-      overdueTasks.length > 0
-        ? {
-            id: 'overdue',
-            title: `${overdueTasks.length} older tasks may be overdue`,
-            subtitle: 'Review oldest open tasks',
-          }
-        : null,
-    ].filter(Boolean) as Array<{ id: string; title: string; subtitle: string }>;
-
-    return items.slice(0, 4);
+      return {
+        department,
+        total: deptTasks.length,
+        completed: completedTasks.length,
+        incomplete,
+        completePercent: deptTasks.length > 0 ? Math.round((completedTasks.length / deptTasks.length) * 100) : 0,
+        incompletePercent: deptTasks.length > 0 ? Math.round((incomplete / deptTasks.length) * 100) : 0,
+        averageResponseLabel: formatDurationFromMs(averageResponseMs),
+      };
+    });
   }, [tasks]);
 
   const pageTitle =
@@ -2647,59 +2639,52 @@ async function handleDeleteTask(taskId: string) {
                 <div style={styles.sideInfoGrid}>
                   <section style={styles.sidePanel}>
                     <div style={styles.sidePanelHeader}>
-                      <div style={styles.sidePanelTitle}>Alerts & Notifications</div>
-                      <div style={styles.sidePanelCount}>{dashboardAlerts.length}</div>
+                      <div>
+                        <div style={styles.sidePanelTitle}>Department Performance</div>
+                        <div style={styles.sidePanelSubtitle}>Completion and average response</div>
+                      </div>
                     </div>
 
-                    {dashboardAlerts.length === 0 ? (
-                      <div style={styles.sideEmpty}>No active alerts right now.</div>
-                    ) : (
-                      <div style={styles.sideList}>
-                        {dashboardAlerts.map((item) => (
-                          <div key={item.id} style={styles.sideListItem}>
-                            <div style={{ ...styles.sideListIcon, ...styles.sideListIconAlert }}>
-                              <DashboardIcon name="alert" size={15} />
-                            </div>
-                            <div style={styles.sideListBody}>
-                              <div style={styles.sideListTitle}>{item.title}</div>
-                              <div style={styles.sideListSubtitle}>{item.subtitle}</div>
+                    <div style={styles.departmentPerformanceGrid}>
+                      {departmentPerformance.map((item) => (
+                        <article key={item.department} style={styles.departmentPerformanceCard}>
+                          <div style={styles.departmentPerformanceTop}>
+                            <span style={deptBadgeStyle(item.department)}>{item.department}</span>
+                            <div style={styles.departmentPerformanceTotal}>
+                              {item.total} task{item.total === 1 ? '' : 's'}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
 
-                  <section style={styles.sidePanel}>
-                    <div style={styles.sidePanelHeader}>
-                      <div style={styles.sidePanelTitle}>Recent Activity</div>
+                          <div style={styles.departmentPerformanceStats}>
+                            <div style={styles.departmentPerformanceStat}>
+                              <div style={styles.departmentPerformanceLabel}>Complete</div>
+                              <div style={styles.departmentPerformanceValue}>{item.completePercent}%</div>
+                            </div>
+                            <div style={styles.departmentPerformanceStat}>
+                              <div style={styles.departmentPerformanceLabel}>Incomplete</div>
+                              <div style={styles.departmentPerformanceValue}>{item.incompletePercent}%</div>
+                            </div>
+                            <div style={styles.departmentPerformanceStat}>
+                              <div style={styles.departmentPerformanceLabel}>Avg response</div>
+                              <div style={styles.departmentPerformanceValue}>{item.averageResponseLabel}</div>
+                            </div>
+                          </div>
+
+                          <div style={styles.departmentProgressTrack}>
+                            <div
+                              style={{
+                                ...styles.departmentProgressFill,
+                                width: `${item.completePercent}%`,
+                              }}
+                            />
+                          </div>
+
+                          <div style={styles.departmentPerformanceFoot}>
+                            {item.completed}/{item.total} completed | {item.incomplete} incomplete
+                          </div>
+                        </article>
+                      ))}
                     </div>
-
-                    {recentActivity.length === 0 ? (
-                      <div style={styles.sideEmpty}>No activity yet.</div>
-                    ) : (
-                      <div style={styles.sideList}>
-                        {recentActivity.map((item) => (
-                          <div key={item.id} style={styles.sideListItem}>
-                            <div style={styles.sideListIcon}>
-                              <DashboardIcon name="activity" size={15} />
-                            </div>
-                            <div style={styles.sideListBody}>
-                              <div style={styles.sideListTitle}>
-                                {item.actor} {item.verb}
-                              </div>
-                              <div style={styles.sideListSubtitle}>{item.label}</div>
-                            </div>
-                            <div style={styles.sideListTime}>
-                              {new Date(item.at).toLocaleTimeString([], {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </section>
                 </div>
                 </div>
@@ -3968,6 +3953,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#0f172a',
   },
+  sidePanelSubtitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#64748b',
+    marginTop: 3,
+  },
   sidePanelCount: {
     minWidth: 24,
     height: 24,
@@ -4032,6 +4023,75 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     fontWeight: 700,
     whiteSpace: 'nowrap',
+  },
+  departmentPerformanceGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: 10,
+  },
+  departmentPerformanceCard: {
+    border: '1px solid #dfe9f5',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    borderRadius: 14,
+    padding: 11,
+    boxShadow: '0 10px 22px rgba(15, 23, 42, 0.045)',
+  },
+  departmentPerformanceTop: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 10,
+  },
+  departmentPerformanceTotal: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  departmentPerformanceStats: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 6,
+  },
+  departmentPerformanceStat: {
+    minWidth: 0,
+    border: '1px solid #edf3fb',
+    background: '#ffffff',
+    borderRadius: 10,
+    padding: '8px 7px',
+  },
+  departmentPerformanceLabel: {
+    fontSize: 9,
+    color: '#64748b',
+    fontWeight: 900,
+    textTransform: 'uppercase',
+  },
+  departmentPerformanceValue: {
+    marginTop: 4,
+    fontSize: 16,
+    color: '#0f172a',
+    fontWeight: 900,
+    lineHeight: 1.1,
+  },
+  departmentProgressTrack: {
+    marginTop: 10,
+    height: 8,
+    borderRadius: 999,
+    background: '#e8eef7',
+    overflow: 'hidden',
+  },
+  departmentProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    background: '#2563eb',
+    transition: 'width 180ms ease',
+  },
+  departmentPerformanceFoot: {
+    marginTop: 8,
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: 800,
   },
   taskMainRow: {
     display: 'flex',
