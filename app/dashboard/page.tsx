@@ -804,6 +804,7 @@ export default function DashboardPage() {
   const [loginError, setLoginError] = useState('');
 
   const [profile, setProfile] = useState<DashboardUser | null>(null);
+  const [performanceMenuOpen, setPerformanceMenuOpen] = useState(false);
 
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -836,6 +837,7 @@ export default function DashboardPage() {
 
   const isMobile = viewportWidth < 768;
   const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
+  const isSuperuser = profile?.role === 'SUPERUSER';
   const modalResponsive = useMemo(
     () => ({
       overlay: {
@@ -1544,6 +1546,27 @@ function canEditTaskDetails(task: Task) {
 function canDeleteTask() {
   return !!profile?.can_delete_task;
 }
+
+  async function handleResetDepartmentStats() {
+    if (!isSuperuser) return;
+
+    setPerformanceMenuOpen(false);
+    setErrorMsg('');
+    setTasks([]);
+    lastTasksFingerprintRef.current = buildTasksFingerprint([]);
+    lastTasksRequestAtRef.current = 0;
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+      } catch {
+        // ignore cache clearing failure
+      }
+    }
+
+    await loadTasks(false, { force: true });
+  }
+
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
       setLoginOpen(true);
@@ -2111,6 +2134,17 @@ async function handleDeleteTask(taskId: string) {
     });
   }, [tasks, dept, status, todayLocal]);
 
+  const dashboardPerformanceTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const doneToday =
+        task.status === 'DONE' && task.done_at
+          ? getLocalDateStringFromISO(task.done_at) === todayLocal
+          : false;
+
+      return task.status === 'OPEN' || task.status === 'IN_PROGRESS' || doneToday;
+    });
+  }, [tasks, todayLocal]);
+
   const pastTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (task.status !== 'DONE' || !task.done_at) return false;
@@ -2151,7 +2185,7 @@ async function handleDeleteTask(taskId: string) {
 
   const departmentPerformance = useMemo<DepartmentPerformance[]>(() => {
     return performanceDepartments.map((department) => {
-      const deptTasks = tasks.filter((task) => task.department === department);
+      const deptTasks = dashboardPerformanceTasks.filter((task) => task.department === department);
       const completedTasks = deptTasks.filter((task) => task.status === 'DONE');
       const incomplete = deptTasks.length - completedTasks.length;
       const responseDurations = completedTasks
@@ -2179,7 +2213,7 @@ async function handleDeleteTask(taskId: string) {
         averageResponseLabel: formatDurationFromMs(averageResponseMs),
       };
     });
-  }, [tasks]);
+  }, [dashboardPerformanceTasks]);
 
   const pageTitle =
     sidebarView === 'DASHBOARD' ? 'Operations Dashboard' : 'Past Task Archive';
@@ -2643,6 +2677,30 @@ async function handleDeleteTask(taskId: string) {
                         <div style={styles.sidePanelTitle}>Department Performance</div>
                         <div style={styles.sidePanelSubtitle}>Completion and average response</div>
                       </div>
+                      {isSuperuser ? (
+                        <div style={styles.performanceMenuWrap}>
+                          <button
+                            type="button"
+                            onClick={() => setPerformanceMenuOpen((prev) => !prev)}
+                            style={styles.performanceMenuBtn}
+                            aria-label="Department performance options"
+                            title="Options"
+                          >
+                            ...
+                          </button>
+                          {performanceMenuOpen ? (
+                            <div style={styles.performanceMenu}>
+                              <button
+                                type="button"
+                                onClick={() => void handleResetDepartmentStats()}
+                                style={styles.performanceMenuItem}
+                              >
+                                Reset stats
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div style={styles.departmentPerformanceGrid}>
@@ -3932,6 +3990,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 12,
   },
   sidePanel: {
+    position: 'relative',
     background: 'rgba(255,255,255,0.96)',
     border: '1px solid rgba(218, 229, 243, 0.95)',
     borderRadius: 16,
@@ -3958,6 +4017,47 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: '#64748b',
     marginTop: 3,
+  },
+  performanceMenuWrap: {
+    position: 'relative',
+    flexShrink: 0,
+  },
+  performanceMenuBtn: {
+    width: 34,
+    height: 30,
+    borderRadius: 10,
+    border: '1px solid #dbe7f5',
+    background: '#ffffff',
+    color: '#334155',
+    cursor: 'pointer',
+    fontSize: 15,
+    fontWeight: 900,
+    lineHeight: 1,
+    boxShadow: '0 8px 18px rgba(15, 23, 42, 0.055)',
+  },
+  performanceMenu: {
+    position: 'absolute',
+    top: 36,
+    right: 0,
+    zIndex: 20,
+    minWidth: 150,
+    border: '1px solid #dbe7f5',
+    borderRadius: 14,
+    padding: 6,
+    background: '#ffffff',
+    boxShadow: '0 18px 36px rgba(15, 23, 42, 0.16)',
+  },
+  performanceMenuItem: {
+    width: '100%',
+    border: 0,
+    borderRadius: 10,
+    background: 'transparent',
+    color: '#0f172a',
+    cursor: 'pointer',
+    padding: '9px 10px',
+    textAlign: 'left',
+    fontSize: 12,
+    fontWeight: 900,
   },
   sidePanelCount: {
     minWidth: 24,
