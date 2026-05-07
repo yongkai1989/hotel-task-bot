@@ -26,6 +26,7 @@ type SidebarProfile = {
   can_access_management_tasks?: boolean;
   can_access_admin_settings?: boolean;
   can_access_linen_admin?: boolean;
+  can_access_lost_found?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
     | 'can_edit_task'
@@ -42,7 +43,8 @@ type SidebarProfile = {
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
-    | 'can_access_linen_admin',
+    | 'can_access_linen_admin'
+    | 'can_access_lost_found',
     unknown
   >>;
 };
@@ -68,6 +70,8 @@ type SidebarIconName =
   | 'laundry'
   | 'history'
   | 'management'
+  | 'frontOffice'
+  | 'lostFound'
   | 'file'
   | 'list'
   | 'settings'
@@ -99,6 +103,7 @@ type EffectiveProfile = Required<
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
+    | 'can_access_lost_found'
   >
 > & {
   user_id: string;
@@ -146,6 +151,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_management_tasks')),
     can_access_admin_settings:
       isSuperuser || hasAccess(permissionValue('can_access_admin_settings')),
+    can_access_lost_found:
+      isSuperuser || hasAccess(permissionValue('can_access_lost_found')),
   };
 }
 
@@ -321,6 +328,30 @@ function SidebarIcon({
     );
   }
 
+  if (name === 'frontOffice') {
+    return (
+      <svg {...common}>
+        <path d="M4 20V8.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2V20" />
+        <path d="M8 20v-6h8v6" />
+        <path d="M8 10h.01" />
+        <path d="M12 10h.01" />
+        <path d="M16 10h.01" />
+        <path d="M3 20h18" />
+      </svg>
+    );
+  }
+
+  if (name === 'lostFound') {
+    return (
+      <svg {...common}>
+        <path d="M5 8.5V7a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v1.5" />
+        <path d="M4 8.5h16l-1 11H5L4 8.5Z" />
+        <path d="M9.5 13a2.5 2.5 0 1 1 4.2 1.8c-.8.7-1.2 1.1-1.2 2" />
+        <path d="M12.5 18.8h.01" />
+      </svg>
+    );
+  }
+
   if (name === 'file') {
     return (
       <svg {...common}>
@@ -461,6 +492,7 @@ export default function DashboardSidebar({
 
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [housekeepingOpen, setHousekeepingOpen] = useState(false);
+  const [frontOfficeOpen, setFrontOfficeOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
 
   useEffect(() => {
@@ -501,6 +533,9 @@ export default function DashboardSidebar({
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
   const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
+  const canSeeLostFound =
+    effectiveProfile?.role === 'SUPERUSER' ||
+    (effectiveProfile?.role === 'FO' && !!effectiveProfile?.can_access_lost_found);
 
   const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT || canSeeStockCard || canSeeDamaged;
   const showHousekeepingGroup =
@@ -513,6 +548,7 @@ export default function DashboardSidebar({
     canSeeLinenHistory;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
+  const showFrontOfficeGroup = canSeeLostFound;
 
   const enabledAccessCount = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -527,6 +563,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
+    effectiveProfile?.can_access_lost_found,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_edit_task,
     effectiveProfile?.can_delete_task,
@@ -963,6 +1000,26 @@ export default function DashboardSidebar({
             </GroupSection>
           ) : null}
 
+          {showFrontOfficeGroup ? (
+            <GroupSection
+              title="Front Office"
+              icon="frontOffice"
+              open={frontOfficeOpen}
+              setOpen={setFrontOfficeOpen}
+            >
+              {canSeeLostFound ? (
+                <Link
+                  href="/dashboard/lost-found"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="lostFound" sub>Lost & Found</SidebarNavContent>
+                </Link>
+              ) : null}
+            </GroupSection>
+          ) : null}
+
           {showManagementGroup ? (
             <GroupSection
               title="Management"
@@ -1013,7 +1070,7 @@ export default function DashboardSidebar({
                 <div style={styles.userName}>{currentProfile.name}</div>
                 <div style={styles.userRole}>{currentProfile.role}</div>
                 <div style={styles.userEmail}>{currentProfile.email}</div>
-                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/15</div>
+                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/16</div>
               </div>
 
               <button
