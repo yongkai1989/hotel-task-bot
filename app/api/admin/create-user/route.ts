@@ -21,6 +21,7 @@ type CreateBody = {
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
   can_access_admin_settings?: boolean;
+  can_access_lost_found?: boolean;
   can_create_task?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
@@ -44,6 +45,7 @@ function withPermissions(row: any) {
     can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
     can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
+    can_access_lost_found: toPermissionBoolean(row.can_access_lost_found),
     can_create_task: toPermissionBoolean(row.can_create_task),
     can_edit_task: toPermissionBoolean(row.can_edit_task),
     can_delete_task: toPermissionBoolean(row.can_delete_task),
@@ -123,6 +125,8 @@ export async function POST(req: NextRequest) {
       can_access_management_tasks: toPermissionBoolean(body.can_access_management_tasks),
       can_access_admin_settings:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_admin_settings),
+      can_access_lost_found:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_lost_found),
       can_create_task: toPermissionBoolean(body.can_create_task),
       can_edit_task: toPermissionBoolean(body.can_edit_task),
       can_delete_task: toPermissionBoolean(body.can_delete_task),
@@ -149,6 +153,7 @@ export async function POST(req: NextRequest) {
         can_access_daily_forms,
         can_access_management_tasks,
         can_access_admin_settings,
+        can_access_lost_found,
         can_create_task,
         can_edit_task,
         can_delete_task
