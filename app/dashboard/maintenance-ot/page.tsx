@@ -803,7 +803,7 @@ export default function MaintenanceOtPage() {
             <div style={styles.filterRow}>
               <div style={styles.formGroupCompact}>
                 <label style={styles.label}>Select Date</label>
-                <input type="date" value={pastDate} onChange={(e) => setPastDate(e.target.value)} style={styles.input} />
+                <input type="date" value={pastDate} onChange={(e) => setPastDate(e.target.value)} style={styles.dateInput} />
               </div>
             </div>
 
@@ -850,7 +850,7 @@ export default function MaintenanceOtPage() {
             <div style={styles.filterRow}>
               <div style={styles.formGroupCompact}>
                 <label style={styles.label}>Month</label>
-                <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={styles.input} />
+                <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={styles.dateInput} />
               </div>
               <button type="button" onClick={handleDownloadReport} style={styles.primaryBtn}>Download Report</button>
             </div>
@@ -891,20 +891,20 @@ export default function MaintenanceOtPage() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', background: '#f8fafc', padding: '20px 16px 40px' },
-  shell: { width: '100%', maxWidth: '1200px', margin: '0 auto' },
-  topBar: { display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '18px' },
-  topBarActions: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
+  page: { minHeight: '100vh', background: '#f8fafc', padding: '16px 10px 36px', overflowX: 'hidden' },
+  shell: { width: '100%', maxWidth: '1200px', margin: '0 auto', minWidth: 0 },
+  topBar: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '16px', minWidth: 0 },
+  topBarActions: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 },
   pageTitle: { fontSize: '28px', fontWeight: 800, color: '#0f172a', lineHeight: 1.1 },
-  pageSubTitle: { fontSize: '14px', color: '#64748b', marginTop: '6px' },
-  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '16px' },
-  summaryCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: '18px', padding: '16px', boxShadow: '0 10px 24px rgba(15,23,42,0.05)' },
+  pageSubTitle: { fontSize: '14px', color: '#64748b', marginTop: '6px', overflowWrap: 'anywhere' },
+  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(140px, 100%), 1fr))', gap: '10px', marginBottom: '14px' },
+  summaryCard: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '14px', boxShadow: '0 10px 24px rgba(15,23,42,0.05)', minWidth: 0 },
   summaryLabel: { fontSize: '13px', color: '#64748b', fontWeight: 700, marginBottom: '8px' },
   summaryValue: { fontSize: '28px', fontWeight: 800, color: '#0f172a' },
-  panel: { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '22px', padding: '16px', boxShadow: '0 10px 24px rgba(15,23,42,0.05)', marginBottom: '16px' },
+  panel: { background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '14px', boxShadow: '0 10px 24px rgba(15,23,42,0.05)', marginBottom: '14px', minWidth: 0, overflow: 'hidden' },
   sectionTitle: { fontSize: '22px', fontWeight: 800, color: '#0f172a', marginBottom: '14px' },
-  modeRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
-  modeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '999px', padding: '12px 16px', fontWeight: 800, cursor: 'pointer' },
+  modeRow: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' },
+  modeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '999px', padding: '11px 10px', fontWeight: 800, cursor: 'pointer', minWidth: 0, whiteSpace: 'normal' },
   modeBtnActive: { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' },
   todayBar: { display: 'inline-flex', gap: '10px', alignItems: 'center', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '10px 14px', marginBottom: '14px' },
   todayLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
@@ -912,38 +912,39 @@ const styles: Record<string, React.CSSProperties> = {
   staffManagerBox: { border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: '16px', padding: '14px', marginBottom: '14px' },
   staffManagerTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' },
   staffManagerSubTitle: { fontSize: '13px', color: '#64748b', fontWeight: 600, lineHeight: 1.45, marginBottom: '12px' },
-  staffManagerRow: { display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' },
+  staffManagerRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '12px' },
   staffTagWrap: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   staffTag: { display: 'inline-flex', alignItems: 'center', gap: '8px', border: '1px solid #bfdbfe', background: '#ffffff', color: '#1e3a8a', borderRadius: '999px', padding: '8px 12px', fontWeight: 700 },
   staffTagRemoveBtn: { width: '24px', height: '24px', borderRadius: '999px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: 800, lineHeight: 1 },
-  formGroup: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' },
-  formGroupCompact: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' },
+  formGroup: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px', minWidth: 0 },
+  formGroupCompact: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0, width: '100%', maxWidth: '260px' },
   label: { fontSize: '14px', color: '#334155', fontWeight: 700 },
-  input: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none' },
-  select: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', cursor: 'pointer' },
-  textarea: { width: '100%', boxSizing: 'border-box', minHeight: '110px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },
+  input: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none' },
+  dateInput: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px 10px', fontSize: '14px', outline: 'none', WebkitAppearance: 'none' },
+  select: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 10px', fontSize: '15px', outline: 'none', cursor: 'pointer' },
+  textarea: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', minHeight: '110px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },
   slotList: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  slotRow: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto minmax(0,1fr) auto auto', gap: '8px', alignItems: 'center' },
-  slotSelect: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', cursor: 'pointer' },
+  slotRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 22px minmax(0, 1fr)', gap: '7px', alignItems: 'center' },
+  slotSelect: { width: '100%', minWidth: 0, boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '11px 8px', fontSize: '14px', outline: 'none', cursor: 'pointer' },
   toLabel: { fontWeight: 700, color: '#475569' },
-  iconBtn: { width: '40px', height: '40px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '22px', lineHeight: 1, cursor: 'pointer' },
+  iconBtn: { width: '38px', height: '38px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '22px', lineHeight: 1, cursor: 'pointer' },
   totalRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '12px 14px', marginBottom: '14px' },
   totalLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
   totalValue: { fontSize: '22px', fontWeight: 800, color: '#0f172a' },
-  filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' },
-  actionRow: { display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', marginTop: '6px' },
-  primaryBtn: { border: 'none', background: '#0f172a', color: '#ffffff', borderRadius: '12px', padding: '12px 16px', fontWeight: 700, cursor: 'pointer' },
-  secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 16px', fontWeight: 700 },
+  filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: '12px', flexWrap: 'wrap', marginBottom: '14px', minWidth: 0 },
+  actionRow: { display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', marginTop: '6px', minWidth: 0 },
+  primaryBtn: { border: 'none', background: '#0f172a', color: '#ffffff', borderRadius: '12px', padding: '12px 14px', fontWeight: 700, cursor: 'pointer', minWidth: 0 },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontWeight: 700, minWidth: 0 },
   secondaryActionBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px 14px', fontWeight: 700, cursor: 'pointer' },
   deleteBtn: { border: '1px solid #ef4444', background: '#fff', color: '#ef4444', borderRadius: '12px', padding: '10px 14px', fontWeight: 700, cursor: 'pointer' },
   errorBox: { marginBottom: '14px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px 14px', fontWeight: 600 },
   successBox: { marginBottom: '14px', background: '#ecfdf5', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '12px 14px', fontWeight: 600 },
   emptyState: { border: '1px dashed #cbd5e1', background: '#f8fafc', borderRadius: '14px', padding: '24px', textAlign: 'center', color: '#64748b', fontWeight: 600 },
-  cardsWrap: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' },
-  entryCard: { border: '1px solid #e2e8f0', borderRadius: '18px', background: '#ffffff', padding: '14px' },
-  entryTopRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' },
+  cardsWrap: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(260px, 100%), 1fr))', gap: '12px' },
+  entryCard: { border: '1px solid #e2e8f0', borderRadius: '18px', background: '#ffffff', padding: '14px', minWidth: 0 },
+  entryTopRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 },
   entryTitle: { fontSize: '20px', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 },
-  entrySubTitle: { fontSize: '14px', color: '#475569', marginTop: '6px' },
+  entrySubTitle: { fontSize: '14px', color: '#475569', marginTop: '6px', overflowWrap: 'anywhere' },
   hourBadge: { borderRadius: '999px', padding: '8px 12px', fontWeight: 800, fontSize: '12px', whiteSpace: 'nowrap' },
   hourBadgeNormal: { background: '#ecfdf5', color: '#166534' },
   hourBadgeAlert: { background: '#fef2f2', color: '#b91c1c' },
@@ -955,8 +956,8 @@ const styles: Record<string, React.CSSProperties> = {
   reasonLabel: { fontSize: '12px', color: '#92400e', fontWeight: 800, marginBottom: '4px' },
   reasonText: { fontSize: '14px', color: '#78350f', lineHeight: 1.5, whiteSpace: 'pre-wrap' },
   cardActions: { display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '14px' },
-  reportTableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse' },
+  reportTableWrap: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
+  table: { width: '100%', minWidth: '520px', borderCollapse: 'collapse' },
   th: { textAlign: 'left', borderBottom: '1px solid #cbd5e1', padding: '12px 10px', fontSize: '13px', color: '#334155', background: '#f8fafc' },
   td: { borderBottom: '1px solid #e2e8f0', padding: '12px 10px', fontSize: '14px', color: '#0f172a', verticalAlign: 'top' },
   tdStrong: { borderBottom: '1px solid #e2e8f0', padding: '12px 10px', fontSize: '14px', color: '#0f172a', verticalAlign: 'top', fontWeight: 800, whiteSpace: 'nowrap' },
