@@ -29,6 +29,7 @@ type LinenFloorStockRow = {
 type DamageRow = {
   linen_type: string;
   qty: number;
+  replaced?: boolean | null;
 };
 
 type LinenRoomEntryRow = {
@@ -276,7 +277,8 @@ export default function StockCardPage() {
           .select('block_no, floor_no, linen_type, qty'),
         supabase
           .from('linen_damage_log')
-          .select('linen_type, qty'),
+          .select('linen_type, qty, replaced')
+          .eq('replaced', false),
         supabase
           .from('linen_room_entry')
           .select('block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
