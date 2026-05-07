@@ -161,6 +161,20 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
 }
 
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
+const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
+
+function clearBrowserAuthState() {
+  if (typeof window === 'undefined') return;
+
+  window.sessionStorage.removeItem(PROFILE_CACHE_KEY);
+  window.sessionStorage.removeItem(PROFILE_CACHE_TS_KEY);
+
+  Object.keys(window.localStorage).forEach((key) => {
+    if (key.startsWith('sb-') || key.includes('supabase.auth.token')) {
+      window.localStorage.removeItem(key);
+    }
+  });
+}
 
 function SidebarIcon({
   name,
@@ -666,15 +680,17 @@ export default function DashboardSidebar({
   }
 
   async function handleLogout() {
+    setLogoutBusy(true);
+    clearBrowserAuthState();
+    setResolvedProfile(null);
+    closeSidebar();
+
     try {
-      setLogoutBusy(true);
-      await supabase.auth.signOut();
-      closeSidebar();
-      window.location.href = '/dashboard';
+      await supabase.auth.signOut({ scope: 'local' });
     } catch (error: any) {
-      alert(error?.message || 'Logout failed');
+      console.warn('Logout completed with local cache clear after signOut warning:', error?.message || error);
     } finally {
-      setLogoutBusy(false);
+      window.location.replace('/dashboard');
     }
   }
 
