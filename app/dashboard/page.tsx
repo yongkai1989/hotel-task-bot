@@ -62,9 +62,10 @@ const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
 const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const DASHBOARD_PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
 const SILENT_TASK_REFRESH_MIN_MS = 120000;
+const MANUAL_TASK_REFRESH_MIN_MS = 30000;
 const DASHBOARD_AUTO_REFRESH_MS = 180000;
 const INSIGHTS_REFRESH_MIN_MS = 180000;
-const PROFILE_REFRESH_MIN_MS = 180000;
+const PROFILE_REFRESH_MIN_MS = 600000;
 const MAX_RENDERED_TASK_CARDS = 60;
 const MAX_RENDERED_TASK_THUMBNAILS = 20;
 
@@ -1170,7 +1171,7 @@ export default function DashboardPage() {
       return;
     }
 
-    void loadTasks(tasks.length === 0);
+    void loadTasks(tasks.length === 0, { force: tasks.length === 0 });
   }, [profileKey]);
 
   useEffect(() => {
@@ -1208,6 +1209,9 @@ export default function DashboardPage() {
 
   async function loadProfile(token: string) {
     if (typeof window !== 'undefined') {
+      const runtime = window as typeof window & {
+        __dashboardProfilePromise?: Promise<any> | null;
+      };
       const cachedRaw = window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_KEY);
       const cachedAt = Number(window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_TS_KEY) || '0');
 
@@ -1217,6 +1221,32 @@ export default function DashboardPage() {
           return;
         } catch {}
       }
+
+      if (runtime.__dashboardProfilePromise) {
+        const json = await runtime.__dashboardProfilePromise;
+        if (json?.user) setProfile(json.user);
+        return;
+      }
+
+      runtime.__dashboardProfilePromise = fetchJson('/api/session-profile', {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }).finally(() => {
+        runtime.__dashboardProfilePromise = null;
+      });
+
+      const json = await runtime.__dashboardProfilePromise;
+
+      setProfile(json.user);
+
+      if (json.user) {
+        window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_KEY, JSON.stringify(json.user));
+        window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_TS_KEY, String(Date.now()));
+      }
+
+      return;
     }
 
     const json = await fetchJson('/api/session-profile', {
@@ -1351,17 +1381,19 @@ export default function DashboardPage() {
 
   async function loadTasks(
     showLoader = false,
-    options?: { silent?: boolean; onlyIfChanged?: boolean }
+    options?: { silent?: boolean; onlyIfChanged?: boolean; force?: boolean }
   ) {
     const silent = options?.silent ?? false;
     const onlyIfChanged = options?.onlyIfChanged ?? false;
+    const force = options?.force ?? false;
     const now = Date.now();
 
     if (tasksRequestInFlightRef.current) {
       return tasksRequestInFlightRef.current;
     }
 
-    if (silent && now - lastTasksRequestAtRef.current < SILENT_TASK_REFRESH_MIN_MS) {
+    const minRefreshMs = silent ? SILENT_TASK_REFRESH_MIN_MS : MANUAL_TASK_REFRESH_MIN_MS;
+    if (!force && now - lastTasksRequestAtRef.current < minRefreshMs) {
       return false;
     }
 
@@ -1444,7 +1476,7 @@ export default function DashboardPage() {
       setLoginOpen(false);
       setLoginEmail('');
       setLoginPassword('');
-      await loadTasks(true);
+      await loadTasks(true, { force: true });
     } catch (err: any) {
       setLoginError(err?.message || 'Login failed');
     } finally {
@@ -1524,7 +1556,7 @@ function canDeleteTask() {
         15000
       );
 
-      await loadTasks(false);
+      await loadTasks(false, { force: true });
     } catch (err: any) {
       setTasks(oldTasks);
       setErrorMsg(err?.message || 'Failed to  task');
@@ -1750,7 +1782,7 @@ async function handleDeleteTask(taskId: string) {
       return next;
     });
 
-    await loadTasks(false);
+    await loadTasks(false, { force: true });
   } catch (err: any) {
     alert(err?.message || 'Failed to delete task');
   } finally {
@@ -1888,7 +1920,7 @@ async function handleDeleteTask(taskId: string) {
       );
 
       closeCreateModal();
-      await loadTasks(false);
+      await loadTasks(false, { force: true });
     } catch (err: any) {
       setCreateError(err?.message || 'Failed to create task');
     } finally {
@@ -1959,7 +1991,7 @@ async function handleDeleteTask(taskId: string) {
       );
 
       closeEditModal();
-      await loadTasks(false);
+      await loadTasks(false, { force: true });
     } catch (err: any) {
       setEditError(err?.message || 'Failed to edit task');
     } finally {
@@ -2217,7 +2249,7 @@ async function handleDeleteTask(taskId: string) {
                 }}
               >
                 <button
-                  onClick={() => loadTasks(false)}
+                  onClick={() => loadTasks(false, { force: true })}
                   style={styles.headerGhostBtn}
                   disabled={refreshing || loading}
                   title="Refresh tasks"
@@ -2309,7 +2341,7 @@ async function handleDeleteTask(taskId: string) {
 
                   <div style={styles.filterHeaderButtons}>
                     <button
-                      onClick={() => loadTasks(false)}
+                      onClick={() => loadTasks(false, { force: true })}
                       style={styles.refreshBtn}
                       disabled={refreshing || loading}
                       title="Refresh tasks"
