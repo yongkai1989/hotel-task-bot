@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     if (profileError) throw profileError;
 
     const role = String(profile?.role || 'FO');
-    const allowed = role === 'SUPERUSER' || (role === 'FO' && toPermissionBoolean(profile?.can_access_lost_found));
+    const allowed = role === 'SUPERUSER' || toPermissionBoolean(profile?.can_access_lost_found);
 
     if (!allowed) {
       return NextResponse.json({ ok: false, error: 'Lost & Found access denied' }, { status: 403 });
