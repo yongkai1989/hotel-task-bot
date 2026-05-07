@@ -946,7 +946,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  <SidebarNavContent icon="alert" sub>Damaged</SidebarNavContent>
+                  <SidebarNavContent icon="alert" sub>Damaged Linen</SidebarNavContent>
                 </Link>
               ) : null}
 
