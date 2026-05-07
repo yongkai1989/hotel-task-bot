@@ -39,7 +39,7 @@ type HkTask = {
   id: string;
   title: string;
   description: string | null;
-  repeat_every_days: number;
+  repeat_every_days: number | null;
   due_in_days: number;
   has_room_checklist: boolean;
   is_active: boolean;
@@ -141,6 +141,7 @@ export default function HkSpecialProjectPage() {
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newRepeatMode, setNewRepeatMode] = useState<'NONE' | 'REPEAT'>('NONE');
   const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
   const [newDueDate, setNewDueDate] = useState(getTodayLocalDateString());
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
@@ -397,6 +398,7 @@ export default function HkSpecialProjectPage() {
     setSuccessMsg('');
     setNewTitle('');
     setNewDescription('');
+    setNewRepeatMode('NONE');
     setNewRepeatEveryDaysInput('30');
     setNewDueDate(getTodayLocalDateString());
     setNewHasRoomChecklist(false);
@@ -426,15 +428,20 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
-    const parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
-    if (parsedRepeatEveryDays === null) {
-      setErrorMsg('Please enter Repeat Every days.');
-      return;
-    }
+    let repeatEveryDays: number | null = null;
+    if (newRepeatMode === 'REPEAT') {
+      const parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
+      if (parsedRepeatEveryDays === null) {
+        setErrorMsg('Please enter Repeat Every days.');
+        return;
+      }
 
-    if (parsedRepeatEveryDays <= 0) {
-      setErrorMsg('Repeat Every days must be more than 0.');
-      return;
+      if (parsedRepeatEveryDays <= 0) {
+        setErrorMsg('Repeat Every days must be more than 0.');
+        return;
+      }
+
+      repeatEveryDays = parsedRepeatEveryDays;
     }
 
     const dueDate = newDueDate.trim();
@@ -467,7 +474,7 @@ export default function HkSpecialProjectPage() {
           {
             title,
             description: newDescription.trim() || null,
-            repeat_every_days: parsedRepeatEveryDays,
+            repeat_every_days: repeatEveryDays,
             due_in_days: dueInDays,
             has_room_checklist: newHasRoomChecklist,
             is_active: true,
@@ -995,18 +1002,33 @@ export default function HkSpecialProjectPage() {
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>Repeat Every Days</label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={newRepeatEveryDaysInput}
-                onChange={(e) => setNewRepeatEveryDaysInput(e.target.value)}
+              <label style={styles.label}>Repeat</label>
+              <select
+                value={newRepeatMode}
+                onChange={(e) => setNewRepeatMode(e.target.value as 'NONE' | 'REPEAT')}
                 style={styles.input}
-                placeholder="30"
                 disabled={creatingTask}
-              />
+              >
+                <option value="NONE">No repeat</option>
+                <option value="REPEAT">Repeat every X days</option>
+              </select>
             </div>
+
+            {newRepeatMode === 'REPEAT' ? (
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Repeat Every Days</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={newRepeatEveryDaysInput}
+                  onChange={(e) => setNewRepeatEveryDaysInput(e.target.value)}
+                  style={styles.input}
+                  placeholder="30"
+                  disabled={creatingTask}
+                />
+              </div>
+            ) : null}
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Due Date</label>
