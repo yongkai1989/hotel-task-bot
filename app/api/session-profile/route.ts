@@ -28,6 +28,7 @@ const PROFILE_SELECT = `
   can_access_management_tasks,
   can_access_admin_settings,
   can_access_linen_admin,
+  can_access_lost_found,
   updated_at
 `;
 
@@ -61,6 +62,7 @@ const permissionKeys = [
   'can_access_daily_forms',
   'can_access_management_tasks',
   'can_access_admin_settings',
+  'can_access_lost_found',
 ];
 
 function enabledCount(profile: any) {
@@ -116,6 +118,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_admin_settings),
     can_access_linen_admin:
       effectiveBoolean(role, profile.can_access_linen_admin),
+    can_access_lost_found:
+      effectiveBoolean(role, profile.can_access_lost_found),
   };
 
   return {
