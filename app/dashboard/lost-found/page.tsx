@@ -81,7 +81,7 @@ function escapeHtml(value: unknown) {
 function canUseLostFound(profile: DashboardUser | null) {
   if (!profile) return false;
   if (profile.role === 'SUPERUSER') return true;
-  return profile.role === 'FO' && profile.can_access_lost_found === true;
+  return profile.can_access_lost_found === true;
 }
 
 function statusBadge(entry: LostFoundEntry) {
