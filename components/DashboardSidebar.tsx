@@ -549,7 +549,7 @@ export default function DashboardSidebar({
   const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
   const canSeeLostFound =
     effectiveProfile?.role === 'SUPERUSER' ||
-    (effectiveProfile?.role === 'FO' && !!effectiveProfile?.can_access_lost_found);
+    !!effectiveProfile?.can_access_lost_found;
 
   const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT || canSeeStockCard || canSeeDamaged;
   const showHousekeepingGroup =
