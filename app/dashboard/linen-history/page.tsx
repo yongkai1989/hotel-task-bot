@@ -217,6 +217,12 @@ function floorKey(blockNo: number, floorNo: number) {
   return `B${blockNo}F${floorNo}`;
 }
 
+const EXTRA_BLOCK_1_PILLOW_CASE_FLOORS = new Set(['B1F1', 'B1F2', 'B1F3', 'B1F5']);
+
+function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
+  return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
+}
+
 function buildBillMaps(rows: LinenBillRow[]) {
   const floorBillMap: Record<string, LinenTotals> = {};
   const blockBillTotals: Record<string, LinenTotals> = {
@@ -282,7 +288,12 @@ function buildSnapshotFromLiveData(
     const isDnd = Boolean(entry?.is_dnd);
 
     const roomExpected = zeroTotals();
-    if (!isDnd && roomTypeMap) addTotals(roomExpected, roomTypeMap);
+    if (!isDnd && roomTypeMap) {
+      addTotals(roomExpected, roomTypeMap);
+      if (hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
+        roomExpected.pillow_case += 1;
+      }
+    }
 
     const roomActual = zeroTotals();
     if (entry && !isDnd) {
@@ -346,6 +357,66 @@ function buildSnapshotFromLiveData(
       floors: differenceFloors,
       blocks: differenceBlocks,
       grand_total: subtractTotals(grandActual, grandExpected),
+    },
+  };
+}
+
+function applyExtraPillowCaseRuleToSnapshot(
+  snapshot: SnapshotRow | null,
+  rooms: RoomMasterRow[],
+  statuses: StatusRow[],
+  entries: EntryRow[]
+): SnapshotRow | null {
+  if (!snapshot) return null;
+
+  const roomByNumber = new Map<string, RoomMasterRow>();
+  const entryByRoom = new Map<string, EntryRow>();
+  const extraByFloor: Record<string, number> = {};
+  let grandExtra = 0;
+
+  rooms.forEach((room) => roomByNumber.set(room.room_number, room));
+  entries.forEach((entry) => entryByRoom.set(entry.room_number, entry));
+
+  statuses.forEach((statusRow) => {
+    if (!countNonVacantStatus(statusRow.status)) return;
+
+    const room = roomByNumber.get(statusRow.room_number);
+    if (!room) return;
+
+    const entry = entryByRoom.get(room.room_number);
+    if (entry?.is_dnd) return;
+    if (!hasExtraBlock1PillowCase(room.block_no, room.floor_no)) return;
+
+    const key = floorKey(room.block_no, room.floor_no);
+    extraByFloor[key] = safeNumber(extraByFloor[key]) + 1;
+    grandExtra += 1;
+  });
+
+  if (grandExtra <= 0) return snapshot;
+
+  const expected = snapshot.expected_json || {};
+  const floors = { ...(expected.floors || {}) };
+  const blocks = { ...(expected.blocks || {}) };
+  const grandTotal = parseTotals(expected.grand_total);
+
+  Object.entries(extraByFloor).forEach(([key, qty]) => {
+    const floorTotals = parseTotals(floors[key]);
+    floorTotals.pillow_case += qty;
+    floors[key] = floorTotals;
+  });
+
+  const block1Totals = parseTotals(blocks.B1);
+  block1Totals.pillow_case += grandExtra;
+  blocks.B1 = block1Totals;
+  grandTotal.pillow_case += grandExtra;
+
+  return {
+    ...snapshot,
+    expected_json: {
+      ...expected,
+      floors,
+      blocks,
+      grand_total: grandTotal,
     },
   };
 }
@@ -599,7 +670,19 @@ export default function LinenHistoryPage() {
           Object.keys(fallbackLiveSnapshot.actual_json?.floors || {}).length > 0 ||
           ((billRes.data || []) as LinenBillRow[]).length > 0
         );
-      const resolvedSnapshot = exactSnapshot || nextDayFallbackSnapshot || (hasHistoricalLiveData ? fallbackLiveSnapshot : null);
+      const adjustedExactSnapshot = applyExtraPillowCaseRuleToSnapshot(
+        exactSnapshot,
+        (roomRes.data || []) as RoomMasterRow[],
+        (statusRes.data || []) as StatusRow[],
+        (entryRes.data || []) as EntryRow[]
+      );
+      const adjustedNextDayFallbackSnapshot = applyExtraPillowCaseRuleToSnapshot(
+        nextDayFallbackSnapshot,
+        (roomRes.data || []) as RoomMasterRow[],
+        (statusRes.data || []) as StatusRow[],
+        (entryRes.data || []) as EntryRow[]
+      );
+      const resolvedSnapshot = adjustedExactSnapshot || adjustedNextDayFallbackSnapshot || (hasHistoricalLiveData ? fallbackLiveSnapshot : null);
 
       const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
 
