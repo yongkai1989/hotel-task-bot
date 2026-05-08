@@ -173,6 +173,12 @@ function floorKey(blockNo: number, floorNo: number) {
   return `B${blockNo}F${floorNo}`;
 }
 
+const EXTRA_BLOCK_1_PILLOW_CASE_FLOORS = new Set(['B1F1', 'B1F2', 'B1F3', 'B1F5']);
+
+function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
+  return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
+}
+
 function toTotalsFromBillRow(row?: Partial<LinenBillRow> | null): LinenTotals {
   return {
     bedsheet_king: Number(row?.bedsheet_king || 0),
@@ -485,7 +491,12 @@ export default function LaundryCountPage() {
       const isDnd = Boolean(entry?.is_dnd);
 
       const expectedForRoom = zeroTotals();
-      if (!isDnd && roomTypeMap) addTotals(expectedForRoom, roomTypeMap);
+      if (!isDnd && roomTypeMap) {
+        addTotals(expectedForRoom, roomTypeMap);
+        if (hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
+          expectedForRoom.pillow_case += 1;
+        }
+      }
 
       const actualForRoom = zeroTotals();
       if (entry && !isDnd) {
