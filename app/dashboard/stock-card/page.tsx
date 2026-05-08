@@ -130,6 +130,16 @@ function getTodayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function floorKey(blockNo: number, floorNo: number) {
+  return `B${blockNo}F${floorNo}`;
+}
+
+const EXTRA_BLOCK_1_PILLOW_CASE_FLOORS = new Set(['B1F1', 'B1F2', 'B1F3', 'B1F5']);
+
+function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
+  return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
+}
+
 function emptyContractorTotals(): ContractorTotals {
   return {
     'Bedsheet King': 0,
@@ -160,6 +170,13 @@ function addRoomTypeLinen(totals: InRoomTotals, row?: LinenRoomTypeMapRow | null
   totals['Bath Mat'] += safeNumber(row.bath_mat);
   totals['Duvet Cover King'] += safeNumber(row.duvet_cover_king);
   totals['Duvet Cover Single'] += safeNumber(row.duvet_cover_single);
+}
+
+function addExpectedRoomLinen(totals: InRoomTotals, room: RoomMasterRow, row?: LinenRoomTypeMapRow | null) {
+  addRoomTypeLinen(totals, row);
+  if (row && hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
+    totals['Pillow Case'] += 1;
+  }
 }
 
 export default function StockCardPage() {
@@ -376,11 +393,26 @@ export default function StockCardPage() {
     roomMasterRows
       .filter((room) => room.block_no === selectedFloor.block && room.floor_no === selectedFloor.floor)
       .forEach((room) => {
-        addRoomTypeLinen(totals, roomTypeMap.get(room.room_type));
+        addExpectedRoomLinen(totals, room, roomTypeMap.get(room.room_type));
       });
 
     return totals;
   }, [roomMasterRows, roomTypeMapRows, selectedFloor]);
+
+  const overallInRoomTotals = useMemo(() => {
+    const roomTypeMap = new Map<string, LinenRoomTypeMapRow>();
+    roomTypeMapRows.forEach((row) => {
+      roomTypeMap.set(row.room_type, row);
+    });
+
+    const totals = emptyInRoomTotals();
+
+    roomMasterRows.forEach((room) => {
+      addExpectedRoomLinen(totals, room, roomTypeMap.get(room.room_type));
+    });
+
+    return totals;
+  }, [roomMasterRows, roomTypeMapRows]);
 
   const stockItems = useMemo(() => {
     const damageMap = new Map<string, number>();
@@ -391,7 +423,8 @@ export default function StockCardPage() {
     return LINEN_TYPES.map((linenType) => {
       const stockRow = linenStock.find((row) => row.linen_type === linenType);
 
-      const overallInRoomPar = safeNumber(stockRow?.in_room_par);
+      const calculatedOverallInRoomPar = safeNumber(overallInRoomTotals[linenType]);
+      const overallInRoomPar = calculatedOverallInRoomPar || safeNumber(stockRow?.in_room_par);
       const floorInRoomPar = safeNumber(floorInRoomTotals[linenType]);
       const overallContractorStock = safeNumber(contractorTotals[linenType] || 0);
       const floorContractorStock = safeNumber(floorContractorTotals[linenType] || 0);
@@ -419,7 +452,7 @@ export default function StockCardPage() {
         shortfall,
       } as StockItem;
     });
-  }, [linenStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals]);
+  }, [linenStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals, overallInRoomTotals]);
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
