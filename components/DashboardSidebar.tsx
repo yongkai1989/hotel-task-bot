@@ -15,6 +15,8 @@ type SidebarProfile = {
   can_delete_task?: boolean;
   can_access_preventive_maintenance?: boolean;
   can_access_maintenance_ot?: boolean;
+  can_access_maintenance_stock_card?: boolean;
+  can_access_maintenance_damaged?: boolean;
   can_access_hk_special_project?: boolean;
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
@@ -33,6 +35,8 @@ type SidebarProfile = {
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
     | 'can_access_maintenance_ot'
+    | 'can_access_maintenance_stock_card'
+    | 'can_access_maintenance_damaged'
     | 'can_access_hk_special_project'
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
@@ -93,6 +97,8 @@ type EffectiveProfile = Required<
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
     | 'can_access_maintenance_ot'
+    | 'can_access_maintenance_stock_card'
+    | 'can_access_maintenance_damaged'
     | 'can_access_hk_special_project'
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
@@ -131,6 +137,10 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_preventive_maintenance')),
     can_access_maintenance_ot:
       isSuperuser || hasAccess(permissionValue('can_access_maintenance_ot')),
+    can_access_maintenance_stock_card:
+      isSuperuser || hasAccess(permissionValue('can_access_maintenance_stock_card')),
+    can_access_maintenance_damaged:
+      isSuperuser || hasAccess(permissionValue('can_access_maintenance_damaged')),
     can_access_hk_special_project:
       isSuperuser || hasAccess(permissionValue('can_access_hk_special_project')),
     can_access_chambermaid_entry:
@@ -535,6 +545,8 @@ export default function DashboardSidebar({
 
   const canSeePM = !!effectiveProfile?.can_access_preventive_maintenance;
   const canSeeMaintenanceOT = !!effectiveProfile?.can_access_maintenance_ot;
+  const canSeeMaintenanceStockCard = !!effectiveProfile?.can_access_maintenance_stock_card;
+  const canSeeMaintenanceDamaged = !!effectiveProfile?.can_access_maintenance_damaged;
 
   const canSeeHkSpecialProject = !!effectiveProfile?.can_access_hk_special_project;
   const canSeeChambermaid = !!effectiveProfile?.can_access_chambermaid_entry;
@@ -551,7 +563,8 @@ export default function DashboardSidebar({
     effectiveProfile?.role === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_lost_found;
 
-  const showMaintenanceGroup = canSeePM || canSeeMaintenanceOT || canSeeStockCard || canSeeDamaged;
+  const showMaintenanceGroup =
+    canSeePM || canSeeMaintenanceOT || canSeeMaintenanceStockCard || canSeeMaintenanceDamaged;
   const showHousekeepingGroup =
     canSeeHkSpecialProject ||
     canSeeChambermaid ||
@@ -567,6 +580,8 @@ export default function DashboardSidebar({
   const enabledAccessCount = [
     effectiveProfile?.can_access_preventive_maintenance,
     effectiveProfile?.can_access_maintenance_ot,
+    effectiveProfile?.can_access_maintenance_stock_card,
+    effectiveProfile?.can_access_maintenance_damaged,
     effectiveProfile?.can_access_hk_special_project,
     effectiveProfile?.can_access_chambermaid_entry,
     effectiveProfile?.can_access_supervisor_update,
@@ -906,7 +921,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeStockCard ? (
+              {canSeeMaintenanceStockCard ? (
                 <Link
                   href="/dashboard/maintenance-stock-card"
                   prefetch={false}
@@ -917,7 +932,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeDamaged ? (
+              {canSeeMaintenanceDamaged ? (
                 <Link
                   href="/dashboard/maintenance-damaged"
                   prefetch={false}
@@ -1086,7 +1101,7 @@ export default function DashboardSidebar({
                 <div style={styles.userName}>{currentProfile.name}</div>
                 <div style={styles.userRole}>{currentProfile.role}</div>
                 <div style={styles.userEmail}>{currentProfile.email}</div>
-                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/16</div>
+                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/18</div>
               </div>
 
               <button
