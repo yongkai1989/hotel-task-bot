@@ -9,7 +9,7 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-  can_access_damaged?: boolean;
+  can_access_maintenance_damaged?: boolean;
 };
 
 type BranchName = 'Crown' | 'Leisure' | 'Express' | 'View';
@@ -93,7 +93,7 @@ export default function MaintenanceDamagedPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role, can_access_damaged')
+          .select('user_id, email, name, role, can_access_maintenance_damaged')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -105,7 +105,7 @@ export default function MaintenanceDamagedPage() {
           email: profileRow?.email || session.user.email || '',
           name: profileRow?.name || session.user.email || 'User',
           role: (profileRow?.role || 'MT') as DashboardUser['role'],
-          can_access_damaged: profileRow?.can_access_damaged ?? false,
+          can_access_maintenance_damaged: profileRow?.can_access_maintenance_damaged ?? false,
         });
       } catch (err: any) {
         if (mounted) setErrorMsg(err?.message || 'Failed to load session');
@@ -123,8 +123,8 @@ export default function MaintenanceDamagedPage() {
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    if (profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'SUPERVISOR') return true;
-    return profile.can_access_damaged === true;
+    if (profile.role === 'SUPERUSER') return true;
+    return profile.can_access_maintenance_damaged === true;
   }, [profile]);
 
   const isSuperuser = profile?.role === 'SUPERUSER';
