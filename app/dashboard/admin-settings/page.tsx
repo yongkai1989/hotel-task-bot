@@ -13,6 +13,8 @@ type UserProfile = {
   role: Role;
   can_access_preventive_maintenance: boolean;
   can_access_maintenance_ot: boolean;
+  can_access_maintenance_stock_card: boolean;
+  can_access_maintenance_damaged: boolean;
   can_access_hk_special_project: boolean;
   can_access_chambermaid_entry: boolean;
   can_access_supervisor_update: boolean;
@@ -43,6 +45,8 @@ const accessFieldDefs: Array<{
 }> = [
   { key: 'can_access_preventive_maintenance', label: 'Preventive Maintenance', group: 'Maintenance' },
   { key: 'can_access_maintenance_ot', label: 'Maintenance OT', group: 'Maintenance' },
+  { key: 'can_access_maintenance_stock_card', label: 'Maintenance Stock Card', group: 'Maintenance' },
+  { key: 'can_access_maintenance_damaged', label: 'Maintenance Damaged', group: 'Maintenance' },
   { key: 'can_access_hk_special_project', label: 'HK Special Project', group: 'Housekeeping' },
   { key: 'can_access_chambermaid_entry', label: 'Chambermaid Entry', group: 'Housekeeping' },
   { key: 'can_access_supervisor_update', label: 'Supervisor Update', group: 'Housekeeping' },
@@ -63,6 +67,8 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
   return {
     can_access_preventive_maintenance: false,
     can_access_maintenance_ot: false,
+    can_access_maintenance_stock_card: false,
+    can_access_maintenance_damaged: false,
     can_access_hk_special_project: false,
     can_access_chambermaid_entry: false,
     can_access_supervisor_update: false,
@@ -107,6 +113,10 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_preventive_maintenance')),
     can_access_maintenance_ot:
       toPermissionBoolean(permissionValue('can_access_maintenance_ot')),
+    can_access_maintenance_stock_card:
+      toPermissionBoolean(permissionValue('can_access_maintenance_stock_card')),
+    can_access_maintenance_damaged:
+      toPermissionBoolean(permissionValue('can_access_maintenance_damaged')),
     can_access_hk_special_project:
       toPermissionBoolean(permissionValue('can_access_hk_special_project')),
     can_access_chambermaid_entry:
@@ -143,6 +153,8 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     role: draft.role,
     can_access_preventive_maintenance: toPermissionBoolean(draft.can_access_preventive_maintenance),
     can_access_maintenance_ot: toPermissionBoolean(draft.can_access_maintenance_ot),
+    can_access_maintenance_stock_card: toPermissionBoolean(draft.can_access_maintenance_stock_card),
+    can_access_maintenance_damaged: toPermissionBoolean(draft.can_access_maintenance_damaged),
     can_access_hk_special_project: toPermissionBoolean(draft.can_access_hk_special_project),
     can_access_chambermaid_entry: toPermissionBoolean(draft.can_access_chambermaid_entry),
     can_access_supervisor_update: toPermissionBoolean(draft.can_access_supervisor_update),
