@@ -9,7 +9,7 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-  can_access_stock_card?: boolean;
+  can_access_maintenance_stock_card?: boolean;
 };
 
 type BranchName = 'Crown' | 'Leisure' | 'Express' | 'View';
@@ -160,7 +160,7 @@ export default function MaintenanceStockCardPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role, can_access_stock_card')
+          .select('user_id, email, name, role, can_access_maintenance_stock_card')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -172,7 +172,7 @@ export default function MaintenanceStockCardPage() {
           email: profileRow?.email || session.user.email || '',
           name: profileRow?.name || session.user.email || 'User',
           role: (profileRow?.role || 'MT') as DashboardUser['role'],
-          can_access_stock_card: profileRow?.can_access_stock_card ?? false,
+          can_access_maintenance_stock_card: profileRow?.can_access_maintenance_stock_card ?? false,
         });
       } catch (err: any) {
         if (mounted) setErrorMsg(err?.message || 'Failed to load session');
@@ -190,8 +190,8 @@ export default function MaintenanceStockCardPage() {
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    if (profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'SUPERVISOR') return true;
-    return profile.can_access_stock_card === true;
+    if (profile.role === 'SUPERUSER') return true;
+    return profile.can_access_maintenance_stock_card === true;
   }, [profile]);
 
   const isSuperuser = profile?.role === 'SUPERUSER';
