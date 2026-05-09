@@ -17,6 +17,8 @@ const PROFILE_SELECT = `
   can_delete_task,
   can_access_preventive_maintenance,
   can_access_maintenance_ot,
+  can_access_maintenance_stock_card,
+  can_access_maintenance_damaged,
   can_access_hk_special_project,
   can_access_chambermaid_entry,
   can_access_supervisor_update,
@@ -52,6 +54,8 @@ const permissionKeys = [
   'can_delete_task',
   'can_access_preventive_maintenance',
   'can_access_maintenance_ot',
+  'can_access_maintenance_stock_card',
+  'can_access_maintenance_damaged',
   'can_access_hk_special_project',
   'can_access_chambermaid_entry',
   'can_access_supervisor_update',
@@ -96,6 +100,10 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_preventive_maintenance),
     can_access_maintenance_ot:
       effectiveBoolean(role, profile.can_access_maintenance_ot),
+    can_access_maintenance_stock_card:
+      effectiveBoolean(role, profile.can_access_maintenance_stock_card),
+    can_access_maintenance_damaged:
+      effectiveBoolean(role, profile.can_access_maintenance_damaged),
     can_access_hk_special_project:
       effectiveBoolean(role, profile.can_access_hk_special_project),
     can_access_chambermaid_entry:
