@@ -14,6 +14,8 @@ type DashboardUser = {
   can_delete_task?: boolean;
   can_access_preventive_maintenance?: boolean;
   can_access_maintenance_ot?: boolean;
+  can_access_maintenance_stock_card?: boolean;
+  can_access_maintenance_damaged?: boolean;
   can_access_hk_special_project?: boolean;
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
@@ -32,6 +34,8 @@ type DashboardUser = {
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
     | 'can_access_maintenance_ot'
+    | 'can_access_maintenance_stock_card'
+    | 'can_access_maintenance_damaged'
     | 'can_access_hk_special_project'
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
