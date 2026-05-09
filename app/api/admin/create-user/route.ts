@@ -11,6 +11,8 @@ type CreateBody = {
   role?: string;
   can_access_preventive_maintenance?: boolean;
   can_access_maintenance_ot?: boolean;
+  can_access_maintenance_stock_card?: boolean;
+  can_access_maintenance_damaged?: boolean;
   can_access_hk_special_project?: boolean;
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
@@ -35,6 +37,8 @@ function withPermissions(row: any) {
   const permissions = {
     can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
     can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
+    can_access_maintenance_stock_card: toPermissionBoolean(row.can_access_maintenance_stock_card),
+    can_access_maintenance_damaged: toPermissionBoolean(row.can_access_maintenance_damaged),
     can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
     can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
     can_access_supervisor_update: toPermissionBoolean(row.can_access_supervisor_update),
@@ -114,6 +118,8 @@ export async function POST(req: NextRequest) {
       role,
       can_access_preventive_maintenance: toPermissionBoolean(body.can_access_preventive_maintenance),
       can_access_maintenance_ot: toPermissionBoolean(body.can_access_maintenance_ot),
+      can_access_maintenance_stock_card: toPermissionBoolean(body.can_access_maintenance_stock_card),
+      can_access_maintenance_damaged: toPermissionBoolean(body.can_access_maintenance_damaged),
       can_access_hk_special_project: toPermissionBoolean(body.can_access_hk_special_project),
       can_access_chambermaid_entry: toPermissionBoolean(body.can_access_chambermaid_entry),
       can_access_supervisor_update: toPermissionBoolean(body.can_access_supervisor_update),
@@ -143,6 +149,8 @@ export async function POST(req: NextRequest) {
         role,
         can_access_preventive_maintenance,
         can_access_maintenance_ot,
+        can_access_maintenance_stock_card,
+        can_access_maintenance_damaged,
         can_access_hk_special_project,
         can_access_chambermaid_entry,
         can_access_supervisor_update,
