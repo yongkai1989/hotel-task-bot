@@ -29,6 +29,7 @@ type LostFoundEntry = {
   return_date?: string | null;
   return_method?: string | null;
   waybill_number?: string | null;
+  postage_paid?: boolean | null;
   collector_name?: string | null;
   collector_ic?: string | null;
   returned_by_name?: string | null;
@@ -143,6 +144,7 @@ export default function LostFoundPage() {
   const [returnDate, setReturnDate] = useState(todayLocalDate());
   const [returnMethod, setReturnMethod] = useState<ReturnMethod>('Collected In Person');
   const [waybillNumber, setWaybillNumber] = useState('');
+  const [postagePaid, setPostagePaid] = useState(false);
 
   const activeEntries = entries.filter((entry) => !entry.returned);
   const returnedEntries = entries.filter((entry) => entry.returned);
@@ -321,6 +323,7 @@ export default function LostFoundPage() {
     setReturnDate(todayLocalDate());
     setReturnMethod('Collected In Person');
     setWaybillNumber('');
+    setPostagePaid(false);
     setErrorMsg('');
     setSuccessMsg('');
   }
@@ -340,6 +343,10 @@ export default function LostFoundPage() {
         throw new Error('Waybill Number is required for Courier return');
       }
 
+      if (returnMethod === 'Courier' && !postagePaid) {
+        throw new Error('Postage Paid must be ticked before saving a Courier return');
+      }
+
       setSaving(true);
       setErrorMsg('');
       setSuccessMsg('');
@@ -351,6 +358,7 @@ export default function LostFoundPage() {
           return_date: returnDate,
           return_method: returnMethod,
           waybill_number: returnMethod === 'Courier' ? waybillNumber.trim() : null,
+          postage_paid: returnMethod === 'Courier' ? postagePaid : false,
           collector_name: null,
           collector_ic: null,
           returned_by_user_id: profile.user_id,
@@ -396,6 +404,7 @@ export default function LostFoundPage() {
           return_date: null,
           return_method: null,
           waybill_number: null,
+          postage_paid: false,
           collector_name: null,
           collector_ic: null,
           returned_by_user_id: null,
@@ -530,6 +539,7 @@ export default function LostFoundPage() {
             {entry.returned ? <div><b>Returned:</b> {formatDate(entry.return_date)}</div> : null}
             {entry.return_method ? <div><b>Method:</b> {entry.return_method}</div> : null}
             {entry.waybill_number ? <div><b>Waybill:</b> {entry.waybill_number}</div> : null}
+            {entry.return_method === 'Courier' ? <div><b>Postage Paid:</b> {entry.postage_paid ? 'Yes' : 'No'}</div> : null}
             {entry.collector_name ? <div><b>Collector:</b> {entry.collector_name}</div> : null}
             {entry.collector_ic ? <div><b>IC:</b> {entry.collector_ic}</div> : null}
           </div>
@@ -706,9 +716,23 @@ export default function LostFoundPage() {
             </div>
 
             {returnMethod === 'Courier' ? (
-              <div style={styles.field}>
-                <label style={styles.label}>Waybill Number</label>
-                <input value={waybillNumber} onChange={(e) => setWaybillNumber(e.target.value)} placeholder="Required for courier" style={styles.input} />
+              <div>
+                <div style={styles.field}>
+                  <label style={styles.label}>Waybill Number</label>
+                  <input value={waybillNumber} onChange={(e) => setWaybillNumber(e.target.value)} placeholder="Required for courier" style={styles.input} />
+                </div>
+                <label style={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={postagePaid}
+                    onChange={(e) => setPostagePaid(e.target.checked)}
+                    style={styles.checkbox}
+                  />
+                  <span>
+                    <span style={styles.checkboxTitle}>Postage Paid</span>
+                    <span style={styles.checkboxHelper}>Courier returns can only be saved after postage is paid.</span>
+                  </span>
+                </label>
               </div>
             ) : (
               <div style={styles.printPrompt}>
@@ -723,7 +747,16 @@ export default function LostFoundPage() {
             )}
 
             <div style={styles.actions}>
-              <button type="button" onClick={() => void markReturned()} disabled={saving} style={styles.primaryBtn}>
+              <button
+                type="button"
+                onClick={() => void markReturned()}
+                disabled={saving || (returnMethod === 'Courier' && (!waybillNumber.trim() || !postagePaid))}
+                style={{
+                  ...styles.primaryBtn,
+                  opacity: saving || (returnMethod === 'Courier' && (!waybillNumber.trim() || !postagePaid)) ? 0.55 : 1,
+                  cursor: saving || (returnMethod === 'Courier' && (!waybillNumber.trim() || !postagePaid)) ? 'not-allowed' : 'pointer',
+                }}
+              >
                 {saving ? 'Saving...' : 'Save Return'}
               </button>
               <button type="button" onClick={closeReturnModal} disabled={saving} style={styles.secondaryBtn}>
@@ -751,6 +784,10 @@ const styles: Record<string, React.CSSProperties> = {
   field: { display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 12, minWidth: 0 },
   label: { fontSize: 12, fontWeight: 900, color: '#334155' },
   input: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: '12px 13px', color: '#0f172a', fontSize: 15, outline: 'none', background: '#ffffff' },
+  checkboxRow: { display: 'flex', alignItems: 'flex-start', gap: 10, border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 16, padding: 13, marginBottom: 12, cursor: 'pointer' },
+  checkbox: { width: 18, height: 18, marginTop: 2, accentColor: '#2563eb', flex: '0 0 auto' },
+  checkboxTitle: { display: 'block', fontSize: 14, fontWeight: 900, color: '#0f172a', lineHeight: 1.25 },
+  checkboxHelper: { display: 'block', marginTop: 3, fontSize: 12, fontWeight: 700, color: '#475569', lineHeight: 1.35 },
   dateInput: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: '10px 10px', color: '#0f172a', fontSize: 14, outline: 'none', background: '#ffffff', WebkitAppearance: 'none' },
   textarea: { width: '100%', minHeight: 92, boxSizing: 'border-box', resize: 'vertical', border: '1px solid #cbd5e1', borderRadius: 14, padding: '12px 13px', color: '#0f172a', fontSize: 15, outline: 'none', background: '#ffffff' },
   fileInput: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', borderRadius: 14, padding: 11, background: '#f8fafc', color: '#0f172a' },
