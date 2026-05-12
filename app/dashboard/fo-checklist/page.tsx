@@ -395,7 +395,6 @@ export default function FoChecklistPage() {
 
   function removeDraftQuestion(index: number) {
     setDraftQuestions((prev) => {
-      if (prev.length === 1) return prev;
       return prev.filter((_, i) => i !== index);
     });
   }
@@ -1082,9 +1081,9 @@ export default function FoChecklistPage() {
                       onClick={() => removeDraftQuestion(index)}
                       style={{
                         ...styles.removeBtn,
-                        opacity: draftQuestions.length === 1 ? 0.45 : 1,
+                        opacity: templateSaving ? 0.45 : 1,
                       }}
-                      disabled={templateSaving || draftQuestions.length === 1}
+                      disabled={templateSaving}
                     >
                       Remove
                     </button>
