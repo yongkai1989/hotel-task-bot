@@ -93,6 +93,22 @@ function formatDateTime(value?: string | null) {
   return d.toLocaleString();
 }
 
+function getTemplateSortOrder(title: string) {
+  const normalized = String(title || '').trim().toLowerCase();
+  if (normalized === 'morning shift') return 1;
+  if (normalized === 'afternoon shift') return 2;
+  if (normalized === 'night shift') return 3;
+  return 100;
+}
+
+function sortTemplates(templateList: Template[]) {
+  return [...templateList].sort((a, b) => {
+    const orderDiff = getTemplateSortOrder(a.title) - getTemplateSortOrder(b.title);
+    if (orderDiff !== 0) return orderDiff;
+    return a.title.localeCompare(b.title);
+  });
+}
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -256,7 +272,7 @@ export default function FoChecklistPage() {
       if (templateRes.error) throw templateRes.error;
       if (questionRes.error) throw questionRes.error;
 
-      const nextTemplates = (templateRes.data || []) as Template[];
+      const nextTemplates = sortTemplates((templateRes.data || []) as Template[]);
       const nextQuestions = (questionRes.data || []) as Question[];
 
       setTemplates(nextTemplates);
