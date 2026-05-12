@@ -9,9 +9,7 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
-
-  // ✅ NEW
-  can_access_linen_admin?: boolean;
+  can_access_supervisor_update?: boolean;
 };
 
 type RoomRow = {
@@ -169,7 +167,7 @@ export default function SupervisorUpdatePage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role, can_access_linen_admin')
+          .select('user_id, email, name, role, can_access_supervisor_update')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -180,7 +178,7 @@ export default function SupervisorUpdatePage() {
   email: profileRow?.email || email,
   name: profileRow?.name || email || 'User',
   role: (profileRow?.role || 'HK') as DashboardUser['role'],
-  can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+  can_access_supervisor_update: profileRow?.can_access_supervisor_update ?? false,
 };
 
         if (!mounted) return;
@@ -203,20 +201,10 @@ export default function SupervisorUpdatePage() {
   }, []);
 
   const canAccess = useMemo(() => {
-  if (!profile) return false;
-
-  // ✅ Admin roles always allowed
-  if (
-    profile.role === 'SUPERUSER' ||
-    profile.role === 'MANAGER' ||
-    profile.role === 'SUPERVISOR'
-  ) {
-    return true;
-  }
-
-  // ✅ fallback to permission flag
-  return profile.can_access_linen_admin === true;
-}, [profile]);
+    if (!profile) return false;
+    if (profile.role === 'SUPERUSER') return true;
+    return profile.can_access_supervisor_update === true;
+  }, [profile]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
     const supabase = getSupabaseSafe();
