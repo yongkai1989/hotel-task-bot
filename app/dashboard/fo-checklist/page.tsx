@@ -804,7 +804,7 @@ export default function FoChecklistPage() {
                 Create List
               </button>
             ) : null}
-            <Link href="/dashboard" style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}>
+            <Link href="/dashboard" style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileCompactBtn : {}) }}>
               Back to Dashboard
             </Link>
           </div>
@@ -1407,6 +1407,13 @@ const styles: Record<string, React.CSSProperties> = {
   mobileActionBtn: {
     width: '100%',
     minHeight: '46px',
+  },
+  mobileCompactBtn: {
+    width: 'fit-content',
+    minHeight: '40px',
+    padding: '10px 13px',
+    fontSize: '13px',
+    justifySelf: 'start',
   },
   shiftCardTop: {
     display: 'flex',
