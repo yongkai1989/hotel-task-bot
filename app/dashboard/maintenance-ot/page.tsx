@@ -169,6 +169,7 @@ export default function MaintenanceOtPage() {
   const [newStaffName, setNewStaffName] = useState('');
   const [staffManageBusy, setStaffManageBusy] = useState(false);
   const [staffName, setStaffName] = useState('');
+  const [otDate, setOtDate] = useState(getTodayLocalDateString());
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([{ start: '', end: '' }]);
   const [reason, setReason] = useState('');
 
@@ -213,6 +214,7 @@ export default function MaintenanceOtPage() {
   const canAccess = useMemo(() => !!profile && (profile.role === 'SUPERUSER' || profile.role === 'MANAGER' || profile.role === 'MT'), [profile]);
   const isSuperuser = profile?.role === 'SUPERUSER';
   const today = getTodayLocalDateString();
+  const yesterday = getYesterdayLocalDateString();
   const totalHours = useMemo(() => sumSlotHours(timeSlots), [timeSlots]);
   const needsReason = totalHours > 3;
 
@@ -273,6 +275,7 @@ export default function MaintenanceOtPage() {
   function resetForm() {
     setEditingId(null);
     setStaffName('');
+    setOtDate(getTodayLocalDateString());
     setTimeSlots([{ start: '', end: '' }]);
     setReason('');
   }
@@ -380,6 +383,7 @@ export default function MaintenanceOtPage() {
     const trimmedReason = reason.trim();
 
     if (!trimmedStaff) return setErrorMsg('Please select a staff name.');
+    if (otDate !== today && otDate !== yesterday) return setErrorMsg('OT Date must be today or yesterday.');
     if (timeSlots.some((slot) => !slot.start || !slot.end)) return setErrorMsg('Please complete all OT time rows.');
     if (timeSlots.some((slot) => calculateHours(slot.start, slot.end) <= 0)) return setErrorMsg('Each OT time row must have an end time later than start time.');
     if (needsReason && !trimmedReason) return setErrorMsg('Reason is required for OT exceeding 3 hours.');
@@ -397,7 +401,7 @@ export default function MaintenanceOtPage() {
           .from('maintenance_ot_entries')
           .update({
             staff_name: trimmedStaff,
-            ot_date: today,
+            ot_date: otDate,
             start_time: startTimeStore,
             end_time: endTimeStore,
             total_hours: totalHours,
@@ -412,7 +416,7 @@ export default function MaintenanceOtPage() {
           .from('maintenance_ot_entries')
           .insert([{
             staff_name: trimmedStaff,
-            ot_date: today,
+            ot_date: otDate,
             start_time: startTimeStore,
             end_time: endTimeStore,
             total_hours: totalHours,
@@ -437,6 +441,7 @@ export default function MaintenanceOtPage() {
   function handleEdit(entry: MaintenanceOtEntry) {
     setEditingId(entry.id);
     setStaffName(entry.staff_name);
+    setOtDate(entry.ot_date === yesterday ? yesterday : today);
     setTimeSlots(entryToSlots(entry));
     setReason(entry.reason || '');
     setViewMode('ENTRY');
@@ -468,6 +473,8 @@ export default function MaintenanceOtPage() {
 
   const overThreeCount = useMemo(() => entries.filter((entry) => safeNumber(entry.total_hours) > 3).length, [entries]);
   const todayEntries = useMemo(() => entries.filter((entry) => entry.ot_date === today), [entries, today]);
+  const yesterdayEntries = useMemo(() => entries.filter((entry) => entry.ot_date === yesterday), [entries, yesterday]);
+  const selectedDateEntries = useMemo(() => entries.filter((entry) => entry.ot_date === otDate), [entries, otDate]);
   const pastEntries = useMemo(() => entries.filter((entry) => entry.ot_date === pastDate), [entries, pastDate]);
 
   const reportEntries = useMemo(() => {
@@ -614,6 +621,10 @@ export default function MaintenanceOtPage() {
             <div style={styles.summaryValue}>{todayEntries.length}</div>
           </div>
           <div style={styles.summaryCard}>
+            <div style={styles.summaryLabel}>Yesterday Entries</div>
+            <div style={styles.summaryValue}>{yesterdayEntries.length}</div>
+          </div>
+          <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Above 3 Hours</div>
             <div style={{ ...styles.summaryValue, color: '#b91c1c' }}>{overThreeCount}</div>
           </div>
@@ -637,7 +648,10 @@ export default function MaintenanceOtPage() {
 
               <div style={styles.todayBar}>
                 <span style={styles.todayLabel}>OT Date</span>
-                <span style={styles.todayValue}>{formatDate(today)}</span>
+                <select value={otDate} onChange={(e) => setOtDate(e.target.value)} style={styles.dateSelect} disabled={saving}>
+                  <option value={today}>{formatDate(today)}</option>
+                  <option value={yesterday}>{formatDate(yesterday)}</option>
+                </select>
               </div>
 
               {isSuperuser ? (
@@ -747,10 +761,10 @@ export default function MaintenanceOtPage() {
             </section>
 
             <section style={styles.panel}>
-              <div style={styles.sectionTitle}>Today Entries</div>
-              {pageLoading ? <div style={styles.emptyState}>Loading OT entries...</div> : todayEntries.length === 0 ? <div style={styles.emptyState}>No OT entries for today.</div> : (
+              <div style={styles.sectionTitle}>{otDate === today ? 'Today Entries' : 'Yesterday Entries'}</div>
+              {pageLoading ? <div style={styles.emptyState}>Loading OT entries...</div> : selectedDateEntries.length === 0 ? <div style={styles.emptyState}>No OT entries for {formatDate(otDate)}.</div> : (
                 <div style={styles.cardsWrap}>
-                  {todayEntries.map((entry) => {
+                  {selectedDateEntries.map((entry) => {
                     const slots = entryToSlots(entry);
                     return (
                       <article key={entry.id} style={styles.entryCard}>
@@ -906,9 +920,10 @@ const styles: Record<string, React.CSSProperties> = {
   modeRow: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' },
   modeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '999px', padding: '11px 10px', fontWeight: 800, cursor: 'pointer', minWidth: 0, whiteSpace: 'normal' },
   modeBtnActive: { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' },
-  todayBar: { display: 'inline-flex', gap: '10px', alignItems: 'center', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '10px 14px', marginBottom: '14px' },
+  todayBar: { display: 'inline-flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '10px 14px', marginBottom: '14px' },
   todayLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
   todayValue: { fontSize: '16px', fontWeight: 800, color: '#0f172a' },
+  dateSelect: { minWidth: 'min(250px, 100%)', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px 12px', fontSize: '15px', fontWeight: 800, outline: 'none', cursor: 'pointer' },
   staffManagerBox: { border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: '16px', padding: '14px', marginBottom: '14px' },
   staffManagerTitle: { fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' },
   staffManagerSubTitle: { fontSize: '13px', color: '#64748b', fontWeight: 600, lineHeight: 1.45, marginBottom: '12px' },
