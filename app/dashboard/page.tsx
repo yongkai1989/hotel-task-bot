@@ -56,6 +56,7 @@ type DashboardInsights = {
   specialProjectDoneRooms: number;
   overduePm: number;
   foChecklistSubmitted: number;
+  foChecklistHasNoAnswer: boolean;
 };
 
 type DepartmentPerformance = {
@@ -732,12 +733,14 @@ function OverviewMetricCard({
   note,
   tone,
   icon,
+  alert,
 }: {
   title: string;
   value: string | number;
   note?: string;
   tone: 'open' | 'doing' | 'done' | 'violet' | 'danger';
   icon: DashboardIconName;
+  alert?: boolean;
 }) {
   const theme =
     tone === 'open'
@@ -754,6 +757,7 @@ function OverviewMetricCard({
     <article style={styles.overviewCard}>
       <div style={{ ...styles.overviewIcon, background: theme.bg, color: theme.fg }}>
         <DashboardIcon name={icon} size={20} />
+        {alert ? <span style={styles.overviewAlertBadge}>!</span> : null}
       </div>
       <div style={styles.overviewContent}>
         <div style={styles.overviewLabel}>{title}</div>
@@ -783,6 +787,7 @@ export default function DashboardPage() {
     specialProjectDoneRooms: 0,
     overduePm: 0,
     foChecklistSubmitted: 0,
+    foChecklistHasNoAnswer: false,
   });
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -1003,6 +1008,7 @@ export default function DashboardPage() {
         specialProjectDoneRooms: Number(parsed.insights.specialProjectDoneRooms || 0),
         overduePm: Number(parsed.insights.overduePm || 0),
         foChecklistSubmitted: Number(parsed.insights.foChecklistSubmitted || 0),
+        foChecklistHasNoAnswer: parsed.insights.foChecklistHasNoAnswer === true,
       };
     } catch {
       return null;
@@ -1402,6 +1408,7 @@ export default function DashboardPage() {
       }).length;
 
       let foChecklistSubmitted = 0;
+      let foChecklistHasNoAnswer = false;
       const foChecklistDate = getFoChecklistServiceDateString();
       const { data: foTemplates, error: foTemplatesError } = await supabase
         .from('fo_checklist_templates')
@@ -1417,16 +1424,33 @@ export default function DashboardPage() {
         if (foTemplateIds.length > 0) {
           const { data: foSubmissions, error: foSubmissionsError } = await supabase
             .from('fo_checklist_submissions')
-            .select('template_id')
+            .select('id, template_id')
             .eq('submission_date', foChecklistDate)
             .in('template_id', foTemplateIds);
 
           if (!foSubmissionsError) {
             foChecklistSubmitted = new Set(
-              ((foSubmissions || []) as Array<{ template_id: string }>)
+              ((foSubmissions || []) as Array<{ id: string; template_id: string }>)
                 .map((submission) => submission.template_id)
                 .filter(Boolean)
             ).size;
+
+            const foSubmissionIds = ((foSubmissions || []) as Array<{ id: string; template_id: string }>)
+              .map((submission) => submission.id)
+              .filter(Boolean);
+
+            if (foSubmissionIds.length > 0) {
+              const { data: foNoAnswers, error: foNoAnswersError } = await supabase
+                .from('fo_checklist_answers')
+                .select('id')
+                .in('submission_id', foSubmissionIds)
+                .eq('answer_yes_no', false)
+                .limit(1);
+
+              if (!foNoAnswersError) {
+                foChecklistHasNoAnswer = (foNoAnswers || []).length > 0;
+              }
+            }
           }
         }
       }
@@ -1437,6 +1461,7 @@ export default function DashboardPage() {
         specialProjectDoneRooms,
         overduePm,
         foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
+        foChecklistHasNoAnswer,
       };
 
       setInsights(nextInsights);
@@ -2378,6 +2403,7 @@ async function handleDeleteTask(taskId: string) {
                     note="Morning, Afternoon, Night submitted"
                     tone="violet"
                     icon="clipboard"
+                    alert={insights.foChecklistHasNoAnswer}
                   />
                   <OverviewMetricCard
                     title="Room Pending Save"
@@ -3678,6 +3704,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
   },
   overviewIcon: {
+    position: 'relative',
     width: 38,
     height: 38,
     borderRadius: 999,
@@ -3687,6 +3714,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 900,
     flexShrink: 0,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)',
+  },
+  overviewAlertBadge: {
+    position: 'absolute',
+    right: -3,
+    top: -3,
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    background: '#ef4444',
+    color: '#ffffff',
+    border: '2px solid #ffffff',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 10,
+    lineHeight: 1,
+    fontWeight: 900,
+    boxShadow: '0 8px 16px rgba(239,68,68,0.28)',
   },
   eyebrow: {
     fontSize: 11,
