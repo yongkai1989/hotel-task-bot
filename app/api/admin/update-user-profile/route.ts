@@ -25,6 +25,7 @@ type UpdateBody = {
   can_access_management_tasks?: boolean;
   can_access_admin_settings?: boolean;
   can_access_lost_found?: boolean;
+  can_access_fo_checklist?: boolean;
   can_create_task?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
@@ -46,6 +47,7 @@ const permissionKeys = [
   'can_access_management_tasks',
   'can_access_admin_settings',
   'can_access_lost_found',
+  'can_access_fo_checklist',
   'can_create_task',
   'can_edit_task',
   'can_delete_task',
@@ -71,6 +73,7 @@ const profileSelect = `
   can_access_management_tasks,
   can_access_admin_settings,
   can_access_lost_found,
+  can_access_fo_checklist,
   can_create_task,
   can_edit_task,
   can_delete_task,
@@ -93,6 +96,7 @@ function normalizeEmail(value: unknown) {
 
 function withPermissions(row: any) {
   const role = String(row.role || 'FO');
+  const email = normalizeEmail(row.email);
   const permissions = {
     can_access_preventive_maintenance:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_preventive_maintenance),
@@ -124,6 +128,12 @@ function withPermissions(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_admin_settings),
     can_access_lost_found:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_lost_found),
+    can_access_fo_checklist:
+      role === 'SUPERUSER' ||
+      (
+        toPermissionBoolean(row.can_access_fo_checklist) &&
+        (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
+      ),
     can_create_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_create_task),
     can_edit_task:
