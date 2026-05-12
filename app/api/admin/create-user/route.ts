@@ -24,6 +24,7 @@ type CreateBody = {
   can_access_management_tasks?: boolean;
   can_access_admin_settings?: boolean;
   can_access_lost_found?: boolean;
+  can_access_fo_checklist?: boolean;
   can_create_task?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
@@ -34,6 +35,8 @@ function toPermissionBoolean(value: unknown) {
 }
 
 function withPermissions(row: any) {
+  const role = String(row.role || 'FO');
+  const email = String(row.email || '').trim().toLowerCase();
   const permissions = {
     can_access_preventive_maintenance: toPermissionBoolean(row.can_access_preventive_maintenance),
     can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
@@ -50,6 +53,12 @@ function withPermissions(row: any) {
     can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
     can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
     can_access_lost_found: toPermissionBoolean(row.can_access_lost_found),
+    can_access_fo_checklist:
+      role === 'SUPERUSER' ||
+      (
+        toPermissionBoolean(row.can_access_fo_checklist) &&
+        (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
+      ),
     can_create_task: toPermissionBoolean(row.can_create_task),
     can_edit_task: toPermissionBoolean(row.can_edit_task),
     can_delete_task: toPermissionBoolean(row.can_delete_task),
@@ -133,6 +142,8 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_admin_settings),
       can_access_lost_found:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_lost_found),
+      can_access_fo_checklist:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fo_checklist),
       can_create_task: toPermissionBoolean(body.can_create_task),
       can_edit_task: toPermissionBoolean(body.can_edit_task),
       can_delete_task: toPermissionBoolean(body.can_delete_task),
@@ -162,6 +173,7 @@ export async function POST(req: NextRequest) {
         can_access_management_tasks,
         can_access_admin_settings,
         can_access_lost_found,
+        can_access_fo_checklist,
         can_create_task,
         can_edit_task,
         can_delete_task
