@@ -26,6 +26,7 @@ type UserProfile = {
   can_access_management_tasks: boolean;
   can_access_admin_settings: boolean;
   can_access_lost_found: boolean;
+  can_access_fo_checklist: boolean;
   can_create_task: boolean;
   can_edit_task: boolean;
   can_delete_task: boolean;
@@ -58,6 +59,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_management_tasks', label: 'Management Tasks', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
   { key: 'can_access_lost_found', label: 'Lost & Found', group: 'Front Office' },
+  { key: 'can_access_fo_checklist', label: 'FO Checklist', group: 'Front Office' },
   { key: 'can_create_task', label: 'Can Create', group: 'Actions' },
   { key: 'can_edit_task', label: 'Can Edit', group: 'Actions' },
   { key: 'can_delete_task', label: 'Can Delete', group: 'Actions' },
@@ -80,6 +82,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_management_tasks: false,
     can_access_admin_settings: false,
     can_access_lost_found: false,
+    can_access_fo_checklist: false,
     can_create_task: false,
     can_edit_task: false,
     can_delete_task: false,
@@ -139,6 +142,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_admin_settings')),
     can_access_lost_found:
       toPermissionBoolean(permissionValue('can_access_lost_found')),
+    can_access_fo_checklist:
+      toPermissionBoolean(permissionValue('can_access_fo_checklist')),
     can_create_task: toPermissionBoolean(permissionValue('can_create_task')),
     can_edit_task: toPermissionBoolean(permissionValue('can_edit_task')),
     can_delete_task: toPermissionBoolean(permissionValue('can_delete_task')),
@@ -166,6 +171,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_management_tasks: toPermissionBoolean(draft.can_access_management_tasks),
     can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
     can_access_lost_found: toPermissionBoolean(draft.can_access_lost_found),
+    can_access_fo_checklist: toPermissionBoolean(draft.can_access_fo_checklist),
     can_create_task: toPermissionBoolean(draft.can_create_task),
     can_edit_task: toPermissionBoolean(draft.can_edit_task),
     can_delete_task: toPermissionBoolean(draft.can_delete_task),
@@ -173,6 +179,21 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
 }
 
 function getActualAccessValue(user: UserProfile, key: AccessKey) {
+  if (key === 'can_access_fo_checklist') {
+    const email = String(user.email || '').toLowerCase();
+    return (
+      user.role === 'SUPERUSER' ||
+      (
+        toPermissionBoolean(user.can_access_fo_checklist) &&
+        (
+          user.role === 'FO' ||
+          email === 'walter@hotelhallmark.com' ||
+          email === 'fenny@hotelhallmark.com'
+        )
+      )
+    );
+  }
+
   return user.role === 'SUPERUSER' || toPermissionBoolean(user[key]);
 }
 
