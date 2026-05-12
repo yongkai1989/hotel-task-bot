@@ -396,8 +396,6 @@ export default function FoChecklistPage() {
   function removeDraftQuestion(index: number) {
     setDraftQuestions((prev) => {
       if (prev.length === 1) return prev;
-      const item = prev[index];
-      if (item?.existingId) return prev;
       return prev.filter((_, i) => i !== index);
     });
   }
@@ -475,6 +473,24 @@ export default function FoChecklistPage() {
           .eq('id', selectedTemplate.id);
 
         if (templateError) throw templateError;
+
+        const keptExistingQuestionIds = new Set(
+          cleanedQuestions
+            .map((question) => question.existingId)
+            .filter(Boolean) as string[]
+        );
+        const removedExistingQuestionIds = selectedQuestions
+          .map((question) => question.id)
+          .filter((questionId) => !keptExistingQuestionIds.has(questionId));
+
+        if (removedExistingQuestionIds.length > 0) {
+          const { error: deleteQuestionsError } = await supabase
+            .from('fo_checklist_questions')
+            .delete()
+            .in('id', removedExistingQuestionIds);
+
+          if (deleteQuestionsError) throw deleteQuestionsError;
+        }
 
         for (let i = 0; i < cleanedQuestions.length; i += 1) {
           const question = cleanedQuestions[i];
@@ -1066,14 +1082,11 @@ export default function FoChecklistPage() {
                       onClick={() => removeDraftQuestion(index)}
                       style={{
                         ...styles.removeBtn,
-                        opacity:
-                          draftQuestions.length === 1 || !!question.existingId ? 0.45 : 1,
+                        opacity: draftQuestions.length === 1 ? 0.45 : 1,
                       }}
-                      disabled={
-                        templateSaving || draftQuestions.length === 1 || !!question.existingId
-                      }
+                      disabled={templateSaving || draftQuestions.length === 1}
                     >
-                      {question.existingId ? 'Locked' : 'Remove'}
+                      Remove
                     </button>
                   </div>
 
@@ -1126,7 +1139,7 @@ export default function FoChecklistPage() {
 
                   {question.existingId ? (
                     <div style={styles.lockNotice}>
-                      Existing questions are editable, but not removable, so past submissions remain safe.
+                      Removing this question will also remove its saved answers from past FO Checklist submissions.
                     </div>
                   ) : null}
                 </div>
