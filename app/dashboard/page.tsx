@@ -31,6 +31,8 @@ type Task = {
   edited_at?: string | null;
   edited_by_email?: string | null;
   edited_by_name?: string | null;
+  customer_waiting?: boolean | null;
+  customer_waiting_reminder_sent_at?: string | null;
 };
 
 type SidebarView = 'DASHBOARD' | 'PAST_TASK';
@@ -801,6 +803,7 @@ export default function DashboardPage() {
   const [createDepts, setCreateDepts] = useState<Array<'HK' | 'MT' | 'FO'>>([]);
   const [createTaskText, setCreateTaskText] = useState('');
   const [createPhotos, setCreatePhotos] = useState<CreatePhotoItem[]>([]);
+  const [createCustomerWaiting, setCreateCustomerWaiting] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
 
@@ -1745,6 +1748,7 @@ function canDeleteTask() {
     setCreateDepts([]);
     setCreateTaskText('');
     setCreatePhotos([]);
+    setCreateCustomerWaiting(false);
     setCreateError('');
   }
 
@@ -2033,6 +2037,7 @@ async function handleDeleteTask(taskId: string) {
             source_message: createSmartMessage.trim() || null,
             image_urls: uploadedUrls,
             image_captions: createPhotos.map((p) => p.name),
+            customer_waiting: createCustomerWaiting,
           }),
         },
         30000
@@ -2577,6 +2582,11 @@ async function handleDeleteTask(taskId: string) {
                                   <div style={statusBadgeStyle(task.status)}>
                                     {labelForStatus(task.status)}
                                   </div>
+                                  {task.customer_waiting ? (
+                                    <div style={styles.customerWaitingBadge}>
+                                      Customer waiting
+                                    </div>
+                                  ) : null}
                                 </div>
 
                                 <div style={styles.roomLine}>
@@ -2985,6 +2995,29 @@ async function handleDeleteTask(taskId: string) {
                 placeholder="Enter task details"
                 disabled={createSubmitting}
               />
+            </div>
+
+            <div style={styles.formBlock}>
+              <label
+                style={{
+                  ...styles.customerWaitingOption,
+                  opacity: createSubmitting ? 0.65 : 1,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={createCustomerWaiting}
+                  onChange={(e) => setCreateCustomerWaiting(e.target.checked)}
+                  disabled={createSubmitting}
+                  style={styles.customerWaitingCheckbox}
+                />
+                <span>
+                  <span style={styles.customerWaitingTitle}>Customer is waiting</span>
+                  <span style={styles.customerWaitingText}>
+                    Send a one-time Telegram reminder if status is still Open after 15 minutes.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div style={styles.formBlock}>
@@ -4824,6 +4857,49 @@ deleteTaskBtn: {
     fontWeight: 700,
     lineHeight: 1.45,
     marginTop: 8,
+  },
+  customerWaitingOption: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 10,
+    border: '1px solid #fecaca',
+    background: '#fff7f7',
+    color: '#7f1d1d',
+    borderRadius: 14,
+    padding: '12px 14px',
+    cursor: 'pointer',
+  },
+  customerWaitingCheckbox: {
+    marginTop: 3,
+  },
+  customerWaitingTitle: {
+    display: 'block',
+    fontSize: 13,
+    fontWeight: 900,
+    color: '#991b1b',
+  },
+  customerWaitingText: {
+    display: 'block',
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 1.4,
+    fontWeight: 700,
+    color: '#b91c1c',
+  },
+  customerWaitingBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    padding: '5px 8px',
+    background: '#fef2f2',
+    color: '#dc2626',
+    border: '1px solid #fecaca',
+    fontSize: 10,
+    fontWeight: 900,
+    textTransform: 'uppercase',
+    letterSpacing: 0.2,
+    whiteSpace: 'nowrap',
   },
   secondaryBtn: {
     border: '1px solid #dbe3ee',
