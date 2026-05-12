@@ -20,6 +20,8 @@ function normalizeEmail(value: unknown) {
 }
 
 function enabledCount(row: any) {
+  const role = String(row?.role || 'FO');
+  const email = normalizeEmail(row?.email);
   return [
     row?.can_access_preventive_maintenance,
     row?.can_access_maintenance_ot,
@@ -36,6 +38,11 @@ function enabledCount(row: any) {
     row?.can_access_management_tasks,
     row?.can_access_admin_settings,
     row?.can_access_lost_found,
+    role === 'SUPERUSER' ||
+      (
+        toPermissionBoolean(row?.can_access_fo_checklist) &&
+        (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
+      ),
     row?.can_create_task,
     row?.can_edit_task,
     row?.can_delete_task,
@@ -44,6 +51,7 @@ function enabledCount(row: any) {
 
 function normalizeProfileRow(row: any) {
   const role = String(row.role || 'FO');
+  const email = normalizeEmail(row.email);
 
   const permissions = {
     can_access_preventive_maintenance:
@@ -76,6 +84,12 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_admin_settings),
     can_access_lost_found:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_lost_found),
+    can_access_fo_checklist:
+      role === 'SUPERUSER' ||
+      (
+        toPermissionBoolean(row.can_access_fo_checklist) &&
+        (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
+      ),
     can_create_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_create_task),
     can_edit_task:
@@ -86,7 +100,7 @@ function normalizeProfileRow(row: any) {
 
   return {
     user_id: String(row.user_id || ''),
-    email: normalizeEmail(row.email),
+    email,
     name: String(row.name || ''),
     role,
     ...permissions,
@@ -188,6 +202,7 @@ const profileSelect = `
   can_access_management_tasks,
   can_access_admin_settings,
   can_access_lost_found,
+  can_access_fo_checklist,
   can_create_task,
   can_edit_task,
   can_delete_task,
