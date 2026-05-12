@@ -28,6 +28,7 @@ type DashboardUser = {
   can_access_admin_settings?: boolean;
   can_access_linen_admin?: boolean;
   can_access_lost_found?: boolean;
+  can_access_fo_checklist?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
     | 'can_edit_task'
@@ -47,7 +48,8 @@ type DashboardUser = {
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
     | 'can_access_linen_admin'
-    | 'can_access_lost_found',
+    | 'can_access_lost_found'
+    | 'can_access_fo_checklist',
     unknown
   >>;
 };
