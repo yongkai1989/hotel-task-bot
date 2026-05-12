@@ -55,6 +55,7 @@ type DashboardInsights = {
   specialProjectCompletion: number;
   specialProjectDoneRooms: number;
   overduePm: number;
+  foChecklistSubmitted: number;
 };
 
 type DepartmentPerformance = {
@@ -320,6 +321,17 @@ function getTodayLocalDateString() {
 function getYesterdayLocalDateString() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getFoChecklistServiceDateString() {
+  const d = new Date();
+  if (d.getHours() < 12) {
+    d.setDate(d.getDate() - 1);
+  }
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -770,6 +782,7 @@ export default function DashboardPage() {
     specialProjectCompletion: 0,
     specialProjectDoneRooms: 0,
     overduePm: 0,
+    foChecklistSubmitted: 0,
   });
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -984,7 +997,13 @@ export default function DashboardPage() {
       if (!parsed?.insights || typeof parsed.savedAt !== 'number') return null;
       if (Date.now() - parsed.savedAt > maxAgeMs) return null;
 
-      return parsed.insights as DashboardInsights;
+      return {
+        roomPendingSave: Number(parsed.insights.roomPendingSave || 0),
+        specialProjectCompletion: Number(parsed.insights.specialProjectCompletion || 0),
+        specialProjectDoneRooms: Number(parsed.insights.specialProjectDoneRooms || 0),
+        overduePm: Number(parsed.insights.overduePm || 0),
+        foChecklistSubmitted: Number(parsed.insights.foChecklistSubmitted || 0),
+      };
     } catch {
       return null;
     }
@@ -1382,11 +1401,42 @@ export default function DashboardPage() {
         return row.due_date < today && row.status !== 'DONE';
       }).length;
 
+      let foChecklistSubmitted = 0;
+      const foChecklistDate = getFoChecklistServiceDateString();
+      const { data: foTemplates, error: foTemplatesError } = await supabase
+        .from('fo_checklist_templates')
+        .select('id, title')
+        .eq('is_active', true)
+        .in('title', ['Morning Shift', 'Afternoon Shift', 'Night Shift']);
+
+      if (!foTemplatesError) {
+        const foTemplateIds = ((foTemplates || []) as Array<{ id: string; title: string }>)
+          .map((template) => template.id)
+          .filter(Boolean);
+
+        if (foTemplateIds.length > 0) {
+          const { data: foSubmissions, error: foSubmissionsError } = await supabase
+            .from('fo_checklist_submissions')
+            .select('template_id')
+            .eq('submission_date', foChecklistDate)
+            .in('template_id', foTemplateIds);
+
+          if (!foSubmissionsError) {
+            foChecklistSubmitted = new Set(
+              ((foSubmissions || []) as Array<{ template_id: string }>)
+                .map((submission) => submission.template_id)
+                .filter(Boolean)
+            ).size;
+          }
+        }
+      }
+
       const nextInsights = {
         roomPendingSave,
         specialProjectCompletion,
         specialProjectDoneRooms,
         overduePm,
+        foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
       };
 
       setInsights(nextInsights);
@@ -2321,8 +2371,14 @@ async function handleDeleteTask(taskId: string) {
                   }}
                 >
                   <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
-                  <OverviewMetricCard title="Doing" value={summary.doing} note="In progress now" tone="doing" icon="loader" />
                   <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
+                  <OverviewMetricCard
+                    title="FO Checklist"
+                    value={`${insights.foChecklistSubmitted}/3`}
+                    note="Morning, Afternoon, Night submitted"
+                    tone="violet"
+                    icon="clipboard"
+                  />
                   <OverviewMetricCard
                     title="Room Pending Save"
                     value={insights.roomPendingSave}
