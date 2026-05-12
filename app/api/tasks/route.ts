@@ -314,8 +314,109 @@ function resolveTelegramChatId(department: Dept): number | null {
   return fallbackChatId;
 }
 
+async function sendTelegramText(chatId: number, text: string) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) {
+    throw new Error('Missing TELEGRAM_BOT_TOKEN');
+  }
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+    }),
+  });
+
+  const json = await res.json();
+  if (!res.ok || !json?.ok) {
+    throw new Error(json?.description || 'Telegram reminder failed');
+  }
+
+  return json?.result?.message_id ?? null;
+}
+
+async function sendCustomerWaitingReminders() {
+  try {
+    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+    const { data: dueTasks, error } = await supabaseAdmin
+      .from('tasks')
+      .select(
+        `
+        id,
+        task_code,
+        room,
+        department,
+        task_text,
+        chat_id,
+        created_at
+      `
+      )
+      .eq('customer_waiting', true)
+      .eq('status', 'OPEN')
+      .is('customer_waiting_reminder_sent_at', null)
+      .is('last_updated_by_name', null)
+      .lte('created_at', cutoff)
+      .limit(10);
+
+    if (error || !dueTasks?.length) return;
+
+    for (const task of dueTasks) {
+      const chatId = Number(task.chat_id || resolveTelegramChatId(task.department as Dept));
+      if (!chatId || Number.isNaN(chatId)) continue;
+
+      const now = new Date().toISOString();
+      const { data: claimed, error: claimError } = await supabaseAdmin
+        .from('tasks')
+        .update({ customer_waiting_reminder_sent_at: now })
+        .eq('id', task.id)
+        .eq('customer_waiting', true)
+        .eq('status', 'OPEN')
+        .is('customer_waiting_reminder_sent_at', null)
+        .is('last_updated_by_name', null)
+        .select('id')
+        .maybeSingle();
+
+      if (claimError || !claimed) continue;
+
+      try {
+        const messageId = await sendTelegramText(
+          chatId,
+          [
+            `Customer from room ${task.room} is waiting.`,
+            `Task ID: ${task.task_code || task.id}`,
+            `Task: ${task.task_text}`,
+            'Kindly proceed to attend soon.',
+            'This is an automatically generated reminder.',
+          ].join('\n')
+        );
+
+        await supabaseAdmin.from('task_events').insert({
+          task_id: task.id,
+          event_type: 'CUSTOMER_WAITING_REMINDER',
+          event_text: `Automatic customer waiting reminder sent${messageId ? ` (${messageId})` : ''}`,
+          actor_name: 'System',
+        });
+      } catch (telegramError: any) {
+        await supabaseAdmin.from('task_events').insert({
+          task_id: task.id,
+          event_type: 'CUSTOMER_WAITING_REMINDER_FAILED',
+          event_text: telegramError?.message || 'Automatic customer waiting reminder failed',
+          actor_name: 'System',
+        });
+      }
+    }
+  } catch {
+    // Reminder checks should never block the task list.
+  }
+}
+
 export async function GET() {
   try {
+    await sendCustomerWaitingReminders();
+
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
       .select(
@@ -335,7 +436,9 @@ export async function GET() {
         edited_at,
         edited_by_name,
         edited_by_email,
-        image_url
+        image_url,
+        customer_waiting,
+        customer_waiting_reminder_sent_at
       `
       )
       .order('created_at', { ascending: false })
@@ -428,6 +531,7 @@ export async function POST(req: NextRequest) {
             : [];
     const imageUrls = normalizeImageUrls(body);
     const imageCaptions = normalizeImageCaptions(body, imageUrls.length);
+    const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
 
     if (!room) {
       return jsonNoCache({ ok: false, error: 'Room is required' }, 400);
@@ -478,6 +582,8 @@ export async function POST(req: NextRequest) {
           created_by_email: userEmail,
           chat_id: telegramChatId,
           image_url: firstImageUrl,
+          customer_waiting: customerWaiting,
+          customer_waiting_reminder_sent_at: null,
           reopened_at: null,
         })
         .select(
@@ -499,6 +605,8 @@ export async function POST(req: NextRequest) {
           edited_at,
           edited_by_name,
           edited_by_email,
+          customer_waiting,
+          customer_waiting_reminder_sent_at,
           created_at
         `
         )
