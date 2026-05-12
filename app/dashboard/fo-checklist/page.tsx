@@ -124,6 +124,7 @@ export default function FoChecklistPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [viewportWidth, setViewportWidth] = useState(1200);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -161,6 +162,8 @@ export default function FoChecklistPage() {
       isSuper ||
       ((profile.role === 'FO' || isNamedFoChecklistUser) && profile.can_access_fo_checklist === true)
     );
+  const isMobile = viewportWidth <= 640;
+  const isTablet = viewportWidth > 640 && viewportWidth <= 980;
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === selectedTemplateId) || null,
@@ -230,6 +233,18 @@ export default function FoChecklistPage() {
       mounted = false;
     };
   }, [supabase]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    function handleResize() {
+      setViewportWidth(window.innerWidth);
+    }
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!profile || !canAccess) {
@@ -768,23 +783,30 @@ export default function FoChecklistPage() {
   }
 
   return (
-    <main style={styles.page}>
+    <main style={{ ...styles.page, padding: isMobile ? '12px 10px 28px' : styles.page.padding }}>
       <div style={styles.shell}>
-        <div style={styles.topBar}>
+        <div style={{ ...styles.topBar, ...(isMobile ? styles.topBarMobile : {}) }}>
           <div>
+            <div style={styles.eyebrow}>Front Office Workspace</div>
             <div style={styles.pageTitle}>FO Checklist</div>
             <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role}) · Front Office daily shift checklist workspace
+              {profile.name} ({profile.role}) - Daily shift checklist workspace
             </div>
           </div>
 
-          <div style={styles.topBarActions}>
+          <div style={{ ...styles.topBarActions, ...(isMobile ? styles.topBarActionsMobile : {}) }}>
             {isSuper ? (
-              <button type="button" onClick={openCreateModal} style={styles.primaryHeaderBtn}>
+              <button
+                type="button"
+                onClick={openCreateModal}
+                style={{ ...styles.primaryHeaderBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+              >
                 Create List
               </button>
             ) : null}
-            <Link href="/dashboard" style={styles.secondaryBtn}>Back to Dashboard</Link>
+            <Link href="/dashboard" style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}>
+              Back to Dashboard
+            </Link>
           </div>
         </div>
 
@@ -811,13 +833,13 @@ export default function FoChecklistPage() {
         </div>
 
         {loading ? (
-          <section style={styles.panel}>
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <div style={styles.emptyState}>Loading FO checklists...</div>
           </section>
         ) : null}
 
         {!loading && templates.length === 0 ? (
-          <section style={styles.panel}>
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <div style={styles.emptyState}>
               No checklists available yet. {isSuper ? 'Create your first list to get started.' : 'Please ask a superuser to create a list.'}
             </div>
@@ -825,11 +847,27 @@ export default function FoChecklistPage() {
         ) : null}
 
         {!loading && viewMode === 'LIST' && templates.length > 0 ? (
-          <section style={styles.panel}>
-            <div style={styles.sectionTitle}>Available Checklists</div>
-            <div style={styles.ChecklistCardGrid}>
-              {templates.map((template) => {
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.sectionHeaderRow}>
+              <div>
+                <div style={styles.sectionEyebrow}>Daily Lists</div>
+                <div style={styles.sectionTitle}>Available Checklists</div>
+              </div>
+              <div style={styles.sectionHint}>Resets at 12pm</div>
+            </div>
+            <div
+              style={{
+                ...styles.ChecklistCardGrid,
+                gridTemplateColumns: isMobile
+                  ? '1fr'
+                  : isTablet
+                  ? 'repeat(2, minmax(0, 1fr))'
+                  : 'repeat(3, minmax(0, 1fr))',
+              }}
+            >
+              {templates.map((template, index) => {
                 const templateQuestions = questions.filter((q) => q.template_id === template.id);
+                const selected = selectedTemplateId === template.id;
 
                 return (
                   <button
@@ -838,12 +876,18 @@ export default function FoChecklistPage() {
                     onClick={() => chooseTemplate(template.id)}
                     style={{
                       ...styles.ChecklistChooserCard,
-                      ...(selectedTemplateId === template.id ? styles.ChecklistChooserCardActive : {}),
+                      ...(selected ? styles.ChecklistChooserCardActive : {}),
                     }}
                   >
+                    <div style={styles.shiftCardTop}>
+                      <div style={styles.shiftIcon}>{index + 1}</div>
+                      <div style={{ ...styles.statusPill, ...(selected ? styles.statusSubmitted : styles.statusNeutral) }}>
+                        {selected ? 'Selected' : 'Open'}
+                      </div>
+                    </div>
                     <div style={styles.ChecklistChooserTitle}>{template.title}</div>
                     <div style={styles.ChecklistChooserMeta}>
-                      {templateQuestions.length} question{templateQuestions.length === 1 ? '' : 's'}
+                      {templateQuestions.length} question{templateQuestions.length === 1 ? '' : 's'} - FO daily checklist
                     </div>
                     <div style={styles.ChecklistChooserHint}>Open Checklist</div>
                   </button>
@@ -854,9 +898,10 @@ export default function FoChecklistPage() {
         ) : null}
 
         {!loading && viewMode === 'FORM' && selectedTemplate ? (
-          <section style={styles.panel}>
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <div style={styles.ChecklistHeader}>
               <div>
+                <div style={styles.sectionEyebrow}>Current Shift</div>
                 <div style={styles.sectionTitle}>{selectedTemplate.title}</div>
                 <div style={styles.ChecklistsubMeta}>
                   {todaySubmission
@@ -870,16 +915,25 @@ export default function FoChecklistPage() {
                 ) : null}
               </div>
 
-              <div style={styles.ChecklistHeaderRight}>
+              <div style={{ ...styles.ChecklistHeaderRight, ...(isMobile ? styles.headerRightMobile : {}) }}>
                 {isSuper ? (
                   <>
-                    <button type="button" onClick={openEditModal} style={styles.secondaryBtn}>
+                    <button
+                      type="button"
+                      onClick={openEditModal}
+                      style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+                    >
                       Edit List
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleDeleteTemplate(selectedTemplate.id)}
-                      style={{ ...styles.secondaryBtn, color: '#ef4444', borderColor: '#ef4444' }}
+                      style={{
+                        ...styles.secondaryBtn,
+                        ...(isMobile ? styles.mobileActionBtn : {}),
+                        color: '#ef4444',
+                        borderColor: '#fecaca',
+                      }}
                       disabled={deletingTemplateId === selectedTemplate.id}
                     >
                       {deletingTemplateId === selectedTemplate.id ? 'Deleting...' : 'Delete List'}
@@ -900,7 +954,7 @@ export default function FoChecklistPage() {
 
             <div style={styles.questionList}>
               {selectedQuestions.map((question, index) => (
-                <div key={question.id} style={styles.questionCard}>
+                <div key={question.id} style={{ ...styles.questionCard, ...(isMobile ? styles.questionCardMobile : {}) }}>
                   <div style={styles.questionNumber}>Question {index + 1}</div>
 
                   <div style={styles.questionTitleRow}>
@@ -945,7 +999,7 @@ export default function FoChecklistPage() {
                     <textarea
                       value={answers[question.id]?.answer_text || ''}
                       onChange={(e) => updateAnswer(question, e.target.value)}
-                      style={styles.textarea}
+                      style={{ ...styles.textarea, ...(isMobile ? styles.textareaMobile : {}) }}
                       placeholder="Enter short answer"
                     />
                   )}
@@ -953,14 +1007,22 @@ export default function FoChecklistPage() {
               ))}
             </div>
 
-            <div style={styles.actionRow}>
-              <button type="button" onClick={() => setViewMode('LIST')} style={styles.secondaryBtn}>
+            <div style={{ ...styles.actionRow, ...(isMobile ? styles.actionRowMobile : {}) }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('LIST')}
+                style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+              >
                 Back to Checklists
               </button>
               <button
                 type="button"
                 onClick={() => void handleSaveSubmission()}
-                style={{ ...styles.primaryBtn, opacity: savingAnswers ? 0.6 : 1 }}
+                style={{
+                  ...styles.primaryBtn,
+                  ...(isMobile ? styles.mobileActionBtn : {}),
+                  opacity: savingAnswers ? 0.6 : 1,
+                }}
                 disabled={savingAnswers}
               >
                 {savingAnswers ? 'Saving...' : todaySubmission ? 'Update Answers' : 'Submit Checklist'}
@@ -970,7 +1032,7 @@ export default function FoChecklistPage() {
         ) : null}
 
         {!loading && viewMode === 'HISTORY' && selectedTemplate ? (
-          <section style={styles.panel}>
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <div style={styles.sectionTitle}>Last 30 Days Submissions</div>
 
             {pastSubmissions.length === 0 ? (
@@ -989,7 +1051,7 @@ export default function FoChecklistPage() {
                         {submission.submitted_by_name || submission.submitted_by_email || 'Unknown'}
                       </div>
                       <div style={styles.historyMeta}>
-                        {templateTitleMap.get(submission.template_id) || 'Checklist'} · {formatDate(submission.submission_date)} · {formatDateTime(submission.created_at)}
+                        {templateTitleMap.get(submission.template_id) || 'Checklist'} - {formatDate(submission.submission_date)} - {formatDateTime(submission.created_at)}
                       </div>
                     </div>
                     <div style={styles.historyView}>View</div>
@@ -1001,7 +1063,7 @@ export default function FoChecklistPage() {
         ) : null}
 
         {!loading && viewMode === 'VIEW_SUBMISSION' && viewingSubmission ? (
-          <section style={styles.panel}>
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <div style={styles.ChecklistHeader}>
               <div>
                 <div style={styles.sectionTitle}>
@@ -1011,7 +1073,7 @@ export default function FoChecklistPage() {
                   Submission by {viewingSubmission.submitted_by_name || viewingSubmission.submitted_by_email || '-'}
                 </div>
                 <div style={styles.ChecklistsubMeta}>
-                  {formatDate(viewingSubmission.submission_date)} · {formatDateTime(viewingSubmission.created_at)}
+                  {formatDate(viewingSubmission.submission_date)} - {formatDateTime(viewingSubmission.created_at)}
                 </div>
               </div>
             </div>
@@ -1021,7 +1083,7 @@ export default function FoChecklistPage() {
                 .filter((q) => q.template_id === viewingSubmission.template_id)
                 .sort((a, b) => a.sort_order - b.sort_order)
                 .map((question, index) => (
-                  <div key={question.id} style={styles.questionCard}>
+                  <div key={question.id} style={{ ...styles.questionCard, ...(isMobile ? styles.questionCardMobile : {}) }}>
                     <div style={styles.questionNumber}>Question {index + 1}</div>
 
                     <div style={styles.questionTitleRow}>
@@ -1049,8 +1111,12 @@ export default function FoChecklistPage() {
                 ))}
             </div>
 
-            <div style={styles.actionRow}>
-              <button type="button" onClick={() => setViewMode('HISTORY')} style={styles.secondaryBtn}>
+            <div style={{ ...styles.actionRow, ...(isMobile ? styles.actionRowMobile : {}) }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('HISTORY')}
+                style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+              >
                 Back to History
               </button>
             </div>
@@ -1059,8 +1125,11 @@ export default function FoChecklistPage() {
       </div>
 
       {showTemplateModal ? (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ ...styles.modalOverlay, ...(isMobile ? styles.modalOverlayMobile : {}) }}>
+          <div
+            style={{ ...styles.modalCard, ...(isMobile ? styles.modalCardMobile : {}) }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={styles.modalTop}>
               <div style={styles.modalTitle}>
                 {templateModalMode === 'CREATE' ? 'Create List' : 'Edit List'}
@@ -1072,7 +1141,7 @@ export default function FoChecklistPage() {
                 style={styles.closeBtn}
                 disabled={templateSaving}
               >
-                ×
+                x
               </button>
             </div>
 
@@ -1089,7 +1158,10 @@ export default function FoChecklistPage() {
 
             <div style={styles.createQuestionList}>
               {draftQuestions.map((question, index) => (
-                <div key={`${question.existingId || 'new'}-${index}`} style={styles.createQuestionCard}>
+                <div
+                  key={`${question.existingId || 'new'}-${index}`}
+                  style={{ ...styles.createQuestionCard, ...(isMobile ? styles.createQuestionCardMobile : {}) }}
+                >
                   <div style={styles.createQuestionHeader}>
                     <div style={styles.createQuestionTitle}>Question {index + 1}</div>
                     <button
@@ -1123,7 +1195,7 @@ export default function FoChecklistPage() {
                       onChange={(e) =>
                         updateDraftQuestion(index, 'question_description', e.target.value)
                       }
-                      style={styles.textareaCompact}
+                      style={{ ...styles.textareaCompact, ...(isMobile ? styles.textareaCompactMobile : {}) }}
                       placeholder="Optional description or guidance"
                       disabled={templateSaving}
                     />
@@ -1161,21 +1233,21 @@ export default function FoChecklistPage() {
               ))}
             </div>
 
-            <div style={styles.modalActionsSpread}>
+            <div style={{ ...styles.modalActionsSpread, ...(isMobile ? styles.actionRowMobile : {}) }}>
               <button
                 type="button"
                 onClick={addDraftQuestion}
-                style={styles.secondaryBtn}
+                style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
                 disabled={templateSaving}
               >
                 Add Question
               </button>
 
-              <div style={styles.modalActions}>
+              <div style={{ ...styles.modalActions, ...(isMobile ? styles.modalActionsMobile : {}) }}>
                 <button
                   type="button"
                   onClick={closeTemplateModal}
-                  style={styles.secondaryBtn}
+                  style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
                   disabled={templateSaving}
                 >
                   Cancel
@@ -1183,7 +1255,11 @@ export default function FoChecklistPage() {
                 <button
                   type="button"
                   onClick={() => void handleSaveTemplate()}
-                  style={{ ...styles.primaryBtn, opacity: templateSaving ? 0.6 : 1 }}
+                  style={{
+                    ...styles.primaryBtn,
+                    ...(isMobile ? styles.mobileActionBtn : {}),
+                    opacity: templateSaving ? 0.6 : 1,
+                  }}
                   disabled={templateSaving}
                 >
                   {templateSaving
@@ -1204,7 +1280,7 @@ export default function FoChecklistPage() {
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#f8fafc',
+    background: 'linear-gradient(180deg, #f3f7ff 0%, #f8fafc 34%, #ffffff 100%)',
     padding: '20px 16px 40px',
   },
   shell: {
@@ -1218,7 +1294,17 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '16px',
     alignItems: 'center',
     flexWrap: 'wrap',
+    background: 'rgba(255,255,255,0.9)',
+    border: '1px solid #dbe7f7',
+    borderRadius: '24px',
+    padding: '18px 20px',
+    boxShadow: '0 18px 42px rgba(37, 99, 235, 0.08)',
     marginBottom: '18px',
+  },
+  topBarMobile: {
+    alignItems: 'stretch',
+    borderRadius: '18px',
+    padding: '16px',
   },
   topBarActions: {
     display: 'flex',
@@ -1226,9 +1312,22 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     flexWrap: 'wrap',
   },
+  topBarActionsMobile: {
+    width: '100%',
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+  },
+  eyebrow: {
+    fontSize: '11px',
+    color: '#2563eb',
+    fontWeight: 900,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: '6px',
+  },
   pageTitle: {
-    fontSize: '30px',
-    fontWeight: 800,
+    fontSize: 'clamp(26px, 4vw, 36px)',
+    fontWeight: 900,
     color: '#0f172a',
     lineHeight: 1.1,
   },
@@ -1238,61 +1337,161 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '6px',
   },
   panel: {
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
+    background: 'rgba(255,255,255,0.92)',
+    border: '1px solid #dbe7f7',
     borderRadius: '24px',
-    padding: '18px',
-    boxShadow: '0 16px 36px rgba(15,23,42,0.06)',
+    padding: '20px',
+    boxShadow: '0 18px 46px rgba(15,23,42,0.06)',
     marginBottom: '16px',
   },
+  panelMobile: {
+    borderRadius: '18px',
+    padding: '14px',
+  },
+  sectionHeaderRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'flex-start',
+    marginBottom: '14px',
+  },
+  sectionEyebrow: {
+    fontSize: '11px',
+    color: '#2563eb',
+    fontWeight: 900,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: '4px',
+  },
+  sectionHint: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '999px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
   sectionTitle: {
-    fontSize: '24px',
-    fontWeight: 800,
+    fontSize: 'clamp(20px, 3vw, 26px)',
+    fontWeight: 900,
     color: '#0f172a',
-    marginBottom: '12px',
+    marginBottom: '10px',
   },
   modeRow: {
-    display: 'flex',
-    gap: '10px',
+    display: 'inline-flex',
+    gap: '6px',
     flexWrap: 'wrap',
+    background: '#eaf2ff',
+    border: '1px solid #dbeafe',
+    borderRadius: '999px',
+    padding: '5px',
     marginBottom: '16px',
   },
   modeBtn: {
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
+    border: '1px solid transparent',
+    background: 'transparent',
     color: '#334155',
     borderRadius: '999px',
-    padding: '12px 16px',
+    padding: '10px 14px',
     fontWeight: 800,
     cursor: 'pointer',
   },
   modeBtnActive: {
-    background: '#0f172a',
-    color: '#ffffff',
-    borderColor: '#0f172a',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderColor: '#bfdbfe',
+    boxShadow: '0 8px 18px rgba(37,99,235,0.12)',
+  },
+  mobileActionBtn: {
+    width: '100%',
+    minHeight: '46px',
+  },
+  shiftCardTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    alignItems: 'center',
+    marginBottom: '14px',
+  },
+  shiftIcon: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '14px',
+    background: '#eff6ff',
+    color: '#2563eb',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    border: '1px solid #bfdbfe',
+  },
+  statusNeutral: {
+    background: '#f8fafc',
+    color: '#475569',
+    border: '1px solid #e2e8f0',
+  },
+  headerRightMobile: {
+    width: '100%',
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+  },
+  actionRowMobile: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    width: '100%',
+  },
+  modalActionsMobile: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    width: '100%',
+  },
+  modalOverlayMobile: {
+    alignItems: 'flex-end',
+    padding: '10px',
+  },
+  modalCardMobile: {
+    maxHeight: '92vh',
+    borderRadius: '22px 22px 14px 14px',
+    padding: '14px',
+  },
+  questionCardMobile: {
+    padding: '13px',
+    borderRadius: '16px',
+  },
+  createQuestionCardMobile: {
+    padding: '12px',
+    borderRadius: '16px',
+  },
+  textareaMobile: {
+    minHeight: '86px',
+  },
+  textareaCompactMobile: {
+    minHeight: '76px',
   },
   ChecklistCardGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-    gap: '14px',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '12px',
   },
   ChecklistChooserCard: {
-    border: '1px solid #e2e8f0',
+    border: '1px solid #dbe7f7',
     background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
     color: '#0f172a',
-    borderRadius: '22px',
-    padding: '18px',
+    borderRadius: '18px',
+    padding: '16px',
     textAlign: 'left',
     cursor: 'pointer',
-    boxShadow: '0 10px 28px rgba(15,23,42,0.05)',
+    boxShadow: '0 12px 26px rgba(15,23,42,0.045)',
   },
   ChecklistChooserCardActive: {
-    borderColor: '#93c5fd',
-    boxShadow: '0 14px 32px rgba(37,99,235,0.12)',
+    borderColor: '#60a5fa',
+    boxShadow: '0 16px 34px rgba(37,99,235,0.14)',
   },
   ChecklistChooserTitle: {
-    fontSize: '20px',
-    fontWeight: 800,
+    fontSize: '18px',
+    fontWeight: 900,
     marginBottom: '8px',
   },
   ChecklistChooserMeta: {
@@ -1303,8 +1502,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   ChecklistChooserHint: {
     fontSize: '13px',
-    color: '#1d4ed8',
-    fontWeight: 800,
+    color: '#2563eb',
+    fontWeight: 900,
   },
   ChecklistHeader: {
     display: 'flex',
@@ -1328,17 +1527,19 @@ const styles: Record<string, React.CSSProperties> = {
   },
   statusPill: {
     borderRadius: '999px',
-    padding: '10px 14px',
-    fontSize: '13px',
-    fontWeight: 800,
+    padding: '8px 11px',
+    fontSize: '12px',
+    fontWeight: 900,
   },
   statusPending: {
     background: '#fff7ed',
     color: '#c2410c',
+    border: '1px solid #fed7aa',
   },
   statusSubmitted: {
     background: '#ecfdf5',
     color: '#166534',
+    border: '1px solid #bbf7d0',
   },
   questionList: {
     display: 'flex',
@@ -1346,10 +1547,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '14px',
   },
   questionCard: {
-    border: '1px solid #e2e8f0',
-    background: '#ffffff',
-    borderRadius: '20px',
+    border: '1px solid #dbe7f7',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
+    borderRadius: '18px',
     padding: '16px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.035)',
   },
   questionNumber: {
     fontSize: '12px',
@@ -1367,8 +1569,8 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
   },
   questionText: {
-    fontSize: '18px',
-    fontWeight: 800,
+    fontSize: '17px',
+    fontWeight: 900,
     color: '#0f172a',
     lineHeight: 1.35,
   },
@@ -1395,19 +1597,20 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
   },
   answerChoiceBtn: {
-    border: '1px solid #cbd5e1',
+    border: '1px solid #dbe7f7',
     background: '#ffffff',
     color: '#334155',
     borderRadius: '12px',
     padding: '12px 18px',
-    fontWeight: 800,
+    fontWeight: 900,
     cursor: 'pointer',
     minWidth: '110px',
   },
   answerChoiceBtnActive: {
-    background: '#0f172a',
+    background: '#2563eb',
     color: '#ffffff',
-    borderColor: '#0f172a',
+    borderColor: '#2563eb',
+    boxShadow: '0 10px 22px rgba(37,99,235,0.18)',
   },
   viewAnswerBox: {
     marginTop: '14px',
@@ -1462,21 +1665,23 @@ const styles: Record<string, React.CSSProperties> = {
   },
   primaryHeaderBtn: {
     border: 'none',
-    background: '#0f172a',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
     color: '#ffffff',
     borderRadius: '14px',
     padding: '12px 16px',
-    fontWeight: 800,
+    fontWeight: 900,
     cursor: 'pointer',
+    boxShadow: '0 12px 24px rgba(37,99,235,0.24)',
   },
   primaryBtn: {
     border: 'none',
-    background: '#0f172a',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
     color: '#ffffff',
     borderRadius: '14px',
     padding: '12px 16px',
-    fontWeight: 800,
+    fontWeight: 900,
     cursor: 'pointer',
+    boxShadow: '0 12px 24px rgba(37,99,235,0.22)',
   },
   secondaryBtn: {
     display: 'inline-flex',
@@ -1488,7 +1693,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
     borderRadius: '14px',
     padding: '12px 16px',
-    fontWeight: 800,
+    fontWeight: 900,
     cursor: 'pointer',
   },
   errorBox: {
