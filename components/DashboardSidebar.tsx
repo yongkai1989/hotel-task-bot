@@ -29,6 +29,7 @@ type SidebarProfile = {
   can_access_admin_settings?: boolean;
   can_access_linen_admin?: boolean;
   can_access_lost_found?: boolean;
+  can_access_fo_checklist?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
     | 'can_edit_task'
@@ -48,7 +49,8 @@ type SidebarProfile = {
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
     | 'can_access_linen_admin'
-    | 'can_access_lost_found',
+    | 'can_access_lost_found'
+    | 'can_access_fo_checklist',
     unknown
   >>;
 };
@@ -110,6 +112,7 @@ type EffectiveProfile = Required<
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
     | 'can_access_lost_found'
+    | 'can_access_fo_checklist'
   >
 > & {
   user_id: string;
@@ -120,6 +123,7 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
 
   const role = profile.role;
   const isSuperuser = role === 'SUPERUSER';
+  const email = String(profile.email || '').toLowerCase();
   const hasAccess = (value: unknown) =>
     value === true || value === 'true' || value === 1 || value === '1';
   const permissionValue = (key: Exclude<keyof EffectiveProfile, 'user_id' | 'email' | 'name' | 'role'>) =>
@@ -127,7 +131,7 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
 
   return {
     user_id: String(profile.user_id || ''),
-    email: String(profile.email || '').toLowerCase(),
+    email,
     name: String(profile.name || ''),
     role,
     can_create_task: isSuperuser || hasAccess(permissionValue('can_create_task')),
@@ -163,6 +167,12 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_admin_settings')),
     can_access_lost_found:
       isSuperuser || hasAccess(permissionValue('can_access_lost_found')),
+    can_access_fo_checklist:
+      isSuperuser ||
+      (
+        hasAccess(permissionValue('can_access_fo_checklist')) &&
+        (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
+      ),
   };
 }
 
@@ -562,6 +572,16 @@ export default function DashboardSidebar({
   const canSeeLostFound =
     effectiveProfile?.role === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_lost_found;
+  const canSeeFoChecklist =
+    effectiveProfile?.role === 'SUPERUSER' ||
+    (
+      !!effectiveProfile?.can_access_fo_checklist &&
+      (
+        effectiveProfile?.role === 'FO' ||
+        effectiveProfile?.email === 'walter@hotelhallmark.com' ||
+        effectiveProfile?.email === 'fenny@hotelhallmark.com'
+      )
+    );
 
   const showMaintenanceGroup =
     canSeePM || canSeeMaintenanceOT || canSeeMaintenanceStockCard || canSeeMaintenanceDamaged;
@@ -575,7 +595,7 @@ export default function DashboardSidebar({
     canSeeLinenHistory;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
-  const showFrontOfficeGroup = canSeeLostFound;
+  const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist;
 
   const enabledAccessCount = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -593,6 +613,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
     effectiveProfile?.can_access_lost_found,
+    effectiveProfile?.can_access_fo_checklist,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_edit_task,
     effectiveProfile?.can_delete_task,
@@ -1048,6 +1069,17 @@ export default function DashboardSidebar({
                   <SidebarNavContent icon="lostFound" sub>Lost & Found</SidebarNavContent>
                 </Link>
               ) : null}
+
+              {canSeeFoChecklist ? (
+                <Link
+                  href="/dashboard/fo-checklist"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>FO Checklist</SidebarNavContent>
+                </Link>
+              ) : null}
             </GroupSection>
           ) : null}
 
@@ -1101,7 +1133,7 @@ export default function DashboardSidebar({
                 <div style={styles.userName}>{currentProfile.name}</div>
                 <div style={styles.userRole}>{currentProfile.role}</div>
                 <div style={styles.userEmail}>{currentProfile.email}</div>
-                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/18</div>
+                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/19</div>
               </div>
 
               <button
