@@ -33,6 +33,7 @@ export type DashboardUser = {
   can_access_admin_settings: boolean;
   can_access_linen_admin: boolean;
   can_access_lost_found: boolean;
+  can_access_fo_checklist: boolean;
   permissions: {
     can_create_task: boolean;
     can_edit_task: boolean;
@@ -53,6 +54,7 @@ export type DashboardUser = {
     can_access_admin_settings: boolean;
     can_access_linen_admin: boolean;
     can_access_lost_found: boolean;
+    can_access_fo_checklist: boolean;
   };
 };
 
@@ -68,6 +70,21 @@ function savedBoolean(value: unknown) {
 
 function effectiveBoolean(role: DashboardRole, value: unknown) {
   return role === 'SUPERUSER' || savedBoolean(value);
+}
+
+function effectiveFoChecklist(role: DashboardRole, email: unknown, value: unknown) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  return (
+    role === 'SUPERUSER' ||
+    (
+      savedBoolean(value) &&
+      (
+        role === 'FO' ||
+        normalizedEmail === 'walter@hotelhallmark.com' ||
+        normalizedEmail === 'fenny@hotelhallmark.com'
+      )
+    )
+  );
 }
 
 export async function getDashboardUserFromRequest(
@@ -132,7 +149,8 @@ export async function getDashboardUserFromRequest(
         can_access_management_tasks,
         can_access_admin_settings,
         can_access_linen_admin,
-        can_access_lost_found
+        can_access_lost_found,
+        can_access_fo_checklist
         `
       )
       .eq('user_id', authUser.id)
@@ -183,6 +201,8 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_linen_admin),
       can_access_lost_found:
         effectiveBoolean(role, profile.can_access_lost_found),
+      can_access_fo_checklist:
+        effectiveFoChecklist(role, profile.email || authUser.email, profile.can_access_fo_checklist),
     };
 
     return {
