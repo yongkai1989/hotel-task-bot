@@ -31,6 +31,7 @@ const PROFILE_SELECT = `
   can_access_admin_settings,
   can_access_linen_admin,
   can_access_lost_found,
+  can_access_fo_checklist,
   updated_at
 `;
 
@@ -46,6 +47,21 @@ function toPermissionBoolean(value: unknown) {
 
 function effectiveBoolean(role: DashboardRole, value: unknown) {
   return role === 'SUPERUSER' || toPermissionBoolean(value);
+}
+
+function effectiveFoChecklist(role: DashboardRole, email: unknown, value: unknown) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  return (
+    role === 'SUPERUSER' ||
+    (
+      toPermissionBoolean(value) &&
+      (
+        role === 'FO' ||
+        normalizedEmail === 'walter@hotelhallmark.com' ||
+        normalizedEmail === 'fenny@hotelhallmark.com'
+      )
+    )
+  );
 }
 
 const permissionKeys = [
@@ -67,12 +83,18 @@ const permissionKeys = [
   'can_access_management_tasks',
   'can_access_admin_settings',
   'can_access_lost_found',
+  'can_access_fo_checklist',
 ];
 
 function enabledCount(profile: any) {
   const role = String(profile?.role || 'FO') as DashboardRole;
   if (role === 'SUPERUSER') return permissionKeys.length;
-  return permissionKeys.filter((key) => toPermissionBoolean(profile?.[key])).length;
+  return permissionKeys.filter((key) => {
+    if (key === 'can_access_fo_checklist') {
+      return effectiveFoChecklist(role, profile?.email, profile?.[key]);
+    }
+    return toPermissionBoolean(profile?.[key]);
+  }).length;
 }
 
 function pickBestProfile(profiles: any[]) {
@@ -128,6 +150,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_linen_admin),
     can_access_lost_found:
       effectiveBoolean(role, profile.can_access_lost_found),
+    can_access_fo_checklist:
+      effectiveFoChecklist(role, profile.email || authEmail, profile.can_access_fo_checklist),
   };
 
   return {
