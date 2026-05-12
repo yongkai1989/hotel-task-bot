@@ -89,6 +89,17 @@ function formatDate(value?: string | null) {
   return d.toLocaleDateString();
 }
 
+function formatDateLong(value?: string | null) {
+  if (!value) return '-';
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
@@ -649,8 +660,8 @@ export default function MaintenanceOtPage() {
               <div style={styles.todayBar}>
                 <span style={styles.todayLabel}>OT Date</span>
                 <select value={otDate} onChange={(e) => setOtDate(e.target.value)} style={styles.dateSelect} disabled={saving}>
-                  <option value={today}>{formatDate(today)}</option>
-                  <option value={yesterday}>{formatDate(yesterday)}</option>
+                  <option value={today}>{formatDateLong(today)}</option>
+                  <option value={yesterday}>{formatDateLong(yesterday)}</option>
                 </select>
               </div>
 
