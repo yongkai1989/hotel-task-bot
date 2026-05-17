@@ -123,10 +123,27 @@ function getBedsheetSingleParByRoomType(roomType: string) {
   return 0;
 }
 
+function getBedsheetKingParByRoomType(roomType: string) {
+  const normalized = normalizeRoomType(roomType);
+  if (normalized === 'STR' || normalized.includes('SUPERIORTRIPLE')) return 1;
+  if (normalized === 'DDR' || normalized.includes('DELUXEDOUBLE')) return 1;
+  return 0;
+}
+
+function isBlock2Floor3(room: RoomRow) {
+  return room.block_no === 2 && room.floor_no === 3;
+}
+
 function getBlock2Floor3BedsheetSinglePar(room: RoomRow) {
-  if (room.block_no !== 2 || room.floor_no !== 3) return 0;
+  if (!isBlock2Floor3(room)) return 0;
 
   return getBedsheetSingleParByRoomType(room.room_type);
+}
+
+function getBlock2Floor3BedsheetKingPar(room: RoomRow) {
+  if (!isBlock2Floor3(room)) return 0;
+
+  return getBedsheetKingParByRoomType(room.room_type);
 }
 
 function linenFieldAppliesToRoom(
@@ -181,7 +198,9 @@ function buildDefaultValuesFromMap(room: RoomRow, mapByType: Record<string, Line
   const row = mapByType[room.room_type];
   return {
     is_dnd: false,
-    bedsheet_king: Number(row?.bedsheet_king || 0),
+    bedsheet_king: isBlock2Floor3(room)
+      ? getBlock2Floor3BedsheetKingPar(room)
+      : Number(row?.bedsheet_king || 0),
     bedsheet_single: getBlock2Floor3BedsheetSinglePar(room),
     pillow_case: Number(row?.pillow_case || 0),
     bath_towel: Number(row?.bath_towel || 0),
