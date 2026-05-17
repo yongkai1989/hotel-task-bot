@@ -23,6 +23,7 @@ type RoomRow = {
 type LinenValues = {
   is_dnd: boolean;
   bedsheet_king: number;
+  bedsheet_single: number;
   pillow_case: number;
   bath_towel: number;
   bath_mat: number;
@@ -42,6 +43,7 @@ type RoomEntryState = LinenValues & {
 type LinenMapRow = {
   room_type: string;
   bedsheet_king: number | null;
+  bedsheet_single: number | null;
   pillow_case: number | null;
   bath_towel: number | null;
   bath_mat: number | null;
@@ -58,8 +60,11 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
 const LINEN_FIELDS: Array<{
   key: keyof Omit<LinenValues, 'is_dnd'>;
   label: string;
+  onlyBlock?: number;
+  onlyFloor?: number;
 }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
+  { key: 'bedsheet_single', label: 'Bedsheet Single', onlyBlock: 2, onlyFloor: 3 },
   { key: 'pillow_case', label: 'Pillow Case' },
   { key: 'bath_towel', label: 'Bath Towel' },
   { key: 'bath_mat', label: 'Bath Mat' },
@@ -107,10 +112,23 @@ function isWithinChambermaidAccessWindow() {
   return hour >= 8 && hour < 18;
 }
 
+function hasBlock2Floor3BedsheetSingle(blockNo: number, floorNo: number) {
+  return blockNo === 2 && floorNo === 3;
+}
+
+function linenFieldAppliesToRoom(
+  field: (typeof LINEN_FIELDS)[number],
+  room: RoomRow
+) {
+  if (!field.onlyBlock && !field.onlyFloor) return true;
+  return room.block_no === field.onlyBlock && room.floor_no === field.onlyFloor;
+}
+
 function zeroLinenValues(): LinenValues {
   return {
     is_dnd: false,
     bedsheet_king: 0,
+    bedsheet_single: 0,
     pillow_case: 0,
     bath_towel: 0,
     bath_mat: 0,
@@ -124,6 +142,7 @@ function linenValuesEqual(a?: LinenValues | null, b?: LinenValues | null) {
   return (
     a.is_dnd === b.is_dnd &&
     a.bedsheet_king === b.bedsheet_king &&
+    a.bedsheet_single === b.bedsheet_single &&
     a.pillow_case === b.pillow_case &&
     a.bath_towel === b.bath_towel &&
     a.bath_mat === b.bath_mat &&
@@ -136,6 +155,7 @@ function cloneLinenValues(values: LinenValues): LinenValues {
   return {
     is_dnd: values.is_dnd,
     bedsheet_king: values.bedsheet_king,
+    bedsheet_single: values.bedsheet_single,
     pillow_case: values.pillow_case,
     bath_towel: values.bath_towel,
     bath_mat: values.bath_mat,
@@ -144,11 +164,14 @@ function cloneLinenValues(values: LinenValues): LinenValues {
   };
 }
 
-function buildDefaultValuesFromMap(roomType: string, mapByType: Record<string, LinenMapRow>): LinenValues {
-  const row = mapByType[roomType];
+function buildDefaultValuesFromMap(room: RoomRow, mapByType: Record<string, LinenMapRow>): LinenValues {
+  const row = mapByType[room.room_type];
   return {
     is_dnd: false,
     bedsheet_king: Number(row?.bedsheet_king || 0),
+    bedsheet_single: hasBlock2Floor3BedsheetSingle(room.block_no, room.floor_no)
+      ? Math.max(1, Number(row?.bedsheet_single || 0))
+      : 0,
     pillow_case: Number(row?.pillow_case || 0),
     bath_towel: Number(row?.bath_towel || 0),
     bath_mat: Number(row?.bath_mat || 0),
@@ -352,14 +375,14 @@ export default function ChambermaidEntryPage() {
           ? supabase
               .from('linen_room_entry')
               .select(
-                'room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at, updated_by_name'
+                'room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single, updated_at, updated_by_name'
               )
               .eq('service_date', serviceDate)
               .in('room_number', roomNumbers)
           : Promise.resolve({ data: [], error: null } as any),
         supabase
           .from('linen_room_type_map')
-          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+          .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
       ]);
 
       if (entryRes.error) throw entryRes.error;
@@ -377,13 +400,14 @@ export default function ChambermaidEntryPage() {
 
       const nextEntryMap: Record<string, RoomEntryState> = {};
       nextRooms.forEach((room) => {
-        const defaultValues = buildDefaultValuesFromMap(room.room_type, mapByType);
+        const defaultValues = buildDefaultValuesFromMap(room, mapByType);
         const savedRow = savedEntryByRoom[room.room_number];
 
         if (savedRow) {
           const savedValues: LinenValues = {
             is_dnd: !!savedRow.is_dnd,
             bedsheet_king: Number(savedRow.bedsheet_king || 0),
+            bedsheet_single: Number(savedRow.bedsheet_single || 0),
             pillow_case: Number(savedRow.pillow_case || 0),
             bath_towel: Number(savedRow.bath_towel || 0),
             bath_mat: Number(savedRow.bath_mat || 0),
@@ -473,6 +497,7 @@ export default function ChambermaidEntryPage() {
         floor_no: room.floor_no,
         is_dnd: entry.is_dnd,
         bedsheet_king: entry.is_dnd ? 0 : entry.bedsheet_king,
+        bedsheet_single: entry.is_dnd ? 0 : entry.bedsheet_single,
         pillow_case: entry.is_dnd ? 0 : entry.pillow_case,
         bath_towel: entry.is_dnd ? 0 : entry.bath_towel,
         bath_mat: entry.is_dnd ? 0 : entry.bath_mat,
@@ -491,6 +516,7 @@ export default function ChambermaidEntryPage() {
       const savedValues: LinenValues = {
         is_dnd: payload.is_dnd,
         bedsheet_king: payload.bedsheet_king,
+        bedsheet_single: payload.bedsheet_single,
         pillow_case: payload.pillow_case,
         bath_towel: payload.bath_towel,
         bath_mat: payload.bath_mat,
@@ -542,6 +568,7 @@ export default function ChambermaidEntryPage() {
     if (field === 'is_dnd') {
       if (value === true) {
         next.bedsheet_king = 0;
+        next.bedsheet_single = 0;
         next.pillow_case = 0;
         next.bath_towel = 0;
         next.bath_mat = 0;
@@ -550,6 +577,7 @@ export default function ChambermaidEntryPage() {
       } else {
         const restore = current.lastSavedValues || current.defaultValues;
         next.bedsheet_king = restore.bedsheet_king;
+        next.bedsheet_single = restore.bedsheet_single;
         next.pillow_case = restore.pillow_case;
         next.bath_towel = restore.bath_towel;
         next.bath_mat = restore.bath_mat;
@@ -898,7 +926,7 @@ export default function ChambermaidEntryPage() {
                   </div>
 
                   <div style={styles.linenList}>
-                    {LINEN_FIELDS.map((item) => {
+                    {LINEN_FIELDS.filter((item) => linenFieldAppliesToRoom(item, room)).map((item) => {
                       const defaultQty = entry.defaultValues[item.key];
                       const currentQty = entry[item.key];
                       const changed = currentQty !== defaultQty;
