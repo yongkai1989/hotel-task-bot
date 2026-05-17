@@ -36,6 +36,7 @@ type LinenRoomEntryRow = {
   block_no?: number | null;
   floor_no?: number | null;
   bedsheet_king?: number | null;
+  bedsheet_single?: number | null;
   pillow_case?: number | null;
   bath_towel?: number | null;
   bath_mat?: number | null;
@@ -54,6 +55,7 @@ type RoomMasterRow = {
 type LinenRoomTypeMapRow = {
   room_type: string;
   bedsheet_king?: number | null;
+  bedsheet_single?: number | null;
   pillow_case?: number | null;
   bath_towel?: number | null;
   bath_mat?: number | null;
@@ -91,6 +93,7 @@ const FLOOR_OPTIONS = [
 
 const LINEN_TYPES = [
   'Bedsheet King',
+  'Bedsheet Single',
   'Pillow Case',
   'Bath Towel',
   'Bath Mat',
@@ -135,14 +138,20 @@ function floorKey(blockNo: number, floorNo: number) {
 }
 
 const EXTRA_BLOCK_1_PILLOW_CASE_FLOORS = new Set(['B1F1', 'B1F2', 'B1F3', 'B1F5']);
+const BLOCK_2_FLOOR_3_BEDSHEET_SINGLE_KEY = 'B2F3';
 
 function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
   return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
 }
 
+function hasBlock2Floor3BedsheetSingle(blockNo: number, floorNo: number) {
+  return floorKey(blockNo, floorNo) === BLOCK_2_FLOOR_3_BEDSHEET_SINGLE_KEY;
+}
+
 function emptyContractorTotals(): ContractorTotals {
   return {
     'Bedsheet King': 0,
+    'Bedsheet Single': 0,
     'Pillow Case': 0,
     'Bath Towel': 0,
     'Bath Mat': 0,
@@ -154,6 +163,7 @@ function emptyContractorTotals(): ContractorTotals {
 function emptyInRoomTotals(): InRoomTotals {
   return {
     'Bedsheet King': 0,
+    'Bedsheet Single': 0,
     'Pillow Case': 0,
     'Bath Towel': 0,
     'Bath Mat': 0,
@@ -165,6 +175,7 @@ function emptyInRoomTotals(): InRoomTotals {
 function addRoomTypeLinen(totals: InRoomTotals, row?: LinenRoomTypeMapRow | null) {
   if (!row) return;
   totals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+  totals['Bedsheet Single'] += safeNumber(row.bedsheet_single);
   totals['Pillow Case'] += safeNumber(row.pillow_case);
   totals['Bath Towel'] += safeNumber(row.bath_towel);
   totals['Bath Mat'] += safeNumber(row.bath_mat);
@@ -176,6 +187,9 @@ function addExpectedRoomLinen(totals: InRoomTotals, room: RoomMasterRow, row?: L
   addRoomTypeLinen(totals, row);
   if (row && hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
     totals['Pillow Case'] += 1;
+  }
+  if (hasBlock2Floor3BedsheetSingle(room.block_no, room.floor_no)) {
+    totals['Bedsheet Single'] += 1;
   }
 }
 
@@ -298,7 +312,7 @@ export default function StockCardPage() {
           .eq('replaced', false),
         supabase
           .from('linen_room_entry')
-          .select('block_no, floor_no, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .select('block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', today),
         supabase
           .from('room_master')
@@ -306,7 +320,7 @@ export default function StockCardPage() {
           .eq('is_active', true),
         supabase
           .from('linen_room_type_map')
-          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+          .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
       ]);
 
       if (stockRes.error) throw stockRes.error;
@@ -328,6 +342,7 @@ export default function StockCardPage() {
 
       chamberRows.forEach((row) => {
         nextOverallContractorTotals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+        nextOverallContractorTotals['Bedsheet Single'] += safeNumber(row.bedsheet_single);
         nextOverallContractorTotals['Pillow Case'] += safeNumber(row.pillow_case);
         nextOverallContractorTotals['Bath Towel'] += safeNumber(row.bath_towel);
         nextOverallContractorTotals['Bath Mat'] += safeNumber(row.bath_mat);
@@ -339,6 +354,7 @@ export default function StockCardPage() {
           safeNumber(row.floor_no) === selectedFloor.floor
         ) {
           nextFloorContractorTotals['Bedsheet King'] += safeNumber(row.bedsheet_king);
+          nextFloorContractorTotals['Bedsheet Single'] += safeNumber(row.bedsheet_single);
           nextFloorContractorTotals['Pillow Case'] += safeNumber(row.pillow_case);
           nextFloorContractorTotals['Bath Towel'] += safeNumber(row.bath_towel);
           nextFloorContractorTotals['Bath Mat'] += safeNumber(row.bath_mat);
@@ -453,6 +469,14 @@ export default function StockCardPage() {
       } as StockItem;
     });
   }, [linenStock, damageRows, contractorTotals, floorContractorTotals, floorInRoomTotals, overallInRoomTotals]);
+
+  const visibleStockItems = useMemo(() => {
+    if (viewMode === 'FLOOR' && selectedFloor.key !== BLOCK_2_FLOOR_3_BEDSHEET_SINGLE_KEY) {
+      return stockItems.filter((item) => item.linenType !== 'Bedsheet Single');
+    }
+
+    return stockItems;
+  }, [stockItems, selectedFloor.key, viewMode]);
 
   const headerLabel = useMemo(() => {
     if (viewMode === 'OVERALL') return 'Overall Stock';
@@ -624,7 +648,7 @@ export default function StockCardPage() {
             <div style={styles.emptyState}>Loading stock card...</div>
           ) : (
             <div style={styles.itemGrid}>
-              {stockItems.map((item) => (
+              {visibleStockItems.map((item) => (
                 <article key={item.linenType} style={styles.itemCard}>
                   <div style={styles.itemTitle}>{item.linenType}</div>
 
