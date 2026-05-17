@@ -144,8 +144,13 @@ function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
   return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
 }
 
-function hasBlock2Floor3BedsheetSingle(blockNo: number, floorNo: number) {
-  return floorKey(blockNo, floorNo) === BLOCK_2_FLOOR_3_BEDSHEET_SINGLE_KEY;
+function getBlock2Floor3BedsheetSinglePar(room: RoomMasterRow) {
+  if (floorKey(room.block_no, room.floor_no) !== BLOCK_2_FLOOR_3_BEDSHEET_SINGLE_KEY) return 0;
+
+  const roomType = String(room.room_type || '').trim().toUpperCase();
+  if (roomType === 'STDT') return 2;
+  if (roomType === 'STR') return 1;
+  return 0;
 }
 
 function emptyContractorTotals(): ContractorTotals {
@@ -175,7 +180,6 @@ function emptyInRoomTotals(): InRoomTotals {
 function addRoomTypeLinen(totals: InRoomTotals, row?: LinenRoomTypeMapRow | null) {
   if (!row) return;
   totals['Bedsheet King'] += safeNumber(row.bedsheet_king);
-  totals['Bedsheet Single'] += safeNumber(row.bedsheet_single);
   totals['Pillow Case'] += safeNumber(row.pillow_case);
   totals['Bath Towel'] += safeNumber(row.bath_towel);
   totals['Bath Mat'] += safeNumber(row.bath_mat);
@@ -188,9 +192,7 @@ function addExpectedRoomLinen(totals: InRoomTotals, room: RoomMasterRow, row?: L
   if (row && hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
     totals['Pillow Case'] += 1;
   }
-  if (hasBlock2Floor3BedsheetSingle(room.block_no, room.floor_no)) {
-    totals['Bedsheet Single'] += 1;
-  }
+  totals['Bedsheet Single'] += getBlock2Floor3BedsheetSinglePar(room);
 }
 
 export default function StockCardPage() {
