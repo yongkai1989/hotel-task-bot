@@ -112,8 +112,13 @@ function isWithinChambermaidAccessWindow() {
   return hour >= 8 && hour < 18;
 }
 
-function hasBlock2Floor3BedsheetSingle(blockNo: number, floorNo: number) {
-  return blockNo === 2 && floorNo === 3;
+function getBlock2Floor3BedsheetSinglePar(room: RoomRow) {
+  if (room.block_no !== 2 || room.floor_no !== 3) return 0;
+
+  const roomType = String(room.room_type || '').trim().toUpperCase();
+  if (roomType === 'STDT') return 2;
+  if (roomType === 'STR') return 1;
+  return 0;
 }
 
 function linenFieldAppliesToRoom(
@@ -169,9 +174,7 @@ function buildDefaultValuesFromMap(room: RoomRow, mapByType: Record<string, Line
   return {
     is_dnd: false,
     bedsheet_king: Number(row?.bedsheet_king || 0),
-    bedsheet_single: hasBlock2Floor3BedsheetSingle(room.block_no, room.floor_no)
-      ? Math.max(1, Number(row?.bedsheet_single || 0))
-      : 0,
+    bedsheet_single: getBlock2Floor3BedsheetSinglePar(room),
     pillow_case: Number(row?.pillow_case || 0),
     bath_towel: Number(row?.bath_towel || 0),
     bath_mat: Number(row?.bath_mat || 0),
