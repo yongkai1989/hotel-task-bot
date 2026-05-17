@@ -48,6 +48,7 @@ type AnswerRow = {
   question_id: string;
   answer_yes_no: boolean | null;
   answer_text: string | null;
+  remark_text?: string | null;
 };
 
 type DraftQuestion = {
@@ -130,6 +131,7 @@ export default function FoChecklistPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [todaySubmission, setTodaySubmission] = useState<Submission | null>(null);
   const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
+  const [remarkOpenByQuestionId, setRemarkOpenByQuestionId] = useState<Record<string, boolean>>({});
   const [pastSubmissions, setPastSubmissions] = useState<Submission[]>([]);
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
   const [viewingAnswers, setViewingAnswers] = useState<Record<string, AnswerRow>>({});
@@ -354,6 +356,7 @@ export default function FoChecklistPage() {
         if (answerError) throw answerError;
 
         const nextAnswers: Record<string, AnswerRow> = {};
+        const nextRemarkOpenByQuestionId: Record<string, boolean> = {};
         (answerRows || []).forEach((row: any) => {
           nextAnswers[row.question_id] = {
             id: row.id,
@@ -361,11 +364,17 @@ export default function FoChecklistPage() {
             question_id: row.question_id,
             answer_yes_no: row.answer_yes_no,
             answer_text: row.answer_text,
+            remark_text: row.remark_text,
           };
+          if (row.remark_text) {
+            nextRemarkOpenByQuestionId[row.question_id] = true;
+          }
         });
         setAnswers(nextAnswers);
+        setRemarkOpenByQuestionId(nextRemarkOpenByQuestionId);
       } else {
         setAnswers({});
+        setRemarkOpenByQuestionId({});
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load submission state');
@@ -427,6 +436,19 @@ export default function FoChecklistPage() {
   function removeDraftQuestion(index: number) {
     setDraftQuestions((prev) => {
       return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function moveDraftQuestion(index: number, direction: 'UP' | 'DOWN') {
+    setDraftQuestions((prev) => {
+      const nextIndex = direction === 'UP' ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+
+      const next = [...prev];
+      const current = next[index];
+      next[index] = next[nextIndex];
+      next[nextIndex] = current;
+      return next;
     });
   }
 
@@ -612,6 +634,7 @@ export default function FoChecklistPage() {
     setSelectedTemplateId(templateId);
     setViewingSubmission(null);
     setViewingAnswers({});
+    setRemarkOpenByQuestionId({});
     setViewMode('FORM');
   }
 
@@ -623,6 +646,26 @@ export default function FoChecklistPage() {
         question_id: question.id,
         answer_yes_no: question.answer_mode === 'YES_NO' ? Boolean(value) : null,
         answer_text: question.answer_mode === 'SHORT_TEXT' ? String(value) : null,
+      },
+    }));
+  }
+
+  function toggleRemark(questionId: string) {
+    setRemarkOpenByQuestionId((prev) => ({
+      ...prev,
+      [questionId]: !prev[questionId],
+    }));
+  }
+
+  function updateRemark(question: Question, value: string) {
+    setAnswers((prev) => ({
+      ...prev,
+      [question.id]: {
+        ...prev[question.id],
+        question_id: question.id,
+        answer_yes_no: prev[question.id]?.answer_yes_no ?? null,
+        answer_text: prev[question.id]?.answer_text ?? null,
+        remark_text: value,
       },
     }));
   }
@@ -696,6 +739,7 @@ export default function FoChecklistPage() {
           question.answer_mode === 'SHORT_TEXT'
             ? (answers[question.id]?.answer_text || '').trim() || null
             : null,
+        remark_text: (answers[question.id]?.remark_text || '').trim() || null,
       }));
 
       const { error: answerError } = await supabase
@@ -739,6 +783,7 @@ export default function FoChecklistPage() {
           question_id: row.question_id,
           answer_yes_no: row.answer_yes_no,
           answer_text: row.answer_text,
+          remark_text: row.remark_text,
         };
       });
 
@@ -1003,6 +1048,25 @@ export default function FoChecklistPage() {
                       placeholder="Enter short answer"
                     />
                   )}
+
+                  <div style={styles.remarkArea}>
+                    {remarkOpenByQuestionId[question.id] ? (
+                      <textarea
+                        value={answers[question.id]?.remark_text || ''}
+                        onChange={(e) => updateRemark(question, e.target.value)}
+                        style={{ ...styles.remarkTextarea, ...(isMobile ? styles.textareaCompactMobile : {}) }}
+                        placeholder="Add remark for this question"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleRemark(question.id)}
+                        style={styles.addRemarkBtn}
+                      >
+                        + Remark
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1107,6 +1171,13 @@ export default function FoChecklistPage() {
                           : 'No'
                         : viewingAnswers[question.id]?.answer_text || '-'}
                     </div>
+
+                    {viewingAnswers[question.id]?.remark_text ? (
+                      <div style={styles.viewRemarkBox}>
+                        <div style={styles.viewRemarkLabel}>Remark</div>
+                        <div>{viewingAnswers[question.id]?.remark_text}</div>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
             </div>
@@ -1164,17 +1235,43 @@ export default function FoChecklistPage() {
                 >
                   <div style={styles.createQuestionHeader}>
                     <div style={styles.createQuestionTitle}>Question {index + 1}</div>
-                    <button
-                      type="button"
-                      onClick={() => removeDraftQuestion(index)}
-                      style={{
-                        ...styles.removeBtn,
-                        opacity: templateSaving ? 0.45 : 1,
-                      }}
-                      disabled={templateSaving}
-                    >
-                      Remove
-                    </button>
+                    <div style={styles.questionHeaderActions}>
+                      <button
+                        type="button"
+                        onClick={() => moveDraftQuestion(index, 'UP')}
+                        style={{
+                          ...styles.reorderBtn,
+                          opacity: templateSaving || index === 0 ? 0.45 : 1,
+                        }}
+                        disabled={templateSaving || index === 0}
+                        title="Move question up"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveDraftQuestion(index, 'DOWN')}
+                        style={{
+                          ...styles.reorderBtn,
+                          opacity: templateSaving || index === draftQuestions.length - 1 ? 0.45 : 1,
+                        }}
+                        disabled={templateSaving || index === draftQuestions.length - 1}
+                        title="Move question down"
+                      >
+                        Down
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeDraftQuestion(index)}
+                        style={{
+                          ...styles.removeBtn,
+                          opacity: templateSaving ? 0.45 : 1,
+                        }}
+                        disabled={templateSaving}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
 
                   <div style={styles.ChecklistGroup}>
@@ -1619,6 +1716,32 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: '#2563eb',
     boxShadow: '0 10px 22px rgba(37,99,235,0.18)',
   },
+  remarkArea: {
+    marginTop: '12px',
+  },
+  addRemarkBtn: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '999px',
+    padding: '8px 11px',
+    fontWeight: 900,
+    fontSize: '12px',
+    cursor: 'pointer',
+  },
+  remarkTextarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    minHeight: '72px',
+    border: '1px solid #bfdbfe',
+    background: '#f8fbff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '11px 13px',
+    fontSize: '14px',
+    outline: 'none',
+    resize: 'vertical',
+  },
   viewAnswerBox: {
     marginTop: '14px',
     border: '1px solid #e2e8f0',
@@ -1628,6 +1751,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: '#0f172a',
     whiteSpace: 'pre-wrap',
+  },
+  viewRemarkBox: {
+    marginTop: '10px',
+    border: '1px solid #bfdbfe',
+    background: '#f8fbff',
+    borderRadius: '14px',
+    padding: '11px 13px',
+    color: '#334155',
+    fontWeight: 700,
+    whiteSpace: 'pre-wrap',
+  },
+  viewRemarkLabel: {
+    color: '#2563eb',
+    fontSize: '12px',
+    fontWeight: 900,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: '5px',
   },
   actionRow: {
     display: 'flex',
@@ -1829,6 +1970,22 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '16px',
     fontWeight: 800,
     color: '#0f172a',
+  },
+  questionHeaderActions: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  reorderBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
   },
   removeBtn: {
     border: '1px solid #ef4444',
