@@ -144,13 +144,21 @@ function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
   return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
 }
 
+function normalizeRoomType(roomType: string) {
+  return String(roomType || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function getBedsheetSingleParByRoomType(roomType: string) {
+  const normalized = normalizeRoomType(roomType);
+  if (normalized === 'STDT' || normalized.includes('STANDARDTWIN')) return 2;
+  if (normalized === 'STR' || normalized.includes('SUPERIORTRIPLE')) return 1;
+  return 0;
+}
+
 function getBlock2Floor3BedsheetSinglePar(room: RoomMasterRow) {
   if (floorKey(room.block_no, room.floor_no) !== BLOCK_2_FLOOR_3_BEDSHEET_SINGLE_KEY) return 0;
 
-  const roomType = String(room.room_type || '').trim().toUpperCase();
-  if (roomType === 'STDT') return 2;
-  if (roomType === 'STR') return 1;
-  return 0;
+  return getBedsheetSingleParByRoomType(room.room_type);
 }
 
 function emptyContractorTotals(): ContractorTotals {
