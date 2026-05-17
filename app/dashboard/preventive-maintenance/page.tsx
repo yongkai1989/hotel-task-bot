@@ -23,7 +23,7 @@ type PmTask = {
   id: string;
   title: string;
   description: string | null;
-  repeat_every_days: number;
+  repeat_every_days: number | null;
   due_in_days: number;
   has_room_checklist: boolean;
   is_active: boolean;
@@ -31,6 +31,16 @@ type PmTask = {
   created_by_name: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type PmTaskSubtask = {
+  id: string;
+  pm_task_id: string;
+  title: string;
+  is_compulsory: boolean;
+  position: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type PmTaskRun = {
@@ -50,6 +60,21 @@ type PmTaskRun = {
   updated_at: string;
 };
 
+type PmTaskRunSubtask = {
+  id: string;
+  pm_task_run_id: string;
+  pm_task_subtask_id: string | null;
+  title: string;
+  is_compulsory: boolean;
+  is_done: boolean;
+  done_at: string | null;
+  done_by_user_id: string | null;
+  done_by_name: string | null;
+  position: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
 type PmTaskRunRoom = {
   id: string;
   pm_task_run_id: string;
@@ -66,8 +91,19 @@ type TaskCardData = {
   task: PmTask;
   run: PmTaskRun;
   rooms: PmTaskRunRoom[];
+  taskSubtasks: PmTaskSubtask[];
+  runSubtasks: PmTaskRunSubtask[];
   totalRooms: number;
   doneRooms: number;
+  compulsorySubtasks: number;
+  doneCompulsorySubtasks: number;
+  allCompulsorySubtasksDone: boolean;
+};
+
+type NewSubtaskDraft = {
+  id: string;
+  title: string;
+  is_compulsory: boolean;
 };
 
 const MT_SUPERVISOR_EMAILS = [
@@ -134,6 +170,10 @@ function dayInputOnChange(
   }
 }
 
+function newDraftId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function PreventiveMaintenancePage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -143,23 +183,29 @@ export default function PreventiveMaintenancePage() {
 
   const [allRooms, setAllRooms] = useState<RoomRow[]>([]);
   const [tasks, setTasks] = useState<PmTask[]>([]);
+  const [taskSubtasks, setTaskSubtasks] = useState<PmTaskSubtask[]>([]);
   const [runs, setRuns] = useState<PmTaskRun[]>([]);
   const [runRooms, setRunRooms] = useState<PmTaskRunRoom[]>([]);
+  const [runSubtasks, setRunSubtasks] = useState<PmTaskRunSubtask[]>([]);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
+  const [activeTab, setActiveTab] = useState<'TASKS' | 'RECURRING'>('TASKS');
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [newRepeatMode, setNewRepeatMode] = useState<'NONE' | 'REPEAT'>('NONE');
   const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
   const [newDueInDaysInput, setNewDueInDaysInput] = useState('7');
   const [newStartDate, setNewStartDate] = useState(getTodayLocalDateString());
   const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
+  const [newSubtasks, setNewSubtasks] = useState<NewSubtaskDraft[]>([]);
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [roomSearch, setRoomSearch] = useState('');
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
+  const [busySubtaskId, setBusySubtaskId] = useState<string | null>(null);
   const [busyDeleteTaskId, setBusyDeleteTaskId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -316,7 +362,7 @@ export default function PreventiveMaintenancePage() {
 
       await sendPendingTelegramNotifications(supabase);
 
-      const [roomRes, taskRes, runRes, roomChecklistRes] = await Promise.all([
+      const [roomRes, taskRes, taskSubtaskRes, runRes, roomChecklistRes, runSubtaskRes] = await Promise.all([
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type, is_active')
@@ -328,6 +374,10 @@ export default function PreventiveMaintenancePage() {
           .eq('is_active', true)
           .order('created_at', { ascending: false }),
         supabase
+          .from('pm_task_subtasks')
+          .select('*')
+          .order('position', { ascending: true }),
+        supabase
           .from('pm_task_runs')
           .select('*')
           .order('created_at', { ascending: false }),
@@ -335,17 +385,25 @@ export default function PreventiveMaintenancePage() {
           .from('pm_task_run_rooms')
           .select('*')
           .order('room_number', { ascending: true }),
+        supabase
+          .from('pm_task_run_subtasks')
+          .select('*')
+          .order('position', { ascending: true }),
       ]);
 
       if (roomRes.error) throw roomRes.error;
       if (taskRes.error) throw taskRes.error;
+      if (taskSubtaskRes.error) throw taskSubtaskRes.error;
       if (runRes.error) throw runRes.error;
       if (roomChecklistRes.error) throw roomChecklistRes.error;
+      if (runSubtaskRes.error) throw runSubtaskRes.error;
 
       setAllRooms((roomRes.data || []) as RoomRow[]);
       setTasks((taskRes.data || []) as PmTask[]);
+      setTaskSubtasks((taskSubtaskRes.data || []) as PmTaskSubtask[]);
       setRuns((runRes.data || []) as PmTaskRun[]);
       setRunRooms((roomChecklistRes.data || []) as PmTaskRunRoom[]);
+      setRunSubtasks((runSubtaskRes.data || []) as PmTaskRunSubtask[]);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load preventive maintenance data');
     } finally {
@@ -361,11 +419,25 @@ export default function PreventiveMaintenancePage() {
     const taskMap = new Map<string, PmTask>();
     tasks.forEach((task) => taskMap.set(task.id, task));
 
+    const subtasksByTaskId = new Map<string, PmTaskSubtask[]>();
+    taskSubtasks.forEach((row) => {
+      const list = subtasksByTaskId.get(row.pm_task_id) || [];
+      list.push(row);
+      subtasksByTaskId.set(row.pm_task_id, list);
+    });
+
     const roomsByRunId = new Map<string, PmTaskRunRoom[]>();
     runRooms.forEach((row) => {
       const list = roomsByRunId.get(row.pm_task_run_id) || [];
       list.push(row);
       roomsByRunId.set(row.pm_task_run_id, list);
+    });
+
+    const subtasksByRunId = new Map<string, PmTaskRunSubtask[]>();
+    runSubtasks.forEach((row) => {
+      const list = subtasksByRunId.get(row.pm_task_run_id) || [];
+      list.push(row);
+      subtasksByRunId.set(row.pm_task_run_id, list);
     });
 
     return runs
@@ -374,17 +446,26 @@ export default function PreventiveMaintenancePage() {
         if (!task) return null;
         const attachedRooms = roomsByRunId.get(run.id) || [];
         const doneRooms = attachedRooms.filter((r) => r.is_done).length;
+        const attachedTaskSubtasks = subtasksByTaskId.get(task.id) || [];
+        const attachedRunSubtasks = subtasksByRunId.get(run.id) || [];
+        const compulsorySubtasks = attachedRunSubtasks.filter((s) => s.is_compulsory).length;
+        const doneCompulsorySubtasks = attachedRunSubtasks.filter((s) => s.is_compulsory && s.is_done).length;
 
         return {
           task,
           run,
           rooms: attachedRooms,
+          taskSubtasks: attachedTaskSubtasks,
+          runSubtasks: attachedRunSubtasks,
           totalRooms: attachedRooms.length,
           doneRooms,
+          compulsorySubtasks,
+          doneCompulsorySubtasks,
+          allCompulsorySubtasksDone: compulsorySubtasks === 0 || doneCompulsorySubtasks === compulsorySubtasks,
         } as TaskCardData;
       })
       .filter(Boolean) as TaskCardData[];
-  }, [tasks, runs, runRooms]);
+  }, [tasks, taskSubtasks, runs, runRooms, runSubtasks]);
 
   const taskCardMap = useMemo(() => {
     const map = new Map<string, TaskCardData>();
@@ -415,6 +496,14 @@ export default function PreventiveMaintenancePage() {
 
   const openCards = useMemo(() => taskCards.filter((card) => card.run.status === 'OPEN'), [taskCards]);
   const overdueCards = useMemo(() => taskCards.filter((card) => card.run.status === 'OVERDUE'), [taskCards]);
+  const recurringTasks = useMemo(() => {
+    return tasks
+      .filter((task) => task.is_active && task.repeat_every_days !== null)
+      .map((task) => ({
+        task,
+        subtasks: taskSubtasks.filter((subtask) => subtask.pm_task_id === task.id),
+      }));
+  }, [tasks, taskSubtasks]);
 
   const filteredSelectedRooms = useMemo(() => {
     if (!selectedRun) return [];
@@ -429,10 +518,12 @@ export default function PreventiveMaintenancePage() {
     setSuccessMsg('');
     setNewTitle('');
     setNewDescription('');
+    setNewRepeatMode('NONE');
     setNewRepeatEveryDaysInput('30');
     setNewDueInDaysInput('7');
     setNewStartDate(getTodayLocalDateString());
     setNewHasRoomChecklist(false);
+    setNewSubtasks([]);
     setShowCreateModal(true);
   }
 
@@ -459,14 +550,17 @@ export default function PreventiveMaintenancePage() {
       return;
     }
 
-    const parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
-    if (parsedRepeatEveryDays === null) {
-      setErrorMsg('Please enter Repeat Every days.');
-      return;
-    }
-    if (parsedRepeatEveryDays <= 0) {
-      setErrorMsg('Repeat every days must be more than 0.');
-      return;
+    let parsedRepeatEveryDays: number | null = null;
+    if (newRepeatMode === 'REPEAT') {
+      parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
+      if (parsedRepeatEveryDays === null) {
+        setErrorMsg('Please enter Repeat Every days.');
+        return;
+      }
+      if (parsedRepeatEveryDays <= 0) {
+        setErrorMsg('Repeat every days must be more than 0.');
+        return;
+      }
     }
 
     const parsedDueInDays = parseWholeNumber(newDueInDaysInput);
@@ -484,6 +578,14 @@ export default function PreventiveMaintenancePage() {
       setErrorMsg('Please select a start date.');
       return;
     }
+
+    const cleanSubtasks = newSubtasks
+      .map((subtask, index) => ({
+        title: subtask.title.trim(),
+        is_compulsory: subtask.is_compulsory,
+        position: index + 1,
+      }))
+      .filter((subtask) => subtask.title.length > 0);
 
     try {
       setCreatingTask(true);
@@ -512,6 +614,24 @@ export default function PreventiveMaintenancePage() {
 
       if (taskError) throw taskError;
 
+      let insertedSubtasks: PmTaskSubtask[] = [];
+      if (cleanSubtasks.length > 0) {
+        const { data: subtaskRows, error: subtaskError } = await supabase
+          .from('pm_task_subtasks')
+          .insert(
+            cleanSubtasks.map((subtask) => ({
+              pm_task_id: insertedTask.id,
+              title: subtask.title,
+              is_compulsory: subtask.is_compulsory,
+              position: subtask.position,
+            }))
+          )
+          .select('*');
+
+        if (subtaskError) throw subtaskError;
+        insertedSubtasks = (subtaskRows || []) as PmTaskSubtask[];
+      }
+
       const { data: insertedRun, error: runError } = await supabase
         .from('pm_task_runs')
         .insert([
@@ -526,6 +646,25 @@ export default function PreventiveMaintenancePage() {
         .single();
 
       if (runError) throw runError;
+
+      if (insertedSubtasks.length > 0) {
+        const { error: runSubtaskError } = await supabase
+          .from('pm_task_run_subtasks')
+          .insert(
+            insertedSubtasks
+              .sort((a, b) => a.position - b.position)
+              .map((subtask) => ({
+                pm_task_run_id: insertedRun.id,
+                pm_task_subtask_id: subtask.id,
+                title: subtask.title,
+                is_compulsory: subtask.is_compulsory,
+                is_done: false,
+                position: subtask.position,
+              }))
+          );
+
+        if (runSubtaskError) throw runSubtaskError;
+      }
 
       if (newHasRoomChecklist) {
         const roomRows = allRooms.map((room) => ({
@@ -547,10 +686,12 @@ export default function PreventiveMaintenancePage() {
 
       setNewTitle('');
       setNewDescription('');
+      setNewRepeatMode('NONE');
       setNewRepeatEveryDaysInput('30');
       setNewDueInDaysInput('7');
       setNewStartDate(getTodayLocalDateString());
       setNewHasRoomChecklist(false);
+      setNewSubtasks([]);
       setShowCreateModal(false);
       setSuccessMsg('Preventive maintenance task created successfully.');
 
@@ -576,6 +717,11 @@ export default function PreventiveMaintenancePage() {
 
     if (card.task.has_room_checklist && card.doneRooms !== card.totalRooms) {
       setErrorMsg('Complete all rooms first before marking this task as done.');
+      return;
+    }
+
+    if (!card.allCompulsorySubtasksDone) {
+      setErrorMsg('Complete all compulsory subtasks first before marking this task as done.');
       return;
     }
 
@@ -733,6 +879,65 @@ export default function PreventiveMaintenancePage() {
     }
   }
 
+  async function handleToggleSubtask(subtaskId: string, checked: boolean) {
+    const supabase = getSupabaseSafe();
+    if (!supabase || !profile?.user_id) return;
+
+    try {
+      setBusySubtaskId(subtaskId);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const payload = checked
+        ? {
+            is_done: true,
+            done_at: new Date().toISOString(),
+            done_by_user_id: profile.user_id,
+            done_by_name: profile.name || profile.email,
+          }
+        : {
+            is_done: false,
+            done_at: null,
+            done_by_user_id: null,
+            done_by_name: null,
+          };
+
+      const { error } = await supabase
+        .from('pm_task_run_subtasks')
+        .update(payload)
+        .eq('id', subtaskId);
+
+      if (error) throw error;
+
+      await loadAllData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update subtask');
+    } finally {
+      setBusySubtaskId(null);
+    }
+  }
+
+  function addNewSubtask() {
+    setNewSubtasks((prev) => [
+      ...prev,
+      {
+        id: newDraftId(),
+        title: '',
+        is_compulsory: true,
+      },
+    ]);
+  }
+
+  function updateNewSubtask(id: string, changes: Partial<NewSubtaskDraft>) {
+    setNewSubtasks((prev) =>
+      prev.map((subtask) => (subtask.id === id ? { ...subtask, ...changes } : subtask))
+    );
+  }
+
+  function removeNewSubtask(id: string) {
+    setNewSubtasks((prev) => prev.filter((subtask) => subtask.id !== id));
+  }
+
   function openRoomChecklist(card: TaskCardData) {
     setSelectedRunId(card.run.id);
     setRoomSearch('');
@@ -746,7 +951,8 @@ export default function PreventiveMaintenancePage() {
   function renderTaskCard(card: TaskCardData, section: 'OPEN' | 'OVERDUE' | 'DONE') {
     const doneDisabled =
       busyRunId === card.run.id ||
-      (card.task.has_room_checklist && card.doneRooms !== card.totalRooms);
+      (card.task.has_room_checklist && card.doneRooms !== card.totalRooms) ||
+      !card.allCompulsorySubtasksDone;
 
     return (
       <div key={card.run.id} style={styles.taskCard}>
@@ -781,7 +987,9 @@ export default function PreventiveMaintenancePage() {
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Repeat</div>
-            <div style={styles.metaValue}>{card.task.repeat_every_days} days</div>
+            <div style={styles.metaValue}>
+              {card.task.repeat_every_days === null ? 'No repeat' : `${card.task.repeat_every_days} days`}
+            </div>
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Rooms</div>
@@ -790,6 +998,36 @@ export default function PreventiveMaintenancePage() {
             </div>
           </div>
         </div>
+
+        {card.runSubtasks.length > 0 ? (
+          <div style={styles.subtaskPanel}>
+            <div style={styles.subtaskPanelTop}>
+              <div style={styles.subtaskTitle}>Subtasks</div>
+              <div style={styles.subtaskProgress}>
+                {card.doneCompulsorySubtasks}/{card.compulsorySubtasks} compulsory
+              </div>
+            </div>
+
+            <div style={styles.subtaskList}>
+              {card.runSubtasks.map((subtask) => (
+                <label key={subtask.id} style={styles.subtaskRow}>
+                  <input
+                    type="checkbox"
+                    checked={subtask.is_done}
+                    onChange={(e) => void handleToggleSubtask(subtask.id, e.target.checked)}
+                    disabled={busySubtaskId === subtask.id || section === 'DONE'}
+                  />
+                  <span style={styles.subtaskTextWrap}>
+                    <span style={styles.subtaskText}>{subtask.title}</span>
+                    <span style={subtask.is_compulsory ? styles.compulsoryBadge : styles.optionalBadge}>
+                      {subtask.is_compulsory ? 'Compulsory' : 'Optional'}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {card.run.completed_at ? (
           <div style={styles.auditText}>
@@ -866,6 +1104,10 @@ export default function PreventiveMaintenancePage() {
 
         {card.task.has_room_checklist && section !== 'DONE' && card.doneRooms !== card.totalRooms ? (
           <div style={styles.helperText}>Done button unlocks only when all rooms are completed.</div>
+        ) : null}
+
+        {!card.allCompulsorySubtasksDone && section !== 'DONE' ? (
+          <div style={styles.helperText}>Done button unlocks only when all compulsory subtasks are completed.</div>
         ) : null}
       </div>
     );
@@ -953,11 +1195,34 @@ export default function PreventiveMaintenancePage() {
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
         {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
+        <div style={styles.tabRow}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('TASKS')}
+            style={{
+              ...styles.tabBtn,
+              ...(activeTab === 'TASKS' ? styles.tabBtnActive : {}),
+            }}
+          >
+            Active Tasks
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('RECURRING')}
+            style={{
+              ...styles.tabBtn,
+              ...(activeTab === 'RECURRING' ? styles.tabBtnActive : {}),
+            }}
+          >
+            Recurring Setup
+          </button>
+        </div>
+
         {pageLoading ? (
           <div style={styles.panel}>
             <div style={styles.emptyState}>Loading preventive maintenance tasks...</div>
           </div>
-        ) : (
+        ) : activeTab === 'TASKS' ? (
           <>
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Open</div>
@@ -992,6 +1257,57 @@ export default function PreventiveMaintenancePage() {
               )}
             </section>
           </>
+        ) : (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Recurring Tasks Setup</div>
+            {recurringTasks.length === 0 ? (
+              <div style={styles.emptyState}>No recurring preventive maintenance tasks are set up.</div>
+            ) : (
+              <div style={styles.recurringList}>
+                {recurringTasks.map(({ task, subtasks }) => (
+                  <article key={task.id} style={styles.recurringCard}>
+                    <div>
+                      <div style={styles.taskTitle}>{task.title}</div>
+                      {task.description ? (
+                        <div style={styles.taskDescription}>{task.description}</div>
+                      ) : null}
+                    </div>
+
+                    <div style={styles.recurringMetaGrid}>
+                      <div style={styles.metaItem}>
+                        <div style={styles.metaLabel}>Repeat</div>
+                        <div style={styles.metaValue}>{task.repeat_every_days} days</div>
+                      </div>
+                      <div style={styles.metaItem}>
+                        <div style={styles.metaLabel}>Due In</div>
+                        <div style={styles.metaValue}>{task.due_in_days} days</div>
+                      </div>
+                      <div style={styles.metaItem}>
+                        <div style={styles.metaLabel}>Rooms</div>
+                        <div style={styles.metaValue}>{task.has_room_checklist ? 'Full room checklist' : 'No room list'}</div>
+                      </div>
+                      <div style={styles.metaItem}>
+                        <div style={styles.metaLabel}>Subtasks</div>
+                        <div style={styles.metaValue}>
+                          {subtasks.length} item{subtasks.length === 1 ? '' : 's'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {subtasks.length > 0 ? (
+                      <div style={styles.recurringSubtasks}>
+                        {subtasks.map((subtask) => (
+                          <span key={subtask.id} style={styles.recurringSubtaskPill}>
+                            {subtask.title} - {subtask.is_compulsory ? 'Compulsory' : 'Optional'}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </div>
 
@@ -1039,8 +1355,37 @@ export default function PreventiveMaintenancePage() {
               />
             </div>
 
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Repeat</label>
+              <div style={styles.repeatModeRow}>
+                <button
+                  type="button"
+                  onClick={() => setNewRepeatMode('NONE')}
+                  style={{
+                    ...styles.repeatModeBtn,
+                    ...(newRepeatMode === 'NONE' ? styles.repeatModeBtnActive : {}),
+                  }}
+                  disabled={creatingTask}
+                >
+                  No repeat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewRepeatMode('REPEAT')}
+                  style={{
+                    ...styles.repeatModeBtn,
+                    ...(newRepeatMode === 'REPEAT' ? styles.repeatModeBtnActive : {}),
+                  }}
+                  disabled={creatingTask}
+                >
+                  Repeat task
+                </button>
+              </div>
+            </div>
+
             <div style={styles.formRow}>
-              <div style={styles.formGroup}>
+              {newRepeatMode === 'REPEAT' ? (
+                <div style={styles.formGroup}>
                 <label style={styles.label}>Repeat Every (Days)</label>
                 <input
                   type="number"
@@ -1060,6 +1405,7 @@ export default function PreventiveMaintenancePage() {
                   disabled={creatingTask}
                 />
               </div>
+              ) : null}
 
               <div style={styles.formGroup}>
                 <label style={styles.label}>Due In (Days)</label>
@@ -1092,6 +1438,60 @@ export default function PreventiveMaintenancePage() {
               />
               <span>Attach full room checklist ({allRooms.length} active rooms)</span>
             </label>
+
+            <div style={styles.formGroup}>
+              <div style={styles.subtaskCreateTop}>
+                <label style={styles.label}>Subtasks</label>
+                <button
+                  type="button"
+                  onClick={addNewSubtask}
+                  style={styles.addSubtaskBtn}
+                  disabled={creatingTask}
+                >
+                  Add Subtask
+                </button>
+              </div>
+
+              {newSubtasks.length === 0 ? (
+                <div style={styles.subtaskEmpty}>No subtasks added. Task can still be completed normally.</div>
+              ) : (
+                <div style={styles.subtaskCreateList}>
+                  {newSubtasks.map((subtask, index) => (
+                    <div key={subtask.id} style={styles.subtaskCreateRow}>
+                      <div style={styles.subtaskIndex}>{index + 1}</div>
+                      <input
+                        value={subtask.title}
+                        onChange={(e) => updateNewSubtask(subtask.id, { title: e.target.value })}
+                        style={styles.subtaskInput}
+                        placeholder="Example: Clean filter"
+                        disabled={creatingTask}
+                      />
+                      <select
+                        value={subtask.is_compulsory ? 'COMPULSORY' : 'OPTIONAL'}
+                        onChange={(e) =>
+                          updateNewSubtask(subtask.id, {
+                            is_compulsory: e.target.value === 'COMPULSORY',
+                          })
+                        }
+                        style={styles.subtaskSelect}
+                        disabled={creatingTask}
+                      >
+                        <option value="COMPULSORY">Compulsory</option>
+                        <option value="OPTIONAL">Optional</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removeNewSubtask(subtask.id)}
+                        style={styles.removeSubtaskBtn}
+                        disabled={creatingTask}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div style={styles.modalActions}>
               <button
@@ -1380,6 +1780,125 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     fontWeight: 600,
   },
+  subtaskPanel: {
+    marginTop: '14px',
+    border: '1px solid #dbeafe',
+    background: '#f8fbff',
+    borderRadius: '14px',
+    padding: '12px',
+  },
+  subtaskPanelTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    alignItems: 'center',
+    marginBottom: '8px',
+  },
+  subtaskTitle: {
+    color: '#0f172a',
+    fontWeight: 800,
+    fontSize: '14px',
+  },
+  subtaskProgress: {
+    color: '#2563eb',
+    fontWeight: 800,
+    fontSize: '12px',
+  },
+  subtaskList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  subtaskRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '10px',
+    padding: '9px 10px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '12px',
+    background: '#ffffff',
+  },
+  subtaskTextWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '5px',
+    minWidth: 0,
+  },
+  subtaskText: {
+    color: '#0f172a',
+    fontWeight: 700,
+    fontSize: '14px',
+    overflowWrap: 'anywhere',
+  },
+  compulsoryBadge: {
+    width: 'fit-content',
+    borderRadius: '999px',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    padding: '3px 8px',
+    fontWeight: 800,
+    fontSize: '11px',
+  },
+  optionalBadge: {
+    width: 'fit-content',
+    borderRadius: '999px',
+    background: '#f1f5f9',
+    color: '#475569',
+    padding: '3px 8px',
+    fontWeight: 800,
+    fontSize: '11px',
+  },
+  tabRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    marginBottom: '16px',
+  },
+  tabBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '999px',
+    padding: '11px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  tabBtnActive: {
+    borderColor: '#0f172a',
+    background: '#0f172a',
+    color: '#ffffff',
+  },
+  recurringList: {
+    display: 'grid',
+    gap: '12px',
+  },
+  recurringCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    background: '#ffffff',
+    padding: '14px',
+  },
+  recurringMetaGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '10px',
+    marginTop: '14px',
+  },
+  recurringSubtasks: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    marginTop: '12px',
+  },
+  recurringSubtaskPill: {
+    border: '1px solid #dbeafe',
+    background: '#eff6ff',
+    color: '#1e3a8a',
+    borderRadius: '999px',
+    padding: '6px 10px',
+    fontWeight: 700,
+    fontSize: '12px',
+  },
   primaryHeaderBtn: {
     border: 'none',
     background: '#0f172a',
@@ -1485,6 +2004,8 @@ const styles: Record<string, React.CSSProperties> = {
   modalCard: {
     width: '100%',
     maxWidth: '640px',
+    maxHeight: '88vh',
+    overflowY: 'auto',
     background: '#fff',
     borderRadius: '22px',
     padding: '20px',
@@ -1579,6 +2100,109 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: '16px',
     color: '#334155',
     fontWeight: 600,
+  },
+  repeatModeRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: '8px',
+  },
+  repeatModeBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '12px',
+    padding: '11px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  repeatModeBtnActive: {
+    borderColor: '#0f172a',
+    background: '#0f172a',
+    color: '#ffffff',
+  },
+  subtaskCreateTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  addSubtaskBtn: {
+    border: '1px solid #2563eb',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '10px',
+    padding: '8px 10px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  subtaskEmpty: {
+    border: '1px dashed #cbd5e1',
+    background: '#f8fafc',
+    color: '#64748b',
+    borderRadius: '12px',
+    padding: '12px',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  subtaskCreateList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  subtaskCreateRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    alignItems: 'center',
+    border: '1px solid #e2e8f0',
+    borderRadius: '14px',
+    padding: '10px',
+    background: '#f8fafc',
+  },
+  subtaskIndex: {
+    width: '28px',
+    height: '28px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '999px',
+    background: '#dbeafe',
+    color: '#1d4ed8',
+    fontWeight: 900,
+    fontSize: '12px',
+  },
+  subtaskInput: {
+    flex: '1 1 220px',
+    minWidth: 0,
+    boxSizing: 'border-box',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    fontSize: '14px',
+    outline: 'none',
+  },
+  subtaskSelect: {
+    flex: '0 1 150px',
+    boxSizing: 'border-box',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    fontSize: '13px',
+    fontWeight: 700,
+    outline: 'none',
+  },
+  removeSubtaskBtn: {
+    border: '1px solid #fecaca',
+    background: '#fff',
+    color: '#dc2626',
+    borderRadius: '10px',
+    padding: '10px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
   },
   modalActions: {
     display: 'flex',
