@@ -270,7 +270,9 @@ export default function DailyFormsPage() {
           .select('*')
           .eq('template_id', templateId)
           .eq('submission_date', today)
-          .eq('submitted_by_user_id', profile.user_id)
+          .order('updated_at', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle(),
         supabase
           .from('daily_form_submissions')
@@ -824,7 +826,7 @@ export default function DailyFormsPage() {
                 <div style={styles.sectionTitle}>{selectedTemplate.title}</div>
                 <div style={styles.formSubMeta}>
                   {todaySubmission
-                    ? `Submitted on ${formatDateTime(todaySubmission.created_at)}`
+                    ? `Submitted by ${todaySubmission.submitted_by_name || todaySubmission.submitted_by_email || 'Unknown'} on ${formatDateTime(todaySubmission.created_at)}`
                     : `No submission yet for ${formatDate(today)}`}
                 </div>
                 {todaySubmission?.updated_at && todaySubmission.updated_at !== todaySubmission.created_at ? (
