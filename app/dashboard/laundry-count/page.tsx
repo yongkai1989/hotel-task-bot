@@ -28,6 +28,7 @@ type EntryRow = {
   room_number: string;
   is_dnd: boolean;
   bedsheet_king: number | null;
+  bedsheet_single: number | null;
   pillow_case: number | null;
   bath_towel: number | null;
   bath_mat: number | null;
@@ -38,6 +39,7 @@ type EntryRow = {
 type LinenMapRow = {
   room_type: string;
   bedsheet_king: number;
+  bedsheet_single: number;
   pillow_case: number;
   bath_towel: number;
   bath_mat: number;
@@ -51,6 +53,7 @@ type LinenBillRow = {
   block_no: number;
   floor_no?: number | null;
   bedsheet_king: number | null;
+  bedsheet_single: number | null;
   pillow_case: number | null;
   bath_towel: number | null;
   bath_mat: number | null;
@@ -61,6 +64,7 @@ type LinenBillRow = {
 
 type LinenTotals = {
   bedsheet_king: number;
+  bedsheet_single: number;
   pillow_case: number;
   bath_towel: number;
   bath_mat: number;
@@ -99,6 +103,7 @@ const FLOOR_CONFIG: Array<{ key: FloorKey; blockNo: 1 | 2; floorNo: number; labe
 
 const ITEM_DEFS: Array<{ key: keyof LinenTotals; label: string }> = [
   { key: 'bedsheet_king', label: 'Bedsheet King' },
+  { key: 'bedsheet_single', label: 'Bedsheet Single' },
   { key: 'pillow_case', label: 'Pillow Case' },
   { key: 'bath_towel', label: 'Bath Towel' },
   { key: 'bath_mat', label: 'Bath Mat' },
@@ -125,6 +130,7 @@ function getTodayLocalDateString() {
 function zeroTotals(): LinenTotals {
   return {
     bedsheet_king: 0,
+    bedsheet_single: 0,
     pillow_case: 0,
     bath_towel: 0,
     bath_mat: 0,
@@ -136,6 +142,7 @@ function zeroTotals(): LinenTotals {
 function addTotals(target: LinenTotals, source: Partial<LinenTotals> | null | undefined) {
   if (!source) return;
   target.bedsheet_king += Number(source.bedsheet_king || 0);
+  target.bedsheet_single += Number(source.bedsheet_single || 0);
   target.pillow_case += Number(source.pillow_case || 0);
   target.bath_towel += Number(source.bath_towel || 0);
   target.bath_mat += Number(source.bath_mat || 0);
@@ -146,6 +153,7 @@ function addTotals(target: LinenTotals, source: Partial<LinenTotals> | null | un
 function subtractTotals(left: LinenTotals, right: LinenTotals): LinenTotals {
   return {
     bedsheet_king: left.bedsheet_king - right.bedsheet_king,
+    bedsheet_single: left.bedsheet_single - right.bedsheet_single,
     pillow_case: left.pillow_case - right.pillow_case,
     bath_towel: left.bath_towel - right.bath_towel,
     bath_mat: left.bath_mat - right.bath_mat,
@@ -179,9 +187,52 @@ function hasExtraBlock1PillowCase(blockNo: number, floorNo: number) {
   return EXTRA_BLOCK_1_PILLOW_CASE_FLOORS.has(floorKey(blockNo, floorNo));
 }
 
+function normalizeRoomType(roomType: string) {
+  return String(roomType || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function isBlock2Floor3(blockNo: number, floorNo: number) {
+  return blockNo === 2 && floorNo === 3;
+}
+
+function getB2F3BedsheetKingPar(roomType: string) {
+  const normalized = normalizeRoomType(roomType);
+  if (normalized === 'STR' || normalized.includes('SUPERIORTRIPLE')) return 1;
+  if (normalized === 'DDR' || normalized.includes('DELUXEDOUBLE')) return 1;
+  return 0;
+}
+
+function getB2F3BedsheetSinglePar(roomType: string) {
+  const normalized = normalizeRoomType(roomType);
+  if (normalized === 'STDT' || normalized.includes('STANDARDTWIN')) return 2;
+  if (normalized === 'STR' || normalized.includes('SUPERIORTRIPLE')) return 1;
+  return 0;
+}
+
+function addExpectedRoomTotals(target: LinenTotals, room: RoomMasterRow, roomTypeMap?: LinenMapRow) {
+  if (!roomTypeMap) return;
+
+  if (isBlock2Floor3(room.block_no, room.floor_no)) {
+    target.bedsheet_king += getB2F3BedsheetKingPar(room.room_type);
+    target.bedsheet_single += getB2F3BedsheetSinglePar(room.room_type);
+    target.pillow_case += Number(roomTypeMap.pillow_case || 0);
+    target.bath_towel += Number(roomTypeMap.bath_towel || 0);
+    target.bath_mat += Number(roomTypeMap.bath_mat || 0);
+    target.duvet_cover_king += Number(roomTypeMap.duvet_cover_king || 0);
+    target.duvet_cover_single += Number(roomTypeMap.duvet_cover_single || 0);
+    return;
+  }
+
+  addTotals(target, roomTypeMap);
+  if (hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
+    target.pillow_case += 1;
+  }
+}
+
 function toTotalsFromBillRow(row?: Partial<LinenBillRow> | null): LinenTotals {
   return {
     bedsheet_king: Number(row?.bedsheet_king || 0),
+    bedsheet_single: Number(row?.bedsheet_single || 0),
     pillow_case: Number(row?.pillow_case || 0),
     bath_towel: Number(row?.bath_towel || 0),
     bath_mat: Number(row?.bath_mat || 0),
@@ -365,11 +416,11 @@ export default function LaundryCountPage() {
           .in('status', ['CHECKOUT', 'STAYOVER']),
         supabase
           .from('linen_room_entry')
-          .select('room_number, is_dnd, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .select('room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', serviceDate),
         supabase
           .from('linen_room_type_map')
-          .select('room_type, bedsheet_king, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+          .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
         supabase
           .from('linen_laundry_bill')
           .select('*')
@@ -492,16 +543,14 @@ export default function LaundryCountPage() {
 
       const expectedForRoom = zeroTotals();
       if (!isDnd && roomTypeMap) {
-        addTotals(expectedForRoom, roomTypeMap);
-        if (hasExtraBlock1PillowCase(room.block_no, room.floor_no)) {
-          expectedForRoom.pillow_case += 1;
-        }
+        addExpectedRoomTotals(expectedForRoom, room, roomTypeMap);
       }
 
       const actualForRoom = zeroTotals();
       if (entry && !isDnd) {
         addTotals(actualForRoom, {
           bedsheet_king: entry.bedsheet_king || 0,
+          bedsheet_single: entry.bedsheet_single || 0,
           pillow_case: entry.pillow_case || 0,
           bath_towel: entry.bath_towel || 0,
           bath_mat: entry.bath_mat || 0,
