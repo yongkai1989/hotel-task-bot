@@ -1336,13 +1336,20 @@ function StyleBlock() {
         padding: 18px;
       }
       .mrc-modal {
+        box-sizing: border-box;
         width: min(920px, 100%);
         max-height: 92vh;
-        overflow: auto;
+        overflow-y: auto;
+        overflow-x: hidden;
         background: #fff;
         border-radius: 22px;
         padding: 18px;
         box-shadow: 0 30px 80px rgba(15,23,42,.28);
+      }
+      .mrc-modal *,
+      .mrc-modal *::before,
+      .mrc-modal *::after {
+        box-sizing: border-box;
       }
       .mrc-modal.is-wide {
         width: min(1120px, 100%);
@@ -1377,14 +1384,17 @@ function StyleBlock() {
         display: grid;
         gap: 7px;
         font-weight: 900;
+        min-width: 0;
       }
       .mrc-form-grid input,
       .mrc-full-label textarea {
         width: 100%;
+        max-width: 100%;
         border: 1px solid #cbd5e1;
         border-radius: 14px;
         padding: 12px 14px;
         font: inherit;
+        min-width: 0;
       }
       .mrc-full-label {
         margin-top: 12px;
@@ -1400,6 +1410,7 @@ function StyleBlock() {
         display: grid;
         place-items: center;
         min-height: 124px;
+        width: 100%;
         border: 1px dashed #93c5fd;
         background: #eff6ff;
         border-radius: 18px;
@@ -1545,6 +1556,14 @@ function StyleBlock() {
         .mrc-meta-grid {
           grid-template-columns: 1fr;
         }
+        .mrc-modal-actions {
+          justify-content: stretch;
+        }
+        .mrc-modal-actions > button,
+        .mrc-modal-actions > a,
+        .mrc-modal-actions > label {
+          flex: 1;
+        }
       }
       @media (max-width: 520px) {
         .mrc-shell {
@@ -1574,6 +1593,7 @@ function StyleBlock() {
         .mrc-modal {
           padding: 14px;
           border-radius: 18px;
+          max-height: 94vh;
         }
         .mrc-draft-grid,
         .mrc-media-grid {
