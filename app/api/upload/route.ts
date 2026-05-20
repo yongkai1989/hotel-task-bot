@@ -37,10 +37,12 @@ async function uploadBuffer(params: {
   contentType: string;
   index: number;
   name?: string;
+  folder?: string;
 }) {
   const mediaType = mediaTypeFor(params.contentType);
   const ext = extensionFor(params.contentType);
-  const fileName = `task-media/${Date.now()}-${params.index}-${Math.random()
+  const folder = String(params.folder || 'task-media').replace(/[^a-z0-9-_/]/gi, '') || 'task-media';
+  const fileName = `${folder}/${Date.now()}-${params.index}-${Math.random()
     .toString(36)
     .slice(2)}.${ext}`;
 
@@ -73,7 +75,12 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
     }
 
-    if (!user.can_create_task && !user.can_edit_task) {
+    if (
+      !user.can_create_task &&
+      !user.can_edit_task &&
+      !user.can_access_maintenance_manager_room_check &&
+      !user.can_access_hk_manager_room_check
+    ) {
       return jsonNoCache({ ok: false, error: 'Upload access denied' }, 403);
     }
 
@@ -82,6 +89,7 @@ export async function POST(req: NextRequest) {
 
     if (contentType.includes('multipart/form-data')) {
       const form = await req.formData();
+      const folder = String(form.get('folder') || 'task-media');
       const files = form
         .getAll('media')
         .filter((item): item is File => {
@@ -126,6 +134,7 @@ export async function POST(req: NextRequest) {
             contentType: type,
             index: i,
             name: file.name,
+            folder,
           })
         );
       }
