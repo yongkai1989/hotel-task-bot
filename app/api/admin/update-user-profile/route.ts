@@ -11,10 +11,12 @@ type UpdateBody = {
   name?: string;
   role?: string;
   can_access_preventive_maintenance?: boolean;
+  can_access_maintenance_manager_room_check?: boolean;
   can_access_maintenance_ot?: boolean;
   can_access_maintenance_stock_card?: boolean;
   can_access_maintenance_damaged?: boolean;
   can_access_hk_special_project?: boolean;
+  can_access_hk_manager_room_check?: boolean;
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
@@ -35,10 +37,12 @@ type UpdateBody = {
 
 const permissionKeys = [
   'can_access_preventive_maintenance',
+  'can_access_maintenance_manager_room_check',
   'can_access_maintenance_ot',
   'can_access_maintenance_stock_card',
   'can_access_maintenance_damaged',
   'can_access_hk_special_project',
+  'can_access_hk_manager_room_check',
   'can_access_chambermaid_entry',
   'can_access_supervisor_update',
   'can_access_laundry_count',
@@ -63,10 +67,12 @@ const profileSelect = `
   name,
   role,
   can_access_preventive_maintenance,
+  can_access_maintenance_manager_room_check,
   can_access_maintenance_ot,
   can_access_maintenance_stock_card,
   can_access_maintenance_damaged,
   can_access_hk_special_project,
+  can_access_hk_manager_room_check,
   can_access_chambermaid_entry,
   can_access_supervisor_update,
   can_access_laundry_count,
@@ -106,6 +112,8 @@ function withPermissions(row: any) {
   const permissions = {
     can_access_preventive_maintenance:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_preventive_maintenance),
+    can_access_maintenance_manager_room_check:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_maintenance_manager_room_check),
     can_access_maintenance_ot:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_maintenance_ot),
     can_access_maintenance_stock_card:
@@ -114,6 +122,8 @@ function withPermissions(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_maintenance_damaged),
     can_access_hk_special_project:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_hk_special_project),
+    can_access_hk_manager_room_check:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_hk_manager_room_check),
     can_access_chambermaid_entry:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_chambermaid_entry),
     can_access_supervisor_update:
