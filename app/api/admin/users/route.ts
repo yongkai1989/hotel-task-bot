@@ -38,6 +38,7 @@ function enabledCount(row: any) {
     row?.can_access_management_tasks,
     row?.can_access_admin_settings,
     row?.can_access_lost_found,
+    row?.can_access_supervisor_checklist,
     role === 'SUPERUSER' ||
       (
         toPermissionBoolean(row?.can_access_fo_checklist) &&
@@ -84,6 +85,8 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_admin_settings),
     can_access_lost_found:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_lost_found),
+    can_access_supervisor_checklist:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_checklist:
       role === 'SUPERUSER' ||
       (
@@ -202,6 +205,7 @@ const profileSelect = `
   can_access_management_tasks,
   can_access_admin_settings,
   can_access_lost_found,
+  can_access_supervisor_checklist,
   can_access_fo_checklist,
   can_create_task,
   can_edit_task,
