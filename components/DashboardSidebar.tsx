@@ -604,7 +604,7 @@ export default function DashboardSidebar({
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
   const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist;
 
-  const enabledAccessCount = [
+  const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
     effectiveProfile?.can_access_maintenance_ot,
     effectiveProfile?.can_access_maintenance_stock_card,
@@ -625,7 +625,9 @@ export default function DashboardSidebar({
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_edit_task,
     effectiveProfile?.can_delete_task,
-  ].filter(Boolean).length;
+  ];
+  const enabledAccessCount = sidebarAccessFlags.filter(Boolean).length;
+  const totalAccessCount = sidebarAccessFlags.length;
 
   const canOpenPasswordModal = !!currentProfile;
   const isSuperuser = currentProfile?.role === 'SUPERUSER';
@@ -1152,7 +1154,7 @@ export default function DashboardSidebar({
                 <div style={styles.userName}>{currentProfile.name}</div>
                 <div style={styles.userRole}>{currentProfile.role}</div>
                 <div style={styles.userEmail}>{currentProfile.email}</div>
-                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/19</div>
+                <div style={styles.userAccessCount}>Access: {enabledAccessCount}/{totalAccessCount}</div>
               </div>
 
               <button
