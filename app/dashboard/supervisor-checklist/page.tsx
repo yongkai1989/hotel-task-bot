@@ -907,10 +907,8 @@ export default function SupervisorChecklistPage() {
                 const selected = selectedTemplateId === template.id;
 
                 return (
-                  <button
+                  <article
                     key={template.id}
-                    type="button"
-                    onClick={() => chooseTemplate(template.id)}
                     style={{
                       ...styles.ChecklistChooserCard,
                       ...(selected ? styles.ChecklistChooserCardActive : {}),
@@ -924,10 +922,28 @@ export default function SupervisorChecklistPage() {
                     </div>
                     <div style={styles.ChecklistChooserTitle}>{template.title}</div>
                     <div style={styles.ChecklistChooserMeta}>
-                      {templateQuestions.length} question{templateQuestions.length === 1 ? '' : 's'} - FO daily checklist
+                      {templateQuestions.length} question{templateQuestions.length === 1 ? '' : 's'} - Supervisor checklist
                     </div>
-                    <div style={styles.ChecklistChooserHint}>Open Checklist</div>
-                  </button>
+                    <div style={styles.cardActionRow}>
+                      <button
+                        type="button"
+                        onClick={() => chooseTemplate(template.id)}
+                        style={styles.cardOpenBtn}
+                      >
+                        Open Checklist
+                      </button>
+                      {isSuper ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteTemplate(template.id)}
+                          disabled={deletingTemplateId === template.id}
+                          style={styles.cardDeleteBtn}
+                        >
+                          {deletingTemplateId === template.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
                 );
               })}
             </div>
@@ -938,7 +954,7 @@ export default function SupervisorChecklistPage() {
           <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <div style={styles.ChecklistHeader}>
               <div>
-                <div style={styles.sectionEyebrow}>Current Shift</div>
+                <div style={styles.sectionEyebrow}>Current Checklist</div>
                 <div style={styles.sectionTitle}>{selectedTemplate.title}</div>
                 <div style={styles.ChecklistsubMeta}>
                   {todaySubmission
@@ -1214,7 +1230,7 @@ export default function SupervisorChecklistPage() {
                 value={draftTitle}
                 onChange={(e) => setDraftTitle(e.target.value)}
                 style={styles.input}
-                placeholder="Example: Morning Shift"
+                placeholder="Example: Room Inspection"
                 disabled={templateSaving}
               />
             </div>
@@ -1578,7 +1594,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '18px',
     padding: '16px',
     textAlign: 'left',
-    cursor: 'pointer',
     boxShadow: '0 12px 26px rgba(15,23,42,0.045)',
   },
   ChecklistChooserCardActive: {
@@ -1600,6 +1615,33 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     color: '#2563eb',
     fontWeight: 900,
+  },
+  cardActionRow: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  cardOpenBtn: {
+    border: '0',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontSize: '13px',
+    fontWeight: 900,
+    cursor: 'pointer',
+    boxShadow: '0 10px 22px rgba(37,99,235,0.18)',
+  },
+  cardDeleteBtn: {
+    border: '1px solid #fecaca',
+    background: '#fff5f5',
+    color: '#dc2626',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontSize: '13px',
+    fontWeight: 900,
+    cursor: 'pointer',
   },
   ChecklistHeader: {
     display: 'flex',
