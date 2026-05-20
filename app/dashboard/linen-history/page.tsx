@@ -62,6 +62,18 @@ type LinenBillRow = {
   duvet_cover_single: number | null;
 };
 
+type LinenReceivedRow = {
+  service_date: string;
+  block_no: number;
+  bedsheet_king: number | null;
+  bedsheet_single: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
+};
+
 type LinenTotals = {
   bedsheet_king: number;
   bedsheet_single: number;
@@ -79,6 +91,8 @@ type GroupSummary = {
   actual: LinenTotals;
   inBill: LinenTotals;
   difference: LinenTotals;
+  returned: LinenTotals;
+  returnedDifference: LinenTotals;
 };
 
 type SnapshotRow = {
@@ -92,7 +106,8 @@ type HistoryData = {
   snapshot: SnapshotRow | null;
   floorBillMap: Record<string, LinenTotals>;
   blockBillTotals: Record<string, LinenTotals>;
-  source: 'live' | 'snapshot' | 'snapshot-next-day-fallback' | 'historical-live-fallback';
+  blockReceivedTotals: Record<string, LinenTotals>;
+  source: 'snapshot' | 'snapshot-next-day-fallback' | 'historical-live-fallback';
   snapshotServiceDate?: string | null;
 };
 
@@ -165,7 +180,6 @@ function shiftDateString(baseDate: string, offsetDays: number) {
 }
 
 function formatHistoryDateLabel(value: string, today: string) {
-  if (value === today) return 'Today';
   if (value === shiftDateString(today, -1)) return 'Yesterday';
 
   const d = new Date(`${value}T00:00:00`);
@@ -296,6 +310,20 @@ function buildBillMaps(rows: LinenBillRow[]) {
   });
 
   return { floorBillMap, blockBillTotals };
+}
+
+function buildReceivedBlockTotals(rows: LinenReceivedRow[]) {
+  const blockReceivedTotals: Record<string, LinenTotals> = {
+    B1: zeroTotals(),
+    B2: zeroTotals(),
+  };
+
+  rows.forEach((row) => {
+    const blockKey = `B${row.block_no}`;
+    blockReceivedTotals[blockKey] = parseTotals(row);
+  });
+
+  return blockReceivedTotals;
 }
 
 function buildSnapshotFromLiveData(
@@ -492,6 +520,11 @@ function diffStyle(value: number): React.CSSProperties {
   return { color: '#166534', fontWeight: 800 };
 }
 
+function returnedDiffStyle(value: number): React.CSSProperties {
+  if (value < 0) return { color: '#b91c1c', fontWeight: 800 };
+  return { color: '#166534', fontWeight: 800 };
+}
+
 export default function LinenHistoryPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -499,8 +532,9 @@ export default function LinenHistoryPage() {
   const [errorMsg, setErrorMsg] = useState('');
 
   const today = getTodayLocalDateString();
-  const oldestAllowedDate = shiftDateString(today, -6);
-  const [selectedDate, setSelectedDate] = useState(today);
+  const yesterday = shiftDateString(today, -1);
+  const oldestAllowedDate = shiftDateString(today, -7);
+  const [selectedDate, setSelectedDate] = useState(yesterday);
   const [historyData, setHistoryData] = useState<HistoryData | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
@@ -510,9 +544,15 @@ export default function LinenHistoryPage() {
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
 
   const historyDateOptions = useMemo(
-    () => Array.from({ length: 7 }, (_, index) => shiftDateString(today, -index)),
+    () => Array.from({ length: 7 }, (_, index) => shiftDateString(today, -(index + 1))),
     [today]
   );
+
+  useEffect(() => {
+    if (selectedDate >= today) {
+      setSelectedDate(yesterday);
+    }
+  }, [selectedDate, today, yesterday]);
 
   useEffect(() => {
     let mounted = true;
@@ -586,9 +626,9 @@ export default function LinenHistoryPage() {
       setLoading(true);
       setErrorMsg('');
 
-      if (selectedDate < oldestAllowedDate || selectedDate > today) {
+      if (selectedDate < oldestAllowedDate || selectedDate > yesterday) {
         setHistoryData(null);
-        setErrorMsg(`Linen History only keeps the last 7 days (${oldestAllowedDate} to ${today}).`);
+        setErrorMsg(`Linen History only keeps the previous 7 days (${oldestAllowedDate} to ${yesterday}).`);
         return;
       }
 
@@ -596,66 +636,15 @@ export default function LinenHistoryPage() {
         .from('linen_daily_snapshot')
         .select('service_date')
         .gte('service_date', oldestAllowedDate)
-        .lte('service_date', today)
+        .lte('service_date', yesterday)
         .order('service_date', { ascending: false });
 
       if (recentError) throw recentError;
 
       const nextAvailableDates = historyDateOptions.filter((date) => {
-        if (date === today) return true;
         return (recentSnapshots || []).some((row: any) => row.service_date === date || row.service_date === shiftDateString(date, 1));
       });
       setAvailableDates(nextAvailableDates);
-
-      if (selectedDate === today) {
-        const [roomRes, statusRes, entryRes, mapRes, billRes] = await Promise.all([
-          supabase
-            .from('room_master')
-            .select('room_number, block_no, floor_no, room_type')
-            .eq('is_active', true)
-            .order('room_number', { ascending: true }),
-          supabase
-            .from('linen_room_status')
-            .select('room_number, status')
-            .eq('service_date', selectedDate),
-          supabase
-            .from('linen_room_entry')
-            .select('room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-            .eq('service_date', selectedDate),
-          supabase
-            .from('linen_room_type_map')
-            .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
-          supabase
-            .from('linen_laundry_bill')
-            .select('service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-            .eq('service_date', selectedDate)
-            .order('block_no', { ascending: true }),
-        ]);
-
-        if (roomRes.error) throw roomRes.error;
-        if (statusRes.error) throw statusRes.error;
-        if (entryRes.error) throw entryRes.error;
-        if (mapRes.error) throw mapRes.error;
-        if (billRes.error) throw billRes.error;
-
-        const liveSnapshot = buildSnapshotFromLiveData(
-          (roomRes.data || []) as RoomMasterRow[],
-          (statusRes.data || []) as StatusRow[],
-          (entryRes.data || []) as EntryRow[],
-          (mapRes.data || []) as LinenMapRow[],
-          selectedDate
-        );
-
-        const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
-
-        setHistoryData({
-          snapshot: liveSnapshot,
-          floorBillMap,
-          blockBillTotals,
-          source: 'live',
-        });
-        return;
-      }
 
       const fallbackSnapshotDate = shiftDateString(selectedDate, 1);
 
@@ -734,11 +723,25 @@ export default function LinenHistoryPage() {
       const resolvedSnapshot = adjustedExactSnapshot || adjustedNextDayFallbackSnapshot || (hasHistoricalLiveData ? fallbackLiveSnapshot : null);
 
       const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
+      let blockReceivedTotals: Record<string, LinenTotals> = {
+        B1: zeroTotals(),
+        B2: zeroTotals(),
+      };
+
+      const receivedRes = await supabase
+        .from('linen_laundry_received')
+        .select('service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+        .eq('service_date', selectedDate)
+        .order('block_no', { ascending: true });
+
+      if (receivedRes.error) throw receivedRes.error;
+      blockReceivedTotals = buildReceivedBlockTotals((receivedRes.data || []) as LinenReceivedRow[]);
 
       setHistoryData({
         snapshot: resolvedSnapshot,
         floorBillMap,
         blockBillTotals,
+        blockReceivedTotals,
         source: exactSnapshot
           ? 'snapshot'
           : nextDayFallbackSnapshot
@@ -769,12 +772,14 @@ export default function LinenHistoryPage() {
     const actual = historyData?.snapshot?.actual_json || {};
     const blockBillTotals = historyData?.blockBillTotals || {};
     const floorBillMap = historyData?.floorBillMap || {};
+    const blockReceivedTotals = historyData?.blockReceivedTotals || {};
 
     if (viewMode === 'FLOOR') {
       const floorExpected = expected?.floors?.[selectedFloorKey];
       const floorActual = actual?.floors?.[selectedFloorKey];
       const floorInBill = floorBillMap[selectedFloorKey] || zeroTotals();
       const floorActualTotals = parseTotals(floorActual);
+      const emptyReturned = zeroTotals();
 
       return {
         key: selectedFloorKey,
@@ -783,6 +788,8 @@ export default function LinenHistoryPage() {
         actual: floorActualTotals,
         inBill: floorInBill,
         difference: subtractTotals(floorInBill, floorActualTotals),
+        returned: emptyReturned,
+        returnedDifference: subtractTotals(emptyReturned, floorInBill),
       } as GroupSummary;
     }
 
@@ -791,6 +798,7 @@ export default function LinenHistoryPage() {
       const blockActual = actual?.blocks?.[selectedBlockKey];
       const blockInBill = blockBillTotals[selectedBlockKey] || zeroTotals();
       const blockActualTotals = parseTotals(blockActual);
+      const blockReturnedTotals = blockReceivedTotals[selectedBlockKey] || zeroTotals();
 
       return {
         key: selectedBlockKey,
@@ -799,12 +807,18 @@ export default function LinenHistoryPage() {
         actual: blockActualTotals,
         inBill: blockInBill,
         difference: subtractTotals(blockInBill, blockActualTotals),
+        returned: blockReturnedTotals,
+        returnedDifference: subtractTotals(blockReturnedTotals, blockInBill),
       } as GroupSummary;
     }
 
     const grandExpectedTotals = parseTotals(expected?.grand_total);
     const grandActualTotals = parseTotals(actual?.grand_total);
     const grandInBillTotals = Object.values(blockBillTotals).reduce((acc, totals) => {
+      addTotals(acc, totals);
+      return acc;
+    }, zeroTotals());
+    const grandReturnedTotals = Object.values(blockReceivedTotals).reduce((acc, totals) => {
       addTotals(acc, totals);
       return acc;
     }, zeroTotals());
@@ -816,6 +830,8 @@ export default function LinenHistoryPage() {
       actual: grandActualTotals,
       inBill: grandInBillTotals,
       difference: subtractTotals(grandInBillTotals, grandActualTotals),
+      returned: grandReturnedTotals,
+      returnedDifference: subtractTotals(grandReturnedTotals, grandInBillTotals),
     } as GroupSummary;
   }, [historyData, viewMode, selectedFloorKey, selectedBlockKey]);
 
@@ -835,7 +851,6 @@ export default function LinenHistoryPage() {
 
   const historySourceLabel = useMemo(() => {
     if (!historyData) return '';
-    if (historyData.source === 'live') return 'Today live data';
     if (historyData.source === 'snapshot-next-day-fallback') {
       return historyData.snapshotServiceDate
         ? `Archived day snapshot (loaded from ${historyData.snapshotServiceDate})`
@@ -910,7 +925,7 @@ export default function LinenHistoryPage() {
         <section style={styles.panel}>
           <div style={styles.sectionTitle}>Date</div>
           <div style={styles.historyHint}>
-            Linen History shows the current day plus the previous 6 days. Older history is cleaned by the New Day archive flow.
+            Linen History shows yesterday and the previous 6 days. Today is kept out because returned laundry belongs to yesterday's sent-out linen.
           </div>
 
           <div style={styles.selectorRow}>
@@ -1108,6 +1123,7 @@ export default function LinenHistoryPage() {
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => {
                 const diffValue = selectedSummary.difference[item.key];
+                const returnedDiffValue = selectedSummary.returnedDifference[item.key];
                 return (
                   <div key={item.key} style={styles.itemCard}>
                     <div style={styles.itemTitle}>{item.label}</div>
@@ -1127,12 +1143,28 @@ export default function LinenHistoryPage() {
                       <span style={styles.metricValue}>{selectedSummary.inBill[item.key]}</span>
                     </div>
 
-                    <div style={styles.metricRow}>
-                      <span style={styles.metricLabel}>Difference</span>
-                      <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
-                        {formatDiff(diffValue)}
-                      </span>
-                    </div>
+                    {viewMode === 'FLOOR' ? (
+                      <div style={styles.metricRow}>
+                        <span style={styles.metricLabel}>Difference</span>
+                        <span style={{ ...styles.metricValue, ...diffStyle(diffValue) }}>
+                          {formatDiff(diffValue)}
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>Returned</span>
+                          <span style={styles.metricValue}>{selectedSummary.returned[item.key]}</span>
+                        </div>
+
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>Returned Difference</span>
+                          <span style={{ ...styles.metricValue, ...returnedDiffStyle(returnedDiffValue) }}>
+                            {formatDiff(returnedDiffValue)}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}
