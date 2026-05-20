@@ -19,7 +19,7 @@ type Task = {
   room: string;
   department: 'HK' | 'MT' | 'FO';
   task_text: string;
-  status: 'OPEN' | 'IN_PROGRESS' | 'DONE';
+  status: 'OPEN' | 'DONE';
   created_at: string;
   done_at?: string | null;
   done_by_name?: string | null;
@@ -104,7 +104,7 @@ type DashboardIconName =
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const performanceDepartments: Task['department'][] = ['HK', 'MT', 'FO'];
-const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
+const liveStatuses = ['ALL', 'OPEN', 'DONE'] as const;
 const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
   MT: [
     'aircond',
@@ -480,8 +480,9 @@ function formatDurationFromMs(value: number | null) {
 }
 
 function labelForStatus(status: string) {
-  if (status === 'IN_PROGRESS') return 'DOING';
-  return status;
+  if (status === 'ALL') return 'ALL';
+  if (status === 'DONE') return 'DONE';
+  return 'OPEN';
 }
 
 function dataUrlToBlob(dataUrl: string) {
@@ -576,9 +577,6 @@ function statusBadgeStyle(status: Task['status']): React.CSSProperties {
   if (status === 'OPEN') {
     return { ...styles.statusBadge, background: '#fff7ed', color: '#c2410c' };
   }
-  if (status === 'IN_PROGRESS') {
-    return { ...styles.statusBadge, background: '#eff6ff', color: '#1d4ed8' };
-  }
   return { ...styles.statusBadge, background: '#ecfdf5', color: '#15803d' };
 }
 
@@ -592,10 +590,9 @@ function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
   return { ...styles.deptBadge, background: '#fef3c7', color: '#a16207' };
 }
 
-function actionBtn(active: boolean, tone: 'open' | 'doing' | 'done'): React.CSSProperties {
+function actionBtn(active: boolean, tone: 'open' | 'done'): React.CSSProperties {
   const toneMap = {
     open: '#c2410c',
-    doing: '#1d4ed8',
     done: '#15803d',
   } as const;
 
@@ -615,10 +612,10 @@ function SummaryCard({
 }: {
   title: string;
   value: number;
-  tone: 'open' | 'doing' | 'done';
+  tone: 'open' | 'progress' | 'done';
 }) {
   const accent =
-    tone === 'open' ? '#c2410c' : tone === 'doing' ? '#1d4ed8' : '#15803d';
+    tone === 'open' ? '#c2410c' : tone === 'progress' ? '#1d4ed8' : '#15803d';
 
   return (
     <article style={{ ...styles.summaryCard, boxShadow: `inset 0 3px 0 ${accent}, 0 10px 24px rgba(15, 23, 42, 0.05)` }}>
@@ -754,14 +751,14 @@ function OverviewMetricCard({
   title: string;
   value: string | number;
   note?: string;
-  tone: 'open' | 'doing' | 'done' | 'violet' | 'danger';
+  tone: 'open' | 'progress' | 'done' | 'violet' | 'danger';
   icon: DashboardIconName;
   alert?: boolean;
 }) {
   const theme =
     tone === 'open'
       ? { bg: '#eff6ff', fg: '#2563eb' }
-      : tone === 'doing'
+      : tone === 'progress'
       ? { bg: '#fff7ed', fg: '#d97706' }
       : tone === 'done'
       ? { bg: '#ecfdf5', fg: '#16a34a' }
@@ -1529,7 +1526,10 @@ export default function DashboardPage() {
         method: 'GET',
       });
 
-      const nextTasks: Task[] = json.tasks || [];
+      const nextTasks: Task[] = (json.tasks || []).map((task: any) => ({
+        ...task,
+        status: task.status === 'DONE' ? 'DONE' : 'OPEN',
+      }));
       const nextFingerprint = buildTasksFingerprint(nextTasks);
 
       if (onlyIfChanged && lastTasksFingerprintRef.current === nextFingerprint) {
@@ -2245,7 +2245,6 @@ async function handleDeleteTask(taskId: string) {
 
       const keepInLive =
         task.status === 'OPEN' ||
-        task.status === 'IN_PROGRESS' ||
         doneToday;
 
       return deptOk && statusOk && keepInLive;
@@ -2259,7 +2258,7 @@ async function handleDeleteTask(taskId: string) {
           ? getLocalDateStringFromISO(task.done_at) === todayLocal
           : false;
 
-      return task.status === 'OPEN' || task.status === 'IN_PROGRESS' || doneToday;
+      return task.status === 'OPEN' || doneToday;
     });
   }, [tasks, todayLocal]);
 
@@ -2285,7 +2284,6 @@ async function handleDeleteTask(taskId: string) {
   const summary = useMemo(() => {
     return {
       open: tasks.filter((t) => t.status === 'OPEN').length,
-      doing: tasks.filter((t) => t.status === 'IN_PROGRESS').length,
       doneToday: tasks.filter(
         (t) =>
           t.status === 'DONE' &&
@@ -2439,7 +2437,6 @@ async function handleDeleteTask(taskId: string) {
                   }}
                 >
                   <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
-                  <OverviewMetricCard title="Doing" value={summary.doing} note="In progress now" tone="doing" icon="loader" />
                   <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
                   <OverviewMetricCard
                     title="FO Checklist"
@@ -2460,7 +2457,7 @@ async function handleDeleteTask(taskId: string) {
                     title="Special Project Completion"
                     value={`${insights.specialProjectCompletion}%`}
                     note={`${insights.specialProjectDoneRooms}/156 rooms completed`}
-                    tone="doing"
+                    tone="progress"
                     icon="progress"
                   />
                   <OverviewMetricCard
@@ -2711,14 +2708,6 @@ async function handleDeleteTask(taskId: string) {
                                     onClick={() => setTaskStatus(task.id, 'OPEN')}
                                   >
                                     Open
-                                  </button>
-
-                                  <button
-                                    style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task)}
-                                    onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
-                                  >
-                                    DOING
                                   </button>
 
                                   <button
