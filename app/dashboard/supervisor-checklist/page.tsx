@@ -814,6 +814,64 @@ export default function SupervisorChecklistPage() {
     }
   }
 
+  function renderSubmissionTracker() {
+    if (!selectedTemplate) return null;
+
+    const submittedCount = trackerRows.filter((row) => row.submission_id).length;
+
+    return (
+      <div style={styles.trackerPanel}>
+        <div style={styles.trackerHeader}>
+          <div>
+            <div style={styles.sectionEyebrow}>Submission Tracker</div>
+            <div style={styles.trackerTitle}>
+              {trackerRows.length > 0
+                ? `${submittedCount}/${trackerRows.length} supervisors submitted`
+                : 'No supervisors found'}
+            </div>
+          </div>
+          <div style={styles.trackerDate}>{formatDate(today)}</div>
+        </div>
+
+        {trackerRows.length > 0 ? (
+          <div style={styles.trackerGrid}>
+            {trackerRows.map((row) => {
+              const submitted = Boolean(row.submission_id);
+              return (
+                <div
+                  key={row.user_id}
+                  style={{
+                    ...styles.trackerCard,
+                    ...(submitted ? styles.trackerCardSubmitted : styles.trackerCardPending),
+                  }}
+                >
+                  <div style={styles.trackerUser}>
+                    <span style={submitted ? styles.trackerDotSubmitted : styles.trackerDotPending} />
+                    <div>
+                      <div style={styles.trackerName}>{row.name || row.email || 'Supervisor'}</div>
+                      <div style={styles.trackerEmail}>{row.email || row.role || '-'}</div>
+                    </div>
+                  </div>
+                  <div style={submitted ? styles.trackerStatusSubmitted : styles.trackerStatusPending}>
+                    {submitted ? 'Submitted' : 'Pending'}
+                  </div>
+                  <div style={styles.trackerTime}>
+                    {submitted ? formatDateTime(row.updated_at || row.submitted_at) : 'Not submitted yet'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={styles.trackerEmpty}>
+            No housekeeping supervisors are currently listed for this tracker. Grant Supervisor Checklist access to the
+            three supervisor accounts in Admin Settings, and make sure the updated Supervisor Checklist SQL has been run.
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (authLoading) {
     return (
       <main style={styles.page}>
@@ -974,6 +1032,7 @@ export default function SupervisorChecklistPage() {
                 );
               })}
             </div>
+            {selectedTemplate ? renderSubmissionTracker() : null}
           </section>
         ) : null}
 
@@ -1032,47 +1091,7 @@ export default function SupervisorChecklistPage() {
               </div>
             </div>
 
-            {trackerRows.length > 0 ? (
-              <div style={styles.trackerPanel}>
-                <div style={styles.trackerHeader}>
-                  <div>
-                    <div style={styles.sectionEyebrow}>Submission Tracker</div>
-                    <div style={styles.trackerTitle}>
-                      {trackerRows.filter((row) => row.submission_id).length}/{trackerRows.length} supervisors submitted
-                    </div>
-                  </div>
-                  <div style={styles.trackerDate}>{formatDate(today)}</div>
-                </div>
-                <div style={styles.trackerGrid}>
-                  {trackerRows.map((row) => {
-                    const submitted = Boolean(row.submission_id);
-                    return (
-                      <div
-                        key={row.user_id}
-                        style={{
-                          ...styles.trackerCard,
-                          ...(submitted ? styles.trackerCardSubmitted : styles.trackerCardPending),
-                        }}
-                      >
-                        <div style={styles.trackerUser}>
-                          <span style={submitted ? styles.trackerDotSubmitted : styles.trackerDotPending} />
-                          <div>
-                            <div style={styles.trackerName}>{row.name || row.email || 'Supervisor'}</div>
-                            <div style={styles.trackerEmail}>{row.email || row.role || '-'}</div>
-                          </div>
-                        </div>
-                        <div style={submitted ? styles.trackerStatusSubmitted : styles.trackerStatusPending}>
-                          {submitted ? 'Submitted' : 'Pending'}
-                        </div>
-                        <div style={styles.trackerTime}>
-                          {submitted ? formatDateTime(row.updated_at || row.submitted_at) : 'Not submitted yet'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
+            {renderSubmissionTracker()}
 
             <div style={styles.questionList}>
               {selectedQuestions.map((question, index) => (
@@ -1838,6 +1857,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
   trackerTime: {
     fontSize: '12px',
+    fontWeight: 800,
+    color: '#475569',
+  },
+  trackerEmpty: {
+    border: '1px dashed #bfdbfe',
+    background: '#f8fbff',
+    borderRadius: '14px',
+    padding: '12px',
+    fontSize: '13px',
+    lineHeight: 1.5,
     fontWeight: 800,
     color: '#475569',
   },
