@@ -290,15 +290,6 @@ function normalizeImageCaptions(
   return Array.from({ length: imageCount }, () => null);
 }
 
-function normalizeMediaTypes(body: any, mediaCount: number): ('image' | 'video')[] {
-  const raw = Array.isArray(body.media_types) ? body.media_types : [];
-
-  return Array.from({ length: mediaCount }, (_, index) => {
-    const value = String(raw[index] || '').trim().toLowerCase();
-    return value === 'video' ? 'video' : 'image';
-  });
-}
-
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -446,8 +437,6 @@ export async function GET() {
         edited_by_name,
         edited_by_email,
         image_url,
-        checked_at,
-        checked_by_name,
         customer_waiting,
         customer_waiting_reminder_sent_at
       `
@@ -471,11 +460,7 @@ export async function GET() {
           id,
           task_id,
           image_url,
-          caption,
-          media_type,
-          completed_at,
-          completed_by_name,
-          created_at
+          caption
         `
         )
         .in('task_id', taskIds)
@@ -492,10 +477,6 @@ export async function GET() {
           id: img.id,
           image_url: img.image_url,
           caption: img.caption,
-          media_type: img.media_type || 'image',
-          completed_at: img.completed_at || null,
-          completed_by_name: img.completed_by_name || null,
-          created_at: img.created_at || null,
         });
         imageMap.set(key, existing);
       }
@@ -550,7 +531,6 @@ export async function POST(req: NextRequest) {
             : [];
     const imageUrls = normalizeImageUrls(body);
     const imageCaptions = normalizeImageCaptions(body, imageUrls.length);
-    const mediaTypes = normalizeMediaTypes(body, imageUrls.length);
     const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
 
     if (!room) {
@@ -602,8 +582,6 @@ export async function POST(req: NextRequest) {
           created_by_email: userEmail,
           chat_id: telegramChatId,
           image_url: firstImageUrl,
-          checked_at: null,
-          checked_by_name: null,
           customer_waiting: customerWaiting,
           customer_waiting_reminder_sent_at: null,
           reopened_at: null,
@@ -629,8 +607,6 @@ export async function POST(req: NextRequest) {
           edited_by_email,
           customer_waiting,
           customer_waiting_reminder_sent_at,
-          checked_at,
-          checked_by_name,
           created_at
         `
         )
@@ -655,10 +631,6 @@ export async function POST(req: NextRequest) {
           task_id: task.id,
           image_url: url,
           caption: imageCaptions[index] || null,
-          media_type: mediaTypes[index] || 'image',
-          completed_at: null,
-          completed_by_name: null,
-          completed_by_email: null,
           created_by_name: user.name,
         }));
 
@@ -719,9 +691,6 @@ export async function POST(req: NextRequest) {
           id,
           image_url,
           caption,
-          media_type,
-          completed_at,
-          completed_by_name,
           created_at
         `
         )
