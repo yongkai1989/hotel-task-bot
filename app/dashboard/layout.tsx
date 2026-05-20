@@ -20,6 +20,7 @@ type DashboardUser = {
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
+  can_access_laundry_received?: boolean;
   can_access_stock_card?: boolean;
   can_access_damaged?: boolean;
   can_access_linen_history?: boolean;
@@ -42,6 +43,7 @@ type DashboardUser = {
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
     | 'can_access_laundry_count'
+    | 'can_access_laundry_received'
     | 'can_access_stock_card'
     | 'can_access_damaged'
     | 'can_access_linen_history'
