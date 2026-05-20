@@ -34,6 +34,7 @@ export type DashboardUser = {
   can_access_linen_admin: boolean;
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
+  can_access_supervisor_checklist: boolean;
   permissions: {
     can_create_task: boolean;
     can_edit_task: boolean;
@@ -55,6 +56,7 @@ export type DashboardUser = {
     can_access_linen_admin: boolean;
     can_access_lost_found: boolean;
     can_access_fo_checklist: boolean;
+    can_access_supervisor_checklist: boolean;
   };
 };
 
@@ -150,7 +152,8 @@ export async function getDashboardUserFromRequest(
         can_access_admin_settings,
         can_access_linen_admin,
         can_access_lost_found,
-        can_access_fo_checklist
+        can_access_fo_checklist,
+        can_access_supervisor_checklist
         `
       )
       .eq('user_id', authUser.id)
@@ -203,6 +206,8 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_lost_found),
       can_access_fo_checklist:
         effectiveFoChecklist(role, profile.email || authUser.email, profile.can_access_fo_checklist),
+      can_access_supervisor_checklist:
+        effectiveBoolean(role, profile.can_access_supervisor_checklist),
     };
 
     return {
