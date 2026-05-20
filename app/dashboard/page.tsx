@@ -10,9 +10,6 @@ type TaskImage = {
   id: string | number;
   image_url: string;
   caption?: string | null;
-  media_type?: 'image' | 'video' | null;
-  completed_at?: string | null;
-  completed_by_name?: string | null;
   created_at?: string;
 };
 
@@ -22,7 +19,7 @@ type Task = {
   room: string;
   department: 'HK' | 'MT' | 'FO';
   task_text: string;
-  status: 'OPEN' | 'PENDING_CHECK' | 'DONE';
+  status: 'OPEN' | 'IN_PROGRESS' | 'DONE';
   created_at: string;
   done_at?: string | null;
   done_by_name?: string | null;
@@ -36,8 +33,6 @@ type Task = {
   edited_by_name?: string | null;
   customer_waiting?: boolean | null;
   customer_waiting_reminder_sent_at?: string | null;
-  checked_at?: string | null;
-  checked_by_name?: string | null;
 };
 
 type SidebarView = 'DASHBOARD' | 'PAST_TASK';
@@ -47,7 +42,6 @@ type CreatePhotoItem = {
   name: string;
   previewUrl: string;
   file: Blob;
-  mediaType: 'image' | 'video';
 };
 
 type DashboardUser = {
@@ -110,7 +104,7 @@ type DashboardIconName =
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const performanceDepartments: Task['department'][] = ['HK', 'MT', 'FO'];
-const liveStatuses = ['ALL', 'OPEN', 'PENDING_CHECK', 'DONE'] as const;
+const liveStatuses = ['ALL', 'OPEN', 'IN_PROGRESS', 'DONE'] as const;
 const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
   MT: [
     'aircond',
@@ -486,13 +480,8 @@ function formatDurationFromMs(value: number | null) {
 }
 
 function labelForStatus(status: string) {
-  if (status === 'PENDING_CHECK') return 'PENDING CHECK';
+  if (status === 'IN_PROGRESS') return 'DOING';
   return status;
-}
-
-function canRoleCheckTask(role?: string | null) {
-  const normalized = String(role || '').trim().toUpperCase();
-  return normalized === 'SUPERUSER' || normalized === 'MANAGER' || normalized === 'SUPERVISOR';
 }
 
 function dataUrlToBlob(dataUrl: string) {
@@ -587,7 +576,7 @@ function statusBadgeStyle(status: Task['status']): React.CSSProperties {
   if (status === 'OPEN') {
     return { ...styles.statusBadge, background: '#fff7ed', color: '#c2410c' };
   }
-  if (status === 'PENDING_CHECK') {
+  if (status === 'IN_PROGRESS') {
     return { ...styles.statusBadge, background: '#eff6ff', color: '#1d4ed8' };
   }
   return { ...styles.statusBadge, background: '#ecfdf5', color: '#15803d' };
@@ -843,12 +832,6 @@ export default function DashboardPage() {
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState('');
 
-  const [markupOpen, setMarkupOpen] = useState(false);
-  const [markupMode, setMarkupMode] = useState<'create' | 'edit'>('create');
-  const [markupMediaId, setMarkupMediaId] = useState('');
-  const markupCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const markupDrawingRef = useRef(false);
-  const markupLastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -991,9 +974,6 @@ export default function DashboardPage() {
         done_at: task.done_at || null,
         edited_at: task.edited_at || null,
         image_count: Array.isArray(task.task_images) ? task.task_images.length : 0,
-        media_done: Array.isArray(task.task_images)
-          ? task.task_images.map((item) => `${item.id}:${item.completed_at || ''}`).join('|')
-          : '',
       }))
     );
   }
@@ -1652,12 +1632,8 @@ export default function DashboardPage() {
 function canEditTaskDetails(task: Task) {
   if (!profile) return false;
 
-  if (task.status === 'DONE') return false;
+  if (task.status !== 'OPEN') return false;
   return !!profile.can_edit_task;
-}
-
-function canCheckTask() {
-  return !!profile?.can_edit_task && canRoleCheckTask(profile.role);
 }
 
 function canDeleteTask() {
@@ -1727,61 +1703,6 @@ function canDeleteTask() {
     }
   }
 
-  async function setMediaCompleted(taskId: string, mediaId: string | number, completed: boolean) {
-    if (!profile) {
-      setLoginOpen(true);
-      return;
-    }
-
-    const oldTasks = tasks;
-
-    try {
-      setBusyTaskId(taskId);
-      setErrorMsg('');
-
-      setTasks((prev) =>
-        prev.map((task) => {
-          if (task.id !== taskId) return task;
-
-          const taskImages = (task.task_images || []).map((media) =>
-            String(media.id) === String(mediaId)
-              ? {
-                  ...media,
-                  completed_at: completed ? new Date().toISOString() : null,
-                  completed_by_name: completed ? profile.name : null,
-                }
-              : media
-          );
-
-          return { ...task, task_images: taskImages };
-        })
-      );
-
-      const token = await getAccessToken();
-
-      await fetchJson(
-        `/api/tasks/${taskId}/media`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ media_id: mediaId, completed }),
-        },
-        15000
-      );
-
-      await loadTasks(false, { force: true });
-    } catch (err: any) {
-      setTasks(oldTasks);
-      setErrorMsg(err?.message || 'Failed to update media subtask');
-      alert(err?.message || 'Failed to update media subtask');
-    } finally {
-      setBusyTaskId(null);
-    }
-  }
-
   function openImageModal(task: Task) {
     const images = Array.isArray(task.task_images) ? task.task_images : [];
     const fallbackImages =
@@ -1803,32 +1724,6 @@ function canDeleteTask() {
     setSelectedTaskImages(finalImages);
     setSelectedImageIndex(0);
     setImageModalOpen(true);
-  }
-
-  function getTaskMedia(task: Task) {
-    const images = Array.isArray(task.task_images) ? task.task_images : [];
-    if (images.length) return images;
-    if (!task.image_url) return [];
-    return [
-      {
-        id: `fallback-${task.id}`,
-        image_url: task.image_url,
-        caption: null,
-        media_type: 'image' as const,
-        created_at: task.created_at,
-      },
-    ];
-  }
-
-  function taskMediaProgress(task: Task) {
-    const media = getTaskMedia(task);
-    const completed = media.filter((item) => !!item.completed_at).length;
-    return {
-      media,
-      completed,
-      total: media.length,
-      allComplete: media.length === 0 || completed === media.length,
-    };
   }
 
   function closeImageModal() {
@@ -1961,40 +1856,25 @@ function canDeleteTask() {
     try {
       setCreateError('');
 
-      if (createPhotos.length + files.length > 30) {
-        throw new Error('Maximum 30 images or videos per task');
+      if (createPhotos.length + files.length > 5) {
+        throw new Error('Maximum 5 photos per task');
       }
 
       for (const file of files) {
-        if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-          throw new Error('Only image and video files are allowed');
-        }
-
-        if (file.type.startsWith('video/') && file.size > 80 * 1024 * 1024) {
-          throw new Error('Each video must be 80MB or smaller');
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Only image files are allowed');
         }
       }
 
       const processed = await Promise.all(
         files.map(async (file, index) => {
-          if (file.type.startsWith('video/')) {
-            return {
-              id: `${Date.now()}-${index}-${file.name}`,
-              name: file.name,
-              previewUrl: URL.createObjectURL(file),
-              file,
-              mediaType: 'video',
-            } as CreatePhotoItem;
-          }
-
-          const compressed = await compressImageToDataUrl(file, 1600, 0.76);
+          const compressed = await compressImageToDataUrl(file, 1200, 0.72);
 
           return {
             id: `${Date.now()}-${index}-${file.name}`,
             name: file.name,
             previewUrl: compressed,
             file: dataUrlToBlob(compressed),
-            mediaType: 'image',
           } as CreatePhotoItem;
         })
       );
@@ -2015,14 +1895,13 @@ function canDeleteTask() {
   }
 
   async function uploadMediaItems(items: CreatePhotoItem[]) {
-    if (!items.length) return { urls: [] as string[], mediaTypes: [] as ('image' | 'video')[], captions: [] as string[] };
+    if (!items.length) return { urls: [] as string[], captions: [] as string[] };
 
     const token = await getAccessToken();
     const form = new FormData();
 
     items.forEach((item) => {
-      const extension = item.mediaType === 'video' ? 'mp4' : 'jpg';
-      const fileName = item.name || `task-media.${extension}`;
+      const fileName = item.name || 'task-image.jpg';
       form.append('media', item.file, fileName);
     });
 
@@ -2042,7 +1921,6 @@ function canDeleteTask() {
 
     return {
       urls: uploaded.map((item: any) => item.url),
-      mediaTypes: uploaded.map((item: any) => (item.media_type === 'video' ? 'video' : 'image')) as ('image' | 'video')[],
       captions: items.map((item) => item.name),
     };
   }
@@ -2102,40 +1980,25 @@ async function handleDeleteTask(taskId: string) {
         (img) => !editRemovedImageIds.includes(img.id)
       );
 
-      if (remainingExisting.length + editNewPhotos.length + files.length > 30) {
-        throw new Error('Maximum 30 images or videos per task');
+      if (remainingExisting.length + editNewPhotos.length + files.length > 5) {
+        throw new Error('Maximum 5 photos per task');
       }
 
       for (const file of files) {
-        if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-          throw new Error('Only image and video files are allowed');
-        }
-
-        if (file.type.startsWith('video/') && file.size > 80 * 1024 * 1024) {
-          throw new Error('Each video must be 80MB or smaller');
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Only image files are allowed');
         }
       }
 
       const processed = await Promise.all(
         files.map(async (file, index) => {
-          if (file.type.startsWith('video/')) {
-            return {
-              id: `${Date.now()}-${index}-${file.name}`,
-              name: file.name,
-              previewUrl: URL.createObjectURL(file),
-              file,
-              mediaType: 'video',
-            } as CreatePhotoItem;
-          }
-
-          const compressed = await compressImageToDataUrl(file, 1600, 0.76);
+          const compressed = await compressImageToDataUrl(file, 1200, 0.72);
 
           return {
             id: `${Date.now()}-${index}-${file.name}`,
             name: file.name,
             previewUrl: compressed,
             file: dataUrlToBlob(compressed),
-            mediaType: 'image',
           } as CreatePhotoItem;
         })
       );
@@ -2161,138 +2024,6 @@ async function handleDeleteTask(taskId: string) {
       if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
       return prev.filter((item) => item.id !== id);
     });
-  }
-
-  function findDraftMedia(mode: 'create' | 'edit', id: string) {
-    const list = mode === 'create' ? createPhotos : editNewPhotos;
-    return list.find((item) => item.id === id) || null;
-  }
-
-  function updateDraftMedia(mode: 'create' | 'edit', id: string, updater: (item: CreatePhotoItem) => CreatePhotoItem) {
-    const setter = mode === 'create' ? setCreatePhotos : setEditNewPhotos;
-    setter((prev) => prev.map((item) => (item.id === id ? updater(item) : item)));
-  }
-
-  function openMarkup(mode: 'create' | 'edit', id: string) {
-    const item = findDraftMedia(mode, id);
-    if (!item || item.mediaType !== 'image') return;
-
-    setMarkupMode(mode);
-    setMarkupMediaId(id);
-    setMarkupOpen(true);
-
-    window.setTimeout(() => {
-      const canvas = markupCanvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const img = new window.Image();
-      img.onload = () => {
-        const maxWidth = Math.min(1200, Math.max(320, window.innerWidth - 36));
-        const scale = Math.min(1, maxWidth / img.width);
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      };
-      img.src = item.previewUrl;
-    }, 0);
-  }
-
-  function closeMarkup() {
-    setMarkupOpen(false);
-    setMarkupMediaId('');
-    markupDrawingRef.current = false;
-    markupLastPointRef.current = null;
-  }
-
-  function getCanvasPoint(event: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = markupCanvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
-      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
-    };
-  }
-
-  function startMarkupDraw(event: React.PointerEvent<HTMLCanvasElement>) {
-    markupDrawingRef.current = true;
-    markupLastPointRef.current = getCanvasPoint(event);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function drawMarkup(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!markupDrawingRef.current) return;
-
-    const canvas = markupCanvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    const next = getCanvasPoint(event);
-    const prev = markupLastPointRef.current;
-
-    if (!canvas || !ctx || !next || !prev) return;
-
-    ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = Math.max(4, canvas.width * 0.006);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(prev.x, prev.y);
-    ctx.lineTo(next.x, next.y);
-    ctx.stroke();
-
-    markupLastPointRef.current = next;
-  }
-
-  function stopMarkupDraw() {
-    markupDrawingRef.current = false;
-    markupLastPointRef.current = null;
-  }
-
-  function clearMarkupCanvas() {
-    const item = findDraftMedia(markupMode, markupMediaId);
-    const canvas = markupCanvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!item || !canvas || !ctx) return;
-
-    const img = new window.Image();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    };
-    img.src = item.previewUrl;
-  }
-
-  async function saveMarkupAndNext() {
-    const canvas = markupCanvasRef.current;
-    if (!canvas) return;
-
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((result) => resolve(result), 'image/jpeg', 0.78);
-    });
-
-    if (!blob) return;
-
-    const previewUrl = canvas.toDataURL('image/jpeg', 0.78);
-
-    updateDraftMedia(markupMode, markupMediaId, (item) => ({
-      ...item,
-      file: blob,
-      previewUrl,
-      name: item.name.replace(/\.[^.]+$/, '') + '-marked.jpg',
-    }));
-
-    const list = markupMode === 'create' ? createPhotos : editNewPhotos;
-    const currentIndex = list.findIndex((item) => item.id === markupMediaId);
-    const nextImage = list.slice(currentIndex + 1).find((item) => item.mediaType === 'image');
-
-    if (nextImage) {
-      openMarkup(markupMode, nextImage.id);
-    } else {
-      closeMarkup();
-    }
   }
 
   async function submitCreateTask() {
@@ -2327,13 +2058,11 @@ async function handleDeleteTask(taskId: string) {
       setCreateSubmitting(true);
 
       let uploadedUrls: string[] = [];
-      let uploadedMediaTypes: ('image' | 'video')[] = [];
       let uploadedCaptions: string[] = [];
 
       if (createPhotos.length > 0) {
         const uploaded = await uploadMediaItems(createPhotos);
         uploadedUrls = uploaded.urls;
-        uploadedMediaTypes = uploaded.mediaTypes;
         uploadedCaptions = uploaded.captions;
       }
 
@@ -2355,7 +2084,6 @@ async function handleDeleteTask(taskId: string) {
             source_message: createSmartMessage.trim() || null,
             image_urls: uploadedUrls,
             image_captions: uploadedCaptions,
-            media_types: uploadedMediaTypes,
             customer_waiting: createCustomerWaiting,
           }),
         },
@@ -2392,13 +2120,11 @@ async function handleDeleteTask(taskId: string) {
       setEditSubmitting(true);
 
       let uploadedUrls: string[] = [];
-      let uploadedMediaTypes: ('image' | 'video')[] = [];
       let uploadedCaptions: string[] = [];
 
       if (editNewPhotos.length > 0) {
         const uploaded = await uploadMediaItems(editNewPhotos);
         uploadedUrls = uploaded.urls;
-        uploadedMediaTypes = uploaded.mediaTypes;
         uploadedCaptions = uploaded.captions;
       }
 
@@ -2421,7 +2147,6 @@ async function handleDeleteTask(taskId: string) {
               .map((img) => img.id),
             new_image_urls: uploadedUrls,
             new_image_captions: uploadedCaptions,
-            new_media_types: uploadedMediaTypes,
           }),
         },
         30000
@@ -2520,7 +2245,7 @@ async function handleDeleteTask(taskId: string) {
 
       const keepInLive =
         task.status === 'OPEN' ||
-        task.status === 'PENDING_CHECK' ||
+        task.status === 'IN_PROGRESS' ||
         doneToday;
 
       return deptOk && statusOk && keepInLive;
@@ -2534,7 +2259,7 @@ async function handleDeleteTask(taskId: string) {
           ? getLocalDateStringFromISO(task.done_at) === todayLocal
           : false;
 
-      return task.status === 'OPEN' || task.status === 'PENDING_CHECK' || doneToday;
+      return task.status === 'OPEN' || task.status === 'IN_PROGRESS' || doneToday;
     });
   }, [tasks, todayLocal]);
 
@@ -2560,7 +2285,7 @@ async function handleDeleteTask(taskId: string) {
   const summary = useMemo(() => {
     return {
       open: tasks.filter((t) => t.status === 'OPEN').length,
-      pendingCheck: tasks.filter((t) => t.status === 'PENDING_CHECK').length,
+      doing: tasks.filter((t) => t.status === 'IN_PROGRESS').length,
       doneToday: tasks.filter(
         (t) =>
           t.status === 'DONE' &&
@@ -2714,7 +2439,7 @@ async function handleDeleteTask(taskId: string) {
                   }}
                 >
                   <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
-                  <OverviewMetricCard title="Pending Check" value={summary.pendingCheck} note="Awaiting supervisor review" tone="doing" icon="loader" />
+                  <OverviewMetricCard title="Doing" value={summary.doing} note="In progress now" tone="doing" icon="loader" />
                   <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
                   <OverviewMetricCard
                     title="FO Checklist"
@@ -2884,7 +2609,6 @@ async function handleDeleteTask(taskId: string) {
                       mediaItems.length > 0
                         ? mediaItems[mediaItems.length - 1].image_url
                         : task.image_url || null;
-                    const thumbIsVideo = mediaItems.length > 0 && mediaItems[mediaItems.length - 1].media_type === 'video';
 
                     return (
                       <article key={task.id} style={styles.taskCard}>
@@ -2943,17 +2667,10 @@ async function handleDeleteTask(taskId: string) {
 
                               {task.status === 'DONE' && task.done_by_name ? (
                                 <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Checked by</div>
+                                  <div style={styles.metaCardLabel}>Done by</div>
                                   <div style={styles.metaCardValueStrong}>
-                                    {task.checked_by_name || task.done_by_name}
+                                    {task.done_by_name}
                                   </div>
-                                </div>
-                              ) : null}
-
-                              {task.status === 'PENDING_CHECK' ? (
-                                <div style={styles.metaCard}>
-                                  <div style={styles.metaCardLabel}>Review</div>
-                                  <div style={styles.metaCardValueStrong}>Pending check</div>
                                 </div>
                               ) : null}
 
@@ -2985,113 +2702,32 @@ async function handleDeleteTask(taskId: string) {
                               ) : null}
                             </div>
 
-                            {(() => {
-                              const progress = taskMediaProgress(task);
-
-                              if (!progress.media.length) return null;
-
-                              return (
-                                <div style={styles.mediaSubtaskPanel}>
-                                  <div style={styles.mediaSubtaskHeader}>
-                                    <div style={styles.mediaSubtaskTitle}>Media Subtasks</div>
-                                    <div style={styles.mediaSubtaskProgress}>
-                                      {progress.completed}/{progress.total} completed
-                                    </div>
-                                  </div>
-                                  <div style={styles.mediaSubtaskList}>
-                                    {progress.media.map((media, index) => {
-                                      const isVideo = media.media_type === 'video';
-                                      const completed = !!media.completed_at;
-                                      const canToggle = sidebarView === 'DASHBOARD' && task.status !== 'DONE' && canEditTask(task);
-
-                                      return (
-                                        <div key={String(media.id)} style={styles.mediaSubtaskItem}>
-                                          <button
-                                            type="button"
-                                            onClick={() => openImageModal({ ...task, task_images: progress.media })}
-                                            style={styles.mediaSubtaskThumb}
-                                            title={isVideo ? 'Open video' : 'Open image'}
-                                          >
-                                            {isVideo ? (
-                                              <video src={media.image_url} style={styles.mediaSubtaskVideo} muted preload="metadata" />
-                                            ) : (
-                                              <img src={media.image_url} alt={media.caption || `Media ${index + 1}`} style={styles.mediaSubtaskImage} loading="lazy" />
-                                            )}
-                                          </button>
-                                          <div style={styles.mediaSubtaskBody}>
-                                            <div style={styles.mediaSubtaskName}>
-                                              {media.caption || `${isVideo ? 'Video' : 'Image'} ${index + 1}`}
-                                            </div>
-                                            <div style={styles.mediaSubtaskMeta}>
-                                              {completed
-                                                ? `Completed by ${media.completed_by_name || 'staff'}`
-                                                : 'Pending staff completion'}
-                                            </div>
-                                          </div>
-                                          <label style={{ ...styles.mediaSubtaskCheck, opacity: canToggle ? 1 : 0.55 }}>
-                                            <input
-                                              type="checkbox"
-                                              checked={completed}
-                                              disabled={!canToggle || busyTaskId === task.id}
-                                              onChange={(event) => setMediaCompleted(task.id, media.id, event.target.checked)}
-                                            />
-                                            Done
-                                          </label>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
                             {sidebarView === 'DASHBOARD' ? (
                               <>
                                 <div style={styles.buttonRow}>
-                                  {task.status === 'OPEN' ? (
-                                    <button
-                                      style={actionBtn(false, 'doing')}
-                                      disabled={busyTaskId === task.id || !canEditTask(task) || !taskMediaProgress(task).allComplete}
-                                      onClick={() => setTaskStatus(task.id, 'PENDING_CHECK')}
-                                      title={
-                                        taskMediaProgress(task).allComplete
-                                          ? 'Send this task for supervisor check'
-                                          : 'Complete all media subtasks first'
-                                      }
-                                    >
-                                      Ready for Check
-                                    </button>
-                                  ) : null}
+                                  <button
+                                    style={actionBtn(task.status === 'OPEN', 'open')}
+                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    onClick={() => setTaskStatus(task.id, 'OPEN')}
+                                  >
+                                    Open
+                                  </button>
 
-                                  {task.status === 'PENDING_CHECK' ? (
-                                    <>
-                                      <button
-                                        style={actionBtn(false, 'open')}
-                                        disabled={busyTaskId === task.id || !canEditTask(task)}
-                                        onClick={() => setTaskStatus(task.id, 'OPEN')}
-                                      >
-                                        Send Back
-                                      </button>
+                                  <button
+                                    style={actionBtn(task.status === 'IN_PROGRESS', 'doing')}
+                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    onClick={() => setTaskStatus(task.id, 'IN_PROGRESS')}
+                                  >
+                                    DOING
+                                  </button>
 
-                                      <button
-                                        style={actionBtn(false, 'done')}
-                                        disabled={busyTaskId === task.id || !canCheckTask()}
-                                        onClick={() => setTaskStatus(task.id, 'DONE')}
-                                      >
-                                        Checked
-                                      </button>
-                                    </>
-                                  ) : null}
-
-                                  {task.status === 'DONE' && canCheckTask() ? (
-                                    <button
-                                      style={actionBtn(false, 'open')}
-                                      disabled={busyTaskId === task.id}
-                                      onClick={() => setTaskStatus(task.id, 'OPEN')}
-                                    >
-                                      Reopen
-                                    </button>
-                                  ) : null}
+                                  <button
+                                    style={actionBtn(task.status === 'DONE', 'done')}
+                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    onClick={() => setTaskStatus(task.id, 'DONE')}
+                                  >
+                                    Done
+                                  </button>
 
                                   {canEditTaskDetails(task) ? (
   <button
@@ -3118,12 +2754,6 @@ async function handleDeleteTask(taskId: string) {
                                   </div>
                                 ) : null}
 
-                                {task.status === 'OPEN' && !taskMediaProgress(task).allComplete ? (
-                                  <div style={styles.permissionText}>
-                                    Complete all media subtasks before sending this task for check.
-                                  </div>
-                                ) : null}
-
                                 {busyTaskId === task.id ? (
                                   <div style={styles.updatingText}>Updating…</div>
                                 ) : null}
@@ -3142,21 +2772,17 @@ async function handleDeleteTask(taskId: string) {
                                 style={styles.thumbButton}
                                 title="Open task images"
                               >
-                                {thumbIsVideo ? (
-                                  <video src={thumb} muted preload="metadata" style={styles.thumbImage} />
-                                ) : (
-                                  <img
-                                    src={thumb}
-                                    alt="Task thumbnail"
-                                    loading="lazy"
-                                    decoding="async"
-                                    style={styles.thumbImage}
-                                  />
-                                )}
+                                <img
+                                  src={thumb}
+                                  alt="Task thumbnail"
+                                  loading="lazy"
+                                  decoding="async"
+                                  style={styles.thumbImage}
+                                />
                               </button>
 
                               <div style={styles.imageCountBadge}>
-                                {mediaItems.length > 0 ? `${mediaItems.length} media` : '1 img'}
+                                {mediaItems.length > 0 ? `${mediaItems.length} img` : '1 img'}
                               </div>
                             </div>
                           ) : null}
@@ -3278,20 +2904,12 @@ async function handleDeleteTask(taskId: string) {
             ) : null}
 
             <div style={styles.modalImageWrap}>
-              {selectedTaskImages[selectedImageIndex].media_type === 'video' ? (
-                <video
-                  src={selectedTaskImages[selectedImageIndex].image_url}
-                  controls
-                  style={styles.modalImage}
-                />
-              ) : (
-                <img
-                  src={selectedTaskImages[selectedImageIndex].image_url}
-                  alt={`Task image ${selectedImageIndex + 1}`}
-                  decoding="async"
-                  style={styles.modalImage}
-                />
-              )}
+              <img
+                src={selectedTaskImages[selectedImageIndex].image_url}
+                alt={`Task image ${selectedImageIndex + 1}`}
+                decoding="async"
+                style={styles.modalImage}
+              />
 
               <div style={styles.modalFooter}>
                 <div style={styles.modalCounter}>
@@ -3442,10 +3060,10 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Images / Videos</label>
+              <label style={styles.formLabel}>Photos</label>
               <input
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*"
                 multiple
                 onChange={handleCreatePhotoChange}
                 disabled={createSubmitting}
@@ -3453,28 +3071,14 @@ async function handleDeleteTask(taskId: string) {
               <div style={modalResponsive.photoPreviewGrid}>
                 {createPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
-                    {photo.mediaType === 'video' ? (
-                      <video src={photo.previewUrl} muted preload="metadata" style={styles.photoPreviewImg} />
-                    ) : (
-                      <img
-                        src={photo.previewUrl}
-                        alt={photo.name}
-                        loading="lazy"
-                        decoding="async"
-                        style={styles.photoPreviewImg}
-                      />
-                    )}
+                    <img
+                      src={photo.previewUrl}
+                      alt={photo.name}
+                      loading="lazy"
+                      decoding="async"
+                      style={styles.photoPreviewImg}
+                    />
                     <div style={styles.photoPreviewName}>{photo.name}</div>
-                    {photo.mediaType === 'image' ? (
-                      <button
-                        type="button"
-                        style={styles.markupPhotoBtn}
-                        onClick={() => openMarkup('create', photo.id)}
-                        disabled={createSubmitting}
-                      >
-                        Mark up
-                      </button>
-                    ) : null}
                     <button
                       type="button"
                       style={styles.removePhotoBtn}
@@ -3486,7 +3090,7 @@ async function handleDeleteTask(taskId: string) {
                   </div>
                 ))}
                 {createPhotos.length === 0 ? (
-                  <div style={styles.uploadHint}>Upload up to 30 images or videos</div>
+                  <div style={styles.uploadHint}>Upload up to 5 images</div>
                 ) : null}
               </div>
             </div>
@@ -3631,10 +3235,10 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Add / Replace Media</label>
+              <label style={styles.formLabel}>Add New Images</label>
               <input
                 type="file"
-                accept="image/*,video/*"
+                accept="image/*"
                 multiple
                 onChange={handleEditPhotoChange}
                 disabled={editSubmitting}
@@ -3643,28 +3247,14 @@ async function handleDeleteTask(taskId: string) {
               <div style={styles.photoPreviewGrid}>
                 {editNewPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
-                    {photo.mediaType === 'video' ? (
-                      <video src={photo.previewUrl} muted preload="metadata" style={styles.photoPreviewImg} />
-                    ) : (
-                      <img
-                        src={photo.previewUrl}
-                        alt={photo.name}
-                        loading="lazy"
-                        decoding="async"
-                        style={styles.photoPreviewImg}
-                      />
-                    )}
+                    <img
+                      src={photo.previewUrl}
+                      alt={photo.name}
+                      loading="lazy"
+                      decoding="async"
+                      style={styles.photoPreviewImg}
+                    />
                     <div style={styles.photoPreviewName}>{photo.name}</div>
-                    {photo.mediaType === 'image' ? (
-                      <button
-                        type="button"
-                        style={styles.markupPhotoBtn}
-                        onClick={() => openMarkup('edit', photo.id)}
-                        disabled={editSubmitting}
-                      >
-                        Mark up
-                      </button>
-                    ) : null}
                     <button
                       type="button"
                       style={styles.removePhotoBtn}
@@ -3695,52 +3285,6 @@ async function handleDeleteTask(taskId: string) {
                 disabled={editSubmitting}
               >
                 {editSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {markupOpen ? (
-        <div style={styles.modalOverlay} onClick={closeMarkup}>
-          <div style={styles.markupCard} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.createModalTop}>
-              <div>
-                <div style={styles.createModalTitle}>Mark Up Image</div>
-                <div style={styles.createModalSubtitle}>
-                  Draw on the image, save, then continue to the next image.
-                </div>
-              </div>
-              <button
-                onClick={closeMarkup}
-                style={styles.createModalCloseBtn}
-                aria-label="Close markup"
-              >
-                x
-              </button>
-            </div>
-
-            <div style={styles.markupCanvasWrap}>
-              <canvas
-                ref={markupCanvasRef}
-                style={styles.markupCanvas}
-                onPointerDown={startMarkupDraw}
-                onPointerMove={drawMarkup}
-                onPointerUp={stopMarkupDraw}
-                onPointerCancel={stopMarkupDraw}
-                onPointerLeave={stopMarkupDraw}
-              />
-            </div>
-
-            <div style={styles.createModalActions}>
-              <button type="button" onClick={clearMarkupCanvas} style={styles.secondaryBtn}>
-                Clear
-              </button>
-              <button type="button" onClick={closeMarkup} style={styles.secondaryBtn}>
-                Cancel
-              </button>
-              <button type="button" onClick={saveMarkupAndNext} style={styles.primaryBtn}>
-                Save & Next
               </button>
             </div>
           </div>
