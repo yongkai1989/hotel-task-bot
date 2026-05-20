@@ -52,6 +52,13 @@ export async function PUT(
     const newImageUrls: string[] =
       Array.isArray(body.new_image_urls) ? body.new_image_urls : [];
 
+    const newMediaTypes: ('image' | 'video')[] =
+      Array.isArray(body.new_media_types)
+        ? body.new_media_types.map((value: any) =>
+            String(value || '').toLowerCase() === 'video' ? 'video' : 'image'
+          )
+        : [];
+
     const newImageCaptions: (string | null)[] =
       Array.isArray(body.new_image_captions)
         ? body.new_image_captions
@@ -100,16 +107,16 @@ export async function PUT(
       );
     }
 
-    if (existingTask.status !== 'OPEN') {
+    if (existingTask.status === 'DONE') {
       return jsonNoCache(
-        { ok: false, error: 'Only OPEN tasks can be edited' },
+        { ok: false, error: 'DONE tasks cannot be edited' },
         400
       );
     }
 
     const { data: existingImages, error: existingImagesError } = await supabaseAdmin
       .from('task_images')
-      .select('id')
+      .select('id, image_url')
       .eq('task_id', taskId);
 
     if (existingImagesError) {
@@ -143,6 +150,10 @@ export async function PUT(
         task_id: taskId,
         image_url: url,
         caption: newImageCaptions[idx] || null,
+        media_type: newMediaTypes[idx] || 'image',
+        completed_at: null,
+        completed_by_name: null,
+        completed_by_email: null,
         created_by_name: user.name,
       }));
 
@@ -158,12 +169,28 @@ export async function PUT(
       }
     }
 
+    const { data: firstImageAfterEdit, error: firstImageError } = await supabaseAdmin
+      .from('task_images')
+      .select('image_url')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (firstImageError) {
+      return jsonNoCache(
+        { ok: false, error: firstImageError.message },
+        500
+      );
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from('tasks')
       .update({
         room,
         department,
         task_text: taskText,
+        image_url: firstImageAfterEdit?.image_url || null,
         edited_at: new Date().toISOString(),
         edited_by_name: user.name,
         edited_by_email: user.email,
@@ -195,7 +222,9 @@ export async function PUT(
         created_by_name,
         edited_at,
         edited_by_email,
-        edited_by_name
+        edited_by_name,
+        checked_at,
+        checked_by_name
       `)
       .eq('id', taskId)
       .single();
@@ -206,6 +235,9 @@ export async function PUT(
         id,
         image_url,
         caption,
+        media_type,
+        completed_at,
+        completed_by_name,
         created_at
       `)
       .eq('task_id', taskId)
@@ -274,10 +306,7 @@ export async function DELETE(
     }
 
     const [imageDeleteResult, eventDeleteResult] = await Promise.all([
-      supabaseAdmin
-        .from('task_images')
-        .delete()
-        .eq('task_id', taskId),
+      supabaseAdmin.from('task_images').delete().eq('task_id', taskId),
       supabaseAdmin
         .from('task_events')
         .delete()
