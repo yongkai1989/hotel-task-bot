@@ -171,10 +171,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [detailOpen, setDetailOpen] = useState(false);
   const [addingToCheckId, setAddingToCheckId] = useState<string | null>(null);
   const [markupIndex, setMarkupIndex] = useState<number | null>(null);
+  const [markupDrawMode, setMarkupDrawMode] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const cleanupDoneRef = useRef(false);
 
   const canAccess = isAccessAllowed(profile, department);
   const canReview = isReviewer(profile);
@@ -253,6 +255,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   useEffect(() => {
     if (markupIndex === null) return;
+    setMarkupDrawMode(false);
     const item = draftMedia[markupIndex];
     if (!item || item.media_type !== 'image') return;
     let cancelled = false;
@@ -283,6 +286,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setLoading(true);
     setErrorMsg('');
     try {
+      if (!cleanupDoneRef.current) {
+        cleanupDoneRef.current = true;
+        void cleanupOldDoneChecks();
+      }
+
       const { data: checkRows, error: checkError } = await supabase
         .from('manager_room_checks')
         .select('*')
@@ -319,6 +327,23 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     } = await supabase.auth.getSession();
     if (!session?.access_token) throw new Error('Please log in again.');
     return session.access_token;
+  }
+
+  async function cleanupOldDoneChecks() {
+    try {
+      const token = await getAccessToken();
+      await fetch('/api/manager-room-checks/cleanup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ department }),
+        cache: 'no-store',
+      });
+    } catch {
+      // Cleanup saves storage but should never block normal page use.
+    }
   }
 
   async function addFiles(files: FileList | File[]) {
@@ -713,6 +738,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    if (!markupDrawMode) return;
     const point = pointerPosition(event);
     if (!point) return;
     drawingRef.current = true;
@@ -721,6 +747,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   function draw(event: PointerEvent<HTMLCanvasElement>) {
+    if (!markupDrawMode) return;
     if (!drawingRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -764,6 +791,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       )
     );
     setMarkupIndex(null);
+    setMarkupDrawMode(false);
   }
 
   if (authLoading || loading) {
@@ -1004,16 +1032,34 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
       {markupIndex !== null ? (
         <Modal title={`Mark Up ${draftMedia[markupIndex]?.caption || 'Image'}`} onClose={() => setMarkupIndex(null)} wide>
+          <div className="mrc-markup-toolbar">
+            <button
+              type="button"
+              className={!markupDrawMode ? 'mrc-primary' : 'mrc-secondary'}
+              onClick={() => setMarkupDrawMode(false)}
+            >
+              Scroll Image
+            </button>
+            <button
+              type="button"
+              className={markupDrawMode ? 'mrc-primary' : 'mrc-secondary'}
+              onClick={() => setMarkupDrawMode(true)}
+            >
+              Draw Red Markup
+            </button>
+            <span>{markupDrawMode ? 'Draw mode is on' : 'Scroll mode is on'}</span>
+          </div>
           <div className="mrc-markup">
             <canvas
               ref={canvasRef}
+              className={markupDrawMode ? 'is-drawing' : ''}
               onPointerDown={startDrawing}
               onPointerMove={draw}
               onPointerUp={stopDrawing}
               onPointerLeave={stopDrawing}
             />
           </div>
-          <div className="mrc-modal-actions">
+          <div className="mrc-modal-actions mrc-markup-actions">
             <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(null)}>Cancel</button>
             <button type="button" className="mrc-primary" onClick={() => void saveMarkup()}>Save Markup</button>
           </div>
@@ -1341,6 +1387,8 @@ function StyleBlock() {
         max-height: 92vh;
         overflow-y: auto;
         overflow-x: hidden;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
         background: #fff;
         border-radius: 22px;
         padding: 18px;
@@ -1355,11 +1403,18 @@ function StyleBlock() {
         width: min(1120px, 100%);
       }
       .mrc-modal-head {
+        position: sticky;
+        top: -18px;
+        z-index: 5;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 14px;
+        margin: -18px -18px 14px;
+        padding: 18px;
+        background: rgba(255,255,255,0.96);
+        border-bottom: 1px solid #eef2f7;
+        backdrop-filter: blur(10px);
       }
       .mrc-modal-head h2 {
         margin: 0;
@@ -1434,6 +1489,7 @@ function StyleBlock() {
         grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
         gap: 12px;
         margin-top: 14px;
+        touch-action: pan-y;
       }
       .mrc-draft-card,
       .mrc-media-card {
@@ -1509,12 +1565,48 @@ function StyleBlock() {
       .mrc-markup {
         display: grid;
         justify-items: center;
+        padding-bottom: 92px;
       }
       .mrc-markup canvas {
         max-width: 100%;
         border-radius: 16px;
         border: 1px solid #cbd5e1;
+        touch-action: pan-y pinch-zoom;
+        cursor: grab;
+      }
+      .mrc-markup canvas.is-drawing {
         touch-action: none;
+        cursor: crosshair;
+      }
+      .mrc-markup-toolbar {
+        position: sticky;
+        top: 61px;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: -4px 0 12px;
+        padding: 10px;
+        border: 1px solid #dbeafe;
+        border-radius: 16px;
+        background: rgba(239,246,255,.96);
+        backdrop-filter: blur(10px);
+      }
+      .mrc-markup-toolbar span {
+        color: #475569;
+        font-size: 13px;
+        font-weight: 850;
+      }
+      .mrc-markup-actions {
+        position: sticky;
+        bottom: -18px;
+        z-index: 5;
+        margin: 12px -18px -18px;
+        padding: 12px 18px;
+        background: rgba(255,255,255,.97);
+        border-top: 1px solid #eef2f7;
+        backdrop-filter: blur(10px);
       }
       .mrc-denied {
         padding: 28px;
@@ -1594,6 +1686,19 @@ function StyleBlock() {
           padding: 14px;
           border-radius: 18px;
           max-height: 94vh;
+        }
+        .mrc-modal-head {
+          top: -14px;
+          margin: -14px -14px 12px;
+          padding: 14px;
+        }
+        .mrc-markup-toolbar {
+          top: 55px;
+        }
+        .mrc-markup-actions {
+          bottom: -14px;
+          margin: 12px -14px -14px;
+          padding: 12px 14px;
         }
         .mrc-draft-grid,
         .mrc-media-grid {
