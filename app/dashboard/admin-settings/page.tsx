@@ -12,13 +12,16 @@ type UserProfile = {
   name: string;
   role: Role;
   can_access_preventive_maintenance: boolean;
+  can_access_maintenance_manager_room_check: boolean;
   can_access_maintenance_ot: boolean;
   can_access_maintenance_stock_card: boolean;
   can_access_maintenance_damaged: boolean;
   can_access_hk_special_project: boolean;
+  can_access_hk_manager_room_check: boolean;
   can_access_chambermaid_entry: boolean;
   can_access_supervisor_update: boolean;
   can_access_laundry_count: boolean;
+  can_access_laundry_received: boolean;
   can_access_stock_card: boolean;
   can_access_damaged: boolean;
   can_access_linen_history: boolean;
@@ -46,13 +49,16 @@ const accessFieldDefs: Array<{
   group: 'Maintenance' | 'Housekeeping' | 'Front Office' | 'Management' | 'Actions';
 }> = [
   { key: 'can_access_preventive_maintenance', label: 'Preventive Maintenance', group: 'Maintenance' },
+  { key: 'can_access_maintenance_manager_room_check', label: 'Manager Room Check', group: 'Maintenance' },
   { key: 'can_access_maintenance_ot', label: 'Maintenance OT', group: 'Maintenance' },
   { key: 'can_access_maintenance_stock_card', label: 'Maintenance Stock Card', group: 'Maintenance' },
   { key: 'can_access_maintenance_damaged', label: 'Maintenance Damaged', group: 'Maintenance' },
   { key: 'can_access_hk_special_project', label: 'HK Special Project', group: 'Housekeeping' },
+  { key: 'can_access_hk_manager_room_check', label: 'Manager Room Check', group: 'Housekeeping' },
   { key: 'can_access_chambermaid_entry', label: 'Chambermaid Entry', group: 'Housekeeping' },
   { key: 'can_access_supervisor_update', label: 'Supervisor Update', group: 'Housekeeping' },
   { key: 'can_access_laundry_count', label: 'Laundry Count', group: 'Housekeeping' },
+  { key: 'can_access_laundry_received', label: 'Laundry Received', group: 'Housekeeping' },
   { key: 'can_access_stock_card', label: 'Stock Card', group: 'Housekeeping' },
   { key: 'can_access_damaged', label: 'Damaged', group: 'Housekeeping' },
   { key: 'can_access_linen_history', label: 'Linen History', group: 'Housekeeping' },
@@ -70,13 +76,16 @@ const accessFieldDefs: Array<{
 function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'role'> {
   return {
     can_access_preventive_maintenance: false,
+    can_access_maintenance_manager_room_check: false,
     can_access_maintenance_ot: false,
     can_access_maintenance_stock_card: false,
     can_access_maintenance_damaged: false,
     can_access_hk_special_project: false,
+    can_access_hk_manager_room_check: false,
     can_access_chambermaid_entry: false,
     can_access_supervisor_update: false,
     can_access_laundry_count: false,
+    can_access_laundry_received: false,
     can_access_stock_card: false,
     can_access_damaged: false,
     can_access_linen_history: false,
@@ -117,6 +126,8 @@ function normalizeUser(
     role: normalizedRole,
     can_access_preventive_maintenance:
       toPermissionBoolean(permissionValue('can_access_preventive_maintenance')),
+    can_access_maintenance_manager_room_check:
+      toPermissionBoolean(permissionValue('can_access_maintenance_manager_room_check')),
     can_access_maintenance_ot:
       toPermissionBoolean(permissionValue('can_access_maintenance_ot')),
     can_access_maintenance_stock_card:
@@ -125,12 +136,16 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_maintenance_damaged')),
     can_access_hk_special_project:
       toPermissionBoolean(permissionValue('can_access_hk_special_project')),
+    can_access_hk_manager_room_check:
+      toPermissionBoolean(permissionValue('can_access_hk_manager_room_check')),
     can_access_chambermaid_entry:
       toPermissionBoolean(permissionValue('can_access_chambermaid_entry')),
     can_access_supervisor_update:
       toPermissionBoolean(permissionValue('can_access_supervisor_update')),
     can_access_laundry_count:
       toPermissionBoolean(permissionValue('can_access_laundry_count')),
+    can_access_laundry_received:
+      toPermissionBoolean(permissionValue('can_access_laundry_received')),
     can_access_stock_card:
       toPermissionBoolean(permissionValue('can_access_stock_card')),
     can_access_damaged:
@@ -162,13 +177,16 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     name: draft.name.trim(),
     role: draft.role,
     can_access_preventive_maintenance: toPermissionBoolean(draft.can_access_preventive_maintenance),
+    can_access_maintenance_manager_room_check: toPermissionBoolean(draft.can_access_maintenance_manager_room_check),
     can_access_maintenance_ot: toPermissionBoolean(draft.can_access_maintenance_ot),
     can_access_maintenance_stock_card: toPermissionBoolean(draft.can_access_maintenance_stock_card),
     can_access_maintenance_damaged: toPermissionBoolean(draft.can_access_maintenance_damaged),
     can_access_hk_special_project: toPermissionBoolean(draft.can_access_hk_special_project),
+    can_access_hk_manager_room_check: toPermissionBoolean(draft.can_access_hk_manager_room_check),
     can_access_chambermaid_entry: toPermissionBoolean(draft.can_access_chambermaid_entry),
     can_access_supervisor_update: toPermissionBoolean(draft.can_access_supervisor_update),
     can_access_laundry_count: toPermissionBoolean(draft.can_access_laundry_count),
+    can_access_laundry_received: toPermissionBoolean(draft.can_access_laundry_received),
     can_access_stock_card: toPermissionBoolean(draft.can_access_stock_card),
     can_access_damaged: toPermissionBoolean(draft.can_access_damaged),
     can_access_linen_history: toPermissionBoolean(draft.can_access_linen_history),
