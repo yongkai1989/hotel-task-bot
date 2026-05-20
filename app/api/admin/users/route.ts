@@ -31,6 +31,7 @@ function enabledCount(row: any) {
     row?.can_access_chambermaid_entry,
     row?.can_access_supervisor_update,
     row?.can_access_laundry_count,
+    row?.can_access_laundry_received,
     row?.can_access_stock_card,
     row?.can_access_damaged,
     row?.can_access_linen_history,
@@ -71,6 +72,8 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_supervisor_update),
     can_access_laundry_count:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_laundry_count),
+    can_access_laundry_received:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_laundry_received),
     can_access_stock_card:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_stock_card),
     can_access_damaged:
@@ -198,6 +201,7 @@ const profileSelect = `
   can_access_chambermaid_entry,
   can_access_supervisor_update,
   can_access_laundry_count,
+  can_access_laundry_received,
   can_access_stock_card,
   can_access_damaged,
   can_access_linen_history,
