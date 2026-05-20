@@ -1,4 +1,4 @@
-export type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
+export type TaskStatus = 'OPEN' | 'DONE';
 export type Dept = 'HK' | 'MT' | 'FO';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
@@ -13,9 +13,12 @@ async function telegram(method: string, body: any) {
   return res.json();
 }
 
-function labelForStatus(status: TaskStatus) {
-  if (status === 'IN_PROGRESS') return 'DOING';
-  return status;
+function normalizeStatus(status: TaskStatus | string): TaskStatus {
+  return String(status || '').toUpperCase() === 'DONE' ? 'DONE' : 'OPEN';
+}
+
+function labelForStatus(status: TaskStatus | string) {
+  return normalizeStatus(status);
 }
 
 function formatDateTime(value?: string | null) {
@@ -73,21 +76,19 @@ export function buildTaskMessageText(task: {
 }
 
 export function buildTaskInlineKeyboard(taskId: string, status: TaskStatus) {
+  const normalizedStatus = normalizeStatus(status);
+
   return {
     inline_keyboard: [
       [
         {
-          text: status === 'IN_PROGRESS' ? 'DOING OK' : 'DOING',
-          callback_data: `doing:${taskId}`,
-        },
-        {
-          text: status === 'DONE' ? 'DONE OK' : 'DONE',
+          text: normalizedStatus === 'DONE' ? 'DONE OK' : 'DONE',
           callback_data: `done:${taskId}`,
         },
       ],
       [
         {
-          text: status === 'OPEN' ? 'REOPENED' : 'REOPEN',
+          text: normalizedStatus === 'OPEN' ? 'REOPENED' : 'REOPEN',
           callback_data: `reopen:${taskId}`,
         },
       ],
