@@ -525,6 +525,12 @@ function returnedDiffStyle(value: number): React.CSSProperties {
   return { color: '#166534', fontWeight: 800 };
 }
 
+function countDiffStyle(value: number): React.CSSProperties {
+  if (value > 0) return { color: '#b91c1c', fontWeight: 800 };
+  if (value < 0) return { color: '#166534', fontWeight: 800 };
+  return { color: '#166534', fontWeight: 800 };
+}
+
 export default function LinenHistoryPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1124,6 +1130,7 @@ export default function LinenHistoryPage() {
               {ITEM_DEFS.map((item) => {
                 const diffValue = selectedSummary.difference[item.key];
                 const returnedDiffValue = selectedSummary.returnedDifference[item.key];
+                const countDiffValue = selectedSummary.inBill[item.key] - selectedSummary.actual[item.key];
                 return (
                   <div key={item.key} style={styles.itemCard}>
                     <div style={styles.itemTitle}>{item.label}</div>
@@ -1152,6 +1159,13 @@ export default function LinenHistoryPage() {
                       </div>
                     ) : (
                       <>
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>Count Difference</span>
+                          <span style={{ ...styles.metricValue, ...countDiffStyle(countDiffValue) }}>
+                            {formatDiff(countDiffValue)}
+                          </span>
+                        </div>
+
                         <div style={styles.metricRow}>
                           <span style={styles.metricLabel}>Returned</span>
                           <span style={styles.metricValue}>{selectedSummary.returned[item.key]}</span>
