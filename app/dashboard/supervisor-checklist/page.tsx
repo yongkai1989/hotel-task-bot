@@ -42,6 +42,16 @@ type Submission = {
   updated_at?: string | null;
 };
 
+type TrackerRow = {
+  user_id: string;
+  name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  submission_id?: string | null;
+  submitted_at?: string | null;
+  updated_at?: string | null;
+};
+
 type AnswerRow = {
   id?: string;
   submission_id?: string;
@@ -133,6 +143,7 @@ export default function SupervisorChecklistPage() {
   const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
   const [remarkOpenByQuestionId, setRemarkOpenByQuestionId] = useState<Record<string, boolean>>({});
   const [pastSubmissions, setPastSubmissions] = useState<Submission[]>([]);
+  const [trackerRows, setTrackerRows] = useState<TrackerRow[]>([]);
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
   const [viewingAnswers, setViewingAnswers] = useState<Record<string, AnswerRow>>({});
 
@@ -322,6 +333,7 @@ export default function SupervisorChecklistPage() {
           .select('*')
           .eq('template_id', templateId)
           .eq('submission_date', today)
+          .eq('submitted_by_user_id', profile.user_id)
           .maybeSingle(),
         supabase
           .from('supervisor_checklist_submissions')
@@ -338,6 +350,21 @@ export default function SupervisorChecklistPage() {
       const currentSubmission = submissionRes.data as Submission | null;
       setTodaySubmission(currentSubmission);
       setPastSubmissions((pastRes.data || []) as Submission[]);
+
+      try {
+        const { data: trackerData, error: trackerError } = await supabase.rpc(
+          'get_supervisor_checklist_tracker',
+          {
+            p_template_id: templateId,
+            p_submission_date: today,
+          }
+        );
+
+        if (trackerError) throw trackerError;
+        setTrackerRows((trackerData || []) as TrackerRow[]);
+      } catch {
+        setTrackerRows([]);
+      }
 
       if (currentSubmission) {
         const { data: answerRows, error: answerError } = await supabase
@@ -1005,6 +1032,48 @@ export default function SupervisorChecklistPage() {
               </div>
             </div>
 
+            {trackerRows.length > 0 ? (
+              <div style={styles.trackerPanel}>
+                <div style={styles.trackerHeader}>
+                  <div>
+                    <div style={styles.sectionEyebrow}>Submission Tracker</div>
+                    <div style={styles.trackerTitle}>
+                      {trackerRows.filter((row) => row.submission_id).length}/{trackerRows.length} supervisors submitted
+                    </div>
+                  </div>
+                  <div style={styles.trackerDate}>{formatDate(today)}</div>
+                </div>
+                <div style={styles.trackerGrid}>
+                  {trackerRows.map((row) => {
+                    const submitted = Boolean(row.submission_id);
+                    return (
+                      <div
+                        key={row.user_id}
+                        style={{
+                          ...styles.trackerCard,
+                          ...(submitted ? styles.trackerCardSubmitted : styles.trackerCardPending),
+                        }}
+                      >
+                        <div style={styles.trackerUser}>
+                          <span style={submitted ? styles.trackerDotSubmitted : styles.trackerDotPending} />
+                          <div>
+                            <div style={styles.trackerName}>{row.name || row.email || 'Supervisor'}</div>
+                            <div style={styles.trackerEmail}>{row.email || row.role || '-'}</div>
+                          </div>
+                        </div>
+                        <div style={submitted ? styles.trackerStatusSubmitted : styles.trackerStatusPending}>
+                          {submitted ? 'Submitted' : 'Pending'}
+                        </div>
+                        <div style={styles.trackerTime}>
+                          {submitted ? formatDateTime(row.updated_at || row.submitted_at) : 'Not submitted yet'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             <div style={styles.questionList}>
               {selectedQuestions.map((question, index) => (
                 <div key={question.id} style={{ ...styles.questionCard, ...(isMobile ? styles.questionCardMobile : {}) }}>
@@ -1662,6 +1731,115 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     marginTop: '6px',
     fontWeight: 700,
+  },
+  trackerPanel: {
+    border: '1px solid #dbe7f7',
+    background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)',
+    borderRadius: '18px',
+    padding: '14px',
+    marginBottom: '14px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.035)',
+  },
+  trackerHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'flex-start',
+    marginBottom: '12px',
+    flexWrap: 'wrap',
+  },
+  trackerTitle: {
+    fontSize: '18px',
+    fontWeight: 900,
+    color: '#0f172a',
+  },
+  trackerDate: {
+    border: '1px solid #dbe7f7',
+    background: '#ffffff',
+    borderRadius: '999px',
+    padding: '8px 11px',
+    fontSize: '12px',
+    fontWeight: 900,
+    color: '#475569',
+  },
+  trackerGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+    gap: '10px',
+  },
+  trackerCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '16px',
+    padding: '12px',
+    display: 'grid',
+    gap: '9px',
+  },
+  trackerCardSubmitted: {
+    background: '#f0fdf4',
+    borderColor: '#bbf7d0',
+  },
+  trackerCardPending: {
+    background: '#fff7ed',
+    borderColor: '#fed7aa',
+  },
+  trackerUser: {
+    display: 'flex',
+    gap: '9px',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  trackerDotSubmitted: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '999px',
+    background: '#16a34a',
+    flex: '0 0 auto',
+  },
+  trackerDotPending: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '999px',
+    background: '#f97316',
+    flex: '0 0 auto',
+  },
+  trackerName: {
+    fontSize: '14px',
+    fontWeight: 900,
+    color: '#0f172a',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  trackerEmail: {
+    fontSize: '12px',
+    fontWeight: 700,
+    color: '#64748b',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  trackerStatusSubmitted: {
+    width: 'fit-content',
+    borderRadius: '999px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 900,
+    color: '#166534',
+    background: '#dcfce7',
+  },
+  trackerStatusPending: {
+    width: 'fit-content',
+    borderRadius: '999px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 900,
+    color: '#c2410c',
+    background: '#ffedd5',
+  },
+  trackerTime: {
+    fontSize: '12px',
+    fontWeight: 800,
+    color: '#475569',
   },
   statusPill: {
     borderRadius: '999px',
