@@ -52,13 +52,6 @@ export async function PUT(
     const newImageUrls: string[] =
       Array.isArray(body.new_image_urls) ? body.new_image_urls : [];
 
-    const newMediaTypes: ('image' | 'video')[] =
-      Array.isArray(body.new_media_types)
-        ? body.new_media_types.map((value: any) =>
-            String(value || '').toLowerCase() === 'video' ? 'video' : 'image'
-          )
-        : [];
-
     const newImageCaptions: (string | null)[] =
       Array.isArray(body.new_image_captions)
         ? body.new_image_captions
@@ -107,16 +100,16 @@ export async function PUT(
       );
     }
 
-    if (existingTask.status === 'DONE') {
+    if (existingTask.status !== 'OPEN') {
       return jsonNoCache(
-        { ok: false, error: 'DONE tasks cannot be edited' },
+        { ok: false, error: 'Only OPEN tasks can be edited' },
         400
       );
     }
 
     const { data: existingImages, error: existingImagesError } = await supabaseAdmin
       .from('task_images')
-      .select('id, image_url')
+      .select('id')
       .eq('task_id', taskId);
 
     if (existingImagesError) {
@@ -150,10 +143,6 @@ export async function PUT(
         task_id: taskId,
         image_url: url,
         caption: newImageCaptions[idx] || null,
-        media_type: newMediaTypes[idx] || 'image',
-        completed_at: null,
-        completed_by_name: null,
-        completed_by_email: null,
         created_by_name: user.name,
       }));
 
@@ -222,9 +211,7 @@ export async function PUT(
         created_by_name,
         edited_at,
         edited_by_email,
-        edited_by_name,
-        checked_at,
-        checked_by_name
+        edited_by_name
       `)
       .eq('id', taskId)
       .single();
@@ -235,9 +222,6 @@ export async function PUT(
         id,
         image_url,
         caption,
-        media_type,
-        completed_at,
-        completed_by_name,
         created_at
       `)
       .eq('task_id', taskId)
