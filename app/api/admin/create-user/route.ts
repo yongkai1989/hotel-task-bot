@@ -25,6 +25,7 @@ type CreateBody = {
   can_access_admin_settings?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
+  can_access_supervisor_checklist?: boolean;
   can_create_task?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
@@ -53,6 +54,7 @@ function withPermissions(row: any) {
     can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
     can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
     can_access_lost_found: toPermissionBoolean(row.can_access_lost_found),
+    can_access_supervisor_checklist: toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_checklist:
       role === 'SUPERUSER' ||
       (
@@ -142,6 +144,8 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_admin_settings),
       can_access_lost_found:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_lost_found),
+      can_access_supervisor_checklist:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_supervisor_checklist),
       can_access_fo_checklist:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fo_checklist),
       can_create_task: toPermissionBoolean(body.can_create_task),
@@ -173,6 +177,7 @@ export async function POST(req: NextRequest) {
         can_access_management_tasks,
         can_access_admin_settings,
         can_access_lost_found,
+        can_access_supervisor_checklist,
         can_access_fo_checklist,
         can_create_task,
         can_edit_task,
