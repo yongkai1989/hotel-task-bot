@@ -24,6 +24,7 @@ type SidebarProfile = {
   can_access_stock_card?: boolean;
   can_access_damaged?: boolean;
   can_access_linen_history?: boolean;
+  can_access_supervisor_checklist?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
   can_access_admin_settings?: boolean;
@@ -45,6 +46,7 @@ type SidebarProfile = {
     | 'can_access_stock_card'
     | 'can_access_damaged'
     | 'can_access_linen_history'
+    | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
@@ -108,6 +110,7 @@ type EffectiveProfile = Required<
     | 'can_access_stock_card'
     | 'can_access_damaged'
     | 'can_access_linen_history'
+    | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
     | 'can_access_admin_settings'
@@ -159,6 +162,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_damaged')),
     can_access_linen_history:
       isSuperuser || hasAccess(permissionValue('can_access_linen_history')),
+    can_access_supervisor_checklist:
+      isSuperuser || hasAccess(permissionValue('can_access_supervisor_checklist')),
     can_access_daily_forms:
       isSuperuser || hasAccess(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
@@ -565,6 +570,7 @@ export default function DashboardSidebar({
   const canSeeStockCard = !!effectiveProfile?.can_access_stock_card;
   const canSeeDamaged = !!effectiveProfile?.can_access_damaged;
   const canSeeLinenHistory = !!effectiveProfile?.can_access_linen_history;
+  const canSeeSupervisorChecklist = !!effectiveProfile?.can_access_supervisor_checklist;
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
@@ -592,7 +598,8 @@ export default function DashboardSidebar({
     canSeeLaundryCount ||
     canSeeStockCard ||
     canSeeDamaged ||
-    canSeeLinenHistory;
+    canSeeLinenHistory ||
+    canSeeSupervisorChecklist;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
   const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist;
@@ -609,6 +616,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_stock_card,
     effectiveProfile?.can_access_damaged,
     effectiveProfile?.can_access_linen_history,
+    effectiveProfile?.can_access_supervisor_checklist,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
@@ -1047,6 +1055,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="history" sub>Linen History</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeSupervisorChecklist ? (
+                <Link
+                  href="/dashboard/supervisor-checklist"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Supervisor Checklist</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
