@@ -21,6 +21,7 @@ type SidebarProfile = {
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
+  can_access_laundry_received?: boolean;
   can_access_stock_card?: boolean;
   can_access_damaged?: boolean;
   can_access_linen_history?: boolean;
@@ -43,6 +44,7 @@ type SidebarProfile = {
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
     | 'can_access_laundry_count'
+    | 'can_access_laundry_received'
     | 'can_access_stock_card'
     | 'can_access_damaged'
     | 'can_access_linen_history'
@@ -107,6 +109,7 @@ type EffectiveProfile = Required<
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
     | 'can_access_laundry_count'
+    | 'can_access_laundry_received'
     | 'can_access_stock_card'
     | 'can_access_damaged'
     | 'can_access_linen_history'
@@ -156,6 +159,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_supervisor_update')),
     can_access_laundry_count:
       isSuperuser || hasAccess(permissionValue('can_access_laundry_count')),
+    can_access_laundry_received:
+      isSuperuser || hasAccess(permissionValue('can_access_laundry_received')),
     can_access_stock_card:
       isSuperuser || hasAccess(permissionValue('can_access_stock_card')),
     can_access_damaged:
@@ -567,6 +572,7 @@ export default function DashboardSidebar({
   const canSeeChambermaid = !!effectiveProfile?.can_access_chambermaid_entry;
   const canSeeSupervisorUpdate = !!effectiveProfile?.can_access_supervisor_update;
   const canSeeLaundryCount = !!effectiveProfile?.can_access_laundry_count;
+  const canSeeLaundryReceived = !!effectiveProfile?.can_access_laundry_received;
   const canSeeStockCard = !!effectiveProfile?.can_access_stock_card;
   const canSeeDamaged = !!effectiveProfile?.can_access_damaged;
   const canSeeLinenHistory = !!effectiveProfile?.can_access_linen_history;
@@ -596,6 +602,7 @@ export default function DashboardSidebar({
     canSeeChambermaid ||
     canSeeSupervisorUpdate ||
     canSeeLaundryCount ||
+    canSeeLaundryReceived ||
     canSeeStockCard ||
     canSeeDamaged ||
     canSeeLinenHistory ||
@@ -613,6 +620,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_chambermaid_entry,
     effectiveProfile?.can_access_supervisor_update,
     effectiveProfile?.can_access_laundry_count,
+    effectiveProfile?.can_access_laundry_received,
     effectiveProfile?.can_access_stock_card,
     effectiveProfile?.can_access_damaged,
     effectiveProfile?.can_access_linen_history,
@@ -1016,7 +1024,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeLaundryCount ? (
+              {canSeeLaundryCount || canSeeLaundryReceived ? (
                 <Link
                   href="/dashboard/laundry-count"
                   prefetch={false}
