@@ -22,6 +22,7 @@ type UserProfile = {
   can_access_stock_card: boolean;
   can_access_damaged: boolean;
   can_access_linen_history: boolean;
+  can_access_supervisor_checklist: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
   can_access_admin_settings: boolean;
@@ -55,6 +56,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_stock_card', label: 'Stock Card', group: 'Housekeeping' },
   { key: 'can_access_damaged', label: 'Damaged', group: 'Housekeeping' },
   { key: 'can_access_linen_history', label: 'Linen History', group: 'Housekeeping' },
+  { key: 'can_access_supervisor_checklist', label: 'Supervisor Checklist', group: 'Housekeeping' },
   { key: 'can_access_daily_forms', label: 'Daily Forms', group: 'Management' },
   { key: 'can_access_management_tasks', label: 'Management Tasks', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
@@ -78,6 +80,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_stock_card: false,
     can_access_damaged: false,
     can_access_linen_history: false,
+    can_access_supervisor_checklist: false,
     can_access_daily_forms: false,
     can_access_management_tasks: false,
     can_access_admin_settings: false,
@@ -134,6 +137,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_damaged')),
     can_access_linen_history:
       toPermissionBoolean(permissionValue('can_access_linen_history')),
+    can_access_supervisor_checklist:
+      toPermissionBoolean(permissionValue('can_access_supervisor_checklist')),
     can_access_daily_forms:
       toPermissionBoolean(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
@@ -167,6 +172,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_stock_card: toPermissionBoolean(draft.can_access_stock_card),
     can_access_damaged: toPermissionBoolean(draft.can_access_damaged),
     can_access_linen_history: toPermissionBoolean(draft.can_access_linen_history),
+    can_access_supervisor_checklist: toPermissionBoolean(draft.can_access_supervisor_checklist),
     can_access_daily_forms: toPermissionBoolean(draft.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(draft.can_access_management_tasks),
     can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
