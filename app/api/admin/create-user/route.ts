@@ -17,6 +17,7 @@ type CreateBody = {
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
+  can_access_laundry_received?: boolean;
   can_access_stock_card?: boolean;
   can_access_damaged?: boolean;
   can_access_linen_history?: boolean;
@@ -47,6 +48,7 @@ function withPermissions(row: any) {
     can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
     can_access_supervisor_update: toPermissionBoolean(row.can_access_supervisor_update),
     can_access_laundry_count: toPermissionBoolean(row.can_access_laundry_count),
+    can_access_laundry_received: toPermissionBoolean(row.can_access_laundry_received),
     can_access_stock_card: toPermissionBoolean(row.can_access_stock_card),
     can_access_damaged: toPermissionBoolean(row.can_access_damaged),
     can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
@@ -135,6 +137,7 @@ export async function POST(req: NextRequest) {
       can_access_chambermaid_entry: toPermissionBoolean(body.can_access_chambermaid_entry),
       can_access_supervisor_update: toPermissionBoolean(body.can_access_supervisor_update),
       can_access_laundry_count: toPermissionBoolean(body.can_access_laundry_count),
+      can_access_laundry_received: toPermissionBoolean(body.can_access_laundry_received),
       can_access_stock_card: toPermissionBoolean(body.can_access_stock_card),
       can_access_damaged: toPermissionBoolean(body.can_access_damaged),
       can_access_linen_history: toPermissionBoolean(body.can_access_linen_history),
@@ -170,6 +173,7 @@ export async function POST(req: NextRequest) {
         can_access_chambermaid_entry,
         can_access_supervisor_update,
         can_access_laundry_count,
+        can_access_laundry_received,
         can_access_stock_card,
         can_access_damaged,
         can_access_linen_history,
