@@ -32,6 +32,7 @@ const PROFILE_SELECT = `
   can_access_linen_admin,
   can_access_lost_found,
   can_access_fo_checklist,
+  can_access_supervisor_checklist,
   updated_at
 `;
 
@@ -84,6 +85,7 @@ const permissionKeys = [
   'can_access_admin_settings',
   'can_access_lost_found',
   'can_access_fo_checklist',
+  'can_access_supervisor_checklist',
 ];
 
 function enabledCount(profile: any) {
@@ -152,6 +154,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_lost_found),
     can_access_fo_checklist:
       effectiveFoChecklist(role, profile.email || authEmail, profile.can_access_fo_checklist),
+    can_access_supervisor_checklist:
+      effectiveBoolean(role, profile.can_access_supervisor_checklist),
   };
 
   return {
