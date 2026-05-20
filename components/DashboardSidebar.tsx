@@ -14,10 +14,12 @@ type SidebarProfile = {
   can_edit_task?: boolean;
   can_delete_task?: boolean;
   can_access_preventive_maintenance?: boolean;
+  can_access_maintenance_manager_room_check?: boolean;
   can_access_maintenance_ot?: boolean;
   can_access_maintenance_stock_card?: boolean;
   can_access_maintenance_damaged?: boolean;
   can_access_hk_special_project?: boolean;
+  can_access_hk_manager_room_check?: boolean;
   can_access_chambermaid_entry?: boolean;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
@@ -37,10 +39,12 @@ type SidebarProfile = {
     | 'can_edit_task'
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
+    | 'can_access_maintenance_manager_room_check'
     | 'can_access_maintenance_ot'
     | 'can_access_maintenance_stock_card'
     | 'can_access_maintenance_damaged'
     | 'can_access_hk_special_project'
+    | 'can_access_hk_manager_room_check'
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
     | 'can_access_laundry_count'
@@ -102,10 +106,12 @@ type EffectiveProfile = Required<
     | 'can_edit_task'
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
+    | 'can_access_maintenance_manager_room_check'
     | 'can_access_maintenance_ot'
     | 'can_access_maintenance_stock_card'
     | 'can_access_maintenance_damaged'
     | 'can_access_hk_special_project'
+    | 'can_access_hk_manager_room_check'
     | 'can_access_chambermaid_entry'
     | 'can_access_supervisor_update'
     | 'can_access_laundry_count'
@@ -145,6 +151,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
     can_delete_task: isSuperuser || hasAccess(permissionValue('can_delete_task')),
     can_access_preventive_maintenance:
       isSuperuser || hasAccess(permissionValue('can_access_preventive_maintenance')),
+    can_access_maintenance_manager_room_check:
+      isSuperuser || hasAccess(permissionValue('can_access_maintenance_manager_room_check')),
     can_access_maintenance_ot:
       isSuperuser || hasAccess(permissionValue('can_access_maintenance_ot')),
     can_access_maintenance_stock_card:
@@ -153,6 +161,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_maintenance_damaged')),
     can_access_hk_special_project:
       isSuperuser || hasAccess(permissionValue('can_access_hk_special_project')),
+    can_access_hk_manager_room_check:
+      isSuperuser || hasAccess(permissionValue('can_access_hk_manager_room_check')),
     can_access_chambermaid_entry:
       isSuperuser || hasAccess(permissionValue('can_access_chambermaid_entry')),
     can_access_supervisor_update:
@@ -564,11 +574,14 @@ export default function DashboardSidebar({
   const canSeePastTask = true;
 
   const canSeePM = !!effectiveProfile?.can_access_preventive_maintenance;
+  const canSeeMaintenanceManagerRoomCheck =
+    !!effectiveProfile?.can_access_maintenance_manager_room_check;
   const canSeeMaintenanceOT = !!effectiveProfile?.can_access_maintenance_ot;
   const canSeeMaintenanceStockCard = !!effectiveProfile?.can_access_maintenance_stock_card;
   const canSeeMaintenanceDamaged = !!effectiveProfile?.can_access_maintenance_damaged;
 
   const canSeeHkSpecialProject = !!effectiveProfile?.can_access_hk_special_project;
+  const canSeeHkManagerRoomCheck = !!effectiveProfile?.can_access_hk_manager_room_check;
   const canSeeChambermaid = !!effectiveProfile?.can_access_chambermaid_entry;
   const canSeeSupervisorUpdate = !!effectiveProfile?.can_access_supervisor_update;
   const canSeeLaundryCount = !!effectiveProfile?.can_access_laundry_count;
@@ -596,9 +609,14 @@ export default function DashboardSidebar({
     );
 
   const showMaintenanceGroup =
-    canSeePM || canSeeMaintenanceOT || canSeeMaintenanceStockCard || canSeeMaintenanceDamaged;
+    canSeePM ||
+    canSeeMaintenanceManagerRoomCheck ||
+    canSeeMaintenanceOT ||
+    canSeeMaintenanceStockCard ||
+    canSeeMaintenanceDamaged;
   const showHousekeepingGroup =
     canSeeHkSpecialProject ||
+    canSeeHkManagerRoomCheck ||
     canSeeChambermaid ||
     canSeeSupervisorUpdate ||
     canSeeLaundryCount ||
@@ -613,10 +631,12 @@ export default function DashboardSidebar({
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
+    effectiveProfile?.can_access_maintenance_manager_room_check,
     effectiveProfile?.can_access_maintenance_ot,
     effectiveProfile?.can_access_maintenance_stock_card,
     effectiveProfile?.can_access_maintenance_damaged,
     effectiveProfile?.can_access_hk_special_project,
+    effectiveProfile?.can_access_hk_manager_room_check,
     effectiveProfile?.can_access_chambermaid_entry,
     effectiveProfile?.can_access_supervisor_update,
     effectiveProfile?.can_access_laundry_count,
@@ -949,6 +969,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeMaintenanceManagerRoomCheck ? (
+                <Link
+                  href="/dashboard/maintenance-manager-room-check"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Manager Room Check</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeMaintenanceOT ? (
                 <Link
                   href="/dashboard/maintenance-ot"
@@ -999,6 +1030,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="sparkle" sub>HK Special Project</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeHkManagerRoomCheck ? (
+                <Link
+                  href="/dashboard/hk-manager-room-check"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Manager Room Check</SidebarNavContent>
                 </Link>
               ) : null}
 
