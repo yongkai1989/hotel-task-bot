@@ -127,6 +127,5 @@ export async function sendTelegramTaskCard(params: {
     text: buildTaskMessageText(params.task),
     reply_markup: buildTaskInlineKeyboard(params.task.id, params.task.status),
   });
-
   return sent?.result?.message_id ?? null;
 }
