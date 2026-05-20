@@ -10,6 +10,7 @@ type DashboardUser = {
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
   can_access_linen_admin?: boolean;
+  can_access_laundry_received?: boolean;
 };
 
 type RoomMasterRow = {
@@ -84,8 +85,9 @@ type GroupSummary = {
 };
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
-type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND';
+type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND' | 'RECEIVED';
 type FloorKey = (typeof FLOOR_KEYS)[number];
+type BlockKey = (typeof BLOCK_KEYS)[number];
 
 const FLOOR_KEYS = ['B1F1', 'B1F2', 'B1F3', 'B1F5', 'B2F3', 'B2F5', 'B2F6', 'B2F7'] as const;
 const BLOCK_KEYS = ['B1', 'B2'] as const;
@@ -121,6 +123,15 @@ function getSupabaseSafe() {
 
 function getTodayLocalDateString() {
   const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateString(baseDate: string, offsetDays: number) {
+  const d = new Date(`${baseDate}T00:00:00`);
+  d.setDate(d.getDate() + offsetDays);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -248,6 +259,13 @@ function emptyBillEntryMap(): Record<FloorKey, LinenTotals> {
   }, {} as Record<FloorKey, LinenTotals>);
 }
 
+function emptyBlockEntryMap(): Record<BlockKey, LinenTotals> {
+  return BLOCK_KEYS.reduce((acc, blockKey) => {
+    acc[blockKey] = zeroTotals();
+    return acc;
+  }, {} as Record<BlockKey, LinenTotals>);
+}
+
 function aggregateBillEntriesByBlock(entryMap: Record<FloorKey, LinenTotals>) {
   const block1 = zeroTotals();
   const block2 = zeroTotals();
@@ -284,11 +302,14 @@ export default function LaundryCountPage() {
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
   const [savingBill, setSavingBill] = useState(false);
+  const [savingReceived, setSavingReceived] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1200);
 
   const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
+  const [receivedEntryMap, setReceivedEntryMap] = useState<Record<BlockKey, LinenTotals>>(emptyBlockEntryMap());
 
   const serviceDate = getTodayLocalDateString();
+  const receivedServiceDate = shiftDateString(serviceDate, -1);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -319,7 +340,7 @@ export default function LaundryCountPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role, can_access_linen_admin')
+          .select('user_id, email, name, role, can_access_linen_admin, can_access_laundry_received')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -332,6 +353,7 @@ export default function LaundryCountPage() {
           name: profileRow?.name || session.user.email || 'User',
           role: (profileRow?.role || 'HK') as DashboardUser['role'],
           can_access_linen_admin: profileRow?.can_access_linen_admin ?? false,
+          can_access_laundry_received: profileRow?.can_access_laundry_received ?? false,
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -366,8 +388,13 @@ export default function LaundryCountPage() {
       return true;
     }
 
-    return profile.can_access_linen_admin === true;
+    return profile.can_access_linen_admin === true || profile.can_access_laundry_received === true;
   }, [profile, isLaundryOnlyUser]);
+
+  const canSeeLaundryReceived = useMemo(() => {
+    if (!profile) return false;
+    return profile.role === 'SUPERUSER' || profile.can_access_laundry_received === true;
+  }, [profile]);
 
   const canRunNewDay = useMemo(() => {
     if (!profile || isLaundryOnlyUser) return false;
@@ -453,6 +480,25 @@ export default function LaundryCountPage() {
 
       setBillEntryMap(nextBillEntryMap);
 
+      const nextReceivedEntryMap = emptyBlockEntryMap();
+      const receivedRes = await supabase
+        .from('linen_laundry_received')
+        .select('*')
+        .eq('service_date', receivedServiceDate)
+        .order('block_no', { ascending: true });
+
+      if (!receivedRes.error) {
+        (receivedRes.data || []).forEach((row: any) => {
+          const key = `B${Number(row.block_no)}` as BlockKey;
+          if (!BLOCK_KEYS.includes(key)) return;
+          nextReceivedEntryMap[key] = toTotalsFromBillRow(row);
+        });
+      } else {
+        // The table exists after running laundry received sql.txt.
+      }
+
+      setReceivedEntryMap(nextReceivedEntryMap);
+
       await checkAlreadyRanToday();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load laundry count');
@@ -470,6 +516,12 @@ export default function LaundryCountPage() {
       setPageTab('BILL_ENTRY');
     }
   }, [isLaundryOnlyUser]);
+
+  useEffect(() => {
+    if (pageTab === 'RECEIVED' && !canSeeLaundryReceived) {
+      setPageTab(isLaundryOnlyUser ? 'BILL_ENTRY' : 'COUNT');
+    }
+  }, [pageTab, canSeeLaundryReceived, isLaundryOnlyUser]);
 
   const summaries = useMemo(() => {
     const roomByNumber = new Map<string, RoomMasterRow>();
@@ -681,6 +733,19 @@ export default function LaundryCountPage() {
     }));
   }
 
+  function updateReceivedValue(blockKeyValue: BlockKey, key: keyof LinenTotals, rawValue: string) {
+    const parsed = rawValue === '' ? 0 : Math.max(0, Number(rawValue || 0));
+    if (Number.isNaN(parsed)) return;
+
+    setReceivedEntryMap((prev) => ({
+      ...prev,
+      [blockKeyValue]: {
+        ...(prev[blockKeyValue] || zeroTotals()),
+        [key]: parsed,
+      },
+    }));
+  }
+
   async function handleSaveBill() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
@@ -722,6 +787,46 @@ export default function LaundryCountPage() {
     }
   }
 
+  async function handleSaveReceived() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setSavingReceived(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error: deleteError } = await supabase
+        .from('linen_laundry_received')
+        .delete()
+        .eq('service_date', receivedServiceDate);
+
+      if (deleteError) throw deleteError;
+
+      const rows = BLOCK_KEYS.map((blockKeyValue) => ({
+        service_date: receivedServiceDate,
+        block_no: Number(blockKeyValue.replace('B', '')),
+        ...receivedEntryMap[blockKeyValue],
+      }));
+
+      const { error: insertError } = await supabase
+        .from('linen_laundry_received')
+        .insert(rows);
+
+      if (insertError) throw insertError;
+
+      setSuccessMsg(`Laundry Received saved for ${receivedServiceDate}.`);
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save Laundry Received');
+    } finally {
+      setSavingReceived(false);
+    }
+  }
+
   function renderBillEditor(floor: { key: FloorKey; blockNo: 1 | 2; floorNo: number; label: string }, totals: LinenTotals) {
     return (
       <section style={styles.billCard}>
@@ -735,6 +840,28 @@ export default function LaundryCountPage() {
                 min="0"
                 value={totals[item.key]}
                 onChange={(e) => updateBillValue(floor.key, item.key, e.target.value)}
+                style={styles.numberInput}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  function renderReceivedEditor(blockKeyValue: BlockKey, label: string, totals: LinenTotals) {
+    return (
+      <section style={styles.billCard}>
+        <div style={styles.billCardTitle}>{label}</div>
+        <div style={responsiveStyles.billGrid}>
+          {ITEM_DEFS.map((item) => (
+            <div key={`${blockKeyValue}-${item.key}`} style={styles.formGroup}>
+              <label style={styles.formLabel}>{item.label}</label>
+              <input
+                type="number"
+                min="0"
+                value={totals[item.key]}
+                onChange={(e) => updateReceivedValue(blockKeyValue, item.key, e.target.value)}
                 style={styles.numberInput}
               />
             </div>
@@ -931,9 +1058,37 @@ export default function LaundryCountPage() {
               >
                 Laundry Bill Grand Total
               </button>
+              {canSeeLaundryReceived ? (
+                <button
+                  type="button"
+                  onClick={() => setPageTab('RECEIVED')}
+                  style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'RECEIVED' ? styles.modeBtnActive : {}) }}
+                >
+                  Laundry Received
+                </button>
+              ) : null}
             </div>
 
-            {pageTab === 'BILL_GRAND' ? (
+            {pageTab === 'RECEIVED' ? (
+              <>
+                <div style={styles.groupMeta}>
+                  Enter clean linen returned for yesterday ({receivedServiceDate}), separated by Block 1 and Block 2.
+                </div>
+                {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
+                {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
+
+                <div style={responsiveStyles.billActionRow}>
+                  <button
+                    type="button"
+                    onClick={handleSaveReceived}
+                    disabled={savingReceived}
+                    style={{ ...responsiveStyles.primaryBtn, opacity: savingReceived ? 0.55 : 1 }}
+                  >
+                    {savingReceived ? 'Saving...' : 'Save Laundry Received'}
+                  </button>
+                </div>
+              </>
+            ) : pageTab === 'BILL_GRAND' ? (
               <>
                 <div style={styles.groupMeta}>Only Laundry Bill tabs are available for this account.</div>
                 {renderBillGrandTotalCard('Block 1 Grand Total', billGrandTotals.block1, { color: '#166534' })}
@@ -1032,10 +1187,40 @@ export default function LaundryCountPage() {
             >
               Laundry Bill Grand Total
             </button>
+            {canSeeLaundryReceived ? (
+              <button
+                type="button"
+                onClick={() => setPageTab('RECEIVED')}
+                style={{ ...responsiveStyles.modeBtn, ...(pageTab === 'RECEIVED' ? styles.modeBtnActive : {}) }}
+              >
+                Laundry Received
+              </button>
+            ) : null}
           </div>
         </section>
 
-        {pageTab === 'BILL_ENTRY' ? (
+        {pageTab === 'RECEIVED' ? (
+          <section style={responsiveStyles.panel}>
+            <div style={responsiveStyles.sectionTitle}>Laundry Received</div>
+            <div style={styles.groupMeta}>
+              Enter clean linen returned for yesterday ({receivedServiceDate}). These returned totals appear in Linen History for yesterday.
+            </div>
+
+            {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
+            {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
+
+            <div style={responsiveStyles.billActionRow}>
+              <button
+                type="button"
+                onClick={handleSaveReceived}
+                disabled={savingReceived}
+                style={{ ...responsiveStyles.primaryBtn, opacity: savingReceived ? 0.55 : 1 }}
+              >
+                {savingReceived ? 'Saving...' : 'Save Laundry Received'}
+              </button>
+            </div>
+          </section>
+        ) : pageTab === 'BILL_ENTRY' ? (
           <section style={responsiveStyles.panel}>
             <div style={responsiveStyles.sectionTitle}>Laundry Bill Entry</div>
             <div style={styles.groupMeta}>
