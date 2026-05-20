@@ -146,6 +146,7 @@ export default function SupervisorChecklistPage() {
   const [trackerRows, setTrackerRows] = useState<TrackerRow[]>([]);
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
   const [viewingAnswers, setViewingAnswers] = useState<Record<string, AnswerRow>>({});
+  const [submissionBackMode, setSubmissionBackMode] = useState<'LIST' | 'HISTORY'>('HISTORY');
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('LIST');
@@ -779,11 +780,12 @@ export default function SupervisorChecklistPage() {
     }
   }
 
-  async function openHistorySubmission(submission: Submission) {
+  async function openHistorySubmission(submission: Submission, backMode: 'LIST' | 'HISTORY' = 'HISTORY') {
     if (!supabase) return;
 
     try {
       setLoading(true);
+      setSubmissionBackMode(backMode);
       setViewMode('VIEW_SUBMISSION');
       setViewingSubmission(submission);
 
@@ -814,6 +816,24 @@ export default function SupervisorChecklistPage() {
     }
   }
 
+  function openTrackerSubmission(row: TrackerRow) {
+    if (!row.submission_id || !selectedTemplate) return;
+
+    void openHistorySubmission(
+      {
+        id: row.submission_id,
+        template_id: selectedTemplate.id,
+        submission_date: today,
+        submitted_by_user_id: row.user_id,
+        submitted_by_name: row.name || row.email || 'Supervisor',
+        submitted_by_email: row.email || '',
+        created_at: row.submitted_at || row.updated_at || null,
+        updated_at: row.updated_at || row.submitted_at || null,
+      },
+      'LIST'
+    );
+  }
+
   function renderSubmissionTracker() {
     if (!selectedTemplate) return null;
 
@@ -838,11 +858,15 @@ export default function SupervisorChecklistPage() {
             {trackerRows.map((row) => {
               const submitted = Boolean(row.submission_id);
               return (
-                <div
+                <button
+                  type="button"
                   key={row.user_id}
+                  onClick={() => openTrackerSubmission(row)}
+                  disabled={!submitted}
                   style={{
                     ...styles.trackerCard,
                     ...(submitted ? styles.trackerCardSubmitted : styles.trackerCardPending),
+                    cursor: submitted ? 'pointer' : 'default',
                   }}
                 >
                   <div style={styles.trackerUser}>
@@ -856,9 +880,9 @@ export default function SupervisorChecklistPage() {
                     {submitted ? 'Submitted' : 'Pending'}
                   </div>
                   <div style={styles.trackerTime}>
-                    {submitted ? formatDateTime(row.updated_at || row.submitted_at) : 'Not submitted yet'}
+                    {submitted ? `${formatDateTime(row.updated_at || row.submitted_at)} - View response` : 'Not submitted yet'}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -1281,10 +1305,10 @@ export default function SupervisorChecklistPage() {
             <div style={{ ...styles.actionRow, ...(isMobile ? styles.actionRowMobile : {}) }}>
               <button
                 type="button"
-                onClick={() => setViewMode('HISTORY')}
+                onClick={() => setViewMode(submissionBackMode)}
                 style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
               >
-                Back to History
+                {submissionBackMode === 'LIST' ? 'Back to Checklists' : 'Back to History'}
               </button>
             </div>
           </section>
@@ -1792,6 +1816,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px',
     display: 'grid',
     gap: '9px',
+    width: '100%',
+    textAlign: 'left',
+    font: 'inherit',
   },
   trackerCardSubmitted: {
     background: '#f0fdf4',
