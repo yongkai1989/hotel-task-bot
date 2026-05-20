@@ -1,0 +1,1585 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import Link from 'next/link';
+import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
+
+type DepartmentCode = 'MT' | 'HK';
+type CheckStatus = 'OPEN' | 'PENDING_CHECK' | 'DONE';
+type MediaType = 'image' | 'video';
+type UserRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+
+type Profile = {
+  user_id?: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  can_access_maintenance_manager_room_check?: boolean;
+  can_access_hk_manager_room_check?: boolean;
+};
+
+type RoomCheck = {
+  id: string;
+  department: DepartmentCode;
+  room_number: string;
+  title: string;
+  description: string | null;
+  status: CheckStatus;
+  created_by_user_id: string | null;
+  created_by_name: string | null;
+  created_by_email: string | null;
+  submitted_for_check_at: string | null;
+  submitted_for_check_by_name: string | null;
+  checked_at: string | null;
+  checked_by_name: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type CheckMedia = {
+  id: string;
+  check_id: string;
+  media_url: string;
+  media_path: string | null;
+  media_type: MediaType;
+  caption: string | null;
+  position: number;
+  completed_at: string | null;
+  completed_by_name: string | null;
+  completed_by_email: string | null;
+  created_at: string | null;
+};
+
+type DraftMedia = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  media_type: MediaType;
+  caption: string;
+  marked: boolean;
+};
+
+type ManagerRoomCheckPageProps = {
+  department: DepartmentCode;
+};
+
+function getSupabaseSafe() {
+  if (typeof window === 'undefined') return null;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) return null;
+  return createBrowserSupabaseClient();
+}
+
+function compactDateTime(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('en-SG', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function statusLabel(status: CheckStatus) {
+  if (status === 'PENDING_CHECK') return 'Pending Check';
+  if (status === 'DONE') return 'Done';
+  return 'Open';
+}
+
+function fileToImage(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+async function compressImageFile(file: File, maxSide = 1600, quality = 0.78) {
+  const img = await fileToImage(file);
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return file;
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/jpeg', quality)
+  );
+
+  if (!blob) return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  });
+}
+
+function isAccessAllowed(profile: Profile | null, department: DepartmentCode) {
+  if (!profile) return false;
+  if (profile.role === 'SUPERUSER') return true;
+  if (department === 'MT') return profile.can_access_maintenance_manager_room_check === true;
+  return profile.can_access_hk_manager_room_check === true;
+}
+
+function isReviewer(profile: Profile | null) {
+  return (
+    profile?.role === 'SUPERUSER' ||
+    profile?.role === 'MANAGER' ||
+    profile?.role === 'SUPERVISOR'
+  );
+}
+
+function mediaCount(media: CheckMedia[], checkId: string) {
+  return media.filter((item) => item.check_id === checkId).length;
+}
+
+function completedCount(media: CheckMedia[], checkId: string) {
+  return media.filter((item) => item.check_id === checkId && item.completed_at).length;
+}
+
+export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPageProps) {
+  const supabase = useMemo(() => getSupabaseSafe(), []);
+  const departmentName = department === 'MT' ? 'Maintenance' : 'Housekeeping';
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<CheckStatus | 'ALL'>('OPEN');
+  const [checks, setChecks] = useState<RoomCheck[]>([]);
+  const [media, setMedia] = useState<CheckMedia[]>([]);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [roomNumber, setRoomNumber] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [draftMedia, setDraftMedia] = useState<DraftMedia[]>([]);
+
+  const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [addingToCheckId, setAddingToCheckId] = useState<string | null>(null);
+  const [markupIndex, setMarkupIndex] = useState<number | null>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const canAccess = isAccessAllowed(profile, department);
+  const canReview = isReviewer(profile);
+  const selectedCheck = checks.find((item) => item.id === selectedCheckId) || null;
+  const selectedMedia = selectedCheck
+    ? media
+        .filter((item) => item.check_id === selectedCheck.id)
+        .sort((a, b) => a.position - b.position)
+    : [];
+
+  const visibleChecks = checks.filter((check) =>
+    statusFilter === 'ALL' ? true : check.status === statusFilter
+  );
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function bootstrap() {
+      try {
+        if (!supabase) throw new Error('Supabase is not configured.');
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!session?.user) {
+          if (mounted) setProfile(null);
+          return;
+        }
+
+        const res = await fetch('/api/session-profile', {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || 'Failed to load access.');
+        }
+        const data = json.user || {};
+        if (!mounted) return;
+        setProfile({
+          user_id: data.user_id || session.user.id,
+          email: data?.email || session.user.email || '',
+          name: data?.name || session.user.email || 'User',
+          role: (data?.role || 'FO') as UserRole,
+          can_access_maintenance_manager_room_check:
+            data?.can_access_maintenance_manager_room_check === true ||
+            data?.permissions?.can_access_maintenance_manager_room_check === true,
+          can_access_hk_manager_room_check:
+            data?.can_access_hk_manager_room_check === true ||
+            data?.permissions?.can_access_hk_manager_room_check === true,
+        } as Profile);
+      } catch (error: any) {
+        if (mounted) setErrorMsg(error?.message || 'Failed to load access.');
+      } finally {
+        if (mounted) setAuthLoading(false);
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!authLoading && canAccess) {
+      void loadChecks();
+    } else if (!authLoading) {
+      setLoading(false);
+    }
+  }, [authLoading, canAccess]);
+
+  useEffect(() => {
+    if (markupIndex === null) return;
+    const item = draftMedia[markupIndex];
+    if (!item || item.media_type !== 'image') return;
+    let cancelled = false;
+
+    async function drawImage() {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const img = await fileToImage(item.file);
+      if (cancelled) return;
+      const maxWidth = Math.min(980, window.innerWidth - 42);
+      const scale = Math.min(1, maxWidth / img.width);
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    }
+
+    void drawImage();
+    return () => {
+      cancelled = true;
+    };
+  }, [draftMedia, markupIndex]);
+
+  async function loadChecks() {
+    if (!supabase) return;
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const { data: checkRows, error: checkError } = await supabase
+        .from('manager_room_checks')
+        .select('*')
+        .eq('department', department)
+        .order('created_at', { ascending: false })
+        .limit(120);
+      if (checkError) throw checkError;
+
+      const ids = (checkRows || []).map((row) => row.id);
+      let mediaRows: CheckMedia[] = [];
+      if (ids.length) {
+        const { data: loadedMedia, error: mediaError } = await supabase
+          .from('manager_room_check_media')
+          .select('*')
+          .in('check_id', ids)
+          .order('position', { ascending: true });
+        if (mediaError) throw mediaError;
+        mediaRows = (loadedMedia || []) as CheckMedia[];
+      }
+
+      setChecks((checkRows || []) as RoomCheck[]);
+      setMedia(mediaRows);
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to load room checks.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function getAccessToken() {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Please log in again.');
+    return session.access_token;
+  }
+
+  async function addFiles(files: FileList | File[]) {
+    setErrorMsg('');
+    const incoming = Array.from(files);
+    if (draftMedia.length + incoming.length > 30) {
+      setErrorMsg('Maximum 30 photos or videos per room check.');
+      return;
+    }
+
+    const nextItems: DraftMedia[] = [];
+    for (const rawFile of incoming) {
+      const isImage = rawFile.type.startsWith('image/');
+      const isVideo = rawFile.type.startsWith('video/');
+      if (!isImage && !isVideo) continue;
+      const file = isImage ? await compressImageFile(rawFile) : rawFile;
+      nextItems.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        media_type: isVideo ? 'video' : 'image',
+        caption: rawFile.name,
+        marked: false,
+      });
+    }
+    setDraftMedia((current) => [...current, ...nextItems]);
+  }
+
+  async function uploadDraftMedia(items: DraftMedia[]) {
+    const token = await getAccessToken();
+    const form = new FormData();
+    form.set('folder', 'manager-room-check-media');
+    items.forEach((item) => form.append('media', item.file, item.caption || item.file.name));
+
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: form,
+      cache: 'no-store',
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error || 'Failed to upload media.');
+    }
+    return json.items as Array<{
+      url: string;
+      path: string | null;
+      media_type: MediaType;
+      caption: string | null;
+    }>;
+  }
+
+  async function createCheck() {
+    if (!supabase || !profile) return;
+    if (!roomNumber.trim()) {
+      setErrorMsg('Room number is required.');
+      return;
+    }
+    if (!title.trim()) {
+      setErrorMsg('Check title is required.');
+      return;
+    }
+    if (!draftMedia.length) {
+      setErrorMsg('Add at least one photo or video.');
+      return;
+    }
+
+    setSaving(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const uploaded = await uploadDraftMedia(draftMedia);
+      const now = new Date().toISOString();
+      const { data: check, error: checkError } = await supabase
+        .from('manager_room_checks')
+        .insert([
+          {
+            department,
+            room_number: roomNumber.trim(),
+            title: title.trim(),
+            description: description.trim() || null,
+            status: 'OPEN',
+            created_by_user_id: profile.user_id || null,
+            created_by_name: profile.name || null,
+            created_by_email: profile.email || null,
+            created_at: now,
+            updated_at: now,
+          },
+        ])
+        .select('*')
+        .single();
+      if (checkError) throw checkError;
+
+      const rows = uploaded.map((item, index) => ({
+        check_id: check.id,
+        media_url: item.url,
+        media_path: item.path,
+        media_type: item.media_type,
+        caption: draftMedia[index]?.caption || item.caption || null,
+        position: index + 1,
+      }));
+
+      const { error: mediaError } = await supabase
+        .from('manager_room_check_media')
+        .insert(rows);
+      if (mediaError) throw mediaError;
+
+      setShowCreate(false);
+      setRoomNumber('');
+      setTitle('');
+      setDescription('');
+      draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      setDraftMedia([]);
+      setSuccessMsg('Manager room check created.');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to create room check.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addMediaToCheck(checkId: string) {
+    if (!supabase || !draftMedia.length) return;
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const existingCount = mediaCount(media, checkId);
+      if (existingCount + draftMedia.length > 30) {
+        throw new Error('Maximum 30 photos or videos per room check.');
+      }
+      const uploaded = await uploadDraftMedia(draftMedia);
+      const rows = uploaded.map((item, index) => ({
+        check_id: checkId,
+        media_url: item.url,
+        media_path: item.path,
+        media_type: item.media_type,
+        caption: draftMedia[index]?.caption || item.caption || null,
+        position: existingCount + index + 1,
+      }));
+      const { error } = await supabase.from('manager_room_check_media').insert(rows);
+      if (error) throw error;
+      await supabase
+        .from('manager_room_checks')
+        .update({ status: 'OPEN', updated_at: new Date().toISOString() })
+        .eq('id', checkId);
+      draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      setDraftMedia([]);
+      setAddingToCheckId(null);
+      setSuccessMsg('Media added.');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to add media.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function completeMedia(item: CheckMedia) {
+    if (!supabase || !profile) return;
+    setErrorMsg('');
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('manager_room_check_media')
+        .update({
+          completed_at: now,
+          completed_by_name: profile.name || null,
+          completed_by_email: profile.email || null,
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+
+      const nextMedia = media.map((mediaItem) =>
+        mediaItem.id === item.id
+          ? {
+              ...mediaItem,
+              completed_at: now,
+              completed_by_name: profile.name || null,
+              completed_by_email: profile.email || null,
+            }
+          : mediaItem
+      );
+      setMedia(nextMedia);
+
+      const checkItems = nextMedia.filter((mediaItem) => mediaItem.check_id === item.check_id);
+      const allCompleted = checkItems.length > 0 && checkItems.every((mediaItem) => mediaItem.completed_at);
+      if (allCompleted) {
+        const { error: checkError } = await supabase
+          .from('manager_room_checks')
+          .update({
+            status: 'PENDING_CHECK',
+            submitted_for_check_at: now,
+            submitted_for_check_by_name: profile.name || null,
+            updated_at: now,
+          })
+          .eq('id', item.check_id)
+          .neq('status', 'DONE');
+        if (checkError) throw checkError;
+        setChecks((current) =>
+          current.map((check) =>
+            check.id === item.check_id
+              ? {
+                  ...check,
+                  status: 'PENDING_CHECK',
+                  submitted_for_check_at: now,
+                  submitted_for_check_by_name: profile.name || null,
+                }
+              : check
+          )
+        );
+      }
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to complete media item.');
+    }
+  }
+
+  async function uncompleteMedia(item: CheckMedia) {
+    if (!supabase) return;
+    setErrorMsg('');
+    try {
+      const { error } = await supabase
+        .from('manager_room_check_media')
+        .update({
+          completed_at: null,
+          completed_by_name: null,
+          completed_by_email: null,
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+      await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'OPEN',
+          submitted_for_check_at: null,
+          submitted_for_check_by_name: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', item.check_id)
+        .neq('status', 'DONE');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to reopen media item.');
+    }
+  }
+
+  async function markChecked(check: RoomCheck) {
+    if (!supabase || !profile) return;
+    setErrorMsg('');
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'DONE',
+          checked_at: now,
+          checked_by_name: profile.name || null,
+          updated_at: now,
+        })
+        .eq('id', check.id);
+      if (error) throw error;
+      setSuccessMsg('Room check marked as checked.');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to mark as checked.');
+    }
+  }
+
+  async function reopenCheck(check: RoomCheck) {
+    if (!supabase) return;
+    setErrorMsg('');
+    try {
+      const { error } = await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'OPEN',
+          checked_at: null,
+          checked_by_name: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', check.id);
+      if (error) throw error;
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to reopen check.');
+    }
+  }
+
+  async function deleteCheck(check: RoomCheck) {
+    if (!supabase || profile?.role !== 'SUPERUSER') return;
+    if (!window.confirm(`Delete Manager Room Check for room ${check.room_number}?`)) return;
+    setErrorMsg('');
+    try {
+      const { error } = await supabase.from('manager_room_checks').delete().eq('id', check.id);
+      if (error) throw error;
+      setDetailOpen(false);
+      setSelectedCheckId(null);
+      setSuccessMsg('Room check deleted.');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to delete room check.');
+    }
+  }
+
+  async function deleteMedia(item: CheckMedia) {
+    if (!supabase) return;
+    if (!window.confirm('Remove this media item?')) return;
+    setErrorMsg('');
+    try {
+      const { error } = await supabase.from('manager_room_check_media').delete().eq('id', item.id);
+      if (error) throw error;
+      await supabase
+        .from('manager_room_checks')
+        .update({ status: 'OPEN', updated_at: new Date().toISOString() })
+        .eq('id', item.check_id)
+        .neq('status', 'DONE');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to remove media.');
+    }
+  }
+
+  async function replaceMedia(item: CheckMedia, file: File) {
+    if (!supabase) return;
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const nextFile = file.type.startsWith('image/') ? await compressImageFile(file) : file;
+      const token = await getAccessToken();
+      const form = new FormData();
+      form.set('folder', 'manager-room-check-media');
+      form.append('media', nextFile, file.name);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Upload failed.');
+      const uploaded = json.items?.[0];
+      if (!uploaded?.url) throw new Error('Upload failed.');
+      const { error } = await supabase
+        .from('manager_room_check_media')
+        .update({
+          media_url: uploaded.url,
+          media_path: uploaded.path || null,
+          media_type: uploaded.media_type,
+          caption: file.name,
+          completed_at: null,
+          completed_by_name: null,
+          completed_by_email: null,
+        })
+        .eq('id', item.id);
+      if (error) throw error;
+      await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'OPEN',
+          submitted_for_check_at: null,
+          submitted_for_check_by_name: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', item.check_id)
+        .neq('status', 'DONE');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to replace media.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function removeDraftMedia(id: string) {
+    setDraftMedia((current) => {
+      const target = current.find((item) => item.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return current.filter((item) => item.id !== id);
+    });
+  }
+
+  function pointerPosition(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  }
+
+  function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    const point = pointerPosition(event);
+    if (!point) return;
+    drawingRef.current = true;
+    lastPointRef.current = point;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function draw(event: PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    const point = pointerPosition(event);
+    const last = lastPointRef.current;
+    if (!canvas || !ctx || !point || !last) return;
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = Math.max(4, canvas.width / 160);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+    lastPointRef.current = point;
+  }
+
+  function stopDrawing() {
+    drawingRef.current = false;
+    lastPointRef.current = null;
+  }
+
+  async function saveMarkup() {
+    if (markupIndex === null) return;
+    const canvas = canvasRef.current;
+    const item = draftMedia[markupIndex];
+    if (!canvas || !item) return;
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.82)
+    );
+    if (!blob) return;
+    const file = new File([blob], item.file.name.replace(/\.[^.]+$/, '.jpg'), {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+    URL.revokeObjectURL(item.previewUrl);
+    const previewUrl = URL.createObjectURL(file);
+    setDraftMedia((current) =>
+      current.map((entry, index) =>
+        index === markupIndex ? { ...entry, file, previewUrl, marked: true } : entry
+      )
+    );
+    setMarkupIndex(null);
+  }
+
+  if (authLoading || loading) {
+    return <div className="mrc-shell"><div className="mrc-card">Loading Manager Room Check...</div></div>;
+  }
+
+  if (!canAccess) {
+    return (
+      <div className="mrc-shell">
+        <div className="mrc-denied">
+          <h1>Access denied</h1>
+          <p>{departmentName} Manager Room Check access is not enabled for this account.</p>
+          <Link href="/dashboard">Back to Dashboard</Link>
+        </div>
+        <StyleBlock />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mrc-shell">
+      <section className="mrc-hero">
+        <div>
+          <div className="mrc-eyebrow">{departmentName} workspace</div>
+          <h1>Manager Room Check</h1>
+          <p>Upload room photos or videos, complete each item, then submit for manager checking.</p>
+        </div>
+        <div className="mrc-actions">
+          <button className="mrc-secondary" type="button" onClick={() => void loadChecks()}>
+            Refresh
+          </button>
+          <button className="mrc-primary" type="button" onClick={() => setShowCreate(true)}>
+            + New Check
+          </button>
+          <Link className="mrc-secondary" href="/dashboard">Back</Link>
+        </div>
+      </section>
+
+      {errorMsg ? <div className="mrc-alert mrc-alert-error">{errorMsg}</div> : null}
+      {successMsg ? <div className="mrc-alert mrc-alert-success">{successMsg}</div> : null}
+
+      <section className="mrc-summary">
+        {(['OPEN', 'PENDING_CHECK', 'DONE'] as CheckStatus[]).map((status) => (
+          <button
+            key={status}
+            className={`mrc-stat ${statusFilter === status ? 'is-active' : ''}`}
+            type="button"
+            onClick={() => setStatusFilter(status)}
+          >
+            <span>{statusLabel(status)}</span>
+            <strong>{checks.filter((check) => check.status === status).length}</strong>
+          </button>
+        ))}
+        <button
+          className={`mrc-stat ${statusFilter === 'ALL' ? 'is-active' : ''}`}
+          type="button"
+          onClick={() => setStatusFilter('ALL')}
+        >
+          <span>All</span>
+          <strong>{checks.length}</strong>
+        </button>
+      </section>
+
+      <section className="mrc-card">
+        <div className="mrc-card-head">
+          <div>
+            <h2>{statusFilter === 'ALL' ? 'All Checks' : statusLabel(statusFilter)}</h2>
+            <p>{visibleChecks.length} room checks shown</p>
+          </div>
+        </div>
+
+        {visibleChecks.length ? (
+          <div className="mrc-list">
+            {visibleChecks.map((check) => {
+              const total = mediaCount(media, check.id);
+              const done = completedCount(media, check.id);
+              const progress = total ? Math.round((done / total) * 100) : 0;
+              return (
+                <button
+                  key={check.id}
+                  className="mrc-row"
+                  type="button"
+                  onClick={() => {
+                    setSelectedCheckId(check.id);
+                    setDetailOpen(true);
+                  }}
+                >
+                  <span className="mrc-room">Room {check.room_number}</span>
+                  <span className="mrc-row-main">
+                    <strong>{check.title}</strong>
+                    <small>{check.description || 'No notes'}</small>
+                  </span>
+                  <span className={`mrc-status mrc-status-${check.status.toLowerCase()}`}>
+                    {statusLabel(check.status)}
+                  </span>
+                  <span className="mrc-progress">{done}/{total} media</span>
+                  <span className="mrc-bar"><span style={{ width: `${progress}%` }} /></span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mrc-empty">No room checks found for this filter.</div>
+        )}
+      </section>
+
+      {showCreate ? (
+        <Modal title="New Manager Room Check" onClose={() => setShowCreate(false)}>
+          <div className="mrc-form-grid">
+            <label>
+              <span>Room Number</span>
+              <input value={roomNumber} onChange={(e) => setRoomNumber(e.target.value)} placeholder="1201" />
+            </label>
+            <label>
+              <span>Check Title</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Room defects after inspection" />
+            </label>
+          </div>
+          <label className="mrc-full-label">
+            <span>Notes</span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes" />
+          </label>
+          <MediaPicker draftMedia={draftMedia} addFiles={addFiles} removeDraftMedia={removeDraftMedia} setMarkupIndex={setMarkupIndex} />
+          <div className="mrc-modal-actions">
+            <button type="button" className="mrc-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+            <button type="button" className="mrc-primary" disabled={saving} onClick={() => void createCheck()}>
+              {saving ? 'Saving...' : 'Create Check'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {detailOpen && selectedCheck ? (
+        <Modal title={`Room ${selectedCheck.room_number}`} onClose={() => setDetailOpen(false)}>
+          <div className="mrc-detail-head">
+            <div>
+              <h3>{selectedCheck.title}</h3>
+              <p>{selectedCheck.description || 'No notes'}</p>
+            </div>
+            <span className={`mrc-status mrc-status-${selectedCheck.status.toLowerCase()}`}>
+              {statusLabel(selectedCheck.status)}
+            </span>
+          </div>
+          <div className="mrc-meta-grid">
+            <span>Created by <strong>{selectedCheck.created_by_name || '-'}</strong></span>
+            <span>Created <strong>{compactDateTime(selectedCheck.created_at)}</strong></span>
+            <span>Submitted <strong>{compactDateTime(selectedCheck.submitted_for_check_at)}</strong></span>
+            <span>Checked <strong>{selectedCheck.checked_by_name || '-'}</strong></span>
+          </div>
+
+          <div className="mrc-media-grid">
+            {selectedMedia.map((item) => (
+              <div key={item.id} className="mrc-media-card">
+                {item.media_type === 'video' ? (
+                  <video src={item.media_url} controls preload="metadata" />
+                ) : (
+                  <img src={item.media_url} alt={item.caption || 'Room check media'} />
+                )}
+                <div className="mrc-media-info">
+                  <strong>{item.caption || `${item.media_type} ${item.position}`}</strong>
+                  <span>
+                    {item.completed_at
+                      ? `Completed by ${item.completed_by_name || '-'}`
+                      : 'Not completed'}
+                  </span>
+                </div>
+                <div className="mrc-media-actions">
+                  {item.completed_at ? (
+                    <button type="button" className="mrc-secondary" onClick={() => void uncompleteMedia(item)}>
+                      Reopen
+                    </button>
+                  ) : (
+                    <button type="button" className="mrc-primary" onClick={() => void completeMedia(item)}>
+                      Mark Complete
+                    </button>
+                  )}
+                  <label className="mrc-secondary mrc-file-button">
+                    Replace
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void replaceMedia(item, file);
+                        e.currentTarget.value = '';
+                      }}
+                    />
+                  </label>
+                  <button type="button" className="mrc-danger" onClick={() => void deleteMedia(item)}>
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {addingToCheckId === selectedCheck.id ? (
+            <div className="mrc-add-panel">
+              <MediaPicker draftMedia={draftMedia} addFiles={addFiles} removeDraftMedia={removeDraftMedia} setMarkupIndex={setMarkupIndex} />
+              <div className="mrc-modal-actions">
+                <button type="button" className="mrc-secondary" onClick={() => setAddingToCheckId(null)}>Cancel Add</button>
+                <button type="button" className="mrc-primary" disabled={saving} onClick={() => void addMediaToCheck(selectedCheck.id)}>
+                  {saving ? 'Uploading...' : 'Add Media'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mrc-modal-actions">
+            <button
+              type="button"
+              className="mrc-secondary"
+              onClick={() => {
+                setDraftMedia([]);
+                setAddingToCheckId(selectedCheck.id);
+              }}
+            >
+              Add Media
+            </button>
+            {canReview && selectedCheck.status === 'PENDING_CHECK' ? (
+              <button type="button" className="mrc-primary" onClick={() => void markChecked(selectedCheck)}>
+                Mark Checked
+              </button>
+            ) : null}
+            {canReview && selectedCheck.status === 'DONE' ? (
+              <button type="button" className="mrc-secondary" onClick={() => void reopenCheck(selectedCheck)}>
+                Reopen
+              </button>
+            ) : null}
+            {profile?.role === 'SUPERUSER' ? (
+              <button type="button" className="mrc-danger" onClick={() => void deleteCheck(selectedCheck)}>
+                Delete Check
+              </button>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
+
+      {markupIndex !== null ? (
+        <Modal title={`Mark Up ${draftMedia[markupIndex]?.caption || 'Image'}`} onClose={() => setMarkupIndex(null)} wide>
+          <div className="mrc-markup">
+            <canvas
+              ref={canvasRef}
+              onPointerDown={startDrawing}
+              onPointerMove={draw}
+              onPointerUp={stopDrawing}
+              onPointerLeave={stopDrawing}
+            />
+          </div>
+          <div className="mrc-modal-actions">
+            <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(null)}>Cancel</button>
+            <button type="button" className="mrc-primary" onClick={() => void saveMarkup()}>Save Markup</button>
+          </div>
+        </Modal>
+      ) : null}
+
+      <StyleBlock />
+    </div>
+  );
+}
+
+function MediaPicker({
+  draftMedia,
+  addFiles,
+  removeDraftMedia,
+  setMarkupIndex,
+}: {
+  draftMedia: DraftMedia[];
+  addFiles: (files: FileList | File[]) => Promise<void>;
+  removeDraftMedia: (id: string) => void;
+  setMarkupIndex: (index: number) => void;
+}) {
+  return (
+    <div className="mrc-picker">
+      <label className="mrc-dropzone">
+        <input
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onChange={(e) => {
+            if (e.target.files) void addFiles(e.target.files);
+            e.currentTarget.value = '';
+          }}
+        />
+        <strong>Add photos or videos</strong>
+        <span>Up to 30 items. Images can be marked up before upload.</span>
+      </label>
+      {draftMedia.length ? (
+        <div className="mrc-draft-grid">
+          {draftMedia.map((item, index) => (
+            <div key={item.id} className="mrc-draft-card">
+              {item.media_type === 'video' ? (
+                <video src={item.previewUrl} muted />
+              ) : (
+                <img src={item.previewUrl} alt={item.caption} />
+              )}
+              <div className="mrc-draft-caption">{item.caption || `${item.media_type} ${index + 1}`}</div>
+              <div className="mrc-draft-actions">
+                {item.media_type === 'image' ? (
+                  <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(index)}>
+                    {item.marked ? 'Edit Markup' : 'Mark Up'}
+                  </button>
+                ) : null}
+                <button type="button" className="mrc-danger" onClick={() => removeDraftMedia(item.id)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  children,
+  onClose,
+  wide = false,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  wide?: boolean;
+}) {
+  return (
+    <div className="mrc-modal-backdrop">
+      <div className={`mrc-modal ${wide ? 'is-wide' : ''}`}>
+        <div className="mrc-modal-head">
+          <h2>{title}</h2>
+          <button type="button" onClick={onClose}>x</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function StyleBlock() {
+  return (
+    <style jsx global>{`
+      .mrc-shell {
+        max-width: 1260px;
+        margin: 0 auto;
+        color: #0f172a;
+      }
+      .mrc-hero,
+      .mrc-card,
+      .mrc-denied {
+        border: 1px solid #d9e5f5;
+        background: rgba(255,255,255,0.94);
+        border-radius: 22px;
+        box-shadow: 0 20px 60px rgba(15,23,42,0.08);
+      }
+      .mrc-hero {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 22px;
+      }
+      .mrc-eyebrow {
+        color: #2563eb;
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      .mrc-hero h1,
+      .mrc-denied h1 {
+        margin: 4px 0 6px;
+        font-size: clamp(30px, 4vw, 44px);
+        line-height: 1.02;
+      }
+      .mrc-hero p,
+      .mrc-denied p,
+      .mrc-card-head p {
+        margin: 0;
+        color: #64748b;
+        font-weight: 650;
+      }
+      .mrc-actions,
+      .mrc-modal-actions,
+      .mrc-media-actions,
+      .mrc-draft-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .mrc-primary,
+      .mrc-secondary,
+      .mrc-danger,
+      .mrc-file-button {
+        min-height: 42px;
+        border-radius: 14px;
+        border: 1px solid #cbd5e1;
+        padding: 0 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-weight: 900;
+        cursor: pointer;
+        text-decoration: none;
+      }
+      .mrc-primary {
+        background: linear-gradient(135deg,#2563eb,#1d4ed8);
+        border-color: #2563eb;
+        color: #fff;
+        box-shadow: 0 14px 28px rgba(37,99,235,.22);
+      }
+      .mrc-secondary {
+        background: #fff;
+        color: #0f172a;
+      }
+      .mrc-danger {
+        background: #fff1f2;
+        color: #be123c;
+        border-color: #fecdd3;
+      }
+      .mrc-primary:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+      }
+      .mrc-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin: 14px 0;
+      }
+      .mrc-stat {
+        border: 1px solid #d9e5f5;
+        background: rgba(255,255,255,.9);
+        border-radius: 18px;
+        padding: 14px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .mrc-stat span {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+      .mrc-stat strong {
+        display: block;
+        font-size: 28px;
+        margin-top: 4px;
+      }
+      .mrc-stat.is-active {
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 4px rgba(96,165,250,.16);
+      }
+      .mrc-card {
+        padding: 18px;
+        margin-top: 14px;
+      }
+      .mrc-card-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .mrc-card-head h2 {
+        margin: 0 0 3px;
+        font-size: 24px;
+      }
+      .mrc-list {
+        display: grid;
+        gap: 10px;
+      }
+      .mrc-row {
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        border-radius: 16px;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: 96px minmax(0, 1fr) 130px 96px;
+        gap: 12px;
+        align-items: center;
+        text-align: left;
+        cursor: pointer;
+      }
+      .mrc-room {
+        color: #2563eb;
+        font-weight: 950;
+      }
+      .mrc-row-main strong,
+      .mrc-media-info strong {
+        display: block;
+      }
+      .mrc-row-main small,
+      .mrc-media-info span {
+        display: block;
+        margin-top: 3px;
+        color: #64748b;
+        font-weight: 650;
+      }
+      .mrc-status {
+        border-radius: 999px;
+        padding: 7px 10px;
+        font-size: 12px;
+        font-weight: 950;
+        text-align: center;
+      }
+      .mrc-status-open {
+        background: #eff6ff;
+        color: #1d4ed8;
+      }
+      .mrc-status-pending_check {
+        background: #fff7ed;
+        color: #c2410c;
+      }
+      .mrc-status-done {
+        background: #ecfdf5;
+        color: #047857;
+      }
+      .mrc-progress {
+        color: #334155;
+        font-weight: 850;
+      }
+      .mrc-bar {
+        grid-column: 1 / -1;
+        height: 7px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        overflow: hidden;
+      }
+      .mrc-bar span {
+        display: block;
+        height: 100%;
+        background: linear-gradient(90deg,#2563eb,#22c55e);
+      }
+      .mrc-empty {
+        border: 1px dashed #cbd5e1;
+        border-radius: 18px;
+        padding: 30px;
+        text-align: center;
+        color: #64748b;
+        font-weight: 850;
+      }
+      .mrc-alert {
+        border-radius: 16px;
+        padding: 14px 16px;
+        margin: 14px 0;
+        font-weight: 900;
+      }
+      .mrc-alert-error {
+        background: #fff1f2;
+        border: 1px solid #fecdd3;
+        color: #be123c;
+      }
+      .mrc-alert-success {
+        background: #ecfdf5;
+        border: 1px solid #bbf7d0;
+        color: #047857;
+      }
+      .mrc-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        background: rgba(15,23,42,.48);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+      }
+      .mrc-modal {
+        width: min(920px, 100%);
+        max-height: 92vh;
+        overflow: auto;
+        background: #fff;
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: 0 30px 80px rgba(15,23,42,.28);
+      }
+      .mrc-modal.is-wide {
+        width: min(1120px, 100%);
+      }
+      .mrc-modal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .mrc-modal-head h2 {
+        margin: 0;
+      }
+      .mrc-modal-head button {
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        font-weight: 950;
+        cursor: pointer;
+      }
+      .mrc-form-grid,
+      .mrc-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .mrc-form-grid label,
+      .mrc-full-label {
+        display: grid;
+        gap: 7px;
+        font-weight: 900;
+      }
+      .mrc-form-grid input,
+      .mrc-full-label textarea {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 14px;
+        padding: 12px 14px;
+        font: inherit;
+      }
+      .mrc-full-label {
+        margin-top: 12px;
+      }
+      .mrc-full-label textarea {
+        min-height: 92px;
+        resize: vertical;
+      }
+      .mrc-picker {
+        margin-top: 14px;
+      }
+      .mrc-dropzone {
+        display: grid;
+        place-items: center;
+        min-height: 124px;
+        border: 1px dashed #93c5fd;
+        background: #eff6ff;
+        border-radius: 18px;
+        color: #1e40af;
+        cursor: pointer;
+        text-align: center;
+        padding: 16px;
+      }
+      .mrc-dropzone input,
+      .mrc-file-button input {
+        display: none;
+      }
+      .mrc-dropzone span {
+        color: #64748b;
+        font-weight: 750;
+        margin-top: 3px;
+      }
+      .mrc-draft-grid,
+      .mrc-media-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .mrc-draft-card,
+      .mrc-media-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 18px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .mrc-draft-card img,
+      .mrc-draft-card video,
+      .mrc-media-card img,
+      .mrc-media-card video {
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+        background: #0f172a;
+        display: block;
+      }
+      .mrc-draft-card input,
+      .mrc-draft-caption {
+        width: calc(100% - 20px);
+        margin: 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 9px;
+      }
+      .mrc-draft-caption {
+        min-height: 38px;
+        color: #334155;
+        font-weight: 750;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mrc-draft-actions,
+      .mrc-media-actions {
+        padding: 10px;
+        justify-content: flex-start;
+      }
+      .mrc-detail-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 12px;
+      }
+      .mrc-detail-head h3 {
+        margin: 0 0 4px;
+      }
+      .mrc-detail-head p {
+        margin: 0;
+        color: #64748b;
+        font-weight: 700;
+      }
+      .mrc-meta-grid {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 12px;
+        color: #64748b;
+        font-weight: 700;
+      }
+      .mrc-meta-grid strong {
+        color: #0f172a;
+      }
+      .mrc-media-info {
+        padding: 10px 10px 0;
+      }
+      .mrc-add-panel {
+        margin-top: 14px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 14px;
+      }
+      .mrc-markup {
+        display: grid;
+        justify-items: center;
+      }
+      .mrc-markup canvas {
+        max-width: 100%;
+        border-radius: 16px;
+        border: 1px solid #cbd5e1;
+        touch-action: none;
+      }
+      .mrc-denied {
+        padding: 28px;
+        text-align: center;
+      }
+      .mrc-denied a {
+        display: inline-flex;
+        margin-top: 14px;
+        min-height: 44px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border-radius: 14px;
+        background: #0f172a;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 900;
+      }
+      @media (max-width: 820px) {
+        .mrc-hero,
+        .mrc-card-head,
+        .mrc-detail-head {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .mrc-actions {
+          justify-content: stretch;
+        }
+        .mrc-actions > * {
+          flex: 1;
+        }
+        .mrc-summary {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .mrc-row {
+          grid-template-columns: 1fr;
+        }
+        .mrc-form-grid,
+        .mrc-meta-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 520px) {
+        .mrc-shell {
+          margin: 0 -4px;
+        }
+        .mrc-hero,
+        .mrc-card {
+          border-radius: 18px;
+          padding: 14px;
+        }
+        .mrc-summary {
+          gap: 8px;
+        }
+        .mrc-stat {
+          padding: 11px;
+        }
+        .mrc-stat strong {
+          font-size: 24px;
+        }
+        .mrc-primary,
+        .mrc-secondary,
+        .mrc-danger {
+          min-height: 40px;
+          padding: 0 12px;
+          font-size: 13px;
+        }
+        .mrc-modal {
+          padding: 14px;
+          border-radius: 18px;
+        }
+        .mrc-draft-grid,
+        .mrc-media-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    `}</style>
+  );
+}
