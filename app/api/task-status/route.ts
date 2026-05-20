@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
-import { buildTaskInlineKeyboard, buildTaskMessageText } from '../../../lib/telegram';
+import {
+  buildTaskInlineKeyboard,
+  buildTaskMessageText,
+  type TaskStatus,
+} from '../../../lib/telegram';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
-
-type TaskStatus = 'OPEN' | 'PENDING_CHECK' | 'DONE';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -28,6 +30,11 @@ function normalizeStatus(value: string): TaskStatus | null {
   if (v === 'OPEN' || v === 'REOPEN' || v === 'REOPENED') return 'OPEN';
 
   return null;
+}
+
+function normalizeStoredStatus(value: string): TaskStatus {
+  const normalized = normalizeStatus(value);
+  return normalized || 'OPEN';
 }
 
 function canCheckTask(role?: string | null) {
@@ -80,7 +87,7 @@ async function refreshTelegramTaskCard(taskId: string) {
       chat_id: task.chat_id,
       message_id: task.telegram_task_message_id,
       text: buildTaskMessageText(task as any),
-      reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus),
+      reply_markup: buildTaskInlineKeyboard(task.id, normalizeStoredStatus(task.status)),
     });
   } catch {
     // The dashboard status update is already saved; Telegram refresh should not fail it.
@@ -148,7 +155,7 @@ export async function POST(req: NextRequest) {
       last_updated_by_name: user.name,
     };
 
-    let eventType = requestedStatus;
+    let eventType: string = requestedStatus;
     let eventText = `Status changed to ${requestedStatus} by ${user.name} from dashboard`;
 
     if (requestedStatus === 'DONE') {
