@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
+type TaskStatus = 'OPEN' | 'DONE';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -24,7 +24,6 @@ function normalizeStatus(value: string): TaskStatus | null {
   const v = String(value || '').trim().toUpperCase();
 
   if (v === 'DONE') return 'DONE';
-  if (v === 'IN_PROGRESS' || v === 'DOING') return 'IN_PROGRESS';
   if (v === 'OPEN' || v === 'REOPEN' || v === 'REOPENED') return 'OPEN';
 
   return null;
@@ -131,9 +130,6 @@ export async function POST(req: NextRequest) {
     if (requestedStatus === 'DONE') {
       updateData.done_at = now;
       updateData.done_by_name = user.name;
-    } else if (requestedStatus === 'IN_PROGRESS') {
-      updateData.done_at = null;
-      updateData.done_by_name = null;
     } else if (requestedStatus === 'OPEN') {
       updateData.done_at = null;
       updateData.done_by_name = null;
