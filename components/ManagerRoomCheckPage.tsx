@@ -97,6 +97,16 @@ function statusLabel(status: CheckStatus) {
   return 'Open';
 }
 
+function isLikelyFileName(value?: string | null) {
+  return /\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm)$/i.test(String(value || '').trim());
+}
+
+function mediaRemark(value?: string | null) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || isLikelyFileName(trimmed)) return '';
+  return trimmed;
+}
+
 function fileToImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -418,7 +428,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         file,
         previewUrl: URL.createObjectURL(file),
         media_type: isVideo ? 'video' : 'image',
-        caption: rawFile.name,
+        caption: '',
         marked: false,
       });
     }
@@ -432,7 +442,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     const token = await getAccessToken();
     const form = new FormData();
     form.set('folder', 'manager-room-check-media');
-    items.forEach((item) => form.append('media', item.file, item.caption || item.file.name));
+    items.forEach((item) => form.append('media', item.file, item.file.name));
 
     const res = await fetch('/api/upload', {
       method: 'POST',
@@ -460,10 +470,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       setErrorMsg('Room number is required.');
       return;
     }
-    if (!title.trim()) {
-      setErrorMsg('Check title is required.');
-      return;
-    }
     if (!draftMedia.length) {
       setErrorMsg('Add at least one photo or video.');
       return;
@@ -475,13 +481,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     try {
       const uploaded = await uploadDraftMedia(draftMedia);
       const now = new Date().toISOString();
+      const normalizedRoomNumber = roomNumber.trim();
       const { data: check, error: checkError } = await supabase
         .from('manager_room_checks')
         .insert([
           {
             department,
-            room_number: roomNumber.trim(),
-            title: title.trim(),
+            room_number: normalizedRoomNumber,
+            title: `Room ${normalizedRoomNumber} Check`,
             description: description.trim() || null,
             status: 'OPEN',
             created_by_user_id: profile.user_id || null,
@@ -500,7 +507,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         media_url: item.url,
         media_path: item.path,
         media_type: item.media_type,
-        caption: draftMedia[index]?.caption || item.caption || null,
+        caption: draftMedia[index]?.caption.trim() || null,
         position: index + 1,
       }));
 
@@ -539,7 +546,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         media_url: item.url,
         media_path: item.path,
         media_type: item.media_type,
-        caption: draftMedia[index]?.caption || item.caption || null,
+        caption: draftMedia[index]?.caption.trim() || null,
         position: existingCount + index + 1,
       }));
       const { error } = await supabase.from('manager_room_check_media').insert(rows);
@@ -787,6 +794,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     });
   }
 
+  function updateDraftMediaCaption(id: string, caption: string) {
+    setDraftMedia((current) =>
+      current.map((item) => (item.id === id ? { ...item, caption } : item))
+    );
+  }
+
   function pointerPosition(event: PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -943,8 +956,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 >
                   <span className="mrc-room">Room {check.room_number}</span>
                   <span className="mrc-row-main">
-                    <strong>{check.title}</strong>
-                    <small>{check.description || 'No notes'}</small>
+                    <strong>{total} media item{total === 1 ? '' : 's'}</strong>
+                    <small>{check.description || 'Notes optional'}</small>
                   </span>
                   <span className={`mrc-status mrc-status-${check.status.toLowerCase()}`}>
                     {statusLabel(check.status)}
@@ -967,16 +980,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               <span>Room Number</span>
               <input value={roomNumber} onChange={(e) => setRoomNumber(e.target.value)} placeholder="1201" />
             </label>
-            <label>
-              <span>Check Title</span>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Room defects after inspection" />
-            </label>
           </div>
           <label className="mrc-full-label">
-            <span>Notes</span>
+            <span>Notes <em>(optional)</em></span>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes" />
           </label>
-          <MediaPicker draftMedia={draftMedia} addFiles={addFiles} removeDraftMedia={removeDraftMedia} setMarkupIndex={setMarkupIndex} />
+          <MediaPicker
+            draftMedia={draftMedia}
+            addFiles={addFiles}
+            removeDraftMedia={removeDraftMedia}
+            setMarkupIndex={setMarkupIndex}
+            updateDraftMediaCaption={updateDraftMediaCaption}
+          />
           <div className="mrc-modal-actions">
             <button type="button" className="mrc-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
             <button type="button" className="mrc-primary" disabled={saving} onClick={() => void createCheck()}>
@@ -990,7 +1005,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         <Modal title={`Room ${selectedCheck.room_number}`} onClose={() => setDetailOpen(false)}>
           <div className="mrc-detail-head">
             <div>
-              <h3>{selectedCheck.title}</h3>
+              <h3>Room {selectedCheck.room_number}</h3>
               <p>{selectedCheck.description || 'No notes'}</p>
             </div>
             <span className={`mrc-status mrc-status-${selectedCheck.status.toLowerCase()}`}>
@@ -1005,15 +1020,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           </div>
 
           <div className="mrc-media-grid">
-            {selectedMedia.map((item) => (
+            {selectedMedia.map((item) => {
+              const remark = mediaRemark(item.caption);
+              return (
               <div key={item.id} className="mrc-media-card">
                 {item.media_type === 'video' ? (
                   <video src={item.media_url} controls preload="metadata" />
                 ) : (
-                  <img src={item.media_url} alt={item.caption || 'Room check media'} />
+                  <img src={item.media_url} alt={remark || 'Room check media'} />
                 )}
                 <div className="mrc-media-info">
-                  <strong>{item.caption || `${item.media_type} ${item.position}`}</strong>
+                  <strong>Issue {item.position}</strong>
+                  {remark ? <p className="mrc-media-remark">{remark}</p> : null}
                   <span>
                     {item.completed_at
                       ? `Completed by ${item.completed_by_name || '-'}`
@@ -1051,12 +1069,19 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   ) : null}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {canManageContent && addingToCheckId === selectedCheck.id ? (
             <div className="mrc-add-panel">
-              <MediaPicker draftMedia={draftMedia} addFiles={addFiles} removeDraftMedia={removeDraftMedia} setMarkupIndex={setMarkupIndex} />
+              <MediaPicker
+                draftMedia={draftMedia}
+                addFiles={addFiles}
+                removeDraftMedia={removeDraftMedia}
+                setMarkupIndex={setMarkupIndex}
+                updateDraftMediaCaption={updateDraftMediaCaption}
+              />
               <div className="mrc-modal-actions">
                 <button type="button" className="mrc-secondary" onClick={() => setAddingToCheckId(null)}>Cancel Add</button>
                 <button type="button" className="mrc-primary" disabled={saving} onClick={() => void addMediaToCheck(selectedCheck.id)}>
@@ -1099,7 +1124,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       ) : null}
 
       {markupIndex !== null ? (
-        <Modal title={`Mark Up ${draftMedia[markupIndex]?.caption || 'Image'}`} onClose={() => setMarkupIndex(null)} wide markup>
+        <Modal title={`Mark Up Image ${markupIndex + 1}`} onClose={() => setMarkupIndex(null)} wide markup>
           <div className="mrc-markup-toolbar">
             <button
               type="button"
@@ -1164,11 +1189,13 @@ function MediaPicker({
   addFiles,
   removeDraftMedia,
   setMarkupIndex,
+  updateDraftMediaCaption,
 }: {
   draftMedia: DraftMedia[];
   addFiles: (files: FileList | File[]) => Promise<void>;
   removeDraftMedia: (id: string) => void;
   setMarkupIndex: (index: number) => void;
+  updateDraftMediaCaption: (id: string, caption: string) => void;
 }) {
   return (
     <div className="mrc-picker">
@@ -1192,9 +1219,16 @@ function MediaPicker({
               {item.media_type === 'video' ? (
                 <video src={item.previewUrl} muted />
               ) : (
-                <img src={item.previewUrl} alt={item.caption} />
+                <img src={item.previewUrl} alt={`Media preview ${index + 1}`} />
               )}
-              <div className="mrc-draft-caption">{item.caption || `${item.media_type} ${index + 1}`}</div>
+              <label className="mrc-draft-remark">
+                <span>Remark for staff (optional)</span>
+                <textarea
+                  value={item.caption}
+                  onChange={(e) => updateDraftMediaCaption(item.id, e.target.value)}
+                  placeholder={`Example: ${item.media_type === 'video' ? 'Leaking sound from AC' : 'Stain on bedsheet'}`}
+                />
+              </label>
               <div className="mrc-draft-actions">
                 {item.media_type === 'image' ? (
                   <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(index)}>
@@ -1552,6 +1586,15 @@ function StyleBlock() {
         font-weight: 900;
         min-width: 0;
       }
+      .mrc-form-grid label:only-child {
+        grid-column: 1 / -1;
+        max-width: 360px;
+      }
+      .mrc-full-label em {
+        color: #64748b;
+        font-style: normal;
+        font-weight: 750;
+      }
       .mrc-form-grid input,
       .mrc-full-label textarea {
         width: 100%;
@@ -1619,21 +1662,25 @@ function StyleBlock() {
         background: #0f172a;
         display: block;
       }
-      .mrc-draft-card input,
-      .mrc-draft-caption {
+      .mrc-draft-remark {
+        display: grid;
+        gap: 6px;
         width: calc(100% - 20px);
         margin: 10px;
+        color: #334155;
+        font-size: 13px;
+        font-weight: 850;
+      }
+      .mrc-draft-remark textarea {
+        width: 100%;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         padding: 9px;
-      }
-      .mrc-draft-caption {
-        min-height: 38px;
-        color: #334155;
-        font-weight: 750;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        min-height: 72px;
+        resize: vertical;
+        font: inherit;
+        font-weight: 650;
+        color: #0f172a;
       }
       .mrc-draft-actions,
       .mrc-media-actions {
@@ -1667,6 +1714,13 @@ function StyleBlock() {
       }
       .mrc-media-info {
         padding: 10px 10px 0;
+      }
+      .mrc-media-remark {
+        margin: 5px 0 0;
+        color: #0f172a;
+        font-weight: 750;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
       .mrc-add-panel {
         margin-top: 14px;
