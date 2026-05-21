@@ -1326,6 +1326,16 @@ function StyleBlock() {
         gap: 10px;
         flex-wrap: wrap;
       }
+      .mrc-modal > .mrc-modal-actions {
+        position: sticky;
+        bottom: calc(-18px - env(safe-area-inset-bottom, 0px));
+        z-index: 6;
+        margin: 16px -18px calc(-18px - env(safe-area-inset-bottom, 0px));
+        padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+        background: rgba(255,255,255,.97);
+        border-top: 1px solid #e2e8f0;
+        backdrop-filter: blur(10px);
+      }
       .mrc-primary,
       .mrc-secondary,
       .mrc-danger,
@@ -1503,19 +1513,19 @@ function StyleBlock() {
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 18px;
+        padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px));
       }
       .mrc-modal {
         box-sizing: border-box;
         width: min(920px, 100%);
-        max-height: 92vh;
+        max-height: calc(100dvh - 36px - env(safe-area-inset-bottom, 0px));
         overflow-y: auto;
         overflow-x: hidden;
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
         background: #fff;
         border-radius: 22px;
-        padding: 18px;
+        padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px));
         box-shadow: 0 30px 80px rgba(15,23,42,.28);
       }
       .mrc-modal *,
@@ -1930,9 +1940,14 @@ function StyleBlock() {
           font-size: 13px;
         }
         .mrc-modal {
-          padding: 14px;
+          padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
           border-radius: 18px;
-          max-height: 94vh;
+          max-height: calc(100dvh - 22px - env(safe-area-inset-bottom, 0px));
+        }
+        .mrc-modal > .mrc-modal-actions {
+          bottom: calc(-14px - env(safe-area-inset-bottom, 0px));
+          margin: 14px -14px calc(-14px - env(safe-area-inset-bottom, 0px));
+          padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
         }
         .mrc-modal-head {
           top: -14px;
