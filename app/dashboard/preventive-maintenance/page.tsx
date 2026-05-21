@@ -100,6 +100,8 @@ type TaskCardData = {
   allCompulsorySubtasksDone: boolean;
 };
 
+type TaskCardSection = 'OPEN' | 'OVERDUE' | 'DONE' | 'OPENING_NEXT_WEEK';
+
 type NewSubtaskDraft = {
   id: string;
   title: string;
@@ -148,6 +150,14 @@ function addDaysToDate(dateStr: string, days: number) {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function isWithinLastSevenDays(value?: string | null) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return true;
+  const diffMs = new Date().getTime() - date.getTime();
+  return diffMs <= 7 * 24 * 60 * 60 * 1000;
 }
 
 function parseWholeNumber(value: string): number | null {
@@ -306,6 +316,8 @@ export default function PreventiveMaintenancePage() {
           )
         `)
         .is('telegram_sent_at', null)
+        .eq('status', 'OPEN')
+        .lte('run_start_date', getTodayLocalDateString())
         .order('created_at', { ascending: true });
 
       if (error || !unsentRuns || unsentRuns.length === 0) return;
@@ -478,24 +490,63 @@ export default function PreventiveMaintenancePage() {
     return taskCardMap.get(selectedRunId) || null;
   }, [selectedRunId, taskCardMap]);
 
+  const todayDate = getTodayLocalDateString();
+  const openingNextWeekEndDate = addDaysToDate(todayDate, 7);
+
+  const openCards = useMemo(
+    () =>
+      taskCards.filter(
+        (card) => card.run.status === 'OPEN' && card.run.run_start_date <= todayDate
+      ),
+    [taskCards, todayDate]
+  );
+
+  const openingNextWeekCards = useMemo(
+    () =>
+      taskCards.filter(
+        (card) =>
+          card.run.status === 'OPEN' &&
+          card.run.run_start_date > todayDate &&
+          card.run.run_start_date <= openingNextWeekEndDate
+      ),
+    [openingNextWeekEndDate, taskCards, todayDate]
+  );
+
+  const overdueCards = useMemo(
+    () => taskCards.filter((card) => card.run.status === 'OVERDUE'),
+    [taskCards]
+  );
+
   const visibleDoneCards = useMemo(() => {
+    const activeRunTaskIds = new Set(
+      taskCards
+        .filter((card) => card.run.status === 'OPEN' || card.run.status === 'OVERDUE')
+        .map((card) => card.task.id)
+    );
+
+    const latestDoneRunIdByTask = new Map<string, string>();
+    taskCards
+      .filter((card) => card.run.status === 'DONE')
+      .sort((a, b) => b.run.run_start_date.localeCompare(a.run.run_start_date))
+      .forEach((card) => {
+        if (!latestDoneRunIdByTask.has(card.task.id)) {
+          latestDoneRunIdByTask.set(card.task.id, card.run.id);
+        }
+      });
+
     return taskCards.filter((card) => {
       if (card.run.status !== 'DONE') return false;
       if (!card.run.completed_at) return false;
 
-      const completedAt = new Date(card.run.completed_at);
-      if (Number.isNaN(completedAt.getTime())) return true;
+      if (isWithinLastSevenDays(card.run.completed_at)) return true;
 
-      const now = new Date();
-      const diffMs = now.getTime() - completedAt.getTime();
-      const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-
-      return diffMs <= sevenDaysMs;
+      return (
+        card.task.repeat_every_days !== null &&
+        latestDoneRunIdByTask.get(card.task.id) === card.run.id &&
+        !activeRunTaskIds.has(card.task.id)
+      );
     });
   }, [taskCards]);
-
-  const openCards = useMemo(() => taskCards.filter((card) => card.run.status === 'OPEN'), [taskCards]);
-  const overdueCards = useMemo(() => taskCards.filter((card) => card.run.status === 'OVERDUE'), [taskCards]);
   const recurringTasks = useMemo(() => {
     return tasks
       .filter((task) => task.is_active && task.repeat_every_days !== null)
@@ -948,11 +999,12 @@ export default function PreventiveMaintenancePage() {
     setRoomSearch('');
   }
 
-  function renderTaskCard(card: TaskCardData, section: 'OPEN' | 'OVERDUE' | 'DONE') {
+  function renderTaskCard(card: TaskCardData, section: TaskCardSection) {
     const doneDisabled =
       busyRunId === card.run.id ||
       (card.task.has_room_checklist && card.doneRooms !== card.totalRooms) ||
       !card.allCompulsorySubtasksDone;
+    const displayStatus = section === 'OPENING_NEXT_WEEK' ? 'OPENING NEXT WEEK' : card.run.status;
 
     return (
       <div key={card.run.id} style={styles.taskCard}>
@@ -966,13 +1018,15 @@ export default function PreventiveMaintenancePage() {
 
           <div style={{
             ...styles.statusBadge,
-            ...(card.run.status === 'DONE'
+            ...(section === 'OPENING_NEXT_WEEK'
+              ? styles.statusUpcoming
+              : card.run.status === 'DONE'
               ? styles.statusDone
               : card.run.status === 'OVERDUE'
               ? styles.statusOverdue
               : styles.statusOpen),
           }}>
-            {card.run.status}
+            {displayStatus}
           </div>
         </div>
 
@@ -1183,8 +1237,12 @@ export default function PreventiveMaintenancePage() {
             <div style={{ ...styles.summaryValue, color: '#b91c1c' }}>{overdueCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Done (7 days)</div>
+            <div style={styles.summaryLabel}>Done</div>
             <div style={{ ...styles.summaryValue, color: '#166534' }}>{visibleDoneCards.length}</div>
+          </div>
+          <div style={styles.summaryCard}>
+            <div style={styles.summaryLabel}>Opening Next Week</div>
+            <div style={{ ...styles.summaryValue, color: '#7c3aed' }}>{openingNextWeekCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Active Rooms</div>
@@ -1249,10 +1307,21 @@ export default function PreventiveMaintenancePage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>Done</div>
               {visibleDoneCards.length === 0 ? (
-                <div style={styles.emptyState}>No completed tasks in the last 7 days.</div>
+                <div style={styles.emptyState}>No completed tasks to show.</div>
               ) : (
                 <div style={styles.cardsWrap}>
                   {visibleDoneCards.map((card) => renderTaskCard(card, 'DONE'))}
+                </div>
+              )}
+            </section>
+
+            <section style={styles.panel}>
+              <div style={styles.sectionTitle}>Opening Next Week</div>
+              {openingNextWeekCards.length === 0 ? (
+                <div style={styles.emptyState}>No recurring tasks opening in the next 7 days.</div>
+              ) : (
+                <div style={styles.cardsWrap}>
+                  {openingNextWeekCards.map((card) => renderTaskCard(card, 'OPENING_NEXT_WEEK'))}
                 </div>
               )}
             </section>
@@ -1693,6 +1762,10 @@ const styles: Record<string, React.CSSProperties> = {
   statusOverdue: {
     background: '#fef2f2',
     color: '#b91c1c',
+  },
+  statusUpcoming: {
+    background: '#f5f3ff',
+    color: '#7c3aed',
   },
   metaGrid: {
     display: 'grid',
