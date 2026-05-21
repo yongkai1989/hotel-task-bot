@@ -132,12 +132,12 @@ function isAccessAllowed(profile: Profile | null, department: DepartmentCode) {
   return profile.can_access_hk_manager_room_check === true;
 }
 
-function isReviewer(profile: Profile | null) {
-  return (
-    profile?.role === 'SUPERUSER' ||
-    profile?.role === 'MANAGER' ||
-    profile?.role === 'SUPERVISOR'
-  );
+function canManageRoomCheckContent(profile: Profile | null) {
+  return profile?.role === 'SUPERUSER' || profile?.role === 'MANAGER';
+}
+
+function canFinalCheckRoomCheck(profile: Profile | null) {
+  return profile?.role === 'SUPERUSER' || profile?.role === 'MANAGER';
 }
 
 function mediaCount(media: CheckMedia[], checkId: string) {
@@ -179,7 +179,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const cleanupDoneRef = useRef(false);
 
   const canAccess = isAccessAllowed(profile, department);
-  const canReview = isReviewer(profile);
+  const canManageContent = canManageRoomCheckContent(profile);
+  const canFinalCheck = canFinalCheckRoomCheck(profile);
   const selectedCheck = checks.find((item) => item.id === selectedCheckId) || null;
   const selectedMedia = selectedCheck
     ? media
@@ -399,7 +400,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   async function createCheck() {
-    if (!supabase || !profile) return;
+    if (!supabase || !profile || !canManageContent) return;
     if (!roomNumber.trim()) {
       setErrorMsg('Room number is required.');
       return;
@@ -469,7 +470,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   async function addMediaToCheck(checkId: string) {
-    if (!supabase || !draftMedia.length) return;
+    if (!supabase || !draftMedia.length || !canManageContent) return;
     setSaving(true);
     setErrorMsg('');
     try {
@@ -651,7 +652,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   async function deleteMedia(item: CheckMedia) {
-    if (!supabase) return;
+    if (!supabase || !canManageContent) return;
     if (!window.confirm('Remove this media item?')) return;
     setErrorMsg('');
     try {
@@ -669,7 +670,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   async function replaceMedia(item: CheckMedia, file: File) {
-    if (!supabase) return;
+    if (!supabase || !canManageContent) return;
     setSaving(true);
     setErrorMsg('');
     try {
@@ -823,9 +824,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           <button className="mrc-secondary" type="button" onClick={() => void loadChecks()}>
             Refresh
           </button>
-          <button className="mrc-primary" type="button" onClick={() => setShowCreate(true)}>
-            + New Check
-          </button>
+          {canManageContent ? (
+            <button className="mrc-primary" type="button" onClick={() => setShowCreate(true)}>
+              + New Check
+            </button>
+          ) : null}
           <Link className="mrc-secondary" href="/dashboard">Back</Link>
         </div>
       </section>
@@ -898,7 +901,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         )}
       </section>
 
-      {showCreate ? (
+      {showCreate && canManageContent ? (
         <Modal title="New Manager Room Check" onClose={() => setShowCreate(false)}>
           <div className="mrc-form-grid">
             <label>
@@ -968,27 +971,31 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       Mark Complete
                     </button>
                   )}
-                  <label className="mrc-secondary mrc-file-button">
-                    Replace
-                    <input
-                      type="file"
-                      accept="image/*,video/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void replaceMedia(item, file);
-                        e.currentTarget.value = '';
-                      }}
-                    />
-                  </label>
-                  <button type="button" className="mrc-danger" onClick={() => void deleteMedia(item)}>
-                    Remove
-                  </button>
+                  {canManageContent ? (
+                    <>
+                      <label className="mrc-secondary mrc-file-button">
+                        Replace
+                        <input
+                          type="file"
+                          accept="image/*,video/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void replaceMedia(item, file);
+                            e.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+                      <button type="button" className="mrc-danger" onClick={() => void deleteMedia(item)}>
+                        Remove
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             ))}
           </div>
 
-          {addingToCheckId === selectedCheck.id ? (
+          {canManageContent && addingToCheckId === selectedCheck.id ? (
             <div className="mrc-add-panel">
               <MediaPicker draftMedia={draftMedia} addFiles={addFiles} removeDraftMedia={removeDraftMedia} setMarkupIndex={setMarkupIndex} />
               <div className="mrc-modal-actions">
@@ -1001,22 +1008,24 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           ) : null}
 
           <div className="mrc-modal-actions">
-            <button
-              type="button"
-              className="mrc-secondary"
-              onClick={() => {
-                setDraftMedia([]);
-                setAddingToCheckId(selectedCheck.id);
-              }}
-            >
-              Add Media
-            </button>
-            {canReview && selectedCheck.status === 'PENDING_CHECK' ? (
+            {canManageContent ? (
+              <button
+                type="button"
+                className="mrc-secondary"
+                onClick={() => {
+                  setDraftMedia([]);
+                  setAddingToCheckId(selectedCheck.id);
+                }}
+              >
+                Add Media
+              </button>
+            ) : null}
+            {canFinalCheck && selectedCheck.status === 'PENDING_CHECK' ? (
               <button type="button" className="mrc-primary" onClick={() => void markChecked(selectedCheck)}>
                 Mark Checked
               </button>
             ) : null}
-            {canReview && selectedCheck.status === 'DONE' ? (
+            {canFinalCheck && selectedCheck.status === 'DONE' ? (
               <button type="button" className="mrc-secondary" onClick={() => void reopenCheck(selectedCheck)}>
                 Reopen
               </button>
