@@ -71,6 +71,12 @@ type DraftQuestion = {
 
 type ViewMode = 'LIST' | 'FORM' | 'HISTORY' | 'VIEW_SUBMISSION';
 
+const HOUSEKEEPING_SUPERVISOR_EMAILS = [
+  'hksup1@hotelhallmark.com',
+  'hksup2@hotelhallmark.com',
+  'hksup3@hotelhallmark.com',
+];
+
 function getTodayLocalDateString() {
   const d = new Date();
   const year = d.getFullYear();
@@ -362,7 +368,11 @@ export default function SupervisorChecklistPage() {
         );
 
         if (trackerError) throw trackerError;
-        setTrackerRows((trackerData || []) as TrackerRow[]);
+        setTrackerRows(
+          ((trackerData || []) as TrackerRow[]).filter((row) =>
+            HOUSEKEEPING_SUPERVISOR_EMAILS.includes(String(row.email || '').toLowerCase())
+          )
+        );
       } catch {
         setTrackerRows([]);
       }
