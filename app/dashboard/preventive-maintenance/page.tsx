@@ -506,9 +506,7 @@ export default function PreventiveMaintenancePage() {
   const isEditingTask = editingTaskId !== null;
 
   const todayDate = getTodayLocalDateString();
-  const openingSoonEndDate = addDaysToDate(todayDate, 7);
   const todayTime = dateOnlyTime(todayDate) || 0;
-  const openingSoonEndTime = dateOnlyTime(openingSoonEndDate) || todayTime;
 
   const openCards = useMemo(
     () =>
@@ -526,11 +524,10 @@ export default function PreventiveMaintenancePage() {
         return (
           card.run.status === 'OPEN' &&
           startTime !== null &&
-          startTime > todayTime &&
-          startTime <= openingSoonEndTime
+          startTime > todayTime
         );
       }),
-    [openingSoonEndTime, taskCards, todayTime]
+    [taskCards, todayTime]
   );
 
   const overdueCards = useMemo(
@@ -603,16 +600,23 @@ export default function PreventiveMaintenancePage() {
 
   function openEditTask(task: PmTask, subtasks: PmTaskSubtask[], run?: PmTaskRun) {
     if (!canCreate) return;
+    const editableRun =
+      run ||
+      runs
+        .filter((taskRun) => taskRun.pm_task_id === task.id && taskRun.status !== 'DONE')
+        .sort((a, b) => b.run_start_date.localeCompare(a.run_start_date))[0] ||
+      null;
+
     setErrorMsg('');
     setSuccessMsg('');
     setEditingTaskId(task.id);
-    setEditingRunId(run?.id || null);
+    setEditingRunId(editableRun?.id || null);
     setNewTitle(task.title || '');
     setNewDescription(task.description || '');
     setNewRepeatMode(task.repeat_every_days === null ? 'NONE' : 'REPEAT');
     setNewRepeatEveryDaysInput(String(task.repeat_every_days || 30));
     setNewDueInDaysInput(String(task.due_in_days));
-    setNewStartDate(run?.run_start_date || getTodayLocalDateString());
+    setNewStartDate(editableRun?.run_start_date || getTodayLocalDateString());
     setNewHasRoomChecklist(!!task.has_room_checklist);
     setNewSubtasks(
       subtasks
@@ -911,11 +915,16 @@ export default function PreventiveMaintenancePage() {
       }
 
       if (editingRunId) {
+        const nextDueDate = addDaysToDate(startDate, parsedDueInDays);
+        const nextRunStatus: PmTaskRun['status'] =
+          (dateOnlyTime(nextDueDate) || 0) < todayTime ? 'OVERDUE' : 'OPEN';
+
         const { error: runError } = await supabase
           .from('pm_task_runs')
           .update({
             run_start_date: startDate,
-            due_date: addDaysToDate(startDate, parsedDueInDays),
+            due_date: nextDueDate,
+            status: nextRunStatus,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingRunId);
@@ -1646,9 +1655,9 @@ export default function PreventiveMaintenancePage() {
                 <div style={styles.modalTitle}>
                   {isEditingTask ? 'Edit Routine Task' : 'Create Routine Task'}
                 </div>
-                {isEditingTask && !editingRunId ? (
+                {isEditingTask ? (
                   <div style={styles.modalSubTitle}>
-                    Changes apply to the recurring setup and active unfinished runs.
+                    Changes apply to the task setup and active unfinished run.
                   </div>
                 ) : null}
               </div>
@@ -1679,19 +1688,17 @@ export default function PreventiveMaintenancePage() {
               />
             </div>
 
-            {!isEditingTask || editingRunId ? (
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Start Date</label>
-                <input
-                  type="date"
-                  value={newStartDate}
-                  min={isEditingTask ? undefined : getTodayLocalDateString()}
-                  onChange={(e) => setNewStartDate(e.target.value)}
-                  style={styles.input}
-                  disabled={creatingTask}
-                />
-              </div>
-            ) : null}
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Start Date</label>
+              <input
+                type="date"
+                value={newStartDate}
+                min={isEditingTask ? undefined : getTodayLocalDateString()}
+                onChange={(e) => setNewStartDate(e.target.value)}
+                style={styles.input}
+                disabled={creatingTask}
+              />
+            </div>
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Repeat</label>
