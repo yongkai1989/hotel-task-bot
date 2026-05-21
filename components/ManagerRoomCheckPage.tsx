@@ -63,6 +63,14 @@ type ManagerRoomCheckPageProps = {
   department: DepartmentCode;
 };
 
+const MAX_MEDIA_PER_CHECK = 30;
+const MAX_VIDEO_DURATION_SECONDS = 5;
+const MAX_VIDEO_SIZE_BYTES = 15 * 1024 * 1024;
+
+function formatMegabytes(bytes: number) {
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
+}
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -100,6 +108,41 @@ function fileToImage(file: File) {
     img.onerror = reject;
     img.src = url;
   });
+}
+
+function getVideoDuration(file: File) {
+  return new Promise<number>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(video.duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Unable to read video duration.'));
+    };
+    video.src = url;
+  });
+}
+
+async function validateVideoFile(file: File) {
+  if (file.size > MAX_VIDEO_SIZE_BYTES) {
+    throw new Error(
+      `${file.name} is too large (${formatMegabytes(file.size)}). Maximum video size is 15MB.`
+    );
+  }
+
+  const duration = await getVideoDuration(file);
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`${file.name} cannot be checked. Please choose another video.`);
+  }
+  if (duration > MAX_VIDEO_DURATION_SECONDS + 0.25) {
+    throw new Error(
+      `${file.name} is ${Math.ceil(duration)} seconds. Maximum video duration is 5 seconds.`
+    );
+  }
 }
 
 async function compressImageFile(file: File, maxSide = 1600, quality = 0.78) {
@@ -350,16 +393,25 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   async function addFiles(files: FileList | File[]) {
     setErrorMsg('');
     const incoming = Array.from(files);
-    if (draftMedia.length + incoming.length > 30) {
-      setErrorMsg('Maximum 30 photos or videos per room check.');
+    if (draftMedia.length + incoming.length > MAX_MEDIA_PER_CHECK) {
+      setErrorMsg(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
       return;
     }
 
     const nextItems: DraftMedia[] = [];
+    const rejected: string[] = [];
     for (const rawFile of incoming) {
       const isImage = rawFile.type.startsWith('image/');
       const isVideo = rawFile.type.startsWith('video/');
       if (!isImage && !isVideo) continue;
+      if (isVideo) {
+        try {
+          await validateVideoFile(rawFile);
+        } catch (error: any) {
+          rejected.push(error?.message || `${rawFile.name} was rejected.`);
+          continue;
+        }
+      }
       const file = isImage ? await compressImageFile(rawFile) : rawFile;
       nextItems.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -369,6 +421,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         caption: rawFile.name,
         marked: false,
       });
+    }
+    if (rejected.length) {
+      setErrorMsg(rejected.slice(0, 3).join(' '));
     }
     setDraftMedia((current) => [...current, ...nextItems]);
   }
@@ -475,8 +530,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setErrorMsg('');
     try {
       const existingCount = mediaCount(media, checkId);
-      if (existingCount + draftMedia.length > 30) {
-        throw new Error('Maximum 30 photos or videos per room check.');
+      if (existingCount + draftMedia.length > MAX_MEDIA_PER_CHECK) {
+        throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
       }
       const uploaded = await uploadDraftMedia(draftMedia);
       const rows = uploaded.map((item, index) => ({
@@ -674,7 +729,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setSaving(true);
     setErrorMsg('');
     try {
-      const nextFile = file.type.startsWith('image/') ? await compressImageFile(file) : file;
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      if (!isImage && !isVideo) throw new Error('Please choose an image or video.');
+      if (isVideo) await validateVideoFile(file);
+      const nextFile = isImage ? await compressImageFile(file) : file;
       const token = await getAccessToken();
       const form = new FormData();
       form.set('folder', 'manager-room-check-media');
