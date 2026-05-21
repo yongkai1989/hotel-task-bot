@@ -1031,21 +1031,41 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       ) : null}
 
       {markupIndex !== null ? (
-        <Modal title={`Mark Up ${draftMedia[markupIndex]?.caption || 'Image'}`} onClose={() => setMarkupIndex(null)} wide>
+        <Modal title={`Mark Up ${draftMedia[markupIndex]?.caption || 'Image'}`} onClose={() => setMarkupIndex(null)} wide markup>
           <div className="mrc-markup-toolbar">
             <button
               type="button"
-              className={!markupDrawMode ? 'mrc-primary' : 'mrc-secondary'}
+              className={`mrc-tool-btn ${!markupDrawMode ? 'is-active' : ''}`}
               onClick={() => setMarkupDrawMode(false)}
+              aria-label="Scroll image"
+              title="Scroll image"
             >
-              Scroll Image
+              <span aria-hidden="true">↕</span>
+              <span>Scroll</span>
             </button>
             <button
               type="button"
-              className={markupDrawMode ? 'mrc-primary' : 'mrc-secondary'}
+              className={`mrc-tool-btn mrc-pen-btn ${markupDrawMode ? 'is-active' : ''}`}
               onClick={() => setMarkupDrawMode(true)}
+              aria-label="Draw red markup"
+              title="Draw red markup"
             >
-              Draw Red Markup
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m16.9 3.7 3.4 3.4" />
+                <path d="M19 9 8.2 19.8 4 20l.2-4.2L15 5" />
+                <path d="M12 20h8" />
+              </svg>
+              <span>Pen</span>
             </button>
             <span>{markupDrawMode ? 'Draw mode is on' : 'Scroll mode is on'}</span>
           </div>
@@ -1130,15 +1150,17 @@ function Modal({
   children,
   onClose,
   wide = false,
+  markup = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  markup?: boolean;
 }) {
   return (
     <div className="mrc-modal-backdrop">
-      <div className={`mrc-modal ${wide ? 'is-wide' : ''}`}>
+      <div className={`mrc-modal ${wide ? 'is-wide' : ''} ${markup ? 'is-markup-modal' : ''}`}>
         <div className="mrc-modal-head">
           <h2>{title}</h2>
           <button type="button" onClick={onClose}>x</button>
@@ -1402,6 +1424,15 @@ function StyleBlock() {
       .mrc-modal.is-wide {
         width: min(1120px, 100%);
       }
+      .mrc-modal.is-markup-modal {
+        width: min(1120px, 100%);
+        height: calc(100dvh - 28px);
+        max-height: calc(100dvh - 28px);
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        overflow: hidden;
+      }
       .mrc-modal-head {
         position: sticky;
         top: -18px;
@@ -1427,6 +1458,18 @@ function StyleBlock() {
         background: #fff;
         font-weight: 950;
         cursor: pointer;
+      }
+      .mrc-modal.is-markup-modal .mrc-modal-head {
+        position: static;
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 12px 14px;
+      }
+      .mrc-modal.is-markup-modal .mrc-modal-head h2 {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: clamp(18px, 4.8vw, 24px);
+        line-height: 1.12;
       }
       .mrc-form-grid,
       .mrc-meta-grid {
@@ -1578,6 +1621,43 @@ function StyleBlock() {
         touch-action: none;
         cursor: crosshair;
       }
+      .mrc-tool-btn {
+        min-height: 42px;
+        border: 1px solid #cbd5e1;
+        border-radius: 14px;
+        background: #fff;
+        color: #334155;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 14px;
+        font-weight: 950;
+        cursor: pointer;
+      }
+      .mrc-tool-btn > span[aria-hidden="true"] {
+        display: none;
+      }
+      .mrc-tool-btn.is-active {
+        border-color: #2563eb;
+        background: #2563eb;
+        color: #fff;
+        box-shadow: 0 10px 24px rgba(37,99,235,.18);
+      }
+      .mrc-pen-btn {
+        width: 46px;
+        padding: 0;
+        color: #dc2626;
+      }
+      .mrc-pen-btn span {
+        display: none;
+      }
+      .mrc-pen-btn.is-active {
+        border-color: #ef4444;
+        background: #ef4444;
+        color: #fff;
+        box-shadow: 0 10px 24px rgba(239,68,68,.2);
+      }
       .mrc-markup-toolbar {
         position: sticky;
         top: 61px;
@@ -1607,6 +1687,39 @@ function StyleBlock() {
         background: rgba(255,255,255,.97);
         border-top: 1px solid #eef2f7;
         backdrop-filter: blur(10px);
+      }
+      .mrc-modal.is-markup-modal .mrc-markup-toolbar {
+        position: static;
+        flex: 0 0 auto;
+        margin: 0 14px 8px;
+        padding: 8px;
+        flex-wrap: nowrap;
+      }
+      .mrc-modal.is-markup-modal .mrc-markup-toolbar > span:last-child {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mrc-modal.is-markup-modal .mrc-markup {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        align-content: start;
+        padding: 8px 14px 14px;
+      }
+      .mrc-modal.is-markup-modal .mrc-markup canvas {
+        max-width: 100%;
+        width: auto;
+        height: auto;
+      }
+      .mrc-modal.is-markup-modal .mrc-markup-actions {
+        position: static;
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
       }
       .mrc-denied {
         padding: 28px;
