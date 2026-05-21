@@ -152,6 +152,17 @@ function addDaysToDate(dateStr: string, days: number) {
   return `${year}-${month}-${day}`;
 }
 
+function dateOnlyTime(value?: string | null) {
+  if (!value) return null;
+  const dateOnly = String(value).slice(0, 10);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateOnly)
+    ? new Date(`${dateOnly}T00:00:00`)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
 function isWithinLastSevenDays(value?: string | null) {
   if (!value) return false;
   const date = new Date(value);
@@ -492,24 +503,30 @@ export default function PreventiveMaintenancePage() {
 
   const todayDate = getTodayLocalDateString();
   const openingNextWeekEndDate = addDaysToDate(todayDate, 7);
+  const todayTime = dateOnlyTime(todayDate) || 0;
+  const openingNextWeekEndTime = dateOnlyTime(openingNextWeekEndDate) || todayTime;
 
   const openCards = useMemo(
     () =>
-      taskCards.filter(
-        (card) => card.run.status === 'OPEN' && card.run.run_start_date <= todayDate
-      ),
-    [taskCards, todayDate]
+      taskCards.filter((card) => {
+        const startTime = dateOnlyTime(card.run.run_start_date);
+        return card.run.status === 'OPEN' && startTime !== null && startTime <= todayTime;
+      }),
+    [taskCards, todayTime]
   );
 
   const openingNextWeekCards = useMemo(
     () =>
-      taskCards.filter(
-        (card) =>
+      taskCards.filter((card) => {
+        const startTime = dateOnlyTime(card.run.run_start_date);
+        return (
           card.run.status === 'OPEN' &&
-          card.run.run_start_date > todayDate &&
-          card.run.run_start_date <= openingNextWeekEndDate
-      ),
-    [openingNextWeekEndDate, taskCards, todayDate]
+          startTime !== null &&
+          startTime > todayTime &&
+          startTime <= openingNextWeekEndTime
+        );
+      }),
+    [openingNextWeekEndTime, taskCards, todayTime]
   );
 
   const overdueCards = useMemo(
