@@ -1067,7 +1067,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               </svg>
               <span>Pen</span>
             </button>
-            <span>{markupDrawMode ? 'Draw mode is on' : 'Scroll mode is on'}</span>
+            <span className="mrc-markup-mode-label">{markupDrawMode ? 'Draw mode is on' : 'Scroll mode is on'}</span>
+            <div className="mrc-markup-toolbar-actions">
+              <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(null)}>Cancel</button>
+              <button type="button" className="mrc-primary" onClick={() => void saveMarkup()}>Save</button>
+            </div>
           </div>
           <div className="mrc-markup">
             <canvas
@@ -1078,10 +1082,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               onPointerUp={stopDrawing}
               onPointerLeave={stopDrawing}
             />
-          </div>
-          <div className="mrc-modal-actions mrc-markup-actions">
-            <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(null)}>Cancel</button>
-            <button type="button" className="mrc-primary" onClick={() => void saveMarkup()}>Save Markup</button>
           </div>
         </Modal>
       ) : null}
@@ -1695,6 +1695,18 @@ function StyleBlock() {
         padding: 8px;
         flex-wrap: nowrap;
       }
+      .mrc-markup-toolbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+      .mrc-markup-toolbar-actions .mrc-primary,
+      .mrc-markup-toolbar-actions .mrc-secondary {
+        min-height: 40px;
+        padding: 0 14px;
+        white-space: nowrap;
+      }
       .mrc-modal.is-markup-modal .mrc-markup-toolbar > span:last-child {
         min-width: 0;
         overflow: hidden;
@@ -1807,6 +1819,24 @@ function StyleBlock() {
         }
         .mrc-markup-toolbar {
           top: 55px;
+        }
+        .mrc-modal.is-markup-modal .mrc-markup-toolbar {
+          gap: 8px;
+          margin: 0 10px 8px;
+          padding: 8px;
+        }
+        .mrc-modal.is-markup-modal .mrc-markup-mode-label {
+          display: none;
+        }
+        .mrc-markup-toolbar-actions {
+          margin-left: auto;
+        }
+        .mrc-markup-toolbar-actions .mrc-secondary {
+          display: none;
+        }
+        .mrc-markup-toolbar-actions .mrc-primary {
+          min-height: 42px;
+          padding: 0 16px;
         }
         .mrc-markup-actions {
           bottom: -14px;
