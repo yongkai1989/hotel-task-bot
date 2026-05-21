@@ -212,6 +212,8 @@ export default function PreventiveMaintenancePage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
   const [activeTab, setActiveTab] = useState<'TASKS' | 'RECURRING'>('TASKS');
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingRunId, setEditingRunId] = useState<string | null>(null);
 
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -501,6 +503,8 @@ export default function PreventiveMaintenancePage() {
     return taskCardMap.get(selectedRunId) || null;
   }, [selectedRunId, taskCardMap]);
 
+  const isEditingTask = editingTaskId !== null;
+
   const todayDate = getTodayLocalDateString();
   const openingSoonEndDate = addDaysToDate(todayDate, 7);
   const todayTime = dateOnlyTime(todayDate) || 0;
@@ -584,6 +588,8 @@ export default function PreventiveMaintenancePage() {
     if (!canCreate) return;
     setErrorMsg('');
     setSuccessMsg('');
+    setEditingTaskId(null);
+    setEditingRunId(null);
     setNewTitle('');
     setNewDescription('');
     setNewRepeatMode('NONE');
@@ -595,9 +601,37 @@ export default function PreventiveMaintenancePage() {
     setShowCreateModal(true);
   }
 
+  function openEditTask(task: PmTask, subtasks: PmTaskSubtask[], run?: PmTaskRun) {
+    if (!canCreate) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setEditingTaskId(task.id);
+    setEditingRunId(run?.id || null);
+    setNewTitle(task.title || '');
+    setNewDescription(task.description || '');
+    setNewRepeatMode(task.repeat_every_days === null ? 'NONE' : 'REPEAT');
+    setNewRepeatEveryDaysInput(String(task.repeat_every_days || 30));
+    setNewDueInDaysInput(String(task.due_in_days));
+    setNewStartDate(run?.run_start_date || getTodayLocalDateString());
+    setNewHasRoomChecklist(!!task.has_room_checklist);
+    setNewSubtasks(
+      subtasks
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((subtask) => ({
+          id: subtask.id || newDraftId(),
+          title: subtask.title,
+          is_compulsory: subtask.is_compulsory,
+        }))
+    );
+    setShowCreateModal(true);
+  }
+
   function closeCreateModal() {
     if (creatingTask) return;
     setShowCreateModal(false);
+    setEditingTaskId(null);
+    setEditingRunId(null);
   }
 
   async function handleCreateTask() {
@@ -766,6 +800,191 @@ export default function PreventiveMaintenancePage() {
       await loadAllData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to create preventive maintenance task');
+    } finally {
+      setCreatingTask(false);
+    }
+  }
+
+  async function handleUpdateTask() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    if (!profile?.user_id || !editingTaskId) {
+      setErrorMsg('Task not found.');
+      return;
+    }
+
+    const title = newTitle.trim();
+    if (!title) {
+      setErrorMsg('Please enter a task title.');
+      return;
+    }
+
+    let parsedRepeatEveryDays: number | null = null;
+    if (newRepeatMode === 'REPEAT') {
+      parsedRepeatEveryDays = parseWholeNumber(newRepeatEveryDaysInput);
+      if (parsedRepeatEveryDays === null || parsedRepeatEveryDays <= 0) {
+        setErrorMsg('Please enter Repeat Every days more than 0.');
+        return;
+      }
+    }
+
+    const parsedDueInDays = parseWholeNumber(newDueInDaysInput);
+    if (parsedDueInDays === null || parsedDueInDays < 0) {
+      setErrorMsg('Please enter a valid Due In days value.');
+      return;
+    }
+
+    const startDate = newStartDate || getTodayLocalDateString();
+    if (editingRunId && !startDate.trim()) {
+      setErrorMsg('Please select a start date.');
+      return;
+    }
+
+    const cleanSubtasks = newSubtasks
+      .map((subtask, index) => ({
+        title: subtask.title.trim(),
+        is_compulsory: subtask.is_compulsory,
+        position: index + 1,
+      }))
+      .filter((subtask) => subtask.title.length > 0);
+
+    try {
+      setCreatingTask(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const activeRunsForTask = runs.filter(
+        (run) => run.pm_task_id === editingTaskId && run.status !== 'DONE'
+      );
+      const activeRunIds = activeRunsForTask.map((run) => run.id);
+
+      const { error: taskError } = await supabase
+        .from('pm_tasks')
+        .update({
+          title,
+          description: newDescription.trim() || null,
+          repeat_every_days: parsedRepeatEveryDays,
+          due_in_days: parsedDueInDays,
+          has_room_checklist: newHasRoomChecklist,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingTaskId);
+
+      if (taskError) throw taskError;
+
+      if (activeRunIds.length > 0) {
+        const { error: deleteRunSubtasksError } = await supabase
+          .from('pm_task_run_subtasks')
+          .delete()
+          .in('pm_task_run_id', activeRunIds);
+
+        if (deleteRunSubtasksError) throw deleteRunSubtasksError;
+      }
+
+      const { error: deleteSubtaskError } = await supabase
+        .from('pm_task_subtasks')
+        .delete()
+        .eq('pm_task_id', editingTaskId);
+
+      if (deleteSubtaskError) throw deleteSubtaskError;
+
+      let insertedSubtasks: PmTaskSubtask[] = [];
+      if (cleanSubtasks.length > 0) {
+        const { data: subtaskRows, error: subtaskError } = await supabase
+          .from('pm_task_subtasks')
+          .insert(
+            cleanSubtasks.map((subtask) => ({
+              pm_task_id: editingTaskId,
+              title: subtask.title,
+              is_compulsory: subtask.is_compulsory,
+              position: subtask.position,
+            }))
+          )
+          .select('*');
+
+        if (subtaskError) throw subtaskError;
+        insertedSubtasks = (subtaskRows || []) as PmTaskSubtask[];
+      }
+
+      if (editingRunId) {
+        const { error: runError } = await supabase
+          .from('pm_task_runs')
+          .update({
+            run_start_date: startDate,
+            due_date: addDaysToDate(startDate, parsedDueInDays),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingRunId);
+
+        if (runError) throw runError;
+      }
+
+      if (activeRunIds.length > 0) {
+        if (insertedSubtasks.length > 0) {
+          const runSubtaskRows = activeRunIds.flatMap((runId) =>
+            insertedSubtasks
+              .slice()
+              .sort((a, b) => a.position - b.position)
+              .map((subtask) => ({
+                pm_task_run_id: runId,
+                pm_task_subtask_id: subtask.id,
+                title: subtask.title,
+                is_compulsory: subtask.is_compulsory,
+                is_done: false,
+                position: subtask.position,
+              }))
+          );
+
+          const { error: runSubtaskError } = await supabase
+            .from('pm_task_run_subtasks')
+            .insert(runSubtaskRows);
+
+          if (runSubtaskError) throw runSubtaskError;
+        }
+
+        for (const run of activeRunsForTask) {
+          const existingRooms = runRooms.filter((room) => room.pm_task_run_id === run.id);
+          if (newHasRoomChecklist) {
+            const existingRoomNumbers = new Set(existingRooms.map((room) => room.room_number));
+            const roomRows = allRooms
+              .filter((room) => !existingRoomNumbers.has(room.room_number))
+              .map((room) => ({
+                pm_task_run_id: run.id,
+                room_number: room.room_number,
+                is_done: false,
+              }));
+
+            if (roomRows.length > 0) {
+              const { error: roomInsertError } = await supabase
+                .from('pm_task_run_rooms')
+                .insert(roomRows);
+
+              if (roomInsertError) throw roomInsertError;
+            }
+          }
+
+          if (!newHasRoomChecklist && existingRooms.length > 0) {
+            const { error: roomDeleteError } = await supabase
+              .from('pm_task_run_rooms')
+              .delete()
+              .eq('pm_task_run_id', run.id);
+
+            if (roomDeleteError) throw roomDeleteError;
+          }
+        }
+      }
+
+      setSuccessMsg(`Task "${title}" updated.`);
+      setShowCreateModal(false);
+      setEditingTaskId(null);
+      setEditingRunId(null);
+      await loadAllData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update preventive maintenance task');
     } finally {
       setCreatingTask(false);
     }
@@ -1131,6 +1350,16 @@ export default function PreventiveMaintenancePage() {
             </button>
           ) : null}
 
+          {canCreate && section !== 'DONE' ? (
+            <button
+              type="button"
+              onClick={() => openEditTask(card.task, card.taskSubtasks, card.run)}
+              style={styles.secondaryActionBtn}
+            >
+              Edit
+            </button>
+          ) : null}
+
           {section !== 'DONE' ? (
             <button
               type="button"
@@ -1352,10 +1581,22 @@ export default function PreventiveMaintenancePage() {
               <div style={styles.recurringList}>
                 {recurringTasks.map(({ task, subtasks }) => (
                   <article key={task.id} style={styles.recurringCard}>
-                    <div>
-                      <div style={styles.taskTitle}>{task.title}</div>
-                      {task.description ? (
-                        <div style={styles.taskDescription}>{task.description}</div>
+                    <div style={styles.recurringTopRow}>
+                      <div>
+                        <div style={styles.taskTitle}>{task.title}</div>
+                        {task.description ? (
+                          <div style={styles.taskDescription}>{task.description}</div>
+                        ) : null}
+                      </div>
+
+                      {canCreate ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditTask(task, subtasks)}
+                          style={styles.secondaryActionBtn}
+                        >
+                          Edit
+                        </button>
                       ) : null}
                     </div>
 
@@ -1401,7 +1642,16 @@ export default function PreventiveMaintenancePage() {
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalTop}>
-              <div style={styles.modalTitle}>Create Routine Task</div>
+              <div>
+                <div style={styles.modalTitle}>
+                  {isEditingTask ? 'Edit Routine Task' : 'Create Routine Task'}
+                </div>
+                {isEditingTask && !editingRunId ? (
+                  <div style={styles.modalSubTitle}>
+                    Changes apply to the recurring setup and active unfinished runs.
+                  </div>
+                ) : null}
+              </div>
               <button type="button" onClick={closeCreateModal} style={styles.closeBtn} disabled={creatingTask}>
                 ×
               </button>
@@ -1429,17 +1679,19 @@ export default function PreventiveMaintenancePage() {
               />
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Start Date</label>
-              <input
-                type="date"
-                value={newStartDate}
-                min={getTodayLocalDateString()}
-                onChange={(e) => setNewStartDate(e.target.value)}
-                style={styles.input}
-                disabled={creatingTask}
-              />
-            </div>
+            {!isEditingTask || editingRunId ? (
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Start Date</label>
+                <input
+                  type="date"
+                  value={newStartDate}
+                  min={isEditingTask ? undefined : getTodayLocalDateString()}
+                  onChange={(e) => setNewStartDate(e.target.value)}
+                  style={styles.input}
+                  disabled={creatingTask}
+                />
+              </div>
+            ) : null}
 
             <div style={styles.formGroup}>
               <label style={styles.label}>Repeat</label>
@@ -1591,11 +1843,17 @@ export default function PreventiveMaintenancePage() {
 
               <button
                 type="button"
-                onClick={() => void handleCreateTask()}
+                onClick={() => void (isEditingTask ? handleUpdateTask() : handleCreateTask())}
                 style={styles.primaryBtn}
                 disabled={creatingTask}
               >
-                {creatingTask ? 'Creating...' : 'Create Task'}
+                {creatingTask
+                  ? isEditingTask
+                    ? 'Saving...'
+                    : 'Creating...'
+                  : isEditingTask
+                  ? 'Save Changes'
+                  : 'Create Task'}
               </button>
             </div>
           </div>
@@ -1967,6 +2225,13 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '18px',
     background: '#ffffff',
     padding: '14px',
+  },
+  recurringTopRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
   },
   recurringMetaGrid: {
     display: 'grid',
