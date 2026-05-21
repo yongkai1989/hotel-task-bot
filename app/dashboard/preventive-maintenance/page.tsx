@@ -100,7 +100,7 @@ type TaskCardData = {
   allCompulsorySubtasksDone: boolean;
 };
 
-type TaskCardSection = 'OPEN' | 'OVERDUE' | 'DONE' | 'OPENING_NEXT_WEEK';
+type TaskCardSection = 'OPEN' | 'OVERDUE' | 'DONE' | 'OPENING_SOON';
 
 type NewSubtaskDraft = {
   id: string;
@@ -502,9 +502,9 @@ export default function PreventiveMaintenancePage() {
   }, [selectedRunId, taskCardMap]);
 
   const todayDate = getTodayLocalDateString();
-  const openingNextWeekEndDate = addDaysToDate(todayDate, 7);
+  const openingSoonEndDate = addDaysToDate(todayDate, 7);
   const todayTime = dateOnlyTime(todayDate) || 0;
-  const openingNextWeekEndTime = dateOnlyTime(openingNextWeekEndDate) || todayTime;
+  const openingSoonEndTime = dateOnlyTime(openingSoonEndDate) || todayTime;
 
   const openCards = useMemo(
     () =>
@@ -515,7 +515,7 @@ export default function PreventiveMaintenancePage() {
     [taskCards, todayTime]
   );
 
-  const openingNextWeekCards = useMemo(
+  const openingSoonCards = useMemo(
     () =>
       taskCards.filter((card) => {
         const startTime = dateOnlyTime(card.run.run_start_date);
@@ -523,10 +523,10 @@ export default function PreventiveMaintenancePage() {
           card.run.status === 'OPEN' &&
           startTime !== null &&
           startTime > todayTime &&
-          startTime <= openingNextWeekEndTime
+          startTime <= openingSoonEndTime
         );
       }),
-    [openingNextWeekEndTime, taskCards, todayTime]
+    [openingSoonEndTime, taskCards, todayTime]
   );
 
   const overdueCards = useMemo(
@@ -1021,7 +1021,7 @@ export default function PreventiveMaintenancePage() {
       busyRunId === card.run.id ||
       (card.task.has_room_checklist && card.doneRooms !== card.totalRooms) ||
       !card.allCompulsorySubtasksDone;
-    const displayStatus = section === 'OPENING_NEXT_WEEK' ? 'OPENING NEXT WEEK' : card.run.status;
+    const displayStatus = section === 'OPENING_SOON' ? 'OPENING SOON' : card.run.status;
 
     return (
       <div key={card.run.id} style={styles.taskCard}>
@@ -1035,7 +1035,7 @@ export default function PreventiveMaintenancePage() {
 
           <div style={{
             ...styles.statusBadge,
-            ...(section === 'OPENING_NEXT_WEEK'
+            ...(section === 'OPENING_SOON'
               ? styles.statusUpcoming
               : card.run.status === 'DONE'
               ? styles.statusDone
@@ -1258,8 +1258,8 @@ export default function PreventiveMaintenancePage() {
             <div style={{ ...styles.summaryValue, color: '#166534' }}>{visibleDoneCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
-            <div style={styles.summaryLabel}>Opening Next Week</div>
-            <div style={{ ...styles.summaryValue, color: '#7c3aed' }}>{openingNextWeekCards.length}</div>
+            <div style={styles.summaryLabel}>Opening Soon</div>
+            <div style={{ ...styles.summaryValue, color: '#7c3aed' }}>{openingSoonCards.length}</div>
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Active Rooms</div>
@@ -1333,12 +1333,12 @@ export default function PreventiveMaintenancePage() {
             </section>
 
             <section style={styles.panel}>
-              <div style={styles.sectionTitle}>Opening Next Week</div>
-              {openingNextWeekCards.length === 0 ? (
-                <div style={styles.emptyState}>No recurring tasks opening in the next 7 days.</div>
+              <div style={styles.sectionTitle}>Opening Soon</div>
+              {openingSoonCards.length === 0 ? (
+                <div style={styles.emptyState}>No recurring tasks opening soon.</div>
               ) : (
                 <div style={styles.cardsWrap}>
-                  {openingNextWeekCards.map((card) => renderTaskCard(card, 'OPENING_NEXT_WEEK'))}
+                  {openingSoonCards.map((card) => renderTaskCard(card, 'OPENING_SOON'))}
                 </div>
               )}
             </section>
