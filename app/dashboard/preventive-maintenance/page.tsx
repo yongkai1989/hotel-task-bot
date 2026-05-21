@@ -1250,9 +1250,17 @@ export default function PreventiveMaintenancePage() {
       (card.task.has_room_checklist && card.doneRooms !== card.totalRooms) ||
       !card.allCompulsorySubtasksDone;
     const displayStatus = section === 'OPENING_SOON' ? 'OPENING SOON' : card.run.status;
+    const taskCardTone =
+      section === 'OPENING_SOON'
+        ? styles.taskCardUpcoming
+        : card.run.status === 'DONE'
+        ? styles.taskCardDone
+        : card.run.status === 'OVERDUE'
+        ? styles.taskCardOverdue
+        : styles.taskCardOpen;
 
     return (
-      <div key={card.run.id} style={styles.taskCard}>
+      <div key={card.run.id} style={{ ...styles.taskCard, ...taskCardTone }}>
         <div style={styles.taskTopRow}>
           <div>
             <div style={styles.taskTitle}>{card.task.title}</div>
@@ -2000,20 +2008,49 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cardsWrap: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: '12px',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 400px), 1fr))',
+    gap: '16px',
   },
   taskCard: {
     border: '1px solid #e2e8f0',
+    borderLeft: '6px solid #2563eb',
     borderRadius: '18px',
     background: '#ffffff',
-    padding: '14px',
+    padding: '16px',
+    boxShadow: '0 16px 34px rgba(15,23,42,0.08)',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  taskCardOpen: {
+    borderColor: '#bfdbfe',
+    borderLeftColor: '#2563eb',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+  },
+  taskCardUpcoming: {
+    borderColor: '#ddd6fe',
+    borderLeftColor: '#7c3aed',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfaff 100%)',
+  },
+  taskCardDone: {
+    borderColor: '#bbf7d0',
+    borderLeftColor: '#16a34a',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f7fef9 100%)',
+  },
+  taskCardOverdue: {
+    borderColor: '#fecaca',
+    borderLeftColor: '#dc2626',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fff8f8 100%)',
   },
   taskTopRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '12px',
     alignItems: 'flex-start',
+    border: '1px solid #edf2f7',
+    borderRadius: '14px',
+    background: 'rgba(248,250,252,0.82)',
+    padding: '12px',
+    marginBottom: '12px',
   },
   taskTitle: {
     fontSize: '20px',
@@ -2032,6 +2069,8 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 12px',
     fontWeight: 800,
     fontSize: '12px',
+    whiteSpace: 'nowrap',
+    boxShadow: '0 8px 18px rgba(15,23,42,0.06)',
   },
   statusOpen: {
     background: '#eff6ff',
@@ -2053,13 +2092,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: '10px',
-    marginTop: '14px',
+    marginTop: '0',
   },
   metaItem: {
     border: '1px solid #e2e8f0',
     borderRadius: '12px',
     padding: '10px',
-    background: '#f8fafc',
+    background: 'rgba(248,250,252,0.94)',
   },
   metaLabel: {
     fontSize: '12px',
@@ -2091,7 +2130,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '10px',
     flexWrap: 'wrap',
-    marginTop: '14px',
+    marginTop: '16px',
+    paddingTop: '14px',
+    borderTop: '1px solid #e2e8f0',
   },
   primaryActionBtn: {
     border: 'none',
@@ -2136,7 +2177,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
   },
   subtaskPanel: {
-    marginTop: '14px',
+    marginTop: '16px',
     border: '1px solid #dbeafe',
     background: '#f8fbff',
     borderRadius: '14px',
@@ -2225,13 +2266,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
   recurringList: {
     display: 'grid',
-    gap: '12px',
+    gap: '16px',
   },
   recurringCard: {
     border: '1px solid #e2e8f0',
+    borderLeft: '6px solid #2563eb',
     borderRadius: '18px',
-    background: '#ffffff',
-    padding: '14px',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    padding: '16px',
+    boxShadow: '0 16px 34px rgba(15,23,42,0.07)',
   },
   recurringTopRow: {
     display: 'flex',
@@ -2239,12 +2282,17 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '12px',
     alignItems: 'flex-start',
     flexWrap: 'wrap',
+    border: '1px solid #edf2f7',
+    borderRadius: '14px',
+    background: 'rgba(248,250,252,0.82)',
+    padding: '12px',
+    marginBottom: '12px',
   },
   recurringMetaGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
     gap: '10px',
-    marginTop: '14px',
+    marginTop: '0',
   },
   recurringSubtasks: {
     display: 'flex',
