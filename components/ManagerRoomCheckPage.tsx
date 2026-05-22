@@ -351,6 +351,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         cleanupDoneRef.current = true;
         void cleanupOldDoneChecks();
       }
+      await mergeDuplicateActiveRoomChecks();
 
       const { data: checkRows, error: checkError } = await supabase
         .from('manager_room_checks')
@@ -404,6 +405,100 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       });
     } catch {
       // Cleanup saves storage but should never block normal page use.
+    }
+  }
+
+  async function getMediaCountForCheck(checkId: string) {
+    if (!supabase) return mediaCount(media, checkId);
+    const { count, error } = await supabase
+      .from('manager_room_check_media')
+      .select('id', { count: 'exact', head: true })
+      .eq('check_id', checkId);
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  async function renumberCheckMedia(checkId: string) {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('manager_room_check_media')
+      .select('id, position, created_at')
+      .eq('check_id', checkId)
+      .order('position', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+
+    for (let index = 0; index < (data || []).length; index += 1) {
+      const nextPosition = index + 1;
+      if (data?.[index]?.position === nextPosition) continue;
+      const { error: updateError } = await supabase
+        .from('manager_room_check_media')
+        .update({ position: nextPosition })
+        .eq('id', data?.[index]?.id);
+      if (updateError) throw updateError;
+    }
+  }
+
+  async function deleteCheckIfEmpty(checkId: string) {
+    if (!supabase) return;
+    const count = await getMediaCountForCheck(checkId);
+    if (count > 0) return;
+    const { error } = await supabase.from('manager_room_checks').delete().eq('id', checkId);
+    if (error) throw error;
+  }
+
+  async function findActiveRoomCheck(targetDepartment: DepartmentCode, targetRoomNumber: string) {
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('manager_room_checks')
+      .select('*')
+      .eq('department', targetDepartment)
+      .eq('room_number', targetRoomNumber)
+      .neq('status', 'DONE')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data || null) as RoomCheck | null;
+  }
+
+  async function mergeDuplicateActiveRoomChecks() {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('manager_room_checks')
+      .select('id, room_number, created_at')
+      .eq('department', department)
+      .neq('status', 'DONE')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const keeperByRoom = new Map<string, string>();
+    const duplicatePairs: Array<{ keepId: string; duplicateId: string }> = [];
+    for (const row of data || []) {
+      const room = String(row.room_number || '').trim();
+      if (!room) continue;
+      const keepId = keeperByRoom.get(room);
+      if (keepId) {
+        duplicatePairs.push({ keepId, duplicateId: row.id });
+      } else {
+        keeperByRoom.set(room, row.id);
+      }
+    }
+
+    for (const pair of duplicatePairs) {
+      const { error: moveError } = await supabase
+        .from('manager_room_check_media')
+        .update({ check_id: pair.keepId })
+        .eq('check_id', pair.duplicateId);
+      if (moveError) throw moveError;
+
+      const { error: deleteError } = await supabase
+        .from('manager_room_checks')
+        .delete()
+        .eq('id', pair.duplicateId);
+      if (deleteError) throw deleteError;
+
+      await renumberCheckMedia(pair.keepId);
     }
   }
 
@@ -517,6 +612,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     createDashboardReminder = false
   ) {
     if (!supabase || !profile || !items.length) return null;
+    const existingCheck = await findActiveRoomCheck(targetDepartment, targetRoomNumber);
+    if (existingCheck) {
+      await appendMediaToRoomCheck(existingCheck, items, createDashboardReminder);
+      return existingCheck;
+    }
+
     const uploaded = await uploadDraftMedia(items);
     const now = new Date().toISOString();
     const { data: check, error: checkError } = await supabase
@@ -562,7 +663,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function appendMediaToRoomCheck(check: RoomCheck, items: DraftMedia[], createDashboardReminder = false) {
     if (!supabase || !items.length) return;
-    const existingCount = mediaCount(media, check.id);
+    const existingCount = await getMediaCountForCheck(check.id);
     if (existingCount + items.length > MAX_MEDIA_PER_CHECK) {
       throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
     }
@@ -849,9 +950,84 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         .update({ status: 'OPEN', updated_at: new Date().toISOString() })
         .eq('id', item.check_id)
         .neq('status', 'DONE');
+      await deleteCheckIfEmpty(item.check_id);
+      await renumberCheckMedia(item.check_id);
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to remove media.');
+    }
+  }
+
+  async function moveMediaToDepartment(item: CheckMedia, targetDepartment: DepartmentCode) {
+    if (!supabase || !selectedCheck || !canManageContent) return;
+    if (targetDepartment === selectedCheck.department) return;
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const targetCheck = await findActiveRoomCheck(targetDepartment, selectedCheck.room_number);
+      let destinationCheck = targetCheck;
+      if (!destinationCheck) {
+        const now = new Date().toISOString();
+        const { data, error } = await supabase
+          .from('manager_room_checks')
+          .insert([
+            {
+              department: targetDepartment,
+              room_number: selectedCheck.room_number,
+              title: `Room ${selectedCheck.room_number} Check`,
+              description: selectedCheck.description || null,
+              status: 'OPEN',
+              created_by_user_id: profile?.user_id || null,
+              created_by_name: profile?.name || null,
+              created_by_email: profile?.email || null,
+              created_at: now,
+              updated_at: now,
+            },
+          ])
+          .select('*')
+          .single();
+        if (error) throw error;
+        destinationCheck = data as RoomCheck;
+      }
+
+      const nextPosition = (await getMediaCountForCheck(destinationCheck.id)) + 1;
+      const { error: moveError } = await supabase
+        .from('manager_room_check_media')
+        .update({
+          check_id: destinationCheck.id,
+          position: nextPosition,
+          completed_at: null,
+          completed_by_name: null,
+          completed_by_email: null,
+        })
+        .eq('id', item.id);
+      if (moveError) throw moveError;
+
+      const now = new Date().toISOString();
+      await supabase
+        .from('manager_room_checks')
+        .update({ status: 'OPEN', updated_at: now })
+        .eq('id', destinationCheck.id);
+      await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'OPEN',
+          submitted_for_check_at: null,
+          submitted_for_check_by_name: null,
+          updated_at: now,
+        })
+        .eq('id', selectedCheck.id)
+        .neq('status', 'DONE');
+
+      await renumberCheckMedia(selectedCheck.id);
+      await renumberCheckMedia(destinationCheck.id);
+      await deleteCheckIfEmpty(selectedCheck.id);
+      setSuccessMsg(`Media moved to ${departmentLabel(targetDepartment)}.`);
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to change media department.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1240,6 +1416,24 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       ? `Completed by ${item.completed_by_name || '-'}`
                       : 'Not completed'}
                   </span>
+                  {canManageContent && selectedCheck.status !== 'DONE' ? (
+                    <div className="mrc-media-route">
+                      <span>Assigned to</span>
+                      <div>
+                        {(['HK', 'MT'] as DepartmentCode[]).map((targetDepartment) => (
+                          <button
+                            key={targetDepartment}
+                            type="button"
+                            className={selectedCheck.department === targetDepartment ? 'is-selected' : ''}
+                            disabled={saving || selectedCheck.department === targetDepartment}
+                            onClick={() => void moveMediaToDepartment(item, targetDepartment)}
+                          >
+                            {targetDepartment === 'HK' ? 'Housekeeping' : 'Maintenance'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mrc-media-actions">
                   {item.completed_at ? (
@@ -2114,6 +2308,37 @@ function StyleBlock() {
       }
       .mrc-media-info {
         padding: 10px 10px 0;
+      }
+      .mrc-media-route {
+        display: grid;
+        gap: 7px;
+        margin-top: 10px;
+      }
+      .mrc-media-route > span {
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+      .mrc-media-route > div {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .mrc-media-route button {
+        min-height: 38px;
+        border: 1px solid #dbeafe;
+        border-radius: 12px;
+        background: #fff;
+        color: #334155;
+        font-weight: 900;
+        cursor: pointer;
+      }
+      .mrc-media-route button.is-selected {
+        border-color: #2563eb;
+        background: #eff6ff;
+        color: #1d4ed8;
+        cursor: default;
       }
       .mrc-media-remark {
         margin: 5px 0 0;
