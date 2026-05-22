@@ -246,6 +246,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         .filter((item) => item.check_id === selectedCheck.id)
         .sort((a, b) => a.position - b.position)
     : [];
+  const quickAddCheck = addingToCheckId ? checks.find((item) => item.id === addingToCheckId) || null : null;
 
   const visibleChecks = checks.filter((check) =>
     statusFilter === 'ALL' ? true : check.status === statusFilter
@@ -435,7 +436,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         previewUrl: URL.createObjectURL(file),
         media_type: isVideo ? 'video' : 'image',
         caption: '',
-        assigned_department: department,
+        assigned_department: 'HK',
         urgent: false,
         marked: false,
       });
@@ -656,7 +657,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   async function addCameraPhotoToCheck(check: RoomCheck, rawFile?: File | null) {
-    if (!supabase || !rawFile || !canManageContent) return;
+    if (!rawFile || !canManageContent) return;
     if (!rawFile.type.startsWith('image/')) {
       setErrorMsg('Camera upload must be a photo.');
       return;
@@ -668,18 +669,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const item: DraftMedia = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
-        previewUrl: '',
+        previewUrl: URL.createObjectURL(file),
         media_type: 'image',
         caption: '',
-        assigned_department: check.department,
+        assigned_department: 'HK',
         urgent: false,
         marked: false,
       };
-      await appendMediaToRoomCheck(check, [item]);
-      setSuccessMsg(`Photo added to Room ${check.room_number}.`);
-      await loadChecks();
+      setDraftMedia((current) => {
+        current.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
+        return [item];
+      });
+      setAddingToCheckId(check.id);
+      setDetailOpen(false);
     } catch (error: any) {
-      setErrorMsg(error?.message || 'Failed to add camera photo.');
+      setErrorMsg(error?.message || 'Failed to prepare camera photo.');
     } finally {
       setSaving(false);
     }
@@ -909,6 +913,13 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const target = current.find((item) => item.id === id);
       if (target) URL.revokeObjectURL(target.previewUrl);
       return current.filter((item) => item.id !== id);
+    });
+  }
+
+  function clearDraftMedia() {
+    setDraftMedia((current) => {
+      current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      return [];
     });
   }
 
@@ -1147,6 +1158,38 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             <button type="button" className="mrc-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
             <button type="button" className="mrc-primary" disabled={saving} onClick={() => void createCheck()}>
               {saving ? 'Saving...' : 'Create Check'}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {canManageContent && quickAddCheck && !detailOpen && addingToCheckId === quickAddCheck.id ? (
+        <Modal title={`Add Media - Room ${quickAddCheck.room_number}`} onClose={() => {
+          clearDraftMedia();
+          setAddingToCheckId(null);
+        }}>
+          <MediaPicker
+            draftMedia={draftMedia}
+            addFiles={addFiles}
+            removeDraftMedia={removeDraftMedia}
+            setMarkupIndex={setMarkupIndex}
+            updateDraftMediaCaption={updateDraftMediaCaption}
+            updateDraftMediaDepartment={updateDraftMediaDepartment}
+            updateDraftMediaUrgent={updateDraftMediaUrgent}
+          />
+          <div className="mrc-modal-actions">
+            <button
+              type="button"
+              className="mrc-secondary"
+              onClick={() => {
+                clearDraftMedia();
+                setAddingToCheckId(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button type="button" className="mrc-primary" disabled={saving || !draftMedia.length} onClick={() => void addMediaToCheck(quickAddCheck.id)}>
+              {saving ? 'Uploading...' : 'Upload Media'}
             </button>
           </div>
         </Modal>
@@ -1395,16 +1438,27 @@ function MediaPicker({
                 />
               </label>
               <div className="mrc-draft-routing">
-                <label>
+                <div className="mrc-dept-choice" aria-label="Assign media to department">
                   <span>Assign to</span>
-                  <select
-                    value={item.assigned_department}
-                    onChange={(e) => updateDraftMediaDepartment(item.id, e.target.value as DepartmentCode)}
-                  >
-                    <option value="HK">Housekeeping</option>
-                    <option value="MT">Maintenance</option>
-                  </select>
-                </label>
+                  <div>
+                    <label className={`mrc-dept-check ${item.assigned_department === 'HK' ? 'is-selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={item.assigned_department === 'HK'}
+                        onChange={() => updateDraftMediaDepartment(item.id, 'HK')}
+                      />
+                      <span>Housekeeping</span>
+                    </label>
+                    <label className={`mrc-dept-check ${item.assigned_department === 'MT' ? 'is-selected' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={item.assigned_department === 'MT'}
+                        onChange={() => updateDraftMediaDepartment(item.id, 'MT')}
+                      />
+                      <span>Maintenance</span>
+                    </label>
+                  </div>
+                </div>
                 <label className="mrc-urgent-check">
                   <input
                     type="checkbox"
@@ -1916,24 +1970,51 @@ function StyleBlock() {
         align-items: end;
         padding: 0 10px 10px;
       }
-      .mrc-draft-routing label {
+      .mrc-dept-choice {
         display: grid;
         gap: 6px;
+        min-width: 0;
+      }
+      .mrc-dept-choice > span,
+      .mrc-draft-routing label {
         color: #334155;
         font-size: 13px;
         font-weight: 850;
-        min-width: 0;
       }
-      .mrc-draft-routing select {
-        width: 100%;
-        border: 1px solid #dbeafe;
-        border-radius: 12px;
+      .mrc-dept-choice > div {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .mrc-dept-check {
         min-height: 40px;
-        padding: 0 10px;
+        border: 1px solid #dbeafe;
         background: #fff;
-        color: #0f172a;
-        font: inherit;
-        font-weight: 850;
+        border-radius: 12px;
+        padding: 0 10px;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center;
+        justify-content: center;
+        gap: 7px !important;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .mrc-dept-check.is-selected {
+        border-color: #2563eb;
+        background: #eff6ff;
+        color: #1d4ed8;
+        box-shadow: inset 0 0 0 1px rgba(37,99,235,.18);
+      }
+      .mrc-dept-check input {
+        width: 16px;
+        height: 16px;
+        accent-color: #2563eb;
+      }
+      .mrc-draft-routing label {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
       }
       .mrc-urgent-check {
         min-height: 40px;
