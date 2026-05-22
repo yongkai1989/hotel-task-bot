@@ -57,7 +57,6 @@ type DraftMedia = {
   media_type: MediaType;
   caption: string;
   assigned_department: DepartmentCode;
-  urgent: boolean;
   marked: boolean;
 };
 
@@ -225,6 +224,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [draftMedia, setDraftMedia] = useState<DraftMedia[]>([]);
+  const [draftTaskUrgent, setDraftTaskUrgent] = useState(false);
 
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -437,7 +437,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         media_type: isVideo ? 'video' : 'image',
         caption: '',
         assigned_department: 'HK',
-        urgent: false,
         marked: false,
       });
     }
@@ -514,7 +513,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     targetDepartment: DepartmentCode,
     targetRoomNumber: string,
     notes: string,
-    items: DraftMedia[]
+    items: DraftMedia[],
+    createDashboardReminder = false
   ) {
     if (!supabase || !profile || !items.length) return null;
     const uploaded = await uploadDraftMedia(items);
@@ -553,14 +553,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       .insert(rows);
     if (mediaError) throw mediaError;
 
-    if (items.some((item) => item.urgent)) {
+    if (createDashboardReminder) {
       await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
     }
 
     return check as RoomCheck;
   }
 
-  async function appendMediaToRoomCheck(check: RoomCheck, items: DraftMedia[]) {
+  async function appendMediaToRoomCheck(check: RoomCheck, items: DraftMedia[], createDashboardReminder = false) {
     if (!supabase || !items.length) return;
     const existingCount = mediaCount(media, check.id);
     if (existingCount + items.length > MAX_MEDIA_PER_CHECK) {
@@ -582,7 +582,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       .update({ status: 'OPEN', updated_at: new Date().toISOString() })
       .eq('id', check.id);
 
-    if (items.some((item) => item.urgent)) {
+    if (createDashboardReminder) {
       await createUrgentDashboardTask(check.department, check.room_number);
     }
   }
@@ -608,7 +608,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
         const items = groups[targetDepartment];
         if (!items.length) continue;
-        await insertRoomCheckWithMedia(targetDepartment, normalizedRoomNumber, description, items);
+        await insertRoomCheckWithMedia(targetDepartment, normalizedRoomNumber, description, items, draftTaskUrgent);
         createdDepartments.push(departmentLabel(targetDepartment));
       }
 
@@ -618,6 +618,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       setDescription('');
       draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setDraftMedia([]);
+      setDraftTaskUrgent(false);
       setSuccessMsg(`Manager room check created for ${createdDepartments.join(' and ')}.`);
       await loadChecks();
     } catch (error: any) {
@@ -639,13 +640,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         const items = groups[targetDepartment];
         if (!items.length) continue;
         if (targetDepartment === check.department) {
-          await appendMediaToRoomCheck(check, items);
+          await appendMediaToRoomCheck(check, items, draftTaskUrgent);
         } else {
-          await insertRoomCheckWithMedia(targetDepartment, check.room_number, check.description || '', items);
+          await insertRoomCheckWithMedia(targetDepartment, check.room_number, check.description || '', items, draftTaskUrgent);
         }
       }
       draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setDraftMedia([]);
+      setDraftTaskUrgent(false);
       setAddingToCheckId(null);
       setSuccessMsg('Media added.');
       await loadChecks();
@@ -673,13 +675,13 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         media_type: 'image',
         caption: '',
         assigned_department: 'HK',
-        urgent: false,
         marked: false,
       };
       setDraftMedia((current) => {
         current.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
         return [item];
       });
+      setDraftTaskUrgent(false);
       setAddingToCheckId(check.id);
       setDetailOpen(false);
     } catch (error: any) {
@@ -921,6 +923,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       return [];
     });
+    setDraftTaskUrgent(false);
   }
 
   function updateDraftMediaCaption(id: string, caption: string) {
@@ -932,12 +935,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   function updateDraftMediaDepartment(id: string, assigned_department: DepartmentCode) {
     setDraftMedia((current) =>
       current.map((item) => (item.id === id ? { ...item, assigned_department } : item))
-    );
-  }
-
-  function updateDraftMediaUrgent(id: string, urgent: boolean) {
-    setDraftMedia((current) =>
-      current.map((item) => (item.id === id ? { ...item, urgent } : item))
     );
   }
 
@@ -1134,7 +1131,10 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       </section>
 
       {showCreate && canManageContent ? (
-        <Modal title="New Manager Room Check" onClose={() => setShowCreate(false)}>
+        <Modal title="New Manager Room Check" onClose={() => {
+          clearDraftMedia();
+          setShowCreate(false);
+        }}>
           <div className="mrc-form-grid">
             <label>
               <span>Room Number</span>
@@ -1152,10 +1152,19 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             setMarkupIndex={setMarkupIndex}
             updateDraftMediaCaption={updateDraftMediaCaption}
             updateDraftMediaDepartment={updateDraftMediaDepartment}
-            updateDraftMediaUrgent={updateDraftMediaUrgent}
           />
+          <UrgentTaskToggle checked={draftTaskUrgent} onChange={setDraftTaskUrgent} />
           <div className="mrc-modal-actions">
-            <button type="button" className="mrc-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+            <button
+              type="button"
+              className="mrc-secondary"
+              onClick={() => {
+                clearDraftMedia();
+                setShowCreate(false);
+              }}
+            >
+              Cancel
+            </button>
             <button type="button" className="mrc-primary" disabled={saving} onClick={() => void createCheck()}>
               {saving ? 'Saving...' : 'Create Check'}
             </button>
@@ -1175,8 +1184,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             setMarkupIndex={setMarkupIndex}
             updateDraftMediaCaption={updateDraftMediaCaption}
             updateDraftMediaDepartment={updateDraftMediaDepartment}
-            updateDraftMediaUrgent={updateDraftMediaUrgent}
           />
+          <UrgentTaskToggle checked={draftTaskUrgent} onChange={setDraftTaskUrgent} />
           <div className="mrc-modal-actions">
             <button
               type="button"
@@ -1276,10 +1285,19 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 setMarkupIndex={setMarkupIndex}
                 updateDraftMediaCaption={updateDraftMediaCaption}
                 updateDraftMediaDepartment={updateDraftMediaDepartment}
-                updateDraftMediaUrgent={updateDraftMediaUrgent}
               />
+              <UrgentTaskToggle checked={draftTaskUrgent} onChange={setDraftTaskUrgent} />
               <div className="mrc-modal-actions">
-                <button type="button" className="mrc-secondary" onClick={() => setAddingToCheckId(null)}>Cancel Add</button>
+                <button
+                  type="button"
+                  className="mrc-secondary"
+                  onClick={() => {
+                    clearDraftMedia();
+                    setAddingToCheckId(null);
+                  }}
+                >
+                  Cancel Add
+                </button>
                 <button type="button" className="mrc-primary" disabled={saving} onClick={() => void addMediaToCheck(selectedCheck.id)}>
                   {saving ? 'Uploading...' : 'Add Media'}
                 </button>
@@ -1293,7 +1311,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 type="button"
                 className="mrc-secondary"
                 onClick={() => {
-                  setDraftMedia([]);
+                  clearDraftMedia();
                   setAddingToCheckId(selectedCheck.id);
                 }}
               >
@@ -1388,6 +1406,30 @@ function CameraIcon() {
   );
 }
 
+function UrgentTaskToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className={`mrc-task-urgent ${checked ? 'is-urgent' : ''}`}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <strong>Urgent dashboard reminder</strong>
+        <small>
+          Creates one dashboard task per assigned department, without media.
+        </small>
+      </span>
+    </label>
+  );
+}
+
 function MediaPicker({
   draftMedia,
   addFiles,
@@ -1395,7 +1437,6 @@ function MediaPicker({
   setMarkupIndex,
   updateDraftMediaCaption,
   updateDraftMediaDepartment,
-  updateDraftMediaUrgent,
 }: {
   draftMedia: DraftMedia[];
   addFiles: (files: FileList | File[]) => Promise<void>;
@@ -1403,7 +1444,6 @@ function MediaPicker({
   setMarkupIndex: (index: number) => void;
   updateDraftMediaCaption: (id: string, caption: string) => void;
   updateDraftMediaDepartment: (id: string, assigned_department: DepartmentCode) => void;
-  updateDraftMediaUrgent: (id: string, urgent: boolean) => void;
 }) {
   return (
     <div className="mrc-picker">
@@ -1459,14 +1499,6 @@ function MediaPicker({
                     </label>
                   </div>
                 </div>
-                <label className="mrc-urgent-check">
-                  <input
-                    type="checkbox"
-                    checked={item.urgent}
-                    onChange={(e) => updateDraftMediaUrgent(item.id, e.target.checked)}
-                  />
-                  <span>Urgent</span>
-                </label>
               </div>
               <div className="mrc-draft-actions">
                 {item.media_type === 'image' ? (
@@ -1965,7 +1997,7 @@ function StyleBlock() {
       }
       .mrc-draft-routing {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr);
         gap: 10px;
         align-items: end;
         padding: 0 10px 10px;
@@ -2016,22 +2048,39 @@ function StyleBlock() {
         gap: 6px;
         min-width: 0;
       }
-      .mrc-urgent-check {
-        min-height: 40px;
-        grid-auto-flow: column;
+      .mrc-task-urgent {
+        margin-top: 12px;
+        border: 1px solid #dbeafe;
+        background: #f8fafc;
+        border-radius: 16px;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 10px;
         align-items: center;
-        justify-content: center;
-        border: 1px solid #fecaca;
-        background: #fff1f2;
-        color: #be123c !important;
-        border-radius: 12px;
-        padding: 0 12px;
         cursor: pointer;
-        white-space: nowrap;
       }
-      .mrc-urgent-check input {
-        width: 16px;
-        height: 16px;
+      .mrc-task-urgent.is-urgent {
+        border-color: #fecaca;
+        background: #fff1f2;
+      }
+      .mrc-task-urgent input {
+        width: 18px;
+        height: 18px;
+        accent-color: #dc2626;
+      }
+      .mrc-task-urgent strong,
+      .mrc-task-urgent small {
+        display: block;
+      }
+      .mrc-task-urgent strong {
+        color: #0f172a;
+        font-weight: 950;
+      }
+      .mrc-task-urgent small {
+        margin-top: 2px;
+        color: #64748b;
+        font-weight: 750;
       }
       .mrc-draft-actions,
       .mrc-media-actions {
