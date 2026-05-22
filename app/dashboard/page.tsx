@@ -94,6 +94,9 @@ type DashboardIconName =
   | 'door'
   | 'progress'
   | 'alert'
+  | 'housekeeping'
+  | 'maintenance'
+  | 'laundry'
   | 'refresh'
   | 'plus'
   | 'activity';
@@ -709,6 +712,42 @@ function DashboardIcon({
         <path d="M12 8v5" />
         <path d="M12 17h.01" />
         <path d="M10.4 3.8 2.7 17.2A2 2 0 0 0 4.4 20h15.2a2 2 0 0 0 1.7-2.8L13.6 3.8a1.85 1.85 0 0 0-3.2 0Z" />
+      </svg>
+    );
+  }
+
+  if (name === 'housekeeping') {
+    return (
+      <svg {...common}>
+        <path d="M4 20h16" />
+        <path d="M7 20v-7.5a5 5 0 0 1 10 0V20" />
+        <path d="M9.5 13.5h5" />
+        <path d="M12 3v4" />
+        <path d="M9.5 5.5h5" />
+        <path d="M6 9l-2-2" />
+        <path d="M18 9l2-2" />
+      </svg>
+    );
+  }
+
+  if (name === 'maintenance') {
+    return (
+      <svg {...common}>
+        <path d="M14.7 6.3a4 4 0 0 0-5 5L4.4 16.6a2 2 0 1 0 3 3l5.3-5.3a4 4 0 0 0 5-5l-2.8 2.8-2.2-2.2 2.8-2.8Z" />
+        <path d="M15 15l4.5 4.5" />
+        <path d="M17.5 17.5 16 19" />
+      </svg>
+    );
+  }
+
+  if (name === 'laundry') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="3" width="14" height="18" rx="2" />
+        <path d="M8 7h.01" />
+        <path d="M11 7h5" />
+        <circle cx="12" cy="14" r="4.2" />
+        <path d="M8.5 14.5c1.3-1 2.4-1 3.5 0s2.2 1 3.5 0" />
       </svg>
     );
   }
@@ -2546,62 +2585,65 @@ async function handleDeleteTask(taskId: string) {
               ) : null}
 
               {sidebarView === 'DASHBOARD' ? (
-                <section style={styles.operationTrackerGrid}>
+                <section
+                  style={{
+                    ...styles.operationTrackerGrid,
+                    gridTemplateColumns: isMobile
+                      ? 'repeat(2, minmax(0, 1fr))'
+                      : isTablet
+                      ? 'repeat(3, minmax(0, 1fr))'
+                      : 'repeat(3, minmax(0, 1fr))',
+                  }}
+                >
                   {managerRoomCheckTrackers.map((item) => {
                     const incomplete = Math.max(0, item.total - item.completed);
-                    const completePercent =
-                      item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
 
                     return (
                       <Link key={item.key} href={item.href} style={styles.operationTrackerCard}>
-                        <div style={styles.operationTrackerTop}>
-                          <div>
-                            <div style={styles.operationTrackerLabel}>{item.title}</div>
-                            <div style={styles.operationTrackerValue}>
-                              {item.completed}/{item.total}
-                            </div>
+                        <div
+                          style={{
+                            ...styles.operationTrackerIcon,
+                            background: item.key === 'HK' ? '#ecfdf5' : '#eff6ff',
+                            color: item.key === 'HK' ? '#16a34a' : '#2563eb',
+                          }}
+                        >
+                          <DashboardIcon name={item.key === 'HK' ? 'housekeeping' : 'maintenance'} size={19} />
+                        </div>
+                        <div style={styles.operationTrackerContent}>
+                          <div style={styles.operationTrackerLabel}>{item.title}</div>
+                          <div style={styles.operationTrackerValue}>
+                            {item.completed}/{item.total}
                           </div>
-                          <span style={styles.operationTrackerBadge}>
-                            {incomplete} open
-                          </span>
+                          <div style={styles.operationTrackerNote}>{incomplete} open</div>
                         </div>
-                        <div style={styles.operationTrackerTrack}>
-                          <div
-                            style={{
-                              ...styles.operationTrackerFill,
-                              width: `${completePercent}%`,
-                            }}
-                          />
-                        </div>
-                        <div style={styles.operationTrackerNote}>{item.note}</div>
                       </Link>
                     );
                   })}
 
                   <Link href="/dashboard/laundry-count" style={styles.operationTrackerCard}>
-                    <div style={styles.operationTrackerTop}>
-                      <div>
-                        <div style={styles.operationTrackerLabel}>Laundry Received</div>
-                        <div
-                          style={{
-                            ...styles.operationTrackerValue,
-                            color: insights.laundryReceivedSaved ? '#047857' : '#b45309',
-                          }}
-                        >
-                          {insights.laundryReceivedSaved ? 'Saved' : 'Not saved'}
-                        </div>
-                      </div>
-                      <span
+                    <div
+                      style={{
+                        ...styles.operationTrackerIcon,
+                        background: insights.laundryReceivedSaved ? '#ecfdf5' : '#fff7ed',
+                        color: insights.laundryReceivedSaved ? '#16a34a' : '#d97706',
+                      }}
+                    >
+                      <DashboardIcon name={insights.laundryReceivedSaved ? 'laundry' : 'alert'} size={19} />
+                    </div>
+                    <div style={styles.operationTrackerContent}>
+                      <div style={styles.operationTrackerLabel}>Laundry Received</div>
+                      <div
                         style={{
-                          ...styles.operationTrackerBadge,
-                          background: insights.laundryReceivedSaved ? '#dcfce7' : '#fef3c7',
-                          color: insights.laundryReceivedSaved ? '#047857' : '#92400e',
+                          ...styles.operationTrackerValue,
+                          color: insights.laundryReceivedSaved ? '#047857' : '#b45309',
                         }}
                       >
-                        {insights.laundryReceivedBlocks}/2
-                      </span>
+                        {insights.laundryReceivedSaved ? 'Saved' : 'Not saved'}
+                      </div>
+                      <div style={styles.operationTrackerNote}>
+                        {laundryReceivedNote}
+                      </div>
                     </div>
-                    <div style={styles.operationTrackerNote}>{laundryReceivedNote}</div>
                   </Link>
                 </section>
               ) : null}
@@ -4256,66 +4298,59 @@ const styles: Record<string, React.CSSProperties> = {
   },
   operationTrackerGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
     gap: 10,
     marginBottom: 12,
   },
   operationTrackerCard: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 12,
     textDecoration: 'none',
     color: '#0f172a',
     border: '1px solid rgba(218,229,243,0.95)',
-    background: 'linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(252,254,255,0.98) 100%)',
     borderRadius: 16,
     padding: 12,
+    minHeight: 82,
+    boxSizing: 'border-box',
     boxShadow: '0 14px 30px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
   },
-  operationTrackerTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
+  operationTrackerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#eff6ff',
+    color: '#2563eb',
+    flexShrink: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)',
+  },
+  operationTrackerContent: {
+    minWidth: 0,
+    flex: 1,
   },
   operationTrackerLabel: {
     fontSize: 10,
-    fontWeight: 900,
+    fontWeight: 800,
     color: '#64748b',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
+    marginBottom: 8,
   },
   operationTrackerValue: {
-    marginTop: 7,
-    fontSize: 26,
+    fontSize: 28,
     lineHeight: 1,
     fontWeight: 900,
     color: '#0f172a',
   },
-  operationTrackerBadge: {
-    borderRadius: 999,
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    padding: '6px 9px',
-    fontSize: 11,
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-  },
-  operationTrackerTrack: {
-    marginTop: 12,
-    height: 8,
-    borderRadius: 999,
-    background: '#e8eef7',
-    overflow: 'hidden',
-  },
-  operationTrackerFill: {
-    height: '100%',
-    borderRadius: 999,
-    background: '#2563eb',
-    transition: 'width 180ms ease',
-  },
   operationTrackerNote: {
-    marginTop: 8,
+    marginTop: 7,
     fontSize: 11,
+    lineHeight: 1.35,
     color: '#64748b',
-    fontWeight: 800,
+    fontWeight: 600,
   },
   resultText: {
     fontSize: 11,
