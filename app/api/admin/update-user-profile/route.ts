@@ -222,6 +222,41 @@ async function findAuthUserIdByEmail(serviceClient: any, email: string) {
   return '';
 }
 
+async function syncAuthUserMetadata(
+  serviceClient: any,
+  userId: string,
+  nextName: string,
+  nextRole: string
+) {
+  if (!userId) return { ok: true, role: nextRole };
+
+  const { data: existingUserData, error: getUserError } =
+    await serviceClient.auth.admin.getUserById(userId);
+
+  if (getUserError) {
+    return { ok: false, error: getUserError.message, role: null };
+  }
+
+  const currentMetadata = existingUserData?.user?.user_metadata || {};
+  const { data: updatedUserData, error: updateUserError } =
+    await serviceClient.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...currentMetadata,
+        name: nextName,
+        role: nextRole,
+      },
+    });
+
+  if (updateUserError) {
+    return { ok: false, error: updateUserError.message, role: null };
+  }
+
+  return {
+    ok: true,
+    role: updatedUserData?.user?.user_metadata?.role || nextRole,
+  };
+}
+
 async function getRequester(req: NextRequest, serviceClient: any) {
   const token = getBearerToken(req);
 
@@ -354,6 +389,18 @@ export async function POST(req: NextRequest) {
       (profile: any) => normalizeEmail(profile?.email) === targetEmail
     );
 
+    const canonicalUserId = authUserId || targetUserId;
+    const authMetadataSync = authUserId
+      ? await syncAuthUserMetadata(serviceClient, authUserId, payload.name, nextRole)
+      : { ok: true, role: null };
+
+    if (!authMetadataSync.ok) {
+      return NextResponse.json(
+        { ok: false, error: `Failed to update auth metadata: ${authMetadataSync.error}` },
+        { status: 500 }
+      );
+    }
+
     const targetUserIds = new Set<string>();
     targetUserIds.add(targetUserId);
 
@@ -408,7 +455,7 @@ export async function POST(req: NextRequest) {
     const { data: freshRow, error: freshError } = await serviceClient
       .from('user_profiles')
       .select(profileSelect)
-      .eq('user_id', authUserId || targetUserId)
+      .eq('user_id', canonicalUserId)
       .single();
 
     if (freshError) {
@@ -426,6 +473,7 @@ export async function POST(req: NextRequest) {
         returnedUserId: freshRow.user_id,
         requestedRole: nextRole,
         savedRole: freshRow.role,
+        authMetadataRole: authMetadataSync.role,
         matchedEmailProfileIds: emailProfiles.map((profile: any) => profile.user_id),
       },
       {
