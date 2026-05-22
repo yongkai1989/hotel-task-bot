@@ -35,8 +35,15 @@ type CreateBody = {
   can_delete_task?: boolean;
 };
 
+const allowedRoles = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'] as const;
+
 function toPermissionBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function normalizeRole(value: unknown) {
+  const role = String(value || 'FO').trim().toUpperCase();
+  return allowedRoles.includes(role as (typeof allowedRoles)[number]) ? role : 'FO';
 }
 
 function normalizeTimeValue(value: unknown) {
@@ -106,7 +113,7 @@ export async function POST(req: NextRequest) {
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '').trim();
     const name = String(body.name || '').trim();
-    const role = String(body.role || 'FO').trim();
+    const role = normalizeRole(body.role);
 
     if (!name) {
       return NextResponse.json({ ok: false, error: 'Missing name' }, { status: 400 });
@@ -178,6 +185,32 @@ export async function POST(req: NextRequest) {
       can_delete_task: toPermissionBoolean(body.can_delete_task),
       updated_at: new Date().toISOString(),
     };
+
+    if (role === 'SUPERUSER') {
+      payload.can_access_preventive_maintenance = true;
+      payload.can_access_maintenance_manager_room_check = true;
+      payload.can_access_maintenance_ot = true;
+      payload.can_access_maintenance_stock_card = true;
+      payload.can_access_maintenance_damaged = true;
+      payload.can_access_hk_special_project = true;
+      payload.can_access_hk_manager_room_check = true;
+      payload.can_access_chambermaid_entry = true;
+      payload.can_access_supervisor_update = true;
+      payload.can_access_laundry_count = true;
+      payload.can_access_laundry_received = true;
+      payload.can_access_stock_card = true;
+      payload.can_access_damaged = true;
+      payload.can_access_linen_history = true;
+      payload.can_access_daily_forms = true;
+      payload.can_access_management_tasks = true;
+      payload.can_access_admin_settings = true;
+      payload.can_access_lost_found = true;
+      payload.can_access_supervisor_checklist = true;
+      payload.can_access_fo_checklist = true;
+      payload.can_create_task = true;
+      payload.can_edit_task = true;
+      payload.can_delete_task = true;
+    }
 
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
