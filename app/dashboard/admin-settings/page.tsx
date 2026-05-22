@@ -513,6 +513,9 @@ export default function AdminSettingsPage() {
 
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update user');
+      if (json.requestedRole && json.savedRole && json.requestedRole !== json.savedRole) {
+        throw new Error(`Role save mismatch. Requested ${json.requestedRole}, but backend returned ${json.savedRole}.`);
+      }
 
       const returnedUser = normalizeUser(json.user || savedPayload);
       const confirmedUserId = String(json.returnedUserId || json.authUserId || returnedUser.user_id || draft.user_id);
@@ -532,6 +535,9 @@ export default function AdminSettingsPage() {
         prev ? { ...confirmedUser, newPassword: prev.newPassword || '' } : prev
       );
       setPersistedAccess(confirmedUser);
+      if (confirmedUser.user_id && confirmedUser.user_id !== selectedUserId) {
+        setSelectedUserId(confirmedUser.user_id);
+      }
 
       setStatusMsg('User access updated successfully');
       void refreshUsers(confirmedUser.user_id, confirmedUser).catch(() => {
