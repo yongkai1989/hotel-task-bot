@@ -102,6 +102,10 @@ function departmentLabel(department: DepartmentCode) {
   return department === 'HK' ? 'Housekeeping' : 'Maintenance';
 }
 
+function managerRoomCheckDashboardTaskText(department: DepartmentCode, roomNumber: string) {
+  return `Urgent Manager Room Check for room ${roomNumber}. Please open ${departmentLabel(department)} Manager Room Check to review.`;
+}
+
 function isLikelyFileName(value?: string | null) {
   return /\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm)$/i.test(String(value || '').trim());
 }
@@ -581,7 +585,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     try {
       const token = await getAccessToken();
       const label = departmentLabel(targetDepartment);
-      const taskText = `Urgent Manager Room Check for room ${targetRoomNumber}. Please open ${label} Manager Room Check to review.`;
+      const taskText = managerRoomCheckDashboardTaskText(targetDepartment, targetRoomNumber);
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: {
@@ -601,6 +605,52 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       }
     } catch (error: any) {
       setErrorMsg(error?.message || 'Urgent dashboard task was not created.');
+    }
+  }
+
+  async function syncDashboardReminderStatus(check: RoomCheck, nextStatus: 'OPEN' | 'DONE') {
+    if (!supabase) return 0;
+    try {
+      const token = await getAccessToken();
+      const taskText = managerRoomCheckDashboardTaskText(check.department, check.room_number);
+      const query = supabase
+        .from('tasks')
+        .select('id, status')
+        .eq('room', check.room_number)
+        .eq('department', check.department)
+        .eq('task_text', taskText)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      const { data, error } =
+        nextStatus === 'DONE'
+          ? await query.neq('status', 'DONE')
+          : await query.eq('status', 'DONE');
+
+      if (error) throw error;
+
+      let synced = 0;
+      for (const task of data || []) {
+        const res = await fetch('/api/task-status', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ taskId: task.id, status: nextStatus }),
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || 'Dashboard reminder status sync failed.');
+        }
+        synced += 1;
+      }
+
+      return synced;
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Dashboard reminder status sync failed.');
+      return 0;
     }
   }
 
@@ -895,7 +945,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         })
         .eq('id', check.id);
       if (error) throw error;
-      setSuccessMsg('Room check marked as checked.');
+      const synced = await syncDashboardReminderStatus(check, 'DONE');
+      setSuccessMsg(
+        synced
+          ? `Room check marked as checked. ${synced} dashboard reminder${synced === 1 ? '' : 's'} marked done.`
+          : 'Room check marked as checked.'
+      );
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to mark as checked.');
@@ -916,6 +971,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         })
         .eq('id', check.id);
       if (error) throw error;
+      await syncDashboardReminderStatus(check, 'OPEN');
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to reopen check.');
