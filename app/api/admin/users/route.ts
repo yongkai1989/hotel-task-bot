@@ -19,6 +19,19 @@ function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeTimeValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 function enabledCount(row: any) {
   const role = String(row?.role || 'FO');
   const email = normalizeEmail(row?.email);
@@ -74,6 +87,7 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_hk_manager_room_check),
     can_access_chambermaid_entry:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_chambermaid_entry),
+    chambermaid_access_until: normalizeTimeValue(row.chambermaid_access_until),
     can_access_supervisor_update:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_supervisor_update),
     can_access_laundry_count:
@@ -115,6 +129,7 @@ function normalizeProfileRow(row: any) {
     email,
     name: String(row.name || ''),
     role,
+    chambermaid_access_until: normalizeTimeValue(row.chambermaid_access_until),
     ...permissions,
     permissions,
     updated_at: row.updated_at || null,
@@ -207,6 +222,7 @@ const profileSelect = `
   can_access_hk_special_project,
   can_access_hk_manager_room_check,
   can_access_chambermaid_entry,
+  chambermaid_access_until,
   can_access_supervisor_update,
   can_access_laundry_count,
   can_access_laundry_received,
