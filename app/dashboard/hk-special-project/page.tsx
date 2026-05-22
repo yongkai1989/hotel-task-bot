@@ -124,6 +124,18 @@ function parseWholeNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+const HK_SPECIAL_PROJECT_TASK_MANAGERS = new Set([
+  'hksup1@hotelhallmark.com',
+  'hksup2@hotelhallmark.com',
+  'hksup3@hotelhallmark.com',
+]);
+
+function canManageHkSpecialProjectTasks(profile: DashboardUser | null) {
+  if (!profile) return false;
+  if (profile.role === 'SUPERUSER') return true;
+  return HK_SPECIAL_PROJECT_TASK_MANAGERS.has(String(profile.email || '').trim().toLowerCase());
+}
+
 export default function HkSpecialProjectPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -256,13 +268,13 @@ export default function HkSpecialProjectPage() {
 
   const canCreate = useMemo(() => {
     if (!profile) return false;
-    if (profile.role === 'SUPERUSER') return true;
+    if (canManageHkSpecialProjectTasks(profile)) return true;
     return !!profile.can_create_task;
   }, [profile]);
 
   const canDelete = useMemo(() => {
     if (!profile) return false;
-    if (profile.role === 'SUPERUSER') return true;
+    if (canManageHkSpecialProjectTasks(profile)) return true;
     return !!profile.can_delete_task;
   }, [profile]);
 
