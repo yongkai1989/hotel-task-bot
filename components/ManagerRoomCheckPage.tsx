@@ -56,6 +56,8 @@ type DraftMedia = {
   previewUrl: string;
   media_type: MediaType;
   caption: string;
+  assigned_department: DepartmentCode;
+  urgent: boolean;
   marked: boolean;
 };
 
@@ -95,6 +97,10 @@ function statusLabel(status: CheckStatus) {
   if (status === 'PENDING_CHECK') return 'Pending Check';
   if (status === 'DONE') return 'Done';
   return 'Open';
+}
+
+function departmentLabel(department: DepartmentCode) {
+  return department === 'HK' ? 'Housekeeping' : 'Maintenance';
 }
 
 function isLikelyFileName(value?: string | null) {
@@ -429,6 +435,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         previewUrl: URL.createObjectURL(file),
         media_type: isVideo ? 'video' : 'image',
         caption: '',
+        assigned_department: department,
+        urgent: false,
         marked: false,
       });
     }
@@ -464,6 +472,120 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }>;
   }
 
+  function groupedDraftMedia(items: DraftMedia[]) {
+    return items.reduce<Record<DepartmentCode, DraftMedia[]>>(
+      (groups, item) => {
+        groups[item.assigned_department].push(item);
+        return groups;
+      },
+      { HK: [], MT: [] }
+    );
+  }
+
+  async function createUrgentDashboardTask(targetDepartment: DepartmentCode, targetRoomNumber: string) {
+    try {
+      const token = await getAccessToken();
+      const label = departmentLabel(targetDepartment);
+      const taskText = `Urgent Manager Room Check for room ${targetRoomNumber}. Please open ${label} Manager Room Check to review.`;
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          room: targetRoomNumber,
+          department: targetDepartment,
+          task_text: taskText,
+        }),
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setErrorMsg(json?.error || `Urgent dashboard task was not created for ${label}.`);
+      }
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Urgent dashboard task was not created.');
+    }
+  }
+
+  async function insertRoomCheckWithMedia(
+    targetDepartment: DepartmentCode,
+    targetRoomNumber: string,
+    notes: string,
+    items: DraftMedia[]
+  ) {
+    if (!supabase || !profile || !items.length) return null;
+    const uploaded = await uploadDraftMedia(items);
+    const now = new Date().toISOString();
+    const { data: check, error: checkError } = await supabase
+      .from('manager_room_checks')
+      .insert([
+        {
+          department: targetDepartment,
+          room_number: targetRoomNumber,
+          title: `Room ${targetRoomNumber} Check`,
+          description: notes.trim() || null,
+          status: 'OPEN',
+          created_by_user_id: profile.user_id || null,
+          created_by_name: profile.name || null,
+          created_by_email: profile.email || null,
+          created_at: now,
+          updated_at: now,
+        },
+      ])
+      .select('*')
+      .single();
+    if (checkError) throw checkError;
+
+    const rows = uploaded.map((item, index) => ({
+      check_id: check.id,
+      media_url: item.url,
+      media_path: item.path,
+      media_type: item.media_type,
+      caption: items[index]?.caption.trim() || null,
+      position: index + 1,
+    }));
+
+    const { error: mediaError } = await supabase
+      .from('manager_room_check_media')
+      .insert(rows);
+    if (mediaError) throw mediaError;
+
+    if (items.some((item) => item.urgent)) {
+      await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
+    }
+
+    return check as RoomCheck;
+  }
+
+  async function appendMediaToRoomCheck(check: RoomCheck, items: DraftMedia[]) {
+    if (!supabase || !items.length) return;
+    const existingCount = mediaCount(media, check.id);
+    if (existingCount + items.length > MAX_MEDIA_PER_CHECK) {
+      throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
+    }
+    const uploaded = await uploadDraftMedia(items);
+    const rows = uploaded.map((item, index) => ({
+      check_id: check.id,
+      media_url: item.url,
+      media_path: item.path,
+      media_type: item.media_type,
+      caption: items[index]?.caption.trim() || null,
+      position: existingCount + index + 1,
+    }));
+    const { error } = await supabase.from('manager_room_check_media').insert(rows);
+    if (error) throw error;
+    await supabase
+      .from('manager_room_checks')
+      .update({ status: 'OPEN', updated_at: new Date().toISOString() })
+      .eq('id', check.id);
+
+    if (items.some((item) => item.urgent)) {
+      await createUrgentDashboardTask(check.department, check.room_number);
+    }
+  }
+
   async function createCheck() {
     if (!supabase || !profile || !canManageContent) return;
     if (!roomNumber.trim()) {
@@ -479,42 +601,15 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const uploaded = await uploadDraftMedia(draftMedia);
-      const now = new Date().toISOString();
       const normalizedRoomNumber = roomNumber.trim();
-      const { data: check, error: checkError } = await supabase
-        .from('manager_room_checks')
-        .insert([
-          {
-            department,
-            room_number: normalizedRoomNumber,
-            title: `Room ${normalizedRoomNumber} Check`,
-            description: description.trim() || null,
-            status: 'OPEN',
-            created_by_user_id: profile.user_id || null,
-            created_by_name: profile.name || null,
-            created_by_email: profile.email || null,
-            created_at: now,
-            updated_at: now,
-          },
-        ])
-        .select('*')
-        .single();
-      if (checkError) throw checkError;
-
-      const rows = uploaded.map((item, index) => ({
-        check_id: check.id,
-        media_url: item.url,
-        media_path: item.path,
-        media_type: item.media_type,
-        caption: draftMedia[index]?.caption.trim() || null,
-        position: index + 1,
-      }));
-
-      const { error: mediaError } = await supabase
-        .from('manager_room_check_media')
-        .insert(rows);
-      if (mediaError) throw mediaError;
+      const groups = groupedDraftMedia(draftMedia);
+      const createdDepartments: string[] = [];
+      for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
+        const items = groups[targetDepartment];
+        if (!items.length) continue;
+        await insertRoomCheckWithMedia(targetDepartment, normalizedRoomNumber, description, items);
+        createdDepartments.push(departmentLabel(targetDepartment));
+      }
 
       setShowCreate(false);
       setRoomNumber('');
@@ -522,7 +617,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       setDescription('');
       draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setDraftMedia([]);
-      setSuccessMsg('Manager room check created.');
+      setSuccessMsg(`Manager room check created for ${createdDepartments.join(' and ')}.`);
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to create room check.');
@@ -533,28 +628,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function addMediaToCheck(checkId: string) {
     if (!supabase || !draftMedia.length || !canManageContent) return;
+    const check = checks.find((item) => item.id === checkId);
+    if (!check) return;
     setSaving(true);
     setErrorMsg('');
     try {
-      const existingCount = mediaCount(media, checkId);
-      if (existingCount + draftMedia.length > MAX_MEDIA_PER_CHECK) {
-        throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
+      const groups = groupedDraftMedia(draftMedia);
+      for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
+        const items = groups[targetDepartment];
+        if (!items.length) continue;
+        if (targetDepartment === check.department) {
+          await appendMediaToRoomCheck(check, items);
+        } else {
+          await insertRoomCheckWithMedia(targetDepartment, check.room_number, check.description || '', items);
+        }
       }
-      const uploaded = await uploadDraftMedia(draftMedia);
-      const rows = uploaded.map((item, index) => ({
-        check_id: checkId,
-        media_url: item.url,
-        media_path: item.path,
-        media_type: item.media_type,
-        caption: draftMedia[index]?.caption.trim() || null,
-        position: existingCount + index + 1,
-      }));
-      const { error } = await supabase.from('manager_room_check_media').insert(rows);
-      if (error) throw error;
-      await supabase
-        .from('manager_room_checks')
-        .update({ status: 'OPEN', updated_at: new Date().toISOString() })
-        .eq('id', checkId);
       draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setDraftMedia([]);
       setAddingToCheckId(null);
@@ -562,6 +650,36 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to add media.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addCameraPhotoToCheck(check: RoomCheck, rawFile?: File | null) {
+    if (!supabase || !rawFile || !canManageContent) return;
+    if (!rawFile.type.startsWith('image/')) {
+      setErrorMsg('Camera upload must be a photo.');
+      return;
+    }
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const file = await compressImageFile(rawFile);
+      const item: DraftMedia = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        previewUrl: '',
+        media_type: 'image',
+        caption: '',
+        assigned_department: check.department,
+        urgent: false,
+        marked: false,
+      };
+      await appendMediaToRoomCheck(check, [item]);
+      setSuccessMsg(`Photo added to Room ${check.room_number}.`);
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to add camera photo.');
     } finally {
       setSaving(false);
     }
@@ -800,6 +918,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     );
   }
 
+  function updateDraftMediaDepartment(id: string, assigned_department: DepartmentCode) {
+    setDraftMedia((current) =>
+      current.map((item) => (item.id === id ? { ...item, assigned_department } : item))
+    );
+  }
+
+  function updateDraftMediaUrgent(id: string, urgent: boolean) {
+    setDraftMedia((current) =>
+      current.map((item) => (item.id === id ? { ...item, urgent } : item))
+    );
+  }
+
   function pointerPosition(event: PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -945,26 +1075,45 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               const done = completedCount(media, check.id);
               const progress = total ? Math.round((done / total) * 100) : 0;
               return (
-                <button
+                <div
                   key={check.id}
                   className="mrc-row"
-                  type="button"
-                  onClick={() => {
-                    setSelectedCheckId(check.id);
-                    setDetailOpen(true);
-                  }}
                 >
-                  <span className="mrc-room">Room {check.room_number}</span>
-                  <span className="mrc-row-main">
-                    <strong>{total} media item{total === 1 ? '' : 's'}</strong>
-                    <small>{check.description || 'Notes optional'}</small>
-                  </span>
-                  <span className={`mrc-status mrc-status-${check.status.toLowerCase()}`}>
-                    {statusLabel(check.status)}
-                  </span>
-                  <span className="mrc-progress">{done}/{total} media</span>
-                  <span className="mrc-bar"><span style={{ width: `${progress}%` }} /></span>
-                </button>
+                  <button
+                    className="mrc-row-open"
+                    type="button"
+                    onClick={() => {
+                      setSelectedCheckId(check.id);
+                      setDetailOpen(true);
+                    }}
+                  >
+                    <span className="mrc-room">Room {check.room_number}</span>
+                    <span className="mrc-row-main">
+                      <strong>{total} media item{total === 1 ? '' : 's'}</strong>
+                      <small>{check.description || 'Notes optional'}</small>
+                    </span>
+                    <span className={`mrc-status mrc-status-${check.status.toLowerCase()}`}>
+                      {statusLabel(check.status)}
+                    </span>
+                    <span className="mrc-progress">{done}/{total} media</span>
+                    <span className="mrc-bar"><span style={{ width: `${progress}%` }} /></span>
+                  </button>
+                  {canManageContent && check.status !== 'DONE' ? (
+                    <label className="mrc-camera-button" title="Take photo for this room">
+                      <CameraIcon />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void addCameraPhotoToCheck(check, file);
+                          e.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -991,6 +1140,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             removeDraftMedia={removeDraftMedia}
             setMarkupIndex={setMarkupIndex}
             updateDraftMediaCaption={updateDraftMediaCaption}
+            updateDraftMediaDepartment={updateDraftMediaDepartment}
+            updateDraftMediaUrgent={updateDraftMediaUrgent}
           />
           <div className="mrc-modal-actions">
             <button type="button" className="mrc-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
@@ -1081,6 +1232,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 removeDraftMedia={removeDraftMedia}
                 setMarkupIndex={setMarkupIndex}
                 updateDraftMediaCaption={updateDraftMediaCaption}
+                updateDraftMediaDepartment={updateDraftMediaDepartment}
+                updateDraftMediaUrgent={updateDraftMediaUrgent}
               />
               <div className="mrc-modal-actions">
                 <button type="button" className="mrc-secondary" onClick={() => setAddingToCheckId(null)}>Cancel Add</button>
@@ -1184,18 +1337,30 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   );
 }
 
+function CameraIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M8.2 5.5 9.4 3.8h5.2l1.2 1.7H19c1.2 0 2.2 1 2.2 2.2v10.1c0 1.2-1 2.2-2.2 2.2H5c-1.2 0-2.2-1-2.2-2.2V7.7c0-1.2 1-2.2 2.2-2.2h3.2Zm3.8 11a4.1 4.1 0 1 0 0-8.2 4.1 4.1 0 0 0 0 8.2Zm0-1.8a2.3 2.3 0 1 1 0-4.6 2.3 2.3 0 0 1 0 4.6Z" />
+    </svg>
+  );
+}
+
 function MediaPicker({
   draftMedia,
   addFiles,
   removeDraftMedia,
   setMarkupIndex,
   updateDraftMediaCaption,
+  updateDraftMediaDepartment,
+  updateDraftMediaUrgent,
 }: {
   draftMedia: DraftMedia[];
   addFiles: (files: FileList | File[]) => Promise<void>;
   removeDraftMedia: (id: string) => void;
   setMarkupIndex: (index: number) => void;
   updateDraftMediaCaption: (id: string, caption: string) => void;
+  updateDraftMediaDepartment: (id: string, assigned_department: DepartmentCode) => void;
+  updateDraftMediaUrgent: (id: string, urgent: boolean) => void;
 }) {
   return (
     <div className="mrc-picker">
@@ -1229,6 +1394,26 @@ function MediaPicker({
                   placeholder={`Example: ${item.media_type === 'video' ? 'Leaking sound from AC' : 'Stain on bedsheet'}`}
                 />
               </label>
+              <div className="mrc-draft-routing">
+                <label>
+                  <span>Assign to</span>
+                  <select
+                    value={item.assigned_department}
+                    onChange={(e) => updateDraftMediaDepartment(item.id, e.target.value as DepartmentCode)}
+                  >
+                    <option value="HK">Housekeeping</option>
+                    <option value="MT">Maintenance</option>
+                  </select>
+                </label>
+                <label className="mrc-urgent-check">
+                  <input
+                    type="checkbox"
+                    checked={item.urgent}
+                    onChange={(e) => updateDraftMediaUrgent(item.id, e.target.checked)}
+                  />
+                  <span>Urgent</span>
+                </label>
+              </div>
               <div className="mrc-draft-actions">
                 {item.media_type === 'image' ? (
                   <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(index)}>
@@ -1423,13 +1608,45 @@ function StyleBlock() {
         border: 1px solid #e2e8f0;
         background: #fff;
         border-radius: 16px;
-        padding: 12px;
+        padding: 10px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 54px;
+        gap: 10px;
+        align-items: stretch;
+      }
+      .mrc-row-open {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        padding: 2px;
         display: grid;
         grid-template-columns: 96px minmax(0, 1fr) 130px 96px;
         gap: 12px;
         align-items: center;
         text-align: left;
+        color: inherit;
         cursor: pointer;
+        min-width: 0;
+      }
+      .mrc-camera-button {
+        position: relative;
+        border: 1px solid #bfdbfe;
+        background: linear-gradient(180deg, #eff6ff, #dbeafe);
+        color: #1d4ed8;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        min-height: 52px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
+      }
+      .mrc-camera-button svg {
+        width: 22px;
+        height: 22px;
+        fill: currentColor;
+      }
+      .mrc-camera-button input {
+        display: none;
       }
       .mrc-room {
         color: #2563eb;
@@ -1692,6 +1909,49 @@ function StyleBlock() {
         font-weight: 650;
         color: #0f172a;
       }
+      .mrc-draft-routing {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: end;
+        padding: 0 10px 10px;
+      }
+      .mrc-draft-routing label {
+        display: grid;
+        gap: 6px;
+        color: #334155;
+        font-size: 13px;
+        font-weight: 850;
+        min-width: 0;
+      }
+      .mrc-draft-routing select {
+        width: 100%;
+        border: 1px solid #dbeafe;
+        border-radius: 12px;
+        min-height: 40px;
+        padding: 0 10px;
+        background: #fff;
+        color: #0f172a;
+        font: inherit;
+        font-weight: 850;
+      }
+      .mrc-urgent-check {
+        min-height: 40px;
+        grid-auto-flow: column;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #fecaca;
+        background: #fff1f2;
+        color: #be123c !important;
+        border-radius: 12px;
+        padding: 0 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .mrc-urgent-check input {
+        width: 16px;
+        height: 16px;
+      }
       .mrc-draft-actions,
       .mrc-media-actions {
         padding: 10px;
@@ -1899,6 +2159,9 @@ function StyleBlock() {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
         .mrc-row {
+          grid-template-columns: minmax(0, 1fr) 50px;
+        }
+        .mrc-row-open {
           grid-template-columns: 1fr;
         }
         .mrc-form-grid,
@@ -1938,6 +2201,9 @@ function StyleBlock() {
           min-height: 40px;
           padding: 0 12px;
           font-size: 13px;
+        }
+        .mrc-draft-routing {
+          grid-template-columns: 1fr;
         }
         .mrc-modal {
           padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
