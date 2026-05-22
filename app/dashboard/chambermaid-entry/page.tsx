@@ -10,6 +10,7 @@ type DashboardUser = {
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
   can_access_chambermaid_entry?: boolean;
+  chambermaid_access_until?: string | null;
 };
 
 type RoomRow = {
@@ -97,19 +98,58 @@ function getTodayLocalDateString() {
   return malaysiaDate;
 }
 
-function getMalaysiaHour() {
-  const hour = new Intl.DateTimeFormat('en-GB', {
-    timeZone: MALAYSIA_TIMEZONE,
-    hour: '2-digit',
-    hour12: false,
-  }).format(new Date());
+function normalizeTimeValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
 
-  return Number(hour);
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function isWithinChambermaidAccessWindow() {
-  const hour = getMalaysiaHour();
-  return hour >= 8 && hour < 18;
+function timeToMinutes(value: unknown) {
+  const normalized = normalizeTimeValue(value);
+  if (!normalized) return null;
+  const [hour, minute] = normalized.split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+function getMalaysiaMinuteOfDay() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: MALAYSIA_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+
+  return hour * 60 + minute;
+}
+
+function getChambermaidAccessUntil(value: unknown) {
+  return normalizeTimeValue(value) || '18:00';
+}
+
+function formatDisplayTime(value: unknown) {
+  const normalized = getChambermaidAccessUntil(value);
+  const [hour, minute] = normalized.split(':').map(Number);
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour % 12 || 12;
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
+function isWithinChambermaidAccessWindow(accessUntil: unknown) {
+  const startMinute = 8 * 60;
+  const endMinute = timeToMinutes(getChambermaidAccessUntil(accessUntil)) ?? 18 * 60;
+  const currentMinute = getMalaysiaMinuteOfDay();
+
+  return currentMinute >= startMinute && currentMinute < endMinute;
 }
 
 function normalizeRoomType(roomType: string) {
@@ -301,7 +341,7 @@ export default function ChambermaidEntryPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role, can_access_chambermaid_entry')
+          .select('user_id, email, name, role, can_access_chambermaid_entry, chambermaid_access_until')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -313,6 +353,7 @@ export default function ChambermaidEntryPage() {
           name: profileRow?.name || email || 'User',
           role: (profileRow?.role || 'HK') as DashboardUser['role'],
           can_access_chambermaid_entry: profileRow?.can_access_chambermaid_entry ?? false,
+          chambermaid_access_until: normalizeTimeValue(profileRow?.chambermaid_access_until),
         };
 
         if (!mounted) return;
@@ -355,8 +396,8 @@ export default function ChambermaidEntryPage() {
 
   const canAccessByTime = useMemo(() => {
     if (has24HourAccess) return true;
-    return isWithinChambermaidAccessWindow();
-  }, [has24HourAccess]);
+    return isWithinChambermaidAccessWindow(profile?.chambermaid_access_until);
+  }, [has24HourAccess, profile?.chambermaid_access_until]);
 
   const roomMap = useMemo(() => {
     const map: Record<string, RoomRow> = {};
@@ -738,7 +779,7 @@ export default function ChambermaidEntryPage() {
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access restricted</div>
           <p style={styles.centerText}>
-            Chambermaid Entry is only accessible from 8:00 AM to 6:00 PM Malaysia time for non-manager users.
+            Chambermaid Entry is only accessible from 8:00 AM to {formatDisplayTime(profile.chambermaid_access_until)} Malaysia time for this user.
           </p>
           <p style={styles.centerText}>
             Managers and Superusers can access this page 24/7.
