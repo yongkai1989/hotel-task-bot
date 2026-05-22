@@ -732,15 +732,19 @@ export default function SupervisorChecklistPage() {
       if (!submissionId) {
         const { data: createdSubmission, error: submissionError } = await supabase
           .from('supervisor_checklist_submissions')
-          .insert([
+          .upsert(
+            [
             {
               template_id: selectedTemplate.id,
               submission_date: today,
               submitted_by_user_id: profile.user_id,
               submitted_by_name: profile.name || profile.email,
               submitted_by_email: profile.email,
+              updated_at: new Date().toISOString(),
             },
-          ])
+            ],
+            { onConflict: 'template_id,submission_date,submitted_by_user_id' }
+          )
           .select('*')
           .single();
 
