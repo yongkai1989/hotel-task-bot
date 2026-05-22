@@ -19,6 +19,7 @@ type UserProfile = {
   can_access_hk_special_project: boolean;
   can_access_hk_manager_room_check: boolean;
   can_access_chambermaid_entry: boolean;
+  chambermaid_access_until: string | null;
   can_access_supervisor_update: boolean;
   can_access_laundry_count: boolean;
   can_access_laundry_received: boolean;
@@ -40,7 +41,7 @@ type EditableUser = UserProfile & { newPassword?: string };
 
 const roleOptions: Role[] = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'];
 
-type AccessKey = Exclude<keyof UserProfile, 'user_id' | 'email' | 'name' | 'role'>;
+type AccessKey = Exclude<keyof UserProfile, 'user_id' | 'email' | 'name' | 'role' | 'chambermaid_access_until'>;
 type PermissionRecord = Partial<Record<AccessKey, unknown>>;
 
 const accessFieldDefs: Array<{
@@ -83,6 +84,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_hk_special_project: false,
     can_access_hk_manager_room_check: false,
     can_access_chambermaid_entry: false,
+    chambermaid_access_until: null,
     can_access_supervisor_update: false,
     can_access_laundry_count: false,
     can_access_laundry_received: false,
@@ -103,6 +105,19 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
 
 function toPermissionBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function normalizeTimeValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 function normalizeUser(
@@ -140,6 +155,7 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_hk_manager_room_check')),
     can_access_chambermaid_entry:
       toPermissionBoolean(permissionValue('can_access_chambermaid_entry')),
+    chambermaid_access_until: normalizeTimeValue(row.chambermaid_access_until),
     can_access_supervisor_update:
       toPermissionBoolean(permissionValue('can_access_supervisor_update')),
     can_access_laundry_count:
@@ -184,6 +200,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_hk_special_project: toPermissionBoolean(draft.can_access_hk_special_project),
     can_access_hk_manager_room_check: toPermissionBoolean(draft.can_access_hk_manager_room_check),
     can_access_chambermaid_entry: toPermissionBoolean(draft.can_access_chambermaid_entry),
+    chambermaid_access_until: normalizeTimeValue(draft.chambermaid_access_until),
     can_access_supervisor_update: toPermissionBoolean(draft.can_access_supervisor_update),
     can_access_laundry_count: toPermissionBoolean(draft.can_access_laundry_count),
     can_access_laundry_received: toPermissionBoolean(draft.can_access_laundry_received),
@@ -630,6 +647,27 @@ function renderToggle(key: AccessKey, label: string) {
     );
   }
 
+  function renderChambermaidTimeLimit() {
+    if (!draft) return null;
+
+    return (
+      <div style={styles.timeLimitBox}>
+        <label style={styles.timeLimitLabel}>Chambermaid Listing Access Until</label>
+        <input
+          type="time"
+          value={draft.chambermaid_access_until || '18:00'}
+          onChange={(event) =>
+            setDraftField('chambermaid_access_until', normalizeTimeValue(event.target.value))
+          }
+          style={styles.input}
+        />
+        <div style={styles.timeLimitHelp}>
+          Applies to non-manager users. Superusers and managers can access Chambermaid Entry 24/7.
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return <main style={styles.page}><div style={styles.centerCard}>Loading...</div></main>;
   }
@@ -892,7 +930,14 @@ function renderToggle(key: AccessKey, label: string) {
                     </div>
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Housekeeping Access</div>
-                      {housekeepingToggles.map((item) => renderToggle(item.key, item.label))}
+                      {housekeepingToggles.map((item) => (
+                        <div key={`housekeeping-${String(item.key)}`}>
+                          {renderToggle(item.key, item.label)}
+                          {item.key === 'can_access_chambermaid_entry'
+                            ? renderChambermaidTimeLimit()
+                            : null}
+                        </div>
+                      ))}
                     </div>
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Front Office Access</div>
@@ -967,6 +1012,9 @@ const styles: Record<string, React.CSSProperties> = {
   toggleBtnOn: { background: '#0f172a' },
   toggleBtnOff: { background: '#cbd5e1' },
   toggleKnob: { position: 'absolute', top: '4px', left: '4px', width: '22px', height: '22px', background: '#ffffff', borderRadius: '999px', transition: 'transform 0.2s ease' },
+  timeLimitBox: { margin: '2px 0 10px', border: '1px solid #dbeafe', background: '#eff6ff', borderRadius: '16px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' },
+  timeLimitLabel: { fontSize: '13px', color: '#1e3a8a', fontWeight: 800 },
+  timeLimitHelp: { fontSize: '12px', color: '#475569', lineHeight: 1.5, fontWeight: 700 },
   inlineActionRow: { display: 'flex', gap: '10px', alignItems: 'stretch', flexWrap: 'wrap' },
   bottomActions: { display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginTop: '16px' },
   errorBox: { marginBottom: '14px', background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '14px', padding: '12px 14px', fontWeight: 700 },
