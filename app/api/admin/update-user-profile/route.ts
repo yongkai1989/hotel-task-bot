@@ -18,6 +18,7 @@ type UpdateBody = {
   can_access_hk_special_project?: boolean;
   can_access_hk_manager_room_check?: boolean;
   can_access_chambermaid_entry?: boolean;
+  chambermaid_access_until?: string | null;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
   can_access_laundry_received?: boolean;
@@ -74,6 +75,7 @@ const profileSelect = `
   can_access_hk_special_project,
   can_access_hk_manager_room_check,
   can_access_chambermaid_entry,
+  chambermaid_access_until,
   can_access_supervisor_update,
   can_access_laundry_count,
   can_access_laundry_received,
@@ -106,6 +108,19 @@ function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
+function normalizeTimeValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 function withPermissions(row: any) {
   const role = String(row.role || 'FO');
   const email = normalizeEmail(row.email);
@@ -126,6 +141,7 @@ function withPermissions(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_hk_manager_room_check),
     can_access_chambermaid_entry:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_chambermaid_entry),
+    chambermaid_access_until: normalizeTimeValue(row.chambermaid_access_until),
     can_access_supervisor_update:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_supervisor_update),
     can_access_laundry_count:
@@ -283,6 +299,7 @@ export async function POST(req: NextRequest) {
       email: targetEmail || null,
       name: String(body.name || '').trim(),
       role: String(body.role || 'FO').trim(),
+      chambermaid_access_until: normalizeTimeValue(body.chambermaid_access_until),
       updated_at: new Date().toISOString(),
     } as Record<string, any>;
 
