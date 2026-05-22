@@ -23,6 +23,7 @@ const PROFILE_SELECT = `
   can_access_hk_special_project,
   can_access_hk_manager_room_check,
   can_access_chambermaid_entry,
+  chambermaid_access_until,
   can_access_supervisor_update,
   can_access_laundry_count,
   can_access_laundry_received,
@@ -47,6 +48,19 @@ function getBearerToken(req: NextRequest) {
 
 function toPermissionBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function normalizeTimeValue(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 function effectiveBoolean(role: DashboardRole, value: unknown) {
@@ -142,6 +156,7 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_hk_manager_room_check),
     can_access_chambermaid_entry:
       effectiveBoolean(role, profile.can_access_chambermaid_entry),
+    chambermaid_access_until: normalizeTimeValue(profile.chambermaid_access_until),
     can_access_supervisor_update:
       effectiveBoolean(role, profile.can_access_supervisor_update),
     can_access_laundry_count:
@@ -175,6 +190,7 @@ function buildUser(profile: any, authEmail: string) {
     email: profile.email || authEmail,
     name: profile.name || authEmail || 'User',
     role,
+    chambermaid_access_until: normalizeTimeValue(profile.chambermaid_access_until),
     ...permissions,
     permissions,
   };
