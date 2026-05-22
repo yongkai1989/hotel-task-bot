@@ -62,6 +62,8 @@ const permissionKeys = [
   'can_delete_task',
 ] as const;
 
+const allowedRoles = ['SUPERUSER', 'MANAGER', 'SUPERVISOR', 'HK', 'MT', 'FO'] as const;
+
 const profileSelect = `
   user_id,
   email,
@@ -106,6 +108,11 @@ function toPermissionBoolean(value: unknown) {
 
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
+}
+
+function normalizeRole(value: unknown) {
+  const role = String(value || 'FO').trim().toUpperCase();
+  return allowedRoles.includes(role as (typeof allowedRoles)[number]) ? role : 'FO';
 }
 
 function normalizeTimeValue(value: unknown) {
@@ -295,10 +302,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing user_id' }, { status: 400 });
     }
 
+    const nextRole = normalizeRole(body.role);
     const payload = {
       email: targetEmail || null,
       name: String(body.name || '').trim(),
-      role: String(body.role || 'FO').trim(),
+      role: nextRole,
       chambermaid_access_until: normalizeTimeValue(body.chambermaid_access_until),
       updated_at: new Date().toISOString(),
     } as Record<string, any>;
@@ -306,6 +314,12 @@ export async function POST(req: NextRequest) {
     for (const key of permissionKeys) {
       if (Object.prototype.hasOwnProperty.call(body, key)) {
         payload[key] = toPermissionBoolean(body[key]);
+      }
+    }
+
+    if (nextRole === 'SUPERUSER') {
+      for (const key of permissionKeys) {
+        payload[key] = true;
       }
     }
 
@@ -410,6 +424,8 @@ export async function POST(req: NextRequest) {
         selectedUserId: targetUserId,
         authUserId: authUserId || null,
         returnedUserId: freshRow.user_id,
+        requestedRole: nextRole,
+        savedRole: freshRow.role,
         matchedEmailProfileIds: emailProfiles.map((profile: any) => profile.user_id),
       },
       {
