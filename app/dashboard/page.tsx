@@ -2610,7 +2610,9 @@ async function handleDeleteTask(taskId: string) {
                           <DashboardIcon name={item.key === 'HK' ? 'housekeeping' : 'maintenance'} size={19} />
                         </div>
                         <div style={styles.operationTrackerContent}>
-                          <div style={styles.operationTrackerLabel}>{item.title}</div>
+                          <div style={styles.operationTrackerLabel}>
+                            {isMobile ? (item.key === 'HK' ? 'HK Room Check' : 'MT Room Check') : item.title}
+                          </div>
                           <div style={styles.operationTrackerValue}>
                             {item.completed}/{item.total}
                           </div>
@@ -2620,7 +2622,13 @@ async function handleDeleteTask(taskId: string) {
                     );
                   })}
 
-                  <Link href="/dashboard/laundry-count" style={styles.operationTrackerCard}>
+                  <Link
+                    href="/dashboard/laundry-count"
+                    style={{
+                      ...styles.operationTrackerCard,
+                      gridColumn: isMobile ? '1 / -1' : undefined,
+                    }}
+                  >
                     <div
                       style={{
                         ...styles.operationTrackerIcon,
@@ -4338,6 +4346,7 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 8,
+    overflowWrap: 'anywhere',
   },
   operationTrackerValue: {
     fontSize: 28,
