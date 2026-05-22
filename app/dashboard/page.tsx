@@ -60,16 +60,12 @@ type DashboardInsights = {
   overduePm: number;
   foChecklistSubmitted: number;
   foChecklistHasNoAnswer: boolean;
-};
-
-type DepartmentPerformance = {
-  department: Task['department'];
-  total: number;
-  completed: number;
-  incomplete: number;
-  completePercent: number;
-  incompletePercent: number;
-  averageResponseLabel: string;
+  managerRoomCheck: {
+    HK: { completed: number; total: number };
+    MT: { completed: number; total: number };
+  };
+  laundryReceivedSaved: boolean;
+  laundryReceivedBlocks: number;
 };
 
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
@@ -103,7 +99,6 @@ type DashboardIconName =
   | 'activity';
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
-const performanceDepartments: Task['department'][] = ['HK', 'MT', 'FO'];
 const liveStatuses = ['ALL', 'OPEN', 'DONE'] as const;
 const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
   MT: [
@@ -479,6 +474,13 @@ function formatDurationFromMs(value: number | null) {
   return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
 }
 
+function formatWaitingDuration(createdAt: string | null | undefined, nowMs: number) {
+  if (!createdAt) return '-';
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return '-';
+  return formatDurationFromMs(Math.max(60 * 1000, nowMs - createdMs));
+}
+
 function labelForStatus(status: string) {
   if (status === 'ALL') return 'ALL';
   if (status === 'DONE') return 'DONE';
@@ -801,6 +803,12 @@ export default function DashboardPage() {
     overduePm: 0,
     foChecklistSubmitted: 0,
     foChecklistHasNoAnswer: false,
+    managerRoomCheck: {
+      HK: { completed: 0, total: 0 },
+      MT: { completed: 0, total: 0 },
+    },
+    laundryReceivedSaved: false,
+    laundryReceivedBlocks: 0,
   });
 
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -837,7 +845,7 @@ export default function DashboardPage() {
   const [loginError, setLoginError] = useState('');
 
   const [profile, setProfile] = useState<DashboardUser | null>(null);
-  const [performanceMenuOpen, setPerformanceMenuOpen] = useState(false);
+  const [timerNow, setTimerNow] = useState(Date.now());
 
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -868,9 +876,18 @@ export default function DashboardPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const timer = window.setInterval(() => {
+      setTimerNow(Date.now());
+    }, 60000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const isMobile = viewportWidth < 768;
   const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
-  const isSuperuser = profile?.role === 'SUPERUSER';
   const modalResponsive = useMemo(
     () => ({
       overlay: {
@@ -1024,6 +1041,18 @@ export default function DashboardPage() {
         overduePm: Number(parsed.insights.overduePm || 0),
         foChecklistSubmitted: Number(parsed.insights.foChecklistSubmitted || 0),
         foChecklistHasNoAnswer: parsed.insights.foChecklistHasNoAnswer === true,
+        managerRoomCheck: {
+          HK: {
+            completed: Number(parsed.insights.managerRoomCheck?.HK?.completed || 0),
+            total: Number(parsed.insights.managerRoomCheck?.HK?.total || 0),
+          },
+          MT: {
+            completed: Number(parsed.insights.managerRoomCheck?.MT?.completed || 0),
+            total: Number(parsed.insights.managerRoomCheck?.MT?.total || 0),
+          },
+        },
+        laundryReceivedSaved: parsed.insights.laundryReceivedSaved === true,
+        laundryReceivedBlocks: Number(parsed.insights.laundryReceivedBlocks || 0),
       };
     } catch {
       return null;
@@ -1351,7 +1380,13 @@ export default function DashboardPage() {
       lastInsightsRequestAtRef.current = now;
       const today = getTodayLocalDateString();
 
-      const [{ data: statusRows, error: statusError }, { data: pmRuns, error: pmRunsError }, { data: hkRuns, error: hkRunsError }] =
+      const [
+        { data: statusRows, error: statusError },
+        { data: pmRuns, error: pmRunsError },
+        { data: hkRuns, error: hkRunsError },
+        managerChecksRes,
+        laundryReceivedRes,
+      ] =
         await Promise.all([
           supabase
             .from('linen_room_status')
@@ -1368,6 +1403,13 @@ export default function DashboardPage() {
             .select('id, status, created_at')
             .order('created_at', { ascending: false })
             .limit(20),
+          supabase
+            .from('manager_room_checks')
+            .select('department, status'),
+          supabase
+            .from('linen_laundry_received')
+            .select('block_no, updated_at')
+            .eq('service_date', getYesterdayLocalDateString()),
         ]);
 
       if (statusError) throw statusError;
@@ -1470,6 +1512,29 @@ export default function DashboardPage() {
         }
       }
 
+      const managerRoomCheck = {
+        HK: { completed: 0, total: 0 },
+        MT: { completed: 0, total: 0 },
+      };
+
+      if (!managerChecksRes.error) {
+        ((managerChecksRes.data || []) as Array<{ department: 'HK' | 'MT'; status: string }>).forEach((row) => {
+          if (row.department !== 'HK' && row.department !== 'MT') return;
+          managerRoomCheck[row.department].total += 1;
+          if (row.status === 'DONE') {
+            managerRoomCheck[row.department].completed += 1;
+          }
+        });
+      }
+
+      const laundryReceivedBlocks = laundryReceivedRes.error
+        ? 0
+        : new Set(
+            ((laundryReceivedRes.data || []) as Array<{ block_no: number }>)
+              .map((row) => row.block_no)
+              .filter((blockNo) => blockNo === 1 || blockNo === 2)
+          ).size;
+
       const nextInsights = {
         roomPendingSave,
         specialProjectCompletion,
@@ -1477,6 +1542,9 @@ export default function DashboardPage() {
         overduePm,
         foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
         foChecklistHasNoAnswer,
+        managerRoomCheck,
+        laundryReceivedBlocks,
+        laundryReceivedSaved: laundryReceivedBlocks >= 2,
       };
 
       setInsights(nextInsights);
@@ -1639,26 +1707,6 @@ function canEditTaskDetails(task: Task) {
 function canDeleteTask() {
   return !!profile?.can_delete_task;
 }
-
-  async function handleResetDepartmentStats() {
-    if (!isSuperuser) return;
-
-    setPerformanceMenuOpen(false);
-    setErrorMsg('');
-    setTasks([]);
-    lastTasksFingerprintRef.current = buildTasksFingerprint([]);
-    lastTasksRequestAtRef.current = 0;
-
-    if (typeof window !== 'undefined') {
-      try {
-        window.sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
-      } catch {
-        // ignore cache clearing failure
-      }
-    }
-
-    await loadTasks(false, { force: true });
-  }
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
     if (!profile) {
@@ -2251,17 +2299,6 @@ async function handleDeleteTask(taskId: string) {
     });
   }, [tasks, dept, status, todayLocal]);
 
-  const dashboardPerformanceTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      const doneToday =
-        task.status === 'DONE' && task.done_at
-          ? getLocalDateStringFromISO(task.done_at) === todayLocal
-          : false;
-
-      return task.status === 'OPEN' || doneToday;
-    });
-  }, [tasks, todayLocal]);
-
   const pastTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (task.status !== 'DONE' || !task.done_at) return false;
@@ -2299,37 +2336,39 @@ async function handleDeleteTask(taskId: string) {
     };
   }, [tasks, todayLocal]);
 
-  const departmentPerformance = useMemo<DepartmentPerformance[]>(() => {
-    return performanceDepartments.map((department) => {
-      const deptTasks = dashboardPerformanceTasks.filter((task) => task.department === department);
-      const completedTasks = deptTasks.filter((task) => task.status === 'DONE');
-      const incomplete = deptTasks.length - completedTasks.length;
-      const responseDurations = completedTasks
-        .map((task) => {
-          if (!task.created_at || !task.done_at) return null;
-          const createdAt = new Date(task.created_at).getTime();
-          const doneAt = new Date(task.done_at).getTime();
-          if (!Number.isFinite(createdAt) || !Number.isFinite(doneAt) || doneAt < createdAt) return null;
-          return doneAt - createdAt;
-        })
-        .filter((value): value is number => value !== null);
+  const guestWaitingTasks = useMemo(() => {
+    return tasks
+      .filter((task) => task.customer_waiting === true && task.status !== 'DONE')
+      .sort((a, b) => {
+        const aTime = new Date(a.created_at || '').getTime();
+        const bTime = new Date(b.created_at || '').getTime();
+        return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
+      });
+  }, [tasks]);
 
-      const averageResponseMs =
-        responseDurations.length > 0
-          ? responseDurations.reduce((sum, value) => sum + value, 0) / responseDurations.length
-          : null;
+  const managerRoomCheckTrackers = useMemo(
+    () => [
+      {
+        key: 'HK' as const,
+        title: 'Housekeeping Room Check',
+        note: 'Housekeeping room checks completed',
+        href: '/dashboard/hk-manager-room-check',
+        ...insights.managerRoomCheck.HK,
+      },
+      {
+        key: 'MT' as const,
+        title: 'Maintenance Room Check',
+        note: 'Maintenance room checks completed',
+        href: '/dashboard/maintenance-manager-room-check',
+        ...insights.managerRoomCheck.MT,
+      },
+    ],
+    [insights.managerRoomCheck]
+  );
 
-      return {
-        department,
-        total: deptTasks.length,
-        completed: completedTasks.length,
-        incomplete,
-        completePercent: deptTasks.length > 0 ? Math.round((completedTasks.length / deptTasks.length) * 100) : 0,
-        incompletePercent: deptTasks.length > 0 ? Math.round((incomplete / deptTasks.length) * 100) : 0,
-        averageResponseLabel: formatDurationFromMs(averageResponseMs),
-      };
-    });
-  }, [dashboardPerformanceTasks]);
+  const laundryReceivedNote = insights.laundryReceivedSaved
+    ? 'Saved for both blocks'
+    : `${insights.laundryReceivedBlocks}/2 blocks saved`;
 
   const pageTitle =
     sidebarView === 'DASHBOARD' ? 'Operations Dashboard' : 'Past Task Archive';
@@ -2426,6 +2465,42 @@ async function handleDeleteTask(taskId: string) {
           ) : (
             <>
               {sidebarView === 'DASHBOARD' ? (
+                <section style={styles.guestWaitingPanel}>
+                  <div style={styles.guestWaitingHeader}>
+                    <div>
+                      <div style={styles.guestWaitingEyebrow}>Guest Waiting</div>
+                      <div style={styles.guestWaitingTitle}>Needs attention now</div>
+                    </div>
+                    <div style={styles.guestWaitingCount}>{guestWaitingTasks.length}</div>
+                  </div>
+
+                  {guestWaitingTasks.length === 0 ? (
+                    <div style={styles.guestWaitingEmpty}>
+                      No guest-waiting tasks right now.
+                    </div>
+                  ) : (
+                    <div style={styles.guestWaitingList}>
+                      {guestWaitingTasks.slice(0, isMobile ? 4 : 6).map((task) => (
+                        <article key={`waiting-${task.id}`} style={styles.guestWaitingItem}>
+                          <div style={styles.guestWaitingRoom}>Room {task.room || '-'}</div>
+                          <div style={styles.guestWaitingBody}>
+                            <div style={styles.guestWaitingTask}>{task.task_text}</div>
+                            <div style={styles.guestWaitingMeta}>
+                              <span style={deptBadgeStyle(task.department)}>{task.department}</span>
+                              <span>{task.created_by_name || task.created_by_email || 'Created task'}</span>
+                            </div>
+                          </div>
+                          <div style={styles.guestWaitingTimer}>
+                            {formatWaitingDuration(task.created_at, timerNow)}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
+              {sidebarView === 'DASHBOARD' ? (
                 <section
                   style={{
                     ...styles.overviewGrid,
@@ -2467,6 +2542,67 @@ async function handleDeleteTask(taskId: string) {
                     tone="danger"
                     icon="alert"
                   />
+                </section>
+              ) : null}
+
+              {sidebarView === 'DASHBOARD' ? (
+                <section style={styles.operationTrackerGrid}>
+                  {managerRoomCheckTrackers.map((item) => {
+                    const incomplete = Math.max(0, item.total - item.completed);
+                    const completePercent =
+                      item.total > 0 ? Math.round((item.completed / item.total) * 100) : 0;
+
+                    return (
+                      <Link key={item.key} href={item.href} style={styles.operationTrackerCard}>
+                        <div style={styles.operationTrackerTop}>
+                          <div>
+                            <div style={styles.operationTrackerLabel}>{item.title}</div>
+                            <div style={styles.operationTrackerValue}>
+                              {item.completed}/{item.total}
+                            </div>
+                          </div>
+                          <span style={styles.operationTrackerBadge}>
+                            {incomplete} open
+                          </span>
+                        </div>
+                        <div style={styles.operationTrackerTrack}>
+                          <div
+                            style={{
+                              ...styles.operationTrackerFill,
+                              width: `${completePercent}%`,
+                            }}
+                          />
+                        </div>
+                        <div style={styles.operationTrackerNote}>{item.note}</div>
+                      </Link>
+                    );
+                  })}
+
+                  <Link href="/dashboard/laundry-count" style={styles.operationTrackerCard}>
+                    <div style={styles.operationTrackerTop}>
+                      <div>
+                        <div style={styles.operationTrackerLabel}>Laundry Received</div>
+                        <div
+                          style={{
+                            ...styles.operationTrackerValue,
+                            color: insights.laundryReceivedSaved ? '#047857' : '#b45309',
+                          }}
+                        >
+                          {insights.laundryReceivedSaved ? 'Saved' : 'Not saved'}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          ...styles.operationTrackerBadge,
+                          background: insights.laundryReceivedSaved ? '#dcfce7' : '#fef3c7',
+                          color: insights.laundryReceivedSaved ? '#047857' : '#92400e',
+                        }}
+                      >
+                        {insights.laundryReceivedBlocks}/2
+                      </span>
+                    </div>
+                    <div style={styles.operationTrackerNote}>{laundryReceivedNote}</div>
+                  </Link>
                 </section>
               ) : null}
 
@@ -2573,7 +2709,7 @@ async function handleDeleteTask(taskId: string) {
               <div
                 style={{
                   ...styles.workspaceLayout,
-                  gridTemplateColumns: isMobile || isTablet ? 'minmax(0, 1fr)' : styles.workspaceLayout.gridTemplateColumns,
+                  gridTemplateColumns: 'minmax(0, 1fr)',
                 }}
               >
                 <div style={styles.workspacePrimary}>
@@ -2787,86 +2923,6 @@ async function handleDeleteTask(taskId: string) {
                 </div>
               )}
                 </div>
-
-              {sidebarView === 'DASHBOARD' ? (
-                <div style={styles.workspaceRail}>
-                <div style={styles.sideInfoGrid}>
-                  <section style={styles.sidePanel}>
-                    <div style={styles.sidePanelHeader}>
-                      <div>
-                        <div style={styles.sidePanelTitle}>Department Performance</div>
-                        <div style={styles.sidePanelSubtitle}>Completion and average response</div>
-                      </div>
-                      {isSuperuser ? (
-                        <div style={styles.performanceMenuWrap}>
-                          <button
-                            type="button"
-                            onClick={() => setPerformanceMenuOpen((prev) => !prev)}
-                            style={styles.performanceMenuBtn}
-                            aria-label="Department performance options"
-                            title="Options"
-                          >
-                            ...
-                          </button>
-                          {performanceMenuOpen ? (
-                            <div style={styles.performanceMenu}>
-                              <button
-                                type="button"
-                                onClick={() => void handleResetDepartmentStats()}
-                                style={styles.performanceMenuItem}
-                              >
-                                Reset stats
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div style={styles.departmentPerformanceGrid}>
-                      {departmentPerformance.map((item) => (
-                        <article key={item.department} style={styles.departmentPerformanceCard}>
-                          <div style={styles.departmentPerformanceTop}>
-                            <span style={deptBadgeStyle(item.department)}>{item.department}</span>
-                            <div style={styles.departmentPerformanceTotal}>
-                              {item.total} task{item.total === 1 ? '' : 's'}
-                            </div>
-                          </div>
-
-                          <div style={styles.departmentPerformanceStats}>
-                            <div style={styles.departmentPerformanceStat}>
-                              <div style={styles.departmentPerformanceLabel}>Complete</div>
-                              <div style={styles.departmentPerformanceValue}>{item.completePercent}%</div>
-                            </div>
-                            <div style={styles.departmentPerformanceStat}>
-                              <div style={styles.departmentPerformanceLabel}>Incomplete</div>
-                              <div style={styles.departmentPerformanceValue}>{item.incompletePercent}%</div>
-                            </div>
-                            <div style={styles.departmentPerformanceStat}>
-                              <div style={styles.departmentPerformanceLabel}>Avg response</div>
-                              <div style={styles.departmentPerformanceValue}>{item.averageResponseLabel}</div>
-                            </div>
-                          </div>
-
-                          <div style={styles.departmentProgressTrack}>
-                            <div
-                              style={{
-                                ...styles.departmentProgressFill,
-                                width: `${item.completePercent}%`,
-                              }}
-                            />
-                          </div>
-
-                          <div style={styles.departmentPerformanceFoot}>
-                            {item.completed}/{item.total} completed | {item.incomplete} incomplete
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-                </div>
-              ) : null}
               </div>
             </>
           )}
@@ -4094,6 +4150,173 @@ const styles: Record<string, React.CSSProperties> = {
   workspaceRail: {
     minWidth: 0,
   },
+  guestWaitingPanel: {
+    border: '1px solid rgba(191, 219, 254, 0.95)',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 12,
+    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255,255,255,0.94)',
+  },
+  guestWaitingHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  guestWaitingEyebrow: {
+    fontSize: 10,
+    fontWeight: 900,
+    color: '#2563eb',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  guestWaitingTitle: {
+    marginTop: 3,
+    fontSize: 16,
+    fontWeight: 900,
+    color: '#0f172a',
+  },
+  guestWaitingCount: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 12,
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+  },
+  guestWaitingEmpty: {
+    border: '1px dashed #dbe7f5',
+    background: '#f8fafc',
+    borderRadius: 14,
+    padding: '14px 12px',
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: 800,
+    textAlign: 'center',
+  },
+  guestWaitingList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: 8,
+  },
+  guestWaitingItem: {
+    display: 'grid',
+    gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+    gap: 10,
+    alignItems: 'center',
+    border: '1px solid #dbeafe',
+    borderRadius: 14,
+    background: '#ffffff',
+    padding: 10,
+    boxShadow: '0 10px 22px rgba(15,23,42,0.045)',
+  },
+  guestWaitingRoom: {
+    borderRadius: 11,
+    background: '#fff1f2',
+    color: '#be123c',
+    padding: '8px 9px',
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  guestWaitingBody: {
+    minWidth: 0,
+  },
+  guestWaitingTask: {
+    fontSize: 12,
+    fontWeight: 900,
+    color: '#0f172a',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  guestWaitingMeta: {
+    marginTop: 5,
+    display: 'flex',
+    gap: 6,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: 800,
+  },
+  guestWaitingTimer: {
+    borderRadius: 11,
+    background: '#0f172a',
+    color: '#ffffff',
+    padding: '8px 9px',
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  operationTrackerGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: 10,
+    marginBottom: 12,
+  },
+  operationTrackerCard: {
+    textDecoration: 'none',
+    color: '#0f172a',
+    border: '1px solid rgba(218,229,243,0.95)',
+    background: 'linear-gradient(180deg,#ffffff 0%,#f8fbff 100%)',
+    borderRadius: 16,
+    padding: 12,
+    boxShadow: '0 14px 30px rgba(15,23,42,0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
+  },
+  operationTrackerTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  operationTrackerLabel: {
+    fontSize: 10,
+    fontWeight: 900,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  operationTrackerValue: {
+    marginTop: 7,
+    fontSize: 26,
+    lineHeight: 1,
+    fontWeight: 900,
+    color: '#0f172a',
+  },
+  operationTrackerBadge: {
+    borderRadius: 999,
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    padding: '6px 9px',
+    fontSize: 11,
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  operationTrackerTrack: {
+    marginTop: 12,
+    height: 8,
+    borderRadius: 999,
+    background: '#e8eef7',
+    overflow: 'hidden',
+  },
+  operationTrackerFill: {
+    height: '100%',
+    borderRadius: 999,
+    background: '#2563eb',
+    transition: 'width 180ms ease',
+  },
+  operationTrackerNote: {
+    marginTop: 8,
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: 800,
+  },
   resultText: {
     fontSize: 11,
     color: '#33507a',
@@ -4231,216 +4454,6 @@ const styles: Record<string, React.CSSProperties> = {
     contentVisibility: 'auto',
     containIntrinsicSize: '320px',
     contain: 'layout style paint',
-  },
-  sideInfoGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: 10,
-    marginTop: 12,
-  },
-  sidePanel: {
-    position: 'relative',
-    background: 'rgba(255,255,255,0.96)',
-    border: '1px solid rgba(218, 229, 243, 0.95)',
-    borderRadius: 16,
-    padding: 12,
-    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
-    contentVisibility: 'auto',
-    containIntrinsicSize: '220px',
-    contain: 'layout style paint',
-  },
-  sidePanelHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 10,
-  },
-  sidePanelTitle: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  sidePanelSubtitle: {
-    fontSize: 11,
-    fontWeight: 700,
-    color: '#64748b',
-    marginTop: 3,
-  },
-  performanceMenuWrap: {
-    position: 'relative',
-    flexShrink: 0,
-  },
-  performanceMenuBtn: {
-    width: 34,
-    height: 30,
-    borderRadius: 10,
-    border: '1px solid #dbe7f5',
-    background: '#ffffff',
-    color: '#334155',
-    cursor: 'pointer',
-    fontSize: 15,
-    fontWeight: 900,
-    lineHeight: 1,
-    boxShadow: '0 8px 18px rgba(15, 23, 42, 0.055)',
-  },
-  performanceMenu: {
-    position: 'absolute',
-    top: 36,
-    right: 0,
-    zIndex: 20,
-    minWidth: 150,
-    border: '1px solid #dbe7f5',
-    borderRadius: 14,
-    padding: 6,
-    background: '#ffffff',
-    boxShadow: '0 18px 36px rgba(15, 23, 42, 0.16)',
-  },
-  performanceMenuItem: {
-    width: '100%',
-    border: 0,
-    borderRadius: 10,
-    background: 'transparent',
-    color: '#0f172a',
-    cursor: 'pointer',
-    padding: '9px 10px',
-    textAlign: 'left',
-    fontSize: 12,
-    fontWeight: 900,
-  },
-  sidePanelCount: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 999,
-    background: '#fee2e2',
-    color: '#dc2626',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 800,
-    fontSize: 11,
-  },
-  sideEmpty: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: 700,
-  },
-  sideList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-  },
-  sideListItem: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  sideListIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    background: '#eff6ff',
-    color: '#2563eb',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 900,
-    flexShrink: 0,
-  },
-  sideListIconAlert: {
-    background: '#fff1f2',
-    color: '#e11d48',
-  },
-  sideListBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sideListTitle: {
-    fontSize: 12,
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.35,
-  },
-  sideListSubtitle: {
-    fontSize: 11,
-    color: '#64748b',
-    marginTop: 4,
-    lineHeight: 1.4,
-  },
-  sideListTime: {
-    fontSize: 10,
-    color: '#64748b',
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-  },
-  departmentPerformanceGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr',
-    gap: 10,
-  },
-  departmentPerformanceCard: {
-    border: '1px solid #dfe9f5',
-    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
-    borderRadius: 14,
-    padding: 11,
-    boxShadow: '0 10px 22px rgba(15, 23, 42, 0.045)',
-  },
-  departmentPerformanceTop: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginBottom: 10,
-  },
-  departmentPerformanceTotal: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: 800,
-    whiteSpace: 'nowrap',
-  },
-  departmentPerformanceStats: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: 6,
-  },
-  departmentPerformanceStat: {
-    minWidth: 0,
-    border: '1px solid #edf3fb',
-    background: '#ffffff',
-    borderRadius: 10,
-    padding: '8px 7px',
-  },
-  departmentPerformanceLabel: {
-    fontSize: 9,
-    color: '#64748b',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-  },
-  departmentPerformanceValue: {
-    marginTop: 4,
-    fontSize: 16,
-    color: '#0f172a',
-    fontWeight: 900,
-    lineHeight: 1.1,
-  },
-  departmentProgressTrack: {
-    marginTop: 10,
-    height: 8,
-    borderRadius: 999,
-    background: '#e8eef7',
-    overflow: 'hidden',
-  },
-  departmentProgressFill: {
-    height: '100%',
-    borderRadius: 999,
-    background: '#2563eb',
-    transition: 'width 180ms ease',
-  },
-  departmentPerformanceFoot: {
-    marginTop: 8,
-    fontSize: 11,
-    color: '#475569',
-    fontWeight: 800,
   },
   taskMainRow: {
     display: 'flex',
