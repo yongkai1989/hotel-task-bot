@@ -20,6 +20,7 @@ type DashboardUser = {
   can_access_hk_special_project?: boolean;
   can_access_hk_manager_room_check?: boolean;
   can_access_chambermaid_entry?: boolean;
+  chambermaid_access_until?: string | null;
   can_access_supervisor_update?: boolean;
   can_access_laundry_count?: boolean;
   can_access_laundry_received?: boolean;
