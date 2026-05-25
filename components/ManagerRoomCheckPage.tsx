@@ -231,6 +231,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [addingToCheckId, setAddingToCheckId] = useState<string | null>(null);
+  const [mediaChoiceOpen, setMediaChoiceOpen] = useState(false);
   const [markupIndex, setMarkupIndex] = useState<number | null>(null);
   const [markupDrawMode, setMarkupDrawMode] = useState(false);
 
@@ -850,6 +851,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         return [item];
       });
       setAddingToCheckId(check.id);
+      setMediaChoiceOpen(false);
       setDetailOpen(false);
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to prepare camera photo.');
@@ -1167,6 +1169,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   function clearDraftMedia() {
+    setMediaChoiceOpen(false);
     setDraftMedia((current) => {
       current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       return [];
@@ -1399,6 +1402,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             setMarkupIndex={setMarkupIndex}
             updateDraftMediaCaption={updateDraftMediaCaption}
             updateDraftMediaDepartment={updateDraftMediaDepartment}
+            compact
+            choiceOpen={mediaChoiceOpen}
+            setChoiceOpen={setMediaChoiceOpen}
           />
           <div className="mrc-modal-actions">
             <button
@@ -1450,7 +1456,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       ) : null}
 
       {detailOpen && selectedCheck ? (
-        <Modal title={`Room ${selectedCheck.room_number}`} onClose={() => setDetailOpen(false)}>
+        <Modal title={`Room ${selectedCheck.room_number}`} onClose={() => {
+          clearDraftMedia();
+          setAddingToCheckId(null);
+          setDetailOpen(false);
+        }}>
           <div className="mrc-detail-head">
             <div>
               <h3>Room {selectedCheck.room_number}</h3>
@@ -1548,6 +1558,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 setMarkupIndex={setMarkupIndex}
                 updateDraftMediaCaption={updateDraftMediaCaption}
                 updateDraftMediaDepartment={updateDraftMediaDepartment}
+                compact
+                choiceOpen={mediaChoiceOpen}
+                setChoiceOpen={setMediaChoiceOpen}
               />
               <div className="mrc-modal-actions">
                 <button
@@ -1560,13 +1573,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 >
                   Cancel Add
                 </button>
-                <button type="button" className="mrc-primary" disabled={saving} onClick={() => void addMediaToCheck(selectedCheck.id)}>
+                <button type="button" className="mrc-primary" disabled={saving || !draftMedia.length} onClick={() => void addMediaToCheck(selectedCheck.id)}>
                   {saving ? 'Uploading...' : 'Add Media'}
                 </button>
               </div>
             </div>
           ) : null}
 
+          {addingToCheckId !== selectedCheck.id ? (
           <div className="mrc-modal-actions">
             {canManageContent ? (
               <button
@@ -1575,6 +1589,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 onClick={() => {
                   clearDraftMedia();
                   setAddingToCheckId(selectedCheck.id);
+                  setMediaChoiceOpen(true);
                 }}
               >
                 Add Media
@@ -1596,6 +1611,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               </button>
             ) : null}
           </div>
+          ) : null}
         </Modal>
       ) : null}
 
@@ -1685,6 +1701,9 @@ function MediaPicker({
   setMarkupIndex,
   updateDraftMediaCaption,
   updateDraftMediaDepartment,
+  compact = false,
+  choiceOpen = false,
+  setChoiceOpen,
 }: {
   draftMedia: DraftMedia[];
   addFiles: (files: FileList | File[]) => Promise<void>;
@@ -1692,37 +1711,63 @@ function MediaPicker({
   setMarkupIndex: (index: number) => void;
   updateDraftMediaCaption: (id: string, caption: string) => void;
   updateDraftMediaDepartment: (id: string, assigned_department: DepartmentCode) => void;
+  compact?: boolean;
+  choiceOpen?: boolean;
+  setChoiceOpen?: (open: boolean) => void;
 }) {
+  const handlePick = (files: FileList | null) => {
+    if (files) void addFiles(files);
+    setChoiceOpen?.(false);
+  };
+
+  const sourceButtons = (
+    <>
+      <label className="mrc-media-choice-btn">
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => {
+            handlePick(e.target.files);
+            e.currentTarget.value = '';
+          }}
+        />
+        <CameraIcon />
+        <span>Take Photo</span>
+      </label>
+      <label className="mrc-media-choice-btn">
+        <input
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onChange={(e) => {
+            handlePick(e.target.files);
+            e.currentTarget.value = '';
+          }}
+        />
+        <LibraryIcon />
+        <span>Photo Library</span>
+      </label>
+    </>
+  );
+
   return (
     <div className="mrc-picker">
-      <div className="mrc-media-choice">
-        <label className="mrc-media-choice-btn">
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={(e) => {
-              if (e.target.files) void addFiles(e.target.files);
-              e.currentTarget.value = '';
-            }}
-          />
-          <CameraIcon />
-          <span>Take Photo</span>
-        </label>
-        <label className="mrc-media-choice-btn">
-          <input
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            onChange={(e) => {
-              if (e.target.files) void addFiles(e.target.files);
-              e.currentTarget.value = '';
-            }}
-          />
-          <LibraryIcon />
-          <span>Photo Library</span>
-        </label>
-      </div>
+      {compact ? (
+        <div className="mrc-media-menu-wrap">
+          <button
+            type="button"
+            className="mrc-media-menu-trigger"
+            onClick={() => setChoiceOpen?.(!choiceOpen)}
+          >
+            <CameraIcon />
+            <span>Choose source</span>
+          </button>
+          {choiceOpen ? <div className="mrc-media-popover">{sourceButtons}</div> : null}
+        </div>
+      ) : (
+        <div className="mrc-media-choice">{sourceButtons}</div>
+      )}
       <div className="mrc-picker-hint">Up to 30 items. Images can be marked up before upload.</div>
       {draftMedia.length ? (
         <div className="mrc-draft-grid">
@@ -2191,11 +2236,57 @@ function StyleBlock() {
       }
       .mrc-picker {
         margin-top: 14px;
+        position: relative;
       }
       .mrc-media-choice {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
+      }
+      .mrc-media-menu-wrap {
+        position: relative;
+        display: inline-flex;
+        max-width: 100%;
+      }
+      .mrc-media-menu-trigger {
+        min-height: 46px;
+        border: 1px solid #bfdbfe;
+        background: linear-gradient(180deg, #fff 0%, #eef6ff 100%);
+        border-radius: 14px;
+        color: #1d4ed8;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        padding: 0 16px;
+        font-weight: 950;
+        box-shadow: 0 12px 24px rgba(37, 99, 235, 0.08);
+      }
+      .mrc-media-menu-trigger svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+      }
+      .mrc-media-popover {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 8px);
+        z-index: 70;
+        width: min(300px, calc(100vw - 48px));
+        display: grid;
+        gap: 8px;
+        border: 1px solid #dbeafe;
+        background: #fff;
+        border-radius: 16px;
+        padding: 8px;
+        box-shadow: 0 22px 50px rgba(15, 23, 42, 0.18);
+      }
+      .mrc-media-popover .mrc-media-choice-btn {
+        min-height: 50px;
+        justify-content: flex-start;
+        box-shadow: none;
+        background: #f8fbff;
       }
       .mrc-media-choice-btn {
         min-height: 72px;
@@ -2401,6 +2492,10 @@ function StyleBlock() {
         margin-top: 14px;
         border-top: 1px solid #e2e8f0;
         padding-top: 14px;
+      }
+      .mrc-add-panel .mrc-media-popover {
+        top: auto;
+        bottom: calc(100% + 8px);
       }
       .mrc-markup {
         display: grid;
