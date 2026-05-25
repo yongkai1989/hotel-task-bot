@@ -216,6 +216,37 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
   return profile;
 }
 
+const FO_SUPERVISOR_UPDATE_EMAIL = 'fo@hotelhallmark.com';
+const FO_UPDATE_START_HOUR = 3;
+const FO_UPDATE_END_HOUR = 7;
+
+function getSingaporeHour(now = new Date()) {
+  const hourPart = new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
+    hour: '2-digit',
+    hour12: false,
+  })
+    .formatToParts(now)
+    .find((part) => part.type === 'hour');
+
+  const hour = Number(hourPart?.value);
+  return Number.isFinite(hour) ? hour % 24 : now.getHours();
+}
+
+function isFoSupervisorUpdateUser(profile: EffectiveProfile | null) {
+  const email = String(profile?.email || '').trim().toLowerCase();
+  return profile?.role === 'FO' || email === FO_SUPERVISOR_UPDATE_EMAIL;
+}
+
+function canUseSupervisorUpdateNow(profile: EffectiveProfile | null, nowMs: number) {
+  if (!profile?.can_access_supervisor_update) return false;
+  if (profile.role === 'SUPERUSER') return true;
+  if (!isFoSupervisorUpdateUser(profile)) return true;
+
+  const hour = getSingaporeHour(new Date(nowMs));
+  return hour >= FO_UPDATE_START_HOUR && hour < FO_UPDATE_END_HOUR;
+}
+
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
 
@@ -564,6 +595,7 @@ export default function DashboardSidebar({
   const [housekeepingOpen, setHousekeepingOpen] = useState(false);
   const [frontOfficeOpen, setFrontOfficeOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
+  const [timeGateTick, setTimeGateTick] = useState(Date.now());
 
   useEffect(() => {
     const next = normalizeProfile(profile);
@@ -583,6 +615,14 @@ export default function DashboardSidebar({
     setSidebarOpen(false);
   }, [pathname, setSidebarOpen]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTimeGateTick(Date.now());
+    }, 60000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const currentProfile = resolvedProfile;
   const effectiveProfile = getEffectiveProfile(currentProfile);
 
@@ -599,7 +639,7 @@ export default function DashboardSidebar({
   const canSeeHkSpecialProject = !!effectiveProfile?.can_access_hk_special_project;
   const canSeeHkManagerRoomCheck = !!effectiveProfile?.can_access_hk_manager_room_check;
   const canSeeChambermaid = !!effectiveProfile?.can_access_chambermaid_entry;
-  const canSeeSupervisorUpdate = !!effectiveProfile?.can_access_supervisor_update;
+  const canSeeSupervisorUpdate = canUseSupervisorUpdateNow(effectiveProfile, timeGateTick);
   const canSeeLaundryCount = !!effectiveProfile?.can_access_laundry_count;
   const canSeeLaundryReceived = !!effectiveProfile?.can_access_laundry_received;
   const canSeeStockCard = !!effectiveProfile?.can_access_stock_card;
