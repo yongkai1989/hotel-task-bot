@@ -33,6 +33,33 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
   2: [3, 5, 6, 7],
 };
 
+const FO_SUPERVISOR_UPDATE_EMAIL = 'fo@hotelhallmark.com';
+const FO_UPDATE_START_HOUR = 3;
+const FO_UPDATE_END_HOUR = 7;
+
+function getSingaporeHour(now = new Date()) {
+  const hourPart = new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
+    hour: '2-digit',
+    hour12: false,
+  })
+    .formatToParts(now)
+    .find((part) => part.type === 'hour');
+
+  const hour = Number(hourPart?.value);
+  return Number.isFinite(hour) ? hour % 24 : now.getHours();
+}
+
+function isFoSupervisorUpdateUser(profile: DashboardUser | null) {
+  const email = String(profile?.email || '').trim().toLowerCase();
+  return profile?.role === 'FO' || email === FO_SUPERVISOR_UPDATE_EMAIL;
+}
+
+function isFoSupervisorUpdateWindowOpen(now = new Date()) {
+  const hour = getSingaporeHour(now);
+  return hour >= FO_UPDATE_START_HOUR && hour < FO_UPDATE_END_HOUR;
+}
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
 
@@ -116,6 +143,7 @@ export default function SupervisorUpdatePage() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [timeGateTick, setTimeGateTick] = useState(Date.now());
 
   const [serviceDate] = useState(getTodayLocalDateString());
   const [selectedBlock, setSelectedBlock] = useState<number>(1);
@@ -131,6 +159,14 @@ export default function SupervisorUpdatePage() {
       setSelectedFloor(validFloors[0] || 1);
     }
   }, [selectedBlock, selectedFloor]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTimeGateTick(Date.now());
+    }, 60000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -203,8 +239,21 @@ export default function SupervisorUpdatePage() {
   const canAccess = useMemo(() => {
     if (!profile) return false;
     if (profile.role === 'SUPERUSER') return true;
-    return profile.can_access_supervisor_update === true;
-  }, [profile]);
+    if (profile.can_access_supervisor_update !== true) return false;
+    if (isFoSupervisorUpdateUser(profile)) {
+      return isFoSupervisorUpdateWindowOpen(new Date(timeGateTick));
+    }
+    return true;
+  }, [profile, timeGateTick]);
+
+  const isFoTimeBlocked = useMemo(() => {
+    if (!profile || profile.role === 'SUPERUSER') return false;
+    return (
+      profile.can_access_supervisor_update === true &&
+      isFoSupervisorUpdateUser(profile) &&
+      !isFoSupervisorUpdateWindowOpen(new Date(timeGateTick))
+    );
+  }, [profile, timeGateTick]);
 
   async function loadFloorData(blockNo: number, floorNo: number) {
     const supabase = getSupabaseSafe();
@@ -524,14 +573,25 @@ export default function SupervisorUpdatePage() {
     return (
       <main style={styles.page}>
         <div style={styles.centerCard}>
-          <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>
-            Current role read by this page:{' '}
-            <strong>{profile?.role || 'NONE'}</strong>
-          </p>
-          <p style={styles.centerText}>
-            Current email: <strong>{profile?.email || 'NONE'}</strong>
-          </p>
+          <div style={styles.centerTitle}>
+            {isFoTimeBlocked ? 'Access closed' : 'Access denied'}
+          </div>
+          {isFoTimeBlocked ? (
+            <p style={styles.centerText}>
+              Front Office can update room status only between{' '}
+              <strong>3:00 AM and 7:00 AM</strong>.
+            </p>
+          ) : (
+            <>
+              <p style={styles.centerText}>
+                Current role read by this page:{' '}
+                <strong>{profile?.role || 'NONE'}</strong>
+              </p>
+              <p style={styles.centerText}>
+                Current email: <strong>{profile?.email || 'NONE'}</strong>
+              </p>
+            </>
+          )}
           <Link href="/dashboard" style={styles.linkBtn}>
             Back to Dashboard
           </Link>
