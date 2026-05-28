@@ -129,6 +129,16 @@ function fileToImage(file: File) {
   });
 }
 
+async function remoteImageToImage(url: string) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to load saved image for markup.');
+  const blob = await res.blob();
+  const file = new File([blob], 'saved-room-check-image.jpg', {
+    type: blob.type || 'image/jpeg',
+  });
+  return fileToImage(file);
+}
+
 function getVideoDuration(file: File) {
   return new Promise<number>((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -233,6 +243,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [addingToCheckId, setAddingToCheckId] = useState<string | null>(null);
   const [mediaChoiceOpen, setMediaChoiceOpen] = useState(false);
   const [markupIndex, setMarkupIndex] = useState<number | null>(null);
+  const [existingMarkupMedia, setExistingMarkupMedia] = useState<CheckMedia | null>(null);
   const [markupDrawMode, setMarkupDrawMode] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -318,32 +329,39 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }, [authLoading, canAccess]);
 
   useEffect(() => {
-    if (markupIndex === null) return;
-    setMarkupDrawMode(false);
-    const item = draftMedia[markupIndex];
-    if (!item || item.media_type !== 'image') return;
+    if (markupIndex === null && !existingMarkupMedia) return;
+    setMarkupDrawMode(true);
+    const item = markupIndex !== null ? draftMedia[markupIndex] : null;
+    if (markupIndex !== null && (!item || item.media_type !== 'image')) return;
     let cancelled = false;
 
     async function drawImage() {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const img = await fileToImage(item.file);
-      if (cancelled) return;
-      const maxWidth = Math.min(980, window.innerWidth - 42);
-      const scale = Math.min(1, maxWidth / img.width);
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      try {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const img = item
+          ? await fileToImage(item.file)
+          : await remoteImageToImage(existingMarkupMedia?.media_url || '');
+        if (cancelled) return;
+        const maxWidth = Math.max(220, Math.min(980, window.innerWidth - 44));
+        const maxHeight = Math.max(260, window.innerHeight - 188);
+        const scale = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      } catch (error: any) {
+        if (!cancelled) setErrorMsg(error?.message || 'Failed to open image markup.');
+      }
     }
 
     void drawImage();
     return () => {
       cancelled = true;
     };
-  }, [draftMedia, markupIndex]);
+  }, [draftMedia, markupIndex, existingMarkupMedia]);
 
   async function loadChecks() {
     if (!supabase) return;
@@ -1199,7 +1217,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
-    if (!markupDrawMode) return;
     const point = pointerPosition(event);
     if (!point) return;
     drawingRef.current = true;
@@ -1208,7 +1225,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   function draw(event: PointerEvent<HTMLCanvasElement>) {
-    if (!markupDrawMode) return;
     if (!drawingRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -1231,28 +1247,92 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     lastPointRef.current = null;
   }
 
+  function closeMarkup() {
+    setMarkupIndex(null);
+    setExistingMarkupMedia(null);
+    setMarkupDrawMode(false);
+  }
+
+  async function uploadSingleMediaFile(file: File) {
+    const token = await getAccessToken();
+    const form = new FormData();
+    form.set('folder', 'manager-room-check-media');
+    form.append('media', file, file.name);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      cache: 'no-store',
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) throw new Error(json?.error || 'Upload failed.');
+    const uploaded = json.items?.[0];
+    if (!uploaded?.url) throw new Error('Upload failed.');
+    return uploaded;
+  }
+
   async function saveMarkup() {
-    if (markupIndex === null) return;
+    if (markupIndex === null && !existingMarkupMedia) return;
     const canvas = canvasRef.current;
-    const item = draftMedia[markupIndex];
-    if (!canvas || !item) return;
+    const item = markupIndex !== null ? draftMedia[markupIndex] : null;
+    if (!canvas || (!item && !existingMarkupMedia)) return;
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, 'image/jpeg', 0.82)
     );
     if (!blob) return;
-    const file = new File([blob], item.file.name.replace(/\.[^.]+$/, '.jpg'), {
+    const baseName = item?.file.name || `room-check-${existingMarkupMedia?.id || Date.now()}.jpg`;
+    const file = new File([blob], baseName.replace(/\.[^.]+$/, '.jpg'), {
       type: 'image/jpeg',
       lastModified: Date.now(),
     });
-    URL.revokeObjectURL(item.previewUrl);
-    const previewUrl = URL.createObjectURL(file);
-    setDraftMedia((current) =>
-      current.map((entry, index) =>
-        index === markupIndex ? { ...entry, file, previewUrl, marked: true } : entry
-      )
-    );
-    setMarkupIndex(null);
-    setMarkupDrawMode(false);
+
+    if (item && markupIndex !== null) {
+      URL.revokeObjectURL(item.previewUrl);
+      const previewUrl = URL.createObjectURL(file);
+      setDraftMedia((current) =>
+        current.map((entry, index) =>
+          index === markupIndex ? { ...entry, file, previewUrl, marked: true } : entry
+        )
+      );
+      closeMarkup();
+      return;
+    }
+
+    if (!supabase || !existingMarkupMedia) return;
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const uploaded = await uploadSingleMediaFile(file);
+      const { error } = await supabase
+        .from('manager_room_check_media')
+        .update({
+          media_url: uploaded.url,
+          media_path: uploaded.path || null,
+          media_type: 'image',
+          completed_at: null,
+          completed_by_name: null,
+          completed_by_email: null,
+        })
+        .eq('id', existingMarkupMedia.id);
+      if (error) throw error;
+      await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'OPEN',
+          submitted_for_check_at: null,
+          submitted_for_check_by_name: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingMarkupMedia.check_id)
+        .neq('status', 'DONE');
+      closeMarkup();
+      setSuccessMsg('Markup saved.');
+      await loadChecks();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to save markup.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (authLoading || loading) {
@@ -1526,6 +1606,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   )}
                   {canManageContent ? (
                     <>
+                      {item.media_type === 'image' ? (
+                        <button
+                          type="button"
+                          className="mrc-secondary"
+                          onClick={() => {
+                            setMarkupIndex(null);
+                            setExistingMarkupMedia(item);
+                          }}
+                        >
+                          Mark Up
+                        </button>
+                      ) : null}
                       <label className="mrc-secondary mrc-file-button">
                         Replace
                         <input
@@ -1615,8 +1707,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         </Modal>
       ) : null}
 
-      {markupIndex !== null ? (
-        <Modal title={`Mark Up Image ${markupIndex + 1}`} onClose={() => setMarkupIndex(null)} wide markup>
+      {markupIndex !== null || existingMarkupMedia ? (
+        <Modal title={existingMarkupMedia ? 'Mark Up Saved Image' : `Mark Up Image ${(markupIndex || 0) + 1}`} onClose={closeMarkup} wide markup>
           <div className="mrc-markup-toolbar">
             <button
               type="button"
@@ -1652,16 +1744,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               </svg>
               <span>Pen</span>
             </button>
-            <span className="mrc-markup-mode-label">{markupDrawMode ? 'Draw mode is on' : 'Scroll mode is on'}</span>
+            <span className="mrc-markup-mode-label">Red pen ready</span>
             <div className="mrc-markup-toolbar-actions">
-              <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(null)}>Cancel</button>
-              <button type="button" className="mrc-primary" onClick={() => void saveMarkup()}>Save</button>
+              <button type="button" className="mrc-secondary" onClick={closeMarkup}>Cancel</button>
+              <button type="button" className="mrc-primary" disabled={saving} onClick={() => void saveMarkup()}>
+                {saving ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
           <div className="mrc-markup">
             <canvas
               ref={canvasRef}
-              className={markupDrawMode ? 'is-drawing' : ''}
+              className="is-drawing"
               onPointerDown={startDrawing}
               onPointerMove={draw}
               onPointerUp={stopDrawing}
@@ -1752,7 +1846,7 @@ function MediaPicker({
   );
 
   return (
-    <div className="mrc-picker">
+    <div className={`mrc-picker ${compact ? 'is-compact' : ''}`}>
       {compact ? (
         <div className="mrc-media-menu-wrap">
           <button
@@ -1811,7 +1905,11 @@ function MediaPicker({
               </div>
               <div className="mrc-draft-actions">
                 {item.media_type === 'image' ? (
-                  <button type="button" className="mrc-secondary" onClick={() => setMarkupIndex(index)}>
+                  <button
+                    type="button"
+                    className="mrc-secondary"
+                    onClick={() => setMarkupIndex(index)}
+                  >
                     {item.marked ? 'Edit Markup' : 'Mark Up'}
                   </button>
                 ) : null}
@@ -2271,7 +2369,8 @@ function StyleBlock() {
       .mrc-media-popover {
         position: absolute;
         left: 0;
-        top: calc(100% + 8px);
+        top: auto;
+        bottom: calc(100% + 8px);
         z-index: 70;
         width: min(300px, calc(100vw - 48px));
         display: grid;
@@ -2587,6 +2686,9 @@ function StyleBlock() {
         padding: 8px;
         flex-wrap: nowrap;
       }
+      .mrc-modal.is-markup-modal .mrc-tool-btn {
+        display: none;
+      }
       .mrc-markup-toolbar-actions {
         display: flex;
         align-items: center;
@@ -2608,14 +2710,15 @@ function StyleBlock() {
       .mrc-modal.is-markup-modal .mrc-markup {
         flex: 1 1 auto;
         min-height: 0;
-        overflow: auto;
+        overflow: hidden;
         overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
-        align-content: start;
+        align-content: center;
         padding: 8px 14px 14px;
       }
       .mrc-modal.is-markup-modal .mrc-markup canvas {
         max-width: 100%;
+        max-height: 100%;
         width: auto;
         height: auto;
       }
@@ -2741,11 +2844,12 @@ function StyleBlock() {
           margin-left: auto;
         }
         .mrc-markup-toolbar-actions .mrc-secondary {
-          display: none;
+          display: inline-flex;
         }
-        .mrc-markup-toolbar-actions .mrc-primary {
+        .mrc-markup-toolbar-actions .mrc-primary,
+        .mrc-markup-toolbar-actions .mrc-secondary {
           min-height: 42px;
-          padding: 0 16px;
+          padding: 0 13px;
         }
         .mrc-markup-actions {
           bottom: -14px;
