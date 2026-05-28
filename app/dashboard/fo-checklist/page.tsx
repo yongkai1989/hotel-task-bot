@@ -130,6 +130,7 @@ export default function FoChecklistPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [todaySubmission, setTodaySubmission] = useState<Submission | null>(null);
+  const [todaySubmissionsByTemplateId, setTodaySubmissionsByTemplateId] = useState<Record<string, Submission>>({});
   const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
   const [remarkOpenByQuestionId, setRemarkOpenByQuestionId] = useState<Record<string, boolean>>({});
   const [pastSubmissions, setPastSubmissions] = useState<Submission[]>([]);
@@ -274,7 +275,7 @@ export default function FoChecklistPage() {
         // The cleanup RPC exists after the FO checklist SQL is installed.
       }
 
-      const [templateRes, questionRes] = await Promise.all([
+      const [templateRes, questionRes, todaySubmissionRes] = await Promise.all([
         supabase
           .from('fo_checklist_templates')
           .select('*')
@@ -284,16 +285,26 @@ export default function FoChecklistPage() {
           .from('fo_checklist_questions')
           .select('*')
           .order('sort_order', { ascending: true }),
+        supabase
+          .from('fo_checklist_submissions')
+          .select('*')
+          .eq('submission_date', today),
       ]);
 
       if (templateRes.error) throw templateRes.error;
       if (questionRes.error) throw questionRes.error;
+      if (todaySubmissionRes.error) throw todaySubmissionRes.error;
 
       const nextTemplates = sortTemplates((templateRes.data || []) as Template[]);
       const nextQuestions = (questionRes.data || []) as Question[];
+      const nextTodaySubmissionsByTemplateId: Record<string, Submission> = {};
+      ((todaySubmissionRes.data || []) as Submission[]).forEach((submission) => {
+        nextTodaySubmissionsByTemplateId[submission.template_id] = submission;
+      });
 
       setTemplates(nextTemplates);
       setQuestions(nextQuestions);
+      setTodaySubmissionsByTemplateId(nextTodaySubmissionsByTemplateId);
 
       if (!selectedTemplateId && nextTemplates.length > 0) {
         setSelectedTemplateId(nextTemplates[0].id);
@@ -345,6 +356,12 @@ export default function FoChecklistPage() {
 
       const currentSubmission = submissionRes.data as Submission | null;
       setTodaySubmission(currentSubmission);
+      setTodaySubmissionsByTemplateId((current) => {
+        const next = { ...current };
+        if (currentSubmission) next[templateId] = currentSubmission;
+        else delete next[templateId];
+        return next;
+      });
       setPastSubmissions((pastRes.data || []) as Submission[]);
 
       if (currentSubmission) {
@@ -753,6 +770,7 @@ export default function FoChecklistPage() {
       );
 
       await loadTemplateSubmissionState(selectedTemplate.id);
+      void loadTemplatesAndQuestions();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save checklist');
     } finally {
@@ -913,6 +931,7 @@ export default function FoChecklistPage() {
               {templates.map((template, index) => {
                 const templateQuestions = questions.filter((q) => q.template_id === template.id);
                 const selected = selectedTemplateId === template.id;
+                const submittedToday = !!todaySubmissionsByTemplateId[template.id];
 
                 return (
                   <button
@@ -926,8 +945,8 @@ export default function FoChecklistPage() {
                   >
                     <div style={styles.shiftCardTop}>
                       <div style={styles.shiftIcon}>{index + 1}</div>
-                      <div style={{ ...styles.statusPill, ...(selected ? styles.statusSubmitted : styles.statusNeutral) }}>
-                        {selected ? 'Selected' : 'Open'}
+                      <div style={{ ...styles.statusPill, ...(submittedToday ? styles.statusSubmitted : styles.statusPending) }}>
+                        {submittedToday ? 'Submitted Today' : 'Pending'}
                       </div>
                     </div>
                     <div style={styles.ChecklistChooserTitle}>{template.title}</div>
