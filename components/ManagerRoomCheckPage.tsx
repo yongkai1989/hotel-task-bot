@@ -174,7 +174,7 @@ async function validateVideoFile(file: File) {
   }
 }
 
-async function compressImageFile(file: File, maxSide = 1600, quality = 0.78) {
+async function compressImageFile(file: File, maxSide = 1280, quality = 0.72) {
   const img = await fileToImage(file);
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
   const width = Math.max(1, Math.round(img.width * scale));
@@ -232,6 +232,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [media, setMedia] = useState<CheckMedia[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [uploadProgressMsg, setUploadProgressMsg] = useState('');
 
   const [showCreate, setShowCreate] = useState(false);
   const [roomNumber, setRoomNumber] = useState('');
@@ -749,6 +750,49 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     return check as RoomCheck;
   }
 
+  async function getOrCreateRoomCheck(
+    targetDepartment: DepartmentCode,
+    targetRoomNumber: string,
+    notes: string,
+    createDashboardReminder = false
+  ) {
+    if (!supabase || !profile) return null;
+    const existingCheck = await findActiveRoomCheck(targetDepartment, targetRoomNumber);
+    if (existingCheck) {
+      if (createDashboardReminder) {
+        await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
+      }
+      return existingCheck;
+    }
+
+    const now = new Date().toISOString();
+    const { data: check, error: checkError } = await supabase
+      .from('manager_room_checks')
+      .insert([
+        {
+          department: targetDepartment,
+          room_number: targetRoomNumber,
+          title: `Room ${targetRoomNumber} Check`,
+          description: notes.trim() || null,
+          status: 'OPEN',
+          created_by_user_id: profile.user_id || null,
+          created_by_name: profile.name || null,
+          created_by_email: profile.email || null,
+          created_at: now,
+          updated_at: now,
+        },
+      ])
+      .select('*')
+      .single();
+    if (checkError) throw checkError;
+
+    if (createDashboardReminder) {
+      await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
+    }
+
+    return check as RoomCheck;
+  }
+
   async function appendMediaToRoomCheck(check: RoomCheck, items: DraftMedia[], createDashboardReminder = false) {
     if (!supabase || !items.length) return;
     const existingCount = await getMediaCountForCheck(check.id);
@@ -786,31 +830,59 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setSaving(true);
     setErrorMsg('');
     setSuccessMsg('');
+    setUploadProgressMsg('');
     try {
       const normalizedRoomNumber = roomNumber.trim();
       const groups = groupedDraftMedia(draftMedia);
       const createdDepartments: string[] = [];
+      const uploadJobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }> = [];
       if (draftMedia.length) {
         for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
           const items = groups[targetDepartment];
           if (!items.length) continue;
-          await insertRoomCheckWithMedia(targetDepartment, normalizedRoomNumber, description, items, true);
-          createdDepartments.push(departmentLabel(targetDepartment));
+          const check = await getOrCreateRoomCheck(targetDepartment, normalizedRoomNumber, description, true);
+          if (check) {
+            createdDepartments.push(departmentLabel(targetDepartment));
+            uploadJobs.push({ check, items, label: departmentLabel(targetDepartment) });
+          }
         }
       } else {
-        await insertRoomCheckWithMedia(department, normalizedRoomNumber, description, [], true);
-        createdDepartments.push(departmentLabel(department));
+        const check = await getOrCreateRoomCheck(department, normalizedRoomNumber, description, true);
+        if (check) createdDepartments.push(departmentLabel(department));
       }
 
       setShowCreate(false);
       setRoomNumber('');
       setDescription('');
-      draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setDraftMedia([]);
+      setChecks((current) => {
+        const next = [...current];
+        uploadJobs.forEach(({ check }) => {
+          if (!next.some((item) => item.id === check.id)) next.unshift(check);
+        });
+        return next;
+      });
+      setSaving(false);
       setSuccessMsg(`Manager room check created for ${createdDepartments.join(' and ')}.`);
+
+      if (uploadJobs.length) {
+        const totalMedia = uploadJobs.reduce((sum, job) => sum + job.items.length, 0);
+        let uploadedMedia = 0;
+        setUploadProgressMsg(`Uploading media 0/${totalMedia}...`);
+        for (const job of uploadJobs) {
+          setUploadProgressMsg(`Uploading ${job.label} media ${uploadedMedia}/${totalMedia}...`);
+          await appendMediaToRoomCheck(job.check, job.items, false);
+          uploadedMedia += job.items.length;
+          setUploadProgressMsg(`Uploading media ${uploadedMedia}/${totalMedia}...`);
+        }
+        draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        setUploadProgressMsg('');
+        setSuccessMsg(`Manager room check and ${totalMedia} media item${totalMedia === 1 ? '' : 's'} uploaded.`);
+      }
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to create room check.');
+      setUploadProgressMsg('');
     } finally {
       setSaving(false);
     }
@@ -1375,6 +1447,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
       {errorMsg ? <div className="mrc-alert mrc-alert-error">{errorMsg}</div> : null}
       {successMsg ? <div className="mrc-alert mrc-alert-success">{successMsg}</div> : null}
+      {uploadProgressMsg ? <div className="mrc-alert mrc-alert-info">{uploadProgressMsg}</div> : null}
 
       <section className="mrc-summary">
         {(['OPEN', 'PENDING_CHECK', 'DONE'] as CheckStatus[]).map((status) => (
@@ -2214,6 +2287,11 @@ function StyleBlock() {
         background: #ecfdf5;
         border: 1px solid #bbf7d0;
         color: #047857;
+      }
+      .mrc-alert-info {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1d4ed8;
       }
       .mrc-modal-backdrop {
         position: fixed;
