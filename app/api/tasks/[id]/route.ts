@@ -23,6 +23,61 @@ function normalizeDept(value: string) {
   return null;
 }
 
+function departmentLabel(department: string) {
+  return department === 'HK' ? 'Housekeeping' : 'Maintenance';
+}
+
+function managerRoomCheckDashboardTaskText(department: string, roomNumber: string) {
+  return `Urgent Manager Room Check for room ${roomNumber}. Please open ${departmentLabel(department)} Manager Room Check to review.`;
+}
+
+function isManagerRoomCheckDashboardTask(task: {
+  room?: string | null;
+  department?: string | null;
+  task_text?: string | null;
+}) {
+  const department = normalizeDept(String(task.department || ''));
+  if (department !== 'HK' && department !== 'MT') return false;
+  const room = String(task.room || '').trim();
+  if (!room) return false;
+  return String(task.task_text || '') === managerRoomCheckDashboardTaskText(department, room);
+}
+
+async function deleteLinkedManagerRoomCheck(task: {
+  room?: string | null;
+  department?: string | null;
+  task_text?: string | null;
+  status?: string | null;
+}) {
+  if (!isManagerRoomCheckDashboardTask(task)) return;
+
+  let query = supabaseAdmin
+    .from('manager_room_checks')
+    .select('id')
+    .eq('room_number', String(task.room || '').trim())
+    .eq('department', normalizeDept(String(task.department || '')));
+
+  query = task.status === 'DONE' ? query.eq('status', 'DONE') : query.neq('status', 'DONE');
+
+  const { data: checks, error: fetchCheckError } = await query;
+  if (fetchCheckError) throw fetchCheckError;
+
+  const checkIds = (checks || []).map((check) => check.id);
+  if (!checkIds.length) return;
+
+  const mediaDeleteResult = await supabaseAdmin
+    .from('manager_room_check_media')
+    .delete()
+    .in('check_id', checkIds);
+  if (mediaDeleteResult.error) throw mediaDeleteResult.error;
+
+  const checkDeleteResult = await supabaseAdmin
+    .from('manager_room_checks')
+    .delete()
+    .in('id', checkIds);
+  if (checkDeleteResult.error) throw checkDeleteResult.error;
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -272,7 +327,7 @@ export async function DELETE(
 
     const { data: existingTask, error: fetchError } = await supabaseAdmin
       .from('tasks')
-      .select('id')
+      .select('id, room, department, task_text, status')
       .eq('id', taskId)
       .maybeSingle();
 
@@ -319,6 +374,15 @@ export async function DELETE(
     if (taskDeleteError) {
       return jsonNoCache(
         { ok: false, error: taskDeleteError.message },
+        500
+      );
+    }
+
+    try {
+      await deleteLinkedManagerRoomCheck(existingTask);
+    } catch (syncError: any) {
+      return jsonNoCache(
+        { ok: false, error: syncError?.message || 'Linked Manager Room Check delete failed' },
         500
       );
     }
