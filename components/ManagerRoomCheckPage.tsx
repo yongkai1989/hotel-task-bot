@@ -687,6 +687,34 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }
   }
 
+  async function deleteDashboardReminderForCheck(check: RoomCheck) {
+    if (!supabase) return;
+    const taskText = managerRoomCheckDashboardTaskText(check.department, check.room_number);
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('room', check.room_number)
+      .eq('department', check.department)
+      .eq('task_text', taskText)
+      .limit(20);
+
+    if (error) throw error;
+    if (!data?.length) return;
+
+    const token = await getAccessToken();
+    for (const task of data) {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || 'Dashboard reminder delete failed.');
+      }
+    }
+  }
+
   async function insertRoomCheckWithMedia(
     targetDepartment: DepartmentCode,
     targetRoomNumber: string,
@@ -1091,6 +1119,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (!window.confirm(`Delete Manager Room Check for room ${check.room_number}?`)) return;
     setErrorMsg('');
     try {
+      await deleteDashboardReminderForCheck(check);
       const { error } = await supabase.from('manager_room_checks').delete().eq('id', check.id);
       if (error) throw error;
       setDetailOpen(false);
