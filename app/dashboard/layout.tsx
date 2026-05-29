@@ -76,7 +76,7 @@ function getSupabaseSafe() {
 
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
-const PROFILE_REFRESH_MIN_MS = 600000;
+const PROFILE_REFRESH_MIN_MS = 1800000;
 
 export default function DashboardLayout({
   children,
