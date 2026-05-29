@@ -79,6 +79,7 @@ type SidebarIconName =
   | 'package'
   | 'alert'
   | 'housekeeping'
+  | 'publicArea'
   | 'sparkle'
   | 'bed'
   | 'clipboard'
@@ -219,6 +220,13 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
 const FO_SUPERVISOR_UPDATE_EMAIL = 'fo@hotelhallmark.com';
 const FO_UPDATE_START_HOUR = 3;
 const FO_UPDATE_END_HOUR = 7;
+const PA_CHECKLIST_ALLOWED_EMAILS = [
+  'pa@hotelhallmark.com',
+  'fenny@hotelhallmark.com',
+  'manager@hotelhallmark.com',
+  'hksup1@hotelhallmark.com',
+  'hksup2@hotelhallmark.com',
+];
 
 function getSingaporeHour(now = new Date()) {
   const hourPart = new Intl.DateTimeFormat('en-SG', {
@@ -361,6 +369,20 @@ function SidebarIcon({
         <path d="m14 5 5 5" />
         <path d="M5 14c2 0 5 3 5 5" />
         <path d="M4 20h7" />
+      </svg>
+    );
+  }
+
+  if (name === 'publicArea') {
+    return (
+      <svg {...common}>
+        <path d="M4 20h16" />
+        <path d="M8 20v-7" />
+        <path d="M16 20v-7" />
+        <path d="M7 13h10" />
+        <path d="M9 13V8a3 3 0 0 1 6 0v5" />
+        <path d="M6 7h12" />
+        <path d="M7.5 4h9" />
       </svg>
     );
   }
@@ -593,6 +615,7 @@ export default function DashboardSidebar({
 
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [housekeepingOpen, setHousekeepingOpen] = useState(false);
+  const [publicAreaOpen, setPublicAreaOpen] = useState(false);
   const [frontOfficeOpen, setFrontOfficeOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
   const [timeGateTick, setTimeGateTick] = useState(Date.now());
@@ -646,6 +669,9 @@ export default function DashboardSidebar({
   const canSeeDamaged = !!effectiveProfile?.can_access_damaged;
   const canSeeLinenHistory = !!effectiveProfile?.can_access_linen_history;
   const canSeeSupervisorChecklist = !!effectiveProfile?.can_access_supervisor_checklist;
+  const canSeePAChecklist =
+    effectiveProfile?.role === 'SUPERUSER' ||
+    PA_CHECKLIST_ALLOWED_EMAILS.includes(String(effectiveProfile?.email || '').toLowerCase());
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
@@ -681,6 +707,7 @@ export default function DashboardSidebar({
     canSeeDamaged ||
     canSeeLinenHistory ||
     canSeeSupervisorChecklist;
+  const showPublicAreaGroup = canSeePAChecklist;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
   const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist;
@@ -701,6 +728,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_damaged,
     effectiveProfile?.can_access_linen_history,
     effectiveProfile?.can_access_supervisor_checklist,
+    canSeePAChecklist,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
@@ -1174,6 +1202,27 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="clipboard" sub>Supervisor Checklist</SidebarNavContent>
+                </Link>
+              ) : null}
+
+            </GroupSection>
+          ) : null}
+
+          {showPublicAreaGroup ? (
+            <GroupSection
+              title="Public Area"
+              icon="publicArea"
+              open={publicAreaOpen}
+              setOpen={setPublicAreaOpen}
+            >
+              {canSeePAChecklist ? (
+                <Link
+                  href="/dashboard/pa-checklist"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>PA Checklist</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
