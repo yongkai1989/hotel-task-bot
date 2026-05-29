@@ -72,12 +72,13 @@ const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
 const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const DASHBOARD_PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
-const SILENT_TASK_REFRESH_MIN_MS = 120000;
-const MANUAL_TASK_REFRESH_MIN_MS = 30000;
-const DASHBOARD_AUTO_REFRESH_MS = 180000;
-const INSIGHTS_REFRESH_MIN_MS = 180000;
-const PROFILE_REFRESH_MIN_MS = 600000;
+const SILENT_TASK_REFRESH_MIN_MS = 300000;
+const MANUAL_TASK_REFRESH_MIN_MS = 45000;
+const DASHBOARD_AUTO_REFRESH_MS = 600000;
+const INSIGHTS_REFRESH_MIN_MS = 600000;
+const PROFILE_REFRESH_MIN_MS = 1800000;
 const MAX_RENDERED_TASK_CARDS = 60;
+const MAX_RENDERED_TASK_CARDS_MOBILE = 30;
 const MAX_RENDERED_TASK_THUMBNAILS = 20;
 
 type AdminUser = {
@@ -1629,7 +1630,7 @@ export default function DashboardPage() {
         }
       }
 
-      const json = await fetchJson(`/api/tasks?t=${Date.now()}`, {
+      const json = await fetchJson('/api/tasks', {
         method: 'GET',
       });
 
@@ -2354,7 +2355,8 @@ async function handleDeleteTask(taskId: string) {
   }, [tasks, dept, pastTaskDate, todayLocal]);
 
   const filtered = sidebarView === 'DASHBOARD' ? liveTasks : pastTasks;
-  const visibleTasks = filtered.slice(0, MAX_RENDERED_TASK_CARDS);
+  const taskRenderLimit = isMobile ? MAX_RENDERED_TASK_CARDS_MOBILE : MAX_RENDERED_TASK_CARDS;
+  const visibleTasks = filtered.slice(0, taskRenderLimit);
   const hiddenTaskCount = Math.max(0, filtered.length - visibleTasks.length);
 
   const summary = useMemo(() => {
@@ -2967,7 +2969,7 @@ async function handleDeleteTask(taskId: string) {
                   })}
                   {hiddenTaskCount > 0 ? (
                     <div style={styles.renderLimitNotice}>
-                      Showing first {MAX_RENDERED_TASK_CARDS} tasks. Use filters to narrow the list.
+                      Showing first {taskRenderLimit} tasks. Use filters to narrow the list.
                     </div>
                   ) : null}
                 </div>
