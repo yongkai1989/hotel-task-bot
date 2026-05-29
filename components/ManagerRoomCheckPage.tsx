@@ -67,6 +67,8 @@ type ManagerRoomCheckPageProps = {
 const MAX_MEDIA_PER_CHECK = 30;
 const MAX_VIDEO_DURATION_SECONDS = 5;
 const MAX_VIDEO_SIZE_BYTES = 15 * 1024 * 1024;
+const MANAGER_ROOM_CHECK_CLEANUP_KEY = 'manager-room-check-cleanup-at';
+const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
 
 function formatMegabytes(bytes: number) {
   return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
@@ -415,6 +417,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function cleanupOldDoneChecks() {
     try {
+      if (typeof window !== 'undefined') {
+        const lastCleanup = Number(window.localStorage.getItem(MANAGER_ROOM_CHECK_CLEANUP_KEY) || '0');
+        if (lastCleanup && Date.now() - lastCleanup < MANAGER_ROOM_CHECK_CLEANUP_MIN_MS) return;
+      }
+
       const token = await getAccessToken();
       await fetch('/api/manager-room-checks/cleanup', {
         method: 'POST',
@@ -425,6 +432,10 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         body: JSON.stringify({ department }),
         cache: 'no-store',
       });
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(MANAGER_ROOM_CHECK_CLEANUP_KEY, String(Date.now()));
+      }
     } catch {
       // Cleanup saves storage but should never block normal page use.
     }
@@ -1667,7 +1678,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 {item.media_type === 'video' ? (
                   <video src={item.media_url} controls preload="metadata" />
                 ) : (
-                  <img src={item.media_url} alt={remark || 'Room check media'} />
+                  <img src={item.media_url} alt={remark || 'Room check media'} loading="lazy" decoding="async" />
                 )}
                 <div className="mrc-media-info">
                   <strong>Issue {item.position}</strong>
