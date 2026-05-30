@@ -37,6 +37,19 @@ type EntryRow = {
   duvet_cover_single: number | null;
 };
 
+type PaEntryRow = {
+  room_number: string;
+  block_no: number;
+  floor_no: number;
+  bedsheet_king: number | null;
+  bedsheet_single: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
+};
+
 type LinenMapRow = {
   room_type: string;
   bedsheet_king: number;
@@ -78,6 +91,7 @@ type GroupSummary = {
   label: string;
   expected: LinenTotals;
   actual: LinenTotals;
+  paUsed: LinenTotals;
   inBill: LinenTotals;
   difference: LinenTotals;
   roomCount: number;
@@ -294,6 +308,7 @@ export default function LaundryCountPage() {
   const [rooms, setRooms] = useState<RoomMasterRow[]>([]);
   const [statuses, setStatuses] = useState<StatusRow[]>([]);
   const [entries, setEntries] = useState<EntryRow[]>([]);
+  const [paEntries, setPaEntries] = useState<PaEntryRow[]>([]);
   const [linenMap, setLinenMap] = useState<LinenMapRow[]>([]);
   const [billRows, setBillRows] = useState<LinenBillRow[]>([]);
 
@@ -467,6 +482,17 @@ export default function LaundryCountPage() {
       setLinenMap((mapRes.data || []) as LinenMapRow[]);
       setBillRows((billRes.data || []) as LinenBillRow[]);
 
+      const paEntryRes = await supabase
+        .from('linen_pa_entry')
+        .select('room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+        .eq('service_date', serviceDate);
+
+      if (!paEntryRes.error) {
+        setPaEntries((paEntryRes.data || []) as PaEntryRow[]);
+      } else {
+        setPaEntries([]);
+      }
+
       const nextBillEntryMap = emptyBillEntryMap();
       const detailedRows = (billRes.data || []).filter((row: any) =>
         typeof row.floor_no === 'number' && !Number.isNaN(Number(row.floor_no))
@@ -542,6 +568,7 @@ export default function LaundryCountPage() {
     const blockGroups = new Map<string, GroupSummary>();
     const grandExpected = zeroTotals();
     const grandActual = zeroTotals();
+    const grandPaUsed = zeroTotals();
     const grandInBill = zeroTotals();
     let grandRoomCount = 0;
     let grandDndCount = 0;
@@ -555,6 +582,7 @@ export default function LaundryCountPage() {
         label: `Block ${blockNo} · Floor ${floorNo}`,
         expected: zeroTotals(),
         actual: zeroTotals(),
+        paUsed: zeroTotals(),
         inBill: zeroTotals(),
         difference: zeroTotals(),
         roomCount: 0,
@@ -574,6 +602,7 @@ export default function LaundryCountPage() {
         label: `Block ${blockNo}`,
         expected: zeroTotals(),
         actual: zeroTotals(),
+        paUsed: zeroTotals(),
         inBill: toTotalsFromBillRow(billByBlock.get(blockNo)),
         difference: zeroTotals(),
         roomCount: 0,
@@ -632,14 +661,30 @@ export default function LaundryCountPage() {
       }
     });
 
+    paEntries.forEach((entry) => {
+      const paUsedForRoom = toTotalsFromBillRow(entry);
+      const floorGroup = getOrCreateFloorGroup(Number(entry.block_no), Number(entry.floor_no));
+      const blockGroup = getOrCreateBlockGroup(Number(entry.block_no));
+
+      addTotals(floorGroup.paUsed, paUsedForRoom);
+      addTotals(blockGroup.paUsed, paUsedForRoom);
+      addTotals(grandPaUsed, paUsedForRoom);
+    });
+
     addTotals(grandInBill, billBlock1);
     addTotals(grandInBill, billBlock2);
 
     floorGroups.forEach((group) => {
-      group.difference = subtractTotals(group.inBill, group.actual);
+      const totalUsed = zeroTotals();
+      addTotals(totalUsed, group.actual);
+      addTotals(totalUsed, group.paUsed);
+      group.difference = subtractTotals(group.inBill, totalUsed);
     });
     blockGroups.forEach((group) => {
-      group.difference = subtractTotals(group.inBill, group.actual);
+      const totalUsed = zeroTotals();
+      addTotals(totalUsed, group.actual);
+      addTotals(totalUsed, group.paUsed);
+      group.difference = subtractTotals(group.inBill, totalUsed);
     });
 
     const floorList = FLOOR_KEYS.map((key) => floorGroups.get(key)).filter(Boolean) as GroupSummary[];
@@ -650,14 +695,20 @@ export default function LaundryCountPage() {
       label: 'Grand Total',
       expected: grandExpected,
       actual: grandActual,
+      paUsed: grandPaUsed,
       inBill: grandInBill,
-      difference: subtractTotals(grandInBill, grandActual),
+      difference: subtractTotals(grandInBill, (() => {
+        const totalUsed = zeroTotals();
+        addTotals(totalUsed, grandActual);
+        addTotals(totalUsed, grandPaUsed);
+        return totalUsed;
+      })()),
       roomCount: grandRoomCount,
       dndCount: grandDndCount,
     };
 
     return { floorList, blockList, grand };
-  }, [rooms, statuses, entries, linenMap, billEntryMap]);
+  }, [rooms, statuses, entries, paEntries, linenMap, billEntryMap]);
 
   useEffect(() => {
     if (summaries.floorList.length > 0 && !summaries.floorList.find((g) => g.key === selectedFloorKey)) {
@@ -1337,6 +1388,11 @@ export default function LaundryCountPage() {
                         <div style={styles.metricRow}>
                           <span style={styles.metricLabel}>Actual Maid Used</span>
                           <span style={responsiveStyles.metricValue}>{selectedSummary.actual[item.key]}</span>
+                        </div>
+
+                        <div style={styles.metricRow}>
+                          <span style={styles.metricLabel}>PA Used</span>
+                          <span style={responsiveStyles.metricValue}>{selectedSummary.paUsed[item.key]}</span>
                         </div>
 
                         <div style={styles.metricRow}>
