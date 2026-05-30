@@ -228,6 +228,16 @@ const PA_CHECKLIST_ALLOWED_EMAILS = [
   'hksup2@hotelhallmark.com',
 ];
 
+const PA_LINEN_ENTRY_ALLOWED_EMAILS = [
+  'pa@hotelhallmark.com',
+  'laundry@hotelhallmark.com',
+  'fenny@hotelhallmark.com',
+  'manager@hotelhallmark.com',
+  'hksup1@hotelhallmark.com',
+  'hksup2@hotelhallmark.com',
+  'hksup3@hotelhallmark.com',
+];
+
 function getSingaporeHour(now = new Date()) {
   const hourPart = new Intl.DateTimeFormat('en-SG', {
     timeZone: 'Asia/Singapore',
@@ -672,6 +682,9 @@ export default function DashboardSidebar({
   const canSeePAChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
     PA_CHECKLIST_ALLOWED_EMAILS.includes(String(effectiveProfile?.email || '').toLowerCase());
+  const canSeePALinenEntry =
+    effectiveProfile?.role === 'SUPERUSER' ||
+    PA_LINEN_ENTRY_ALLOWED_EMAILS.includes(String(effectiveProfile?.email || '').toLowerCase());
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
@@ -707,7 +720,7 @@ export default function DashboardSidebar({
     canSeeDamaged ||
     canSeeLinenHistory ||
     canSeeSupervisorChecklist;
-  const showPublicAreaGroup = canSeePAChecklist;
+  const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
   const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist;
@@ -729,6 +742,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_linen_history,
     effectiveProfile?.can_access_supervisor_checklist,
     canSeePAChecklist,
+    canSeePALinenEntry,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
@@ -1223,6 +1237,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="clipboard" sub>PA Checklist</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeePALinenEntry ? (
+                <Link
+                  href="/dashboard/pa-linen-entry"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="laundry" sub>PA Linen Entry</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
