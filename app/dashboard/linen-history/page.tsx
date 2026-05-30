@@ -38,6 +38,19 @@ type EntryRow = {
   duvet_cover_single: number | null;
 };
 
+type PaEntryRow = {
+  room_number: string;
+  block_no: number;
+  floor_no: number;
+  bedsheet_king: number | null;
+  bedsheet_single: number | null;
+  pillow_case: number | null;
+  bath_towel: number | null;
+  bath_mat: number | null;
+  duvet_cover_king: number | null;
+  duvet_cover_single: number | null;
+};
+
 type LinenMapRow = {
   room_type: string;
   bedsheet_king: number;
@@ -89,6 +102,7 @@ type GroupSummary = {
   label: string;
   expected: LinenTotals;
   actual: LinenTotals;
+  paUsed: LinenTotals;
   inBill: LinenTotals;
   difference: LinenTotals;
   returned: LinenTotals;
@@ -106,6 +120,8 @@ type HistoryData = {
   snapshot: SnapshotRow | null;
   floorBillMap: Record<string, LinenTotals>;
   blockBillTotals: Record<string, LinenTotals>;
+  floorPaUsedMap: Record<string, LinenTotals>;
+  blockPaUsedTotals: Record<string, LinenTotals>;
   blockReceivedTotals: Record<string, LinenTotals>;
   source: 'snapshot' | 'snapshot-next-day-fallback' | 'historical-live-fallback';
   snapshotServiceDate?: string | null;
@@ -324,6 +340,57 @@ function buildReceivedBlockTotals(rows: LinenReceivedRow[]) {
   });
 
   return blockReceivedTotals;
+}
+
+function buildPaUsedMaps(rows: PaEntryRow[]) {
+  const floorPaUsedMap: Record<string, LinenTotals> = {};
+  const blockPaUsedTotals: Record<string, LinenTotals> = {
+    B1: zeroTotals(),
+    B2: zeroTotals(),
+  };
+
+  FLOOR_CONFIG.forEach((floor) => {
+    floorPaUsedMap[floor.key] = zeroTotals();
+  });
+
+  rows.forEach((row) => {
+    const totals = parseTotals(row);
+    const floorGroupKey = floorKey(Number(row.block_no), Number(row.floor_no));
+    const blockGroupKey = `B${Number(row.block_no)}`;
+
+    if (!floorPaUsedMap[floorGroupKey]) {
+      floorPaUsedMap[floorGroupKey] = zeroTotals();
+    }
+    if (!blockPaUsedTotals[blockGroupKey]) {
+      blockPaUsedTotals[blockGroupKey] = zeroTotals();
+    }
+
+    addTotals(floorPaUsedMap[floorGroupKey], totals);
+    addTotals(blockPaUsedTotals[blockGroupKey], totals);
+  });
+
+  return { floorPaUsedMap, blockPaUsedTotals };
+}
+
+function buildEmptySnapshot(serviceDate: string): SnapshotRow {
+  return {
+    service_date: serviceDate,
+    expected_json: {
+      floors: {},
+      blocks: {},
+      grand_total: zeroTotals(),
+    },
+    actual_json: {
+      floors: {},
+      blocks: {},
+      grand_total: zeroTotals(),
+    },
+    difference_json: {
+      floors: {},
+      blocks: {},
+      grand_total: zeroTotals(),
+    },
+  };
 }
 
 function buildSnapshotFromLiveData(
@@ -654,7 +721,7 @@ export default function LinenHistoryPage() {
 
       const fallbackSnapshotDate = shiftDateString(selectedDate, 1);
 
-      const [snapshotRes, billRes, roomRes, statusRes, entryRes, mapRes] = await Promise.all([
+      const [snapshotRes, billRes, roomRes, statusRes, entryRes, mapRes, paEntryRes] = await Promise.all([
         supabase
           .from('linen_daily_snapshot')
           .select('service_date, expected_json, actual_json, difference_json')
@@ -681,6 +748,10 @@ export default function LinenHistoryPage() {
         supabase
           .from('linen_room_type_map')
           .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+        supabase
+          .from('linen_pa_entry')
+          .select('room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate),
       ]);
 
       if (snapshotRes.error) throw snapshotRes.error;
@@ -689,6 +760,7 @@ export default function LinenHistoryPage() {
       if (statusRes.error) throw statusRes.error;
       if (entryRes.error) throw entryRes.error;
       if (mapRes.error) throw mapRes.error;
+      const paRows = paEntryRes.error ? [] : ((paEntryRes.data || []) as PaEntryRow[]);
 
       const snapshotRows = (snapshotRes.data || []) as SnapshotRow[];
       const exactSnapshot =
@@ -712,7 +784,8 @@ export default function LinenHistoryPage() {
         (
           Object.keys(fallbackLiveSnapshot.expected_json?.floors || {}).length > 0 ||
           Object.keys(fallbackLiveSnapshot.actual_json?.floors || {}).length > 0 ||
-          ((billRes.data || []) as LinenBillRow[]).length > 0
+          ((billRes.data || []) as LinenBillRow[]).length > 0 ||
+          paRows.length > 0
         );
       const adjustedExactSnapshot = applyExtraPillowCaseRuleToSnapshot(
         exactSnapshot,
@@ -726,9 +799,15 @@ export default function LinenHistoryPage() {
         (statusRes.data || []) as StatusRow[],
         (entryRes.data || []) as EntryRow[]
       );
-      const resolvedSnapshot = adjustedExactSnapshot || adjustedNextDayFallbackSnapshot || (hasHistoricalLiveData ? fallbackLiveSnapshot : null);
+      const hasPaEntries = paRows.length > 0;
+      const resolvedSnapshot =
+        adjustedExactSnapshot ||
+        adjustedNextDayFallbackSnapshot ||
+        (hasHistoricalLiveData ? fallbackLiveSnapshot : null) ||
+        (hasPaEntries ? buildEmptySnapshot(selectedDate) : null);
 
       const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
+      const { floorPaUsedMap, blockPaUsedTotals } = buildPaUsedMaps(paRows);
       let blockReceivedTotals: Record<string, LinenTotals> = {
         B1: zeroTotals(),
         B2: zeroTotals(),
@@ -747,6 +826,8 @@ export default function LinenHistoryPage() {
         snapshot: resolvedSnapshot,
         floorBillMap,
         blockBillTotals,
+        floorPaUsedMap,
+        blockPaUsedTotals,
         blockReceivedTotals,
         source: exactSnapshot
           ? 'snapshot'
@@ -778,13 +859,19 @@ export default function LinenHistoryPage() {
     const actual = historyData?.snapshot?.actual_json || {};
     const blockBillTotals = historyData?.blockBillTotals || {};
     const floorBillMap = historyData?.floorBillMap || {};
+    const floorPaUsedMap = historyData?.floorPaUsedMap || {};
+    const blockPaUsedTotals = historyData?.blockPaUsedTotals || {};
     const blockReceivedTotals = historyData?.blockReceivedTotals || {};
 
     if (viewMode === 'FLOOR') {
       const floorExpected = expected?.floors?.[selectedFloorKey];
       const floorActual = actual?.floors?.[selectedFloorKey];
       const floorInBill = floorBillMap[selectedFloorKey] || zeroTotals();
+      const floorPaUsed = floorPaUsedMap[selectedFloorKey] || zeroTotals();
       const floorActualTotals = parseTotals(floorActual);
+      const floorTotalUsed = zeroTotals();
+      addTotals(floorTotalUsed, floorActualTotals);
+      addTotals(floorTotalUsed, floorPaUsed);
       const emptyReturned = zeroTotals();
 
       return {
@@ -792,8 +879,9 @@ export default function LinenHistoryPage() {
         label: FLOOR_OPTIONS.find((f) => f.key === selectedFloorKey)?.label || selectedFloorKey,
         expected: parseTotals(floorExpected),
         actual: floorActualTotals,
+        paUsed: floorPaUsed,
         inBill: floorInBill,
-        difference: subtractTotals(floorInBill, floorActualTotals),
+        difference: subtractTotals(floorInBill, floorTotalUsed),
         returned: emptyReturned,
         returnedDifference: subtractTotals(emptyReturned, floorInBill),
       } as GroupSummary;
@@ -803,7 +891,11 @@ export default function LinenHistoryPage() {
       const blockExpected = expected?.blocks?.[selectedBlockKey];
       const blockActual = actual?.blocks?.[selectedBlockKey];
       const blockInBill = blockBillTotals[selectedBlockKey] || zeroTotals();
+      const blockPaUsed = blockPaUsedTotals[selectedBlockKey] || zeroTotals();
       const blockActualTotals = parseTotals(blockActual);
+      const blockTotalUsed = zeroTotals();
+      addTotals(blockTotalUsed, blockActualTotals);
+      addTotals(blockTotalUsed, blockPaUsed);
       const blockReturnedTotals = blockReceivedTotals[selectedBlockKey] || zeroTotals();
 
       return {
@@ -811,8 +903,9 @@ export default function LinenHistoryPage() {
         label: BLOCK_OPTIONS.find((b) => b.key === selectedBlockKey)?.label || selectedBlockKey,
         expected: parseTotals(blockExpected),
         actual: blockActualTotals,
+        paUsed: blockPaUsed,
         inBill: blockInBill,
-        difference: subtractTotals(blockInBill, blockActualTotals),
+        difference: subtractTotals(blockInBill, blockTotalUsed),
         returned: blockReturnedTotals,
         returnedDifference: subtractTotals(blockReturnedTotals, blockInBill),
       } as GroupSummary;
@@ -820,10 +913,17 @@ export default function LinenHistoryPage() {
 
     const grandExpectedTotals = parseTotals(expected?.grand_total);
     const grandActualTotals = parseTotals(actual?.grand_total);
+    const grandPaUsedTotals = Object.values(blockPaUsedTotals).reduce((acc, totals) => {
+      addTotals(acc, totals);
+      return acc;
+    }, zeroTotals());
     const grandInBillTotals = Object.values(blockBillTotals).reduce((acc, totals) => {
       addTotals(acc, totals);
       return acc;
     }, zeroTotals());
+    const grandTotalUsed = zeroTotals();
+    addTotals(grandTotalUsed, grandActualTotals);
+    addTotals(grandTotalUsed, grandPaUsedTotals);
     const grandReturnedTotals = Object.values(blockReceivedTotals).reduce((acc, totals) => {
       addTotals(acc, totals);
       return acc;
@@ -834,8 +934,9 @@ export default function LinenHistoryPage() {
       label: 'Grand Total',
       expected: grandExpectedTotals,
       actual: grandActualTotals,
+      paUsed: grandPaUsedTotals,
       inBill: grandInBillTotals,
-      difference: subtractTotals(grandInBillTotals, grandActualTotals),
+      difference: subtractTotals(grandInBillTotals, grandTotalUsed),
       returned: grandReturnedTotals,
       returnedDifference: subtractTotals(grandReturnedTotals, grandInBillTotals),
     } as GroupSummary;
@@ -1130,7 +1231,8 @@ export default function LinenHistoryPage() {
               {ITEM_DEFS.map((item) => {
                 const diffValue = selectedSummary.difference[item.key];
                 const returnedDiffValue = selectedSummary.returnedDifference[item.key];
-                const countDiffValue = selectedSummary.inBill[item.key] - selectedSummary.actual[item.key];
+                const totalUsedValue = selectedSummary.actual[item.key] + selectedSummary.paUsed[item.key];
+                const countDiffValue = selectedSummary.inBill[item.key] - totalUsedValue;
                 return (
                   <div key={item.key} style={styles.itemCard}>
                     <div style={styles.itemTitle}>{item.label}</div>
@@ -1143,6 +1245,16 @@ export default function LinenHistoryPage() {
                     <div style={styles.metricRow}>
                       <span style={styles.metricLabel}>Actual</span>
                       <span style={styles.metricValue}>{selectedSummary.actual[item.key]}</span>
+                    </div>
+
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>PA Used</span>
+                      <span style={styles.metricValue}>{selectedSummary.paUsed[item.key]}</span>
+                    </div>
+
+                    <div style={styles.metricRow}>
+                      <span style={styles.metricLabel}>Total Used</span>
+                      <span style={styles.metricValue}>{totalUsedValue}</span>
                     </div>
 
                     <div style={styles.metricRow}>
