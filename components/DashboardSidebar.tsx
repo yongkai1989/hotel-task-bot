@@ -692,6 +692,10 @@ export default function DashboardSidebar({
   const canSeeLostFound =
     effectiveProfile?.role === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_lost_found;
+  const canSeePriceGuide =
+    effectiveProfile?.role === 'SUPERUSER' ||
+    effectiveProfile?.role === 'FO' ||
+    String(effectiveProfile?.email || '').toLowerCase() === 'fenny@hotelhallmark.com';
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
     (
@@ -723,7 +727,7 @@ export default function DashboardSidebar({
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
-  const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist;
+  const showFrontOfficeGroup = canSeeLostFound || canSeeFoChecklist || canSeePriceGuide;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -747,6 +751,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
     effectiveProfile?.can_access_lost_found,
+    canSeePriceGuide,
     effectiveProfile?.can_access_fo_checklist,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_edit_task,
@@ -1268,6 +1273,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="lostFound" sub>Lost & Found</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeePriceGuide ? (
+                <Link
+                  href="/dashboard/price-guide"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="file" sub>Price Guide</SidebarNavContent>
                 </Link>
               ) : null}
 
