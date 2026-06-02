@@ -79,7 +79,13 @@ function canUseGuestLaundry(profile: Profile | null) {
   if (!profile) return false;
   const role = String(profile.role || '').trim().toUpperCase();
   if (role === 'SUPERUSER' || role === 'FO') return true;
-  return normalizeEmail(profile.email) === 'fenny@hotelhallmark.com';
+  const email = normalizeEmail(profile.email);
+  return (
+    email === 'walter@hotelhallmark.com' ||
+    email === 'fenny@hotelhallmark.com' ||
+    profile.can_access_guest_laundry === true ||
+    profile.permissions?.can_access_guest_laundry === true
+  );
 }
 
 function normalizeProfileFromSession(rawUser: any): Profile {
@@ -538,7 +544,7 @@ export default function GuestLaundryPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <h1 style={styles.deniedTitle}>Access denied</h1>
-          <p style={styles.muted}>Guest Laundry is available to Front Office and Superuser.</p>
+          <p style={styles.muted}>Guest Laundry is available to Superuser, Front Office, Walter, and Fenny.</p>
           <Link href="/dashboard" style={styles.primaryButton}>Back to Dashboard</Link>
         </div>
       </main>
