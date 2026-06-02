@@ -37,6 +37,10 @@ const PROFILE_SELECT = `
   can_access_lost_found,
   can_access_fo_checklist,
   can_access_supervisor_checklist,
+  can_access_price_guide,
+  can_access_guest_laundry,
+  can_access_pa_checklist,
+  can_access_pa_linen_entry,
   updated_at
 `;
 
@@ -106,6 +110,10 @@ const permissionKeys = [
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_supervisor_checklist',
+  'can_access_price_guide',
+  'can_access_guest_laundry',
+  'can_access_pa_checklist',
+  'can_access_pa_linen_entry',
 ];
 
 function enabledCount(profile: any) {
@@ -183,6 +191,43 @@ function buildUser(profile: any, authEmail: string) {
       effectiveFoChecklist(role, profile.email || authEmail, profile.can_access_fo_checklist),
     can_access_supervisor_checklist:
       effectiveBoolean(role, profile.can_access_supervisor_checklist),
+    can_access_price_guide:
+      role === 'SUPERUSER' ||
+      role === 'FO' ||
+      String(profile.email || authEmail || '').trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(profile.can_access_price_guide),
+    can_access_guest_laundry:
+      role === 'SUPERUSER' ||
+      role === 'FO' ||
+      String(profile.email || authEmail || '').trim().toLowerCase() === 'walter@hotelhallmark.com' ||
+      String(profile.email || authEmail || '').trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(profile.can_access_guest_laundry),
+    can_access_pa_checklist: (() => {
+      const email = String(profile.email || authEmail || '').trim().toLowerCase();
+      return (
+        role === 'SUPERUSER' ||
+        email === 'pa@hotelhallmark.com' ||
+        email === 'fenny@hotelhallmark.com' ||
+        email === 'manager@hotelhallmark.com' ||
+        email === 'hksup1@hotelhallmark.com' ||
+        email === 'hksup2@hotelhallmark.com' ||
+        toPermissionBoolean(profile.can_access_pa_checklist)
+      );
+    })(),
+    can_access_pa_linen_entry: (() => {
+      const email = String(profile.email || authEmail || '').trim().toLowerCase();
+      return (
+        role === 'SUPERUSER' ||
+        email === 'pa@hotelhallmark.com' ||
+        email === 'laundry@hotelhallmark.com' ||
+        email === 'fenny@hotelhallmark.com' ||
+        email === 'manager@hotelhallmark.com' ||
+        email === 'hksup1@hotelhallmark.com' ||
+        email === 'hksup2@hotelhallmark.com' ||
+        email === 'hksup3@hotelhallmark.com' ||
+        toPermissionBoolean(profile.can_access_pa_linen_entry)
+      );
+    })(),
   };
 
   return {
