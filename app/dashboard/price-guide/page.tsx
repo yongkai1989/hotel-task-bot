@@ -11,6 +11,7 @@ type Profile = {
   email: string;
   name: string;
   role: UserRole;
+  can_access_price_guide?: boolean;
 };
 
 type RateKey = 'weekday' | 'friday' | 'saturday' | 'peak';
@@ -95,7 +96,7 @@ function normalizeEmail(value?: string | null) {
 function canViewPriceGuide(profile: Profile | null) {
   if (!profile) return false;
   if (profile.role === 'SUPERUSER' || profile.role === 'FO') return true;
-  return normalizeEmail(profile.email) === 'fenny@hotelhallmark.com';
+  return normalizeEmail(profile.email) === 'fenny@hotelhallmark.com' || profile.can_access_price_guide === true;
 }
 
 function canEditPriceGuide(profile: Profile | null) {
@@ -206,7 +207,7 @@ export default function PriceGuidePage() {
 
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_price_guide')
           .eq('user_id', session.user.id)
           .maybeSingle();
         if (error) throw error;
@@ -217,6 +218,7 @@ export default function PriceGuidePage() {
           email: data?.email || session.user.email || '',
           name: data?.name || session.user.email || 'User',
           role: (data?.role || 'FO') as UserRole,
+          can_access_price_guide: data?.can_access_price_guide === true,
         });
 
         await loadGuide();
@@ -928,8 +930,10 @@ const displayStyles: Record<string, any> = {
     border: '1px solid #dfd2bc',
     borderRadius: 18,
     background: '#fffdf9',
-    flex: '0 1 auto',
+    flex: '1 1 0',
     minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
   },
   tableHeader: {
     display: 'grid',
@@ -937,6 +941,7 @@ const displayStyles: Record<string, any> = {
     alignItems: 'center',
     minHeight: 'clamp(28px, 3.7vh, 36px)',
     borderBottom: '1px solid #dfd2bc',
+    flex: '0 0 auto',
   },
   th: {
     padding: '5px clamp(5px, .9vw, 10px)',
@@ -949,8 +954,9 @@ const displayStyles: Record<string, any> = {
     display: 'grid',
     gridTemplateColumns: '1.4fr repeat(4, 1fr)',
     alignItems: 'center',
-    minHeight: 'clamp(28px, 3.75vh, 35px)',
+    minHeight: 0,
     borderBottom: '1px solid #ece3d4',
+    flex: '1 1 0',
   },
   roomCell: {
     padding: '3px clamp(8px, 1.15vw, 14px)',
