@@ -266,7 +266,15 @@ export default function GuestLaundryPage() {
     let mounted = true;
     async function loadProfile() {
       try {
-        const res = await fetch('/api/session-profile', { cache: 'no-store' });
+        const token = await getAccessToken();
+        if (!token) throw new Error('Login required');
+
+        const res = await fetch('/api/session-profile', {
+          cache: 'no-store',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
         const json = await res.json();
         if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load profile');
         if (!mounted) return;
