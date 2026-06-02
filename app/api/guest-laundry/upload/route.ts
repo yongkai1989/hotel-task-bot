@@ -61,7 +61,9 @@ export async function POST(req: NextRequest) {
     const { data: profile, error: profileError } = await serviceClient
       .from('user_profiles')
       .select('email, role')
-      .eq('user_id', user.id)
+      .or(`user_id.eq.${user.id},email.eq.${String(user.email || '').trim().toLowerCase()}`)
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (profileError) throw profileError;
@@ -102,4 +104,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
