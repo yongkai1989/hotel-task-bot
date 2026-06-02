@@ -7,7 +7,7 @@ import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
 type UserRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 type ServiceType = 'standard' | 'express';
-type LaundryStatus = 'TAKEN' | 'SENT_BACK' | 'GUEST_COLLECTED';
+type LaundryStatus = 'PENDING_PICK_UP' | 'TAKEN' | 'PENDING_GUEST_COLLECTION' | 'GUEST_COLLECTED' | 'SENT_BACK';
 
 type Profile = {
   user_id: string;
@@ -66,10 +66,24 @@ const EMPTY_DRAFT: EntryDraft = {
 };
 
 const STATUS_META: Record<LaundryStatus, { label: string; color: string; bg: string }> = {
+  PENDING_PICK_UP: { label: 'Pending Pick Up', color: '#7c3aed', bg: '#f3e8ff' },
   TAKEN: { label: 'Taken', color: '#1d4ed8', bg: '#eff6ff' },
-  SENT_BACK: { label: 'Sent Back', color: '#b45309', bg: '#fffbeb' },
+  PENDING_GUEST_COLLECTION: { label: 'Pending Guest Collection', color: '#b45309', bg: '#fffbeb' },
+  SENT_BACK: { label: 'Pending Guest Collection', color: '#b45309', bg: '#fffbeb' },
   GUEST_COLLECTED: { label: 'Guest Collected', color: '#047857', bg: '#ecfdf5' },
 };
+
+const ACTIVE_STATUS_FILTERS: Array<'ALL' | LaundryStatus> = [
+  'ALL',
+  'PENDING_PICK_UP',
+  'TAKEN',
+  'PENDING_GUEST_COLLECTION',
+  'GUEST_COLLECTED',
+];
+
+function normalizeLaundryStatus(status: LaundryStatus): LaundryStatus {
+  return status === 'SENT_BACK' ? 'PENDING_GUEST_COLLECTION' : status;
+}
 
 function normalizeEmail(value?: string | null) {
   return String(value || '').trim().toLowerCase();
@@ -396,7 +410,7 @@ export default function GuestLaundryPage() {
         turnaround_text: serviceTurnaround(draft.serviceType),
         paid: draft.paid,
         invoice_number: draft.invoiceNumber.trim() || null,
-        status: 'TAKEN' as LaundryStatus,
+        status: 'PENDING_PICK_UP' as LaundryStatus,
         scale_photo_url: uploaded.url,
         scale_photo_path: uploaded.path,
         created_by_user_id: profile.user_id,
@@ -483,7 +497,7 @@ export default function GuestLaundryPage() {
         updated_by_name: profile.name || profile.email,
         updated_at: now,
       };
-      if (nextStatus === 'SENT_BACK') payload.sent_back_at = entry.sent_back_at || now;
+      if (nextStatus === 'PENDING_GUEST_COLLECTION') payload.sent_back_at = entry.sent_back_at || now;
       if (nextStatus === 'GUEST_COLLECTED') payload.collected_at = entry.collected_at || now;
 
       const { error } = await supabase
@@ -532,11 +546,13 @@ export default function GuestLaundryPage() {
     });
   }
 
-  const filteredEntries = entries.filter((entry) =>
-    statusFilter === 'ALL' ? true : entry.status === statusFilter
-  );
+  const filteredEntries = entries.filter((entry) => {
+    const normalized = normalizeLaundryStatus(entry.status);
+    return statusFilter === 'ALL' ? true : normalized === statusFilter;
+  });
+  const pendingPickupCount = entries.filter((entry) => normalizeLaundryStatus(entry.status) === 'PENDING_PICK_UP').length;
   const takenCount = entries.filter((entry) => entry.status === 'TAKEN').length;
-  const sentBackCount = entries.filter((entry) => entry.status === 'SENT_BACK').length;
+  const pendingCollectionCount = entries.filter((entry) => normalizeLaundryStatus(entry.status) === 'PENDING_GUEST_COLLECTION').length;
   const collectedCount = entries.filter((entry) => entry.status === 'GUEST_COLLECTED').length;
 
   if (loadingProfile) {
@@ -579,8 +595,9 @@ export default function GuestLaundryPage() {
       {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
       <section style={styles.statsGrid}>
+        <StatCard label="Pending Pick Up" value={pendingPickupCount} tone="purple" />
         <StatCard label="Taken" value={takenCount} tone="blue" />
-        <StatCard label="Sent Back" value={sentBackCount} tone="amber" />
+        <StatCard label="Pending Guest Collection" value={pendingCollectionCount} tone="amber" />
         <StatCard label="Guest Collected" value={collectedCount} tone="green" />
       </section>
 
@@ -603,6 +620,7 @@ export default function GuestLaundryPage() {
             setQuickWeight={setQuickWeight}
             addWeight={addWeight}
             inputId="guest-laundry-photo"
+            showPaymentControl={false}
           />
 
           <div style={styles.actionRow}>
@@ -634,6 +652,15 @@ export default function GuestLaundryPage() {
             </span>
           </div>
 
+          <label style={styles.receiptPaymentRow}>
+            <input
+              type="checkbox"
+              checked={draft.paid}
+              onChange={(event) => updateDraft('paid', event.target.checked)}
+            />
+            <span>Payment collected</span>
+          </label>
+
           <div style={styles.breakdown}>
             <Row label="Room" value={draft.roomNumber.trim() || '-'} />
             <Row label="Service" value={serviceLabel(draft.serviceType)} />
@@ -657,7 +684,7 @@ export default function GuestLaundryPage() {
             <h2 style={styles.cardTitle}>Laundry entries</h2>
           </div>
           <div style={styles.filterPills}>
-            {(['ALL', 'TAKEN', 'SENT_BACK', 'GUEST_COLLECTED'] as const).map((status) => (
+            {ACTIVE_STATUS_FILTERS.map((status) => (
               <button
                 key={status}
                 type="button"
@@ -686,6 +713,7 @@ export default function GuestLaundryPage() {
                 onEdit={() => openEdit(entry)}
                 onDelete={() => void deleteEntry(entry)}
                 onStatus={(status) => void updateStatus(entry, status)}
+                onPrint={() => printAcknowledgementSlip(entry)}
               />
             ))}
           </div>
@@ -731,11 +759,11 @@ export default function GuestLaundryPage() {
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: number; tone: 'blue' | 'amber' | 'green' }) {
-  const toneStyle = tone === 'green' ? styles.greenTone : tone === 'amber' ? styles.amberTone : styles.blueTone;
+function StatCard({ label, value, tone }: { label: string; value: number; tone: 'purple' | 'blue' | 'amber' | 'green' }) {
+  const toneStyle = tone === 'purple' ? styles.purpleTone : tone === 'green' ? styles.greenTone : tone === 'amber' ? styles.amberTone : styles.blueTone;
   return (
     <div style={styles.statCard}>
-      <div style={{ ...styles.statIcon, ...toneStyle }}><Icon name={tone === 'green' ? 'check' : tone === 'amber' ? 'clock' : 'receipt'} /></div>
+      <div style={{ ...styles.statIcon, ...toneStyle }}><Icon name={tone === 'green' ? 'check' : tone === 'amber' ? 'clock' : tone === 'purple' ? 'spark' : 'receipt'} /></div>
       <div>
         <div style={styles.statLabel}>{label}</div>
         <div style={styles.statValue}>{value}</div>
@@ -753,6 +781,99 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+const LAUNDRY_TERMS = [
+  'Laundry service is provided at the guest request and at the guest own risk.',
+  'The hotel is not liable for shrinkage, colour run, fading, torn fabric, loose buttons, damaged zips, ornaments, prints, beads, lace, leather, delicate material, or pre-existing garment defects.',
+  'The hotel is not liable for missing items unless every item is individually declared and accepted by Front Office at the time of handover.',
+  'The hotel is not responsible for valuables, cash, documents, room keys, or personal items left inside laundry pockets.',
+  'Stain removal is not guaranteed. Strong stain treatment may affect colour, texture, or fabric condition.',
+  'Estimated return time is an estimate only and may change due to laundry load, weather, equipment issues, or contractor delay.',
+  'Any concern must be raised immediately upon collection before leaving the counter.',
+];
+
+function escapeHtml(value: any) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function printAcknowledgementSlip(entry: GuestLaundryEntry) {
+  const win = window.open('', '_blank', 'width=900,height=1100');
+  if (!win) return;
+  const terms = LAUNDRY_TERMS.map((term) => `<li>${escapeHtml(term)}</li>`).join('');
+  const logoUrl = `${window.location.origin}/logo.png`;
+  const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Guest Laundry Acknowledgement - Room ${entry.room_number}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; color: #0f172a; font-family: Arial, sans-serif; background: #fff; }
+    .page { max-width: 820px; margin: 0 auto; border: 1px solid #d8c7a7; border-radius: 18px; padding: 28px; }
+    .head { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 2px solid #d8c7a7; padding-bottom: 18px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .logo { width: 58px; height: 58px; object-fit: contain; border: 1px solid #d8c7a7; border-radius: 14px; padding: 6px; }
+    .hotel { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: #8a6337; font-weight: 800; }
+    h1 { margin: 3px 0 0; font-size: 25px; }
+    .date { color: #64748b; font-weight: 700; text-align: right; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 22px 0; }
+    .box { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; }
+    .label { color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .value { margin-top: 5px; font-size: 18px; font-weight: 900; }
+    .price { color: #1d4ed8; font-size: 28px; }
+    h2 { margin: 20px 0 8px; font-size: 17px; }
+    ol { margin: 8px 0 0 20px; padding: 0; line-height: 1.45; font-size: 13px; }
+    .signatures { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 22px; }
+    .sig { min-height: 112px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; justify-content: flex-end; }
+    .line { border-top: 1px solid #0f172a; padding-top: 8px; font-weight: 800; }
+    .small { margin-top: 6px; color: #64748b; font-size: 12px; font-weight: 700; }
+    .collection { margin-top: 18px; padding: 14px; border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 14px; font-size: 13px; font-weight: 800; }
+    @media print { body { padding: 0; } .page { border: 0; border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="head">
+      <div class="brand">
+        <img class="logo" src="${logoUrl}" />
+        <div>
+          <div class="hotel">Hallmark Crown Hotel</div>
+          <h1>Guest Laundry Acknowledgement</h1>
+        </div>
+      </div>
+      <div class="date">${new Date().toLocaleString('en-SG')}</div>
+    </section>
+    <section class="grid">
+      <div class="box"><div class="label">Room</div><div class="value">${escapeHtml(entry.room_number)}</div></div>
+      <div class="box"><div class="label">Service</div><div class="value">${escapeHtml(serviceLabel(entry.service_type))}</div></div>
+      <div class="box"><div class="label">Weight</div><div class="value">${Number(entry.rounded_weight_kg).toFixed(1)} kg</div></div>
+      <div class="box"><div class="label">Expected Return</div><div class="value">${escapeHtml(entry.turnaround_text || serviceTurnaround(entry.service_type))}</div></div>
+      <div class="box"><div class="label">Invoice</div><div class="value">${escapeHtml(entry.invoice_number || 'Pending')}</div></div>
+      <div class="box"><div class="label">Price</div><div class="value price">${formatMoney(Number(entry.charge_myr))}</div></div>
+    </section>
+    <h2>Terms and Conditions</h2>
+    <ol>${terms}</ol>
+    <section class="signatures">
+      <div class="sig"><div class="line">Guest signature at laundry handover</div><div class="small">I agree to the laundry terms above.</div></div>
+      <div class="sig"><div class="line">Front Office witness</div><div class="small">Name / signature / date</div></div>
+    </section>
+    <div class="collection">Collection confirmation: I confirm that I have collected my laundry in complete and good condition.</div>
+    <section class="signatures">
+      <div class="sig"><div class="line">Guest signature upon collection</div><div class="small">Name / signature / date</div></div>
+      <div class="sig"><div class="line">Staff signature upon release</div><div class="small">Name / signature / date</div></div>
+    </section>
+  </main>
+  <script>window.onload = () => { window.print(); };</script>
+</body>
+</html>`;
+  win.document.write(html);
+  win.document.close();
+}
+
 function EntryForm({
   draft,
   updateDraft,
@@ -763,6 +884,7 @@ function EntryForm({
   addWeight,
   inputId,
   editMode = false,
+  showPaymentControl = true,
 }: {
   draft: EntryDraft;
   updateDraft: <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => void;
@@ -773,6 +895,7 @@ function EntryForm({
   addWeight: (value: number) => void;
   inputId: string;
   editMode?: boolean;
+  showPaymentControl?: boolean;
 }) {
   return (
     <>
@@ -852,14 +975,16 @@ function EntryForm({
         <Row label="Turnaround" value={serviceTurnaround(draft.serviceType)} />
       </div>
 
-      <label style={styles.checkboxRow}>
-        <input
-          type="checkbox"
-          checked={draft.paid}
-          onChange={(event) => updateDraft('paid', event.target.checked)}
-        />
-        <span>Payment collected</span>
-      </label>
+      {showPaymentControl ? (
+        <label style={styles.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={draft.paid}
+            onChange={(event) => updateDraft('paid', event.target.checked)}
+          />
+          <span>Payment collected</span>
+        </label>
+      ) : null}
 
       <label style={styles.photoDrop}>
         <Icon name="camera" />
@@ -895,6 +1020,7 @@ function EntryCard({
   onEdit,
   onDelete,
   onStatus,
+  onPrint,
 }: {
   entry: GuestLaundryEntry;
   saving: boolean;
@@ -902,8 +1028,10 @@ function EntryCard({
   onEdit: () => void;
   onDelete: () => void;
   onStatus: (status: LaundryStatus) => void;
+  onPrint: () => void;
 }) {
-  const meta = STATUS_META[entry.status];
+  const currentStatus = normalizeLaundryStatus(entry.status);
+  const meta = STATUS_META[currentStatus];
   const canCollect = !!entry.invoice_number?.trim() && entry.paid;
   return (
     <article style={styles.entryCard}>
@@ -929,21 +1057,20 @@ function EntryCard({
       </div>
 
       <div style={styles.entryActions}>
+        <button type="button" onClick={onPrint} disabled={saving} style={styles.smallButton}><Icon name="print" /> Print Slip</button>
         <button type="button" onClick={onEdit} disabled={saving} style={styles.smallButton}><Icon name="edit" /> Edit</button>
-        {entry.status !== 'SENT_BACK' && entry.status !== 'GUEST_COLLECTED' ? (
-          <button type="button" onClick={() => onStatus('SENT_BACK')} disabled={saving} style={styles.smallButton}>Sent Back</button>
-        ) : null}
-        {entry.status !== 'GUEST_COLLECTED' ? (
-          <button
-            type="button"
-            onClick={() => onStatus('GUEST_COLLECTED')}
-            disabled={saving || !canCollect}
-            style={{ ...styles.smallButton, ...(canCollect ? styles.collectButton : styles.disabledButton) }}
-            title={!canCollect ? 'Invoice number and payment collected are required' : undefined}
-          >
-            Guest Collected
-          </button>
-        ) : null}
+        <select
+          value={currentStatus}
+          onChange={(event) => onStatus(event.target.value as LaundryStatus)}
+          disabled={saving}
+          style={styles.statusSelect}
+          title={!canCollect ? 'Invoice number and payment collected are required before Guest Collected' : undefined}
+        >
+          <option value="PENDING_PICK_UP">Pending Pick Up</option>
+          <option value="TAKEN">Taken</option>
+          <option value="PENDING_GUEST_COLLECTION">Pending Guest Collection</option>
+          <option value="GUEST_COLLECTED">Guest Collected</option>
+        </select>
         {isSuperuser ? (
           <button type="button" onClick={onDelete} disabled={saving} style={styles.deleteButton}><Icon name="trash" /> Delete</button>
         ) : null}
@@ -1027,6 +1154,7 @@ const styles: Record<string, CSSProperties> = {
   },
   statIcon: { width: 42, height: 42, display: 'grid', placeItems: 'center', borderRadius: 14 },
   blueTone: { color: '#2563eb', background: '#eff6ff' },
+  purpleTone: { color: '#7c3aed', background: '#f3e8ff' },
   amberTone: { color: '#b45309', background: '#fffbeb' },
   greenTone: { color: '#047857', background: '#ecfdf5' },
   statLabel: { color: '#64748b', fontSize: 12, fontWeight: 950, textTransform: 'uppercase', letterSpacing: '.08em' },
@@ -1048,6 +1176,7 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: '0 18px 45px rgba(15,23,42,.08)',
     minWidth: 0,
     boxSizing: 'border-box',
+    overflow: 'hidden',
   },
   receiptCard: {
     position: 'relative',
@@ -1068,7 +1197,7 @@ const styles: Record<string, CSSProperties> = {
   iconBadge: { width: 44, height: 44, display: 'grid', placeItems: 'center', borderRadius: 14, color: '#2563eb', background: '#eaf2ff' },
   iconBadgeGold: { width: 44, height: 44, display: 'grid', placeItems: 'center', borderRadius: 14, color: '#9a6a2f', background: '#fff4df' },
   formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12 },
-  label: { display: 'grid', gap: 8, marginBottom: 16, color: '#334155', fontSize: 13, fontWeight: 900 },
+  label: { display: 'grid', gap: 8, marginBottom: 16, color: '#334155', fontSize: 13, fontWeight: 900, minWidth: 0 },
   labelText: { color: '#334155', fontSize: 13, fontWeight: 900, marginBottom: 8 },
   input: {
     width: '100%',
@@ -1092,11 +1221,15 @@ const styles: Record<string, CSSProperties> = {
     padding: '5px 7px 5px 14px',
     background: '#fbfdff',
     width: '100%',
+    maxWidth: '100%',
     boxSizing: 'border-box',
+    overflow: 'hidden',
   },
   weightInput: {
     flex: 1,
     minWidth: 0,
+    width: '100%',
+    boxSizing: 'border-box',
     border: 0,
     outline: 'none',
     background: 'transparent',
@@ -1127,6 +1260,19 @@ const styles: Record<string, CSSProperties> = {
     background: '#f8fafc',
     color: '#0f172a',
     fontWeight: 900,
+  },
+  receiptPaymentRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+    padding: 13,
+    border: '1px solid #dbeafe',
+    borderRadius: 16,
+    background: '#eff6ff',
+    color: '#0f172a',
+    fontWeight: 950,
+    boxSizing: 'border-box',
   },
   photoDrop: {
     display: 'grid',
@@ -1192,6 +1338,7 @@ const styles: Record<string, CSSProperties> = {
   entryTiny: { marginTop: 3, color: '#64748b', fontSize: 12, fontWeight: 700 },
   entryActions: { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 },
   smallButton: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid #cbd9eb', borderRadius: 13, background: '#fff', color: '#0f172a', padding: '10px 12px', fontWeight: 900, cursor: 'pointer', boxSizing: 'border-box' },
+  statusSelect: { border: '1px solid #cbd9eb', borderRadius: 13, background: '#fff', color: '#0f172a', padding: '10px 12px', fontWeight: 900, cursor: 'pointer', minHeight: 42, maxWidth: '100%', boxSizing: 'border-box' },
   collectButton: { background: '#ecfdf5', color: '#047857', borderColor: '#bbf7d0' },
   disabledButton: { opacity: .5, cursor: 'not-allowed' },
   deleteButton: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: '1px solid #fecaca', borderRadius: 13, background: '#fff5f5', color: '#b91c1c', padding: '10px 12px', fontWeight: 900, cursor: 'pointer', boxSizing: 'border-box' },
