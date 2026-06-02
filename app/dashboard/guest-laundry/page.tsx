@@ -14,6 +14,8 @@ type Profile = {
   email: string;
   name: string;
   role: UserRole;
+  permissions?: Record<string, any>;
+  can_access_guest_laundry?: boolean;
 };
 
 type GuestLaundryEntry = {
@@ -75,8 +77,24 @@ function normalizeEmail(value?: string | null) {
 
 function canUseGuestLaundry(profile: Profile | null) {
   if (!profile) return false;
-  if (profile.role === 'SUPERUSER' || profile.role === 'FO') return true;
+  const role = String(profile.role || '').trim().toUpperCase();
+  if (role === 'SUPERUSER' || role === 'FO') return true;
   return normalizeEmail(profile.email) === 'fenny@hotelhallmark.com';
+}
+
+function normalizeProfileFromSession(rawUser: any): Profile {
+  const permissions = rawUser?.permissions || {};
+  const role = String(rawUser?.role || permissions?.role || '').trim().toUpperCase();
+  return {
+    user_id: String(rawUser?.user_id || rawUser?.id || ''),
+    email: String(rawUser?.email || '').trim().toLowerCase(),
+    name: String(rawUser?.name || rawUser?.email || 'User'),
+    role: (role || 'FO') as UserRole,
+    permissions,
+    can_access_guest_laundry:
+      rawUser?.can_access_guest_laundry === true ||
+      permissions?.can_access_guest_laundry === true,
+  };
 }
 
 function parseWeight(value: string) {
@@ -246,12 +264,7 @@ export default function GuestLaundryPage() {
         const json = await res.json();
         if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load profile');
         if (!mounted) return;
-        setProfile({
-          user_id: json.user?.user_id || '',
-          email: json.user?.email || '',
-          name: json.user?.name || json.user?.email || 'User',
-          role: (json.user?.role || 'FO') as UserRole,
-        });
+        setProfile(normalizeProfileFromSession(json.user));
       } catch (error: any) {
         if (mounted) setErrorMsg(error?.message || 'Unable to load profile');
       } finally {
