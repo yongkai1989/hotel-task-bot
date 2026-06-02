@@ -9,6 +9,7 @@ type Profile = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+  can_access_pa_checklist?: boolean;
 };
 
 type Template = {
@@ -174,7 +175,11 @@ export default function PAChecklistPage() {
 
   const isSuper = profile?.role === 'SUPERUSER';
   const canAccess =
-    !!profile && (isSuper || PA_CHECKLIST_ALLOWED_EMAILS.includes(String(profile.email || '').toLowerCase()));
+    !!profile && (
+      isSuper ||
+      profile.can_access_pa_checklist === true ||
+      PA_CHECKLIST_ALLOWED_EMAILS.includes(String(profile.email || '').toLowerCase())
+    );
   const isMobile = viewportWidth <= 640;
   const isTablet = viewportWidth > 640 && viewportWidth <= 980;
 
@@ -219,7 +224,7 @@ export default function PAChecklistPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_pa_checklist')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -231,6 +236,7 @@ export default function PAChecklistPage() {
           email: profileRow?.email || session.user.email || '',
           name: profileRow?.name || session.user.email || 'User',
           role: (profileRow?.role || 'FO') as Profile['role'],
+          can_access_pa_checklist: profileRow?.can_access_pa_checklist === true,
         });
       } catch (err: any) {
         if (!mounted) return;
