@@ -35,6 +35,10 @@ type SidebarProfile = {
   can_access_linen_admin?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
+  can_access_price_guide?: boolean;
+  can_access_guest_laundry?: boolean;
+  can_access_pa_checklist?: boolean;
+  can_access_pa_linen_entry?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
     | 'can_edit_task'
@@ -59,7 +63,11 @@ type SidebarProfile = {
     | 'can_access_admin_settings'
     | 'can_access_linen_admin'
     | 'can_access_lost_found'
-    | 'can_access_fo_checklist',
+    | 'can_access_fo_checklist'
+    | 'can_access_price_guide'
+    | 'can_access_guest_laundry'
+    | 'can_access_pa_checklist'
+    | 'can_access_pa_linen_entry',
     unknown
   >>;
 };
@@ -127,6 +135,10 @@ type EffectiveProfile = Required<
     | 'can_access_admin_settings'
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
+    | 'can_access_price_guide'
+    | 'can_access_guest_laundry'
+    | 'can_access_pa_checklist'
+    | 'can_access_pa_linen_entry'
   >
 > & {
   user_id: string;
@@ -210,6 +222,35 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
         hasAccess(permissionValue('can_access_fo_checklist')) &&
         (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
       ),
+    can_access_price_guide:
+      isSuperuser ||
+      role === 'FO' ||
+      email === 'fenny@hotelhallmark.com' ||
+      hasAccess(permissionValue('can_access_price_guide')),
+    can_access_guest_laundry:
+      isSuperuser ||
+      role === 'FO' ||
+      email === 'walter@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      hasAccess(permissionValue('can_access_guest_laundry')),
+    can_access_pa_checklist:
+      isSuperuser ||
+      email === 'pa@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      email === 'manager@hotelhallmark.com' ||
+      email === 'hksup1@hotelhallmark.com' ||
+      email === 'hksup2@hotelhallmark.com' ||
+      hasAccess(permissionValue('can_access_pa_checklist')),
+    can_access_pa_linen_entry:
+      isSuperuser ||
+      email === 'pa@hotelhallmark.com' ||
+      email === 'laundry@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      email === 'manager@hotelhallmark.com' ||
+      email === 'hksup1@hotelhallmark.com' ||
+      email === 'hksup2@hotelhallmark.com' ||
+      email === 'hksup3@hotelhallmark.com' ||
+      hasAccess(permissionValue('can_access_pa_linen_entry')),
   };
 }
 
@@ -220,23 +261,6 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
 const FO_SUPERVISOR_UPDATE_EMAIL = 'fo@hotelhallmark.com';
 const FO_UPDATE_START_HOUR = 3;
 const FO_UPDATE_END_HOUR = 7;
-const PA_CHECKLIST_ALLOWED_EMAILS = [
-  'pa@hotelhallmark.com',
-  'fenny@hotelhallmark.com',
-  'manager@hotelhallmark.com',
-  'hksup1@hotelhallmark.com',
-  'hksup2@hotelhallmark.com',
-];
-
-const PA_LINEN_ENTRY_ALLOWED_EMAILS = [
-  'pa@hotelhallmark.com',
-  'laundry@hotelhallmark.com',
-  'fenny@hotelhallmark.com',
-  'manager@hotelhallmark.com',
-  'hksup1@hotelhallmark.com',
-  'hksup2@hotelhallmark.com',
-  'hksup3@hotelhallmark.com',
-];
 
 function getSingaporeHour(now = new Date()) {
   const hourPart = new Intl.DateTimeFormat('en-SG', {
@@ -679,12 +703,8 @@ export default function DashboardSidebar({
   const canSeeDamaged = !!effectiveProfile?.can_access_damaged;
   const canSeeLinenHistory = !!effectiveProfile?.can_access_linen_history;
   const canSeeSupervisorChecklist = !!effectiveProfile?.can_access_supervisor_checklist;
-  const canSeePAChecklist =
-    effectiveProfile?.role === 'SUPERUSER' ||
-    PA_CHECKLIST_ALLOWED_EMAILS.includes(String(effectiveProfile?.email || '').toLowerCase());
-  const canSeePALinenEntry =
-    effectiveProfile?.role === 'SUPERUSER' ||
-    PA_LINEN_ENTRY_ALLOWED_EMAILS.includes(String(effectiveProfile?.email || '').toLowerCase());
+  const canSeePAChecklist = !!effectiveProfile?.can_access_pa_checklist;
+  const canSeePALinenEntry = !!effectiveProfile?.can_access_pa_linen_entry;
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
@@ -692,14 +712,8 @@ export default function DashboardSidebar({
   const canSeeLostFound =
     effectiveProfile?.role === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_lost_found;
-  const canSeePriceGuide =
-    effectiveProfile?.role === 'SUPERUSER' ||
-    effectiveProfile?.role === 'FO' ||
-    String(effectiveProfile?.email || '').toLowerCase() === 'fenny@hotelhallmark.com';
-  const canSeeGuestLaundry =
-    effectiveProfile?.role === 'SUPERUSER' ||
-    effectiveProfile?.role === 'FO' ||
-    String(effectiveProfile?.email || '').toLowerCase() === 'fenny@hotelhallmark.com';
+  const canSeePriceGuide = !!effectiveProfile?.can_access_price_guide;
+  const canSeeGuestLaundry = !!effectiveProfile?.can_access_guest_laundry;
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
     (
@@ -756,8 +770,8 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_management_tasks,
     effectiveProfile?.can_access_admin_settings,
     effectiveProfile?.can_access_lost_found,
-    canSeePriceGuide,
-    canSeeGuestLaundry,
+    effectiveProfile?.can_access_price_guide,
+    effectiveProfile?.can_access_guest_laundry,
     effectiveProfile?.can_access_fo_checklist,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_edit_task,
