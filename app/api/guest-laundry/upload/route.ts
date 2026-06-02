@@ -14,7 +14,13 @@ function getBearerToken(req: NextRequest) {
 function canUseGuestLaundry(profile: any) {
   const role = String(profile?.role || '').trim().toUpperCase();
   const email = String(profile?.email || '').trim().toLowerCase();
-  return role === 'SUPERUSER' || role === 'FO' || email === 'fenny@hotelhallmark.com';
+  return (
+    role === 'SUPERUSER' ||
+    role === 'FO' ||
+    email === 'walter@hotelhallmark.com' ||
+    email === 'fenny@hotelhallmark.com' ||
+    profile?.can_access_guest_laundry === true
+  );
 }
 
 function jsonNoCache(body: any, status = 200) {
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
     const serviceClient = createClient(supabaseUrl, serviceKey);
     const { data: profile, error: profileError } = await serviceClient
       .from('user_profiles')
-      .select('email, role')
+      .select('email, role, can_access_guest_laundry')
       .or(`user_id.eq.${user.id},email.eq.${String(user.email || '').trim().toLowerCase()}`)
       .order('updated_at', { ascending: false })
       .limit(1)
