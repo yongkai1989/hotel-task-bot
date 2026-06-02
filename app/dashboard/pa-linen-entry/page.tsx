@@ -11,6 +11,7 @@ type Profile = {
   email: string;
   name: string;
   role: UserRole;
+  can_access_pa_linen_entry?: boolean;
 };
 
 type RoomRow = {
@@ -112,7 +113,10 @@ export default function PaLinenEntryPage() {
   const canAccess = useMemo(() => {
     if (!profile) return false;
     if (profile.role === 'SUPERUSER') return true;
-    return PA_ALLOWED_EMAILS.includes(String(profile.email || '').toLowerCase());
+    return (
+      profile.can_access_pa_linen_entry === true ||
+      PA_ALLOWED_EMAILS.includes(String(profile.email || '').toLowerCase())
+    );
   }, [profile]);
 
   useEffect(() => {
@@ -144,7 +148,7 @@ export default function PaLinenEntryPage() {
 
         const { data, error } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_pa_linen_entry')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -156,6 +160,7 @@ export default function PaLinenEntryPage() {
           email: data?.email || session.user.email || '',
           name: data?.name || session.user.email || 'User',
           role: (data?.role || 'HK') as UserRole,
+          can_access_pa_linen_entry: data?.can_access_pa_linen_entry === true,
         });
       } catch (err: any) {
         if (mounted) setErrorMsg(err?.message || 'Failed to load session.');
