@@ -30,6 +30,10 @@ type CreateBody = {
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_supervisor_checklist?: boolean;
+  can_access_price_guide?: boolean;
+  can_access_guest_laundry?: boolean;
+  can_access_pa_checklist?: boolean;
+  can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
@@ -89,6 +93,35 @@ function withPermissions(row: any) {
         toPermissionBoolean(row.can_access_fo_checklist) &&
         (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
       ),
+    can_access_price_guide:
+      role === 'SUPERUSER' ||
+      role === 'FO' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_price_guide),
+    can_access_guest_laundry:
+      role === 'SUPERUSER' ||
+      role === 'FO' ||
+      email === 'walter@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_guest_laundry),
+    can_access_pa_checklist:
+      role === 'SUPERUSER' ||
+      email === 'pa@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      email === 'manager@hotelhallmark.com' ||
+      email === 'hksup1@hotelhallmark.com' ||
+      email === 'hksup2@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_pa_checklist),
+    can_access_pa_linen_entry:
+      role === 'SUPERUSER' ||
+      email === 'pa@hotelhallmark.com' ||
+      email === 'laundry@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      email === 'manager@hotelhallmark.com' ||
+      email === 'hksup1@hotelhallmark.com' ||
+      email === 'hksup2@hotelhallmark.com' ||
+      email === 'hksup3@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_pa_linen_entry),
     can_create_task: toPermissionBoolean(row.can_create_task),
     can_edit_task: toPermissionBoolean(row.can_edit_task),
     can_delete_task: toPermissionBoolean(row.can_delete_task),
@@ -180,6 +213,14 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_supervisor_checklist),
       can_access_fo_checklist:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fo_checklist),
+      can_access_price_guide:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_price_guide),
+      can_access_guest_laundry:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_guest_laundry),
+      can_access_pa_checklist:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_pa_checklist),
+      can_access_pa_linen_entry:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_pa_linen_entry),
       can_create_task: toPermissionBoolean(body.can_create_task),
       can_edit_task: toPermissionBoolean(body.can_edit_task),
       can_delete_task: toPermissionBoolean(body.can_delete_task),
@@ -207,6 +248,10 @@ export async function POST(req: NextRequest) {
       payload.can_access_lost_found = true;
       payload.can_access_supervisor_checklist = true;
       payload.can_access_fo_checklist = true;
+      payload.can_access_price_guide = true;
+      payload.can_access_guest_laundry = true;
+      payload.can_access_pa_checklist = true;
+      payload.can_access_pa_linen_entry = true;
       payload.can_create_task = true;
       payload.can_edit_task = true;
       payload.can_delete_task = true;
@@ -241,6 +286,10 @@ export async function POST(req: NextRequest) {
         can_access_lost_found,
         can_access_supervisor_checklist,
         can_access_fo_checklist,
+        can_access_price_guide,
+        can_access_guest_laundry,
+        can_access_pa_checklist,
+        can_access_pa_linen_entry,
         can_create_task,
         can_edit_task,
         can_delete_task
