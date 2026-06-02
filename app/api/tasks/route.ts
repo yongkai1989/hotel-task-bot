@@ -8,6 +8,8 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 const GET_TASK_LIMIT = 300;
+const CUSTOMER_WAITING_REMINDER_BUDGET_MS = 1200;
+const TELEGRAM_SEND_TIMEOUT_MS = 5000;
 
 // Department-specific Telegram group chat IDs
 const MT_CHAT_ID = -1003860980789;
@@ -299,6 +301,10 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function resolveTelegramChatId(department: Dept): number | null {
   if (department === 'MT') return MT_CHAT_ID;
   if (department === 'HK') return HK_CHAT_ID;
@@ -320,21 +326,41 @@ async function sendTelegramText(chatId: number, text: string) {
     throw new Error('Missing TELEGRAM_BOT_TOKEN');
   }
 
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TELEGRAM_SEND_TIMEOUT_MS);
 
-  const json = await res.json();
-  if (!res.ok || !json?.ok) {
-    throw new Error(json?.description || 'Telegram reminder failed');
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+      }),
+      signal: controller.signal,
+    });
+
+    const json = await res.json();
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.description || 'Telegram reminder failed');
+    }
+
+    return json?.result?.message_id ?? null;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Telegram reminder timed out');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  return json?.result?.message_id ?? null;
+async function sendCustomerWaitingRemindersWithBudget() {
+  await Promise.race([
+    sendCustomerWaitingReminders(),
+    delay(CUSTOMER_WAITING_REMINDER_BUDGET_MS),
+  ]);
 }
 
 async function sendCustomerWaitingReminders() {
@@ -415,7 +441,7 @@ async function sendCustomerWaitingReminders() {
 
 export async function GET() {
   try {
-    await sendCustomerWaitingReminders();
+    await sendCustomerWaitingRemindersWithBudget();
 
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
