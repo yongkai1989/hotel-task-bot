@@ -31,6 +31,10 @@ type UpdateBody = {
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_supervisor_checklist?: boolean;
+  can_access_price_guide?: boolean;
+  can_access_guest_laundry?: boolean;
+  can_access_pa_checklist?: boolean;
+  can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
@@ -57,6 +61,10 @@ const permissionKeys = [
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_supervisor_checklist',
+  'can_access_price_guide',
+  'can_access_guest_laundry',
+  'can_access_pa_checklist',
+  'can_access_pa_linen_entry',
   'can_create_task',
   'can_edit_task',
   'can_delete_task',
@@ -90,6 +98,10 @@ const profileSelect = `
   can_access_lost_found,
   can_access_fo_checklist,
   can_access_supervisor_checklist,
+  can_access_price_guide,
+  can_access_guest_laundry,
+  can_access_pa_checklist,
+  can_access_pa_linen_entry,
   can_create_task,
   can_edit_task,
   can_delete_task,
@@ -177,6 +189,35 @@ function withPermissions(row: any) {
         toPermissionBoolean(row.can_access_fo_checklist) &&
         (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
       ),
+    can_access_price_guide:
+      role === 'SUPERUSER' ||
+      role === 'FO' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_price_guide),
+    can_access_guest_laundry:
+      role === 'SUPERUSER' ||
+      role === 'FO' ||
+      email === 'walter@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_guest_laundry),
+    can_access_pa_checklist:
+      role === 'SUPERUSER' ||
+      email === 'pa@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      email === 'manager@hotelhallmark.com' ||
+      email === 'hksup1@hotelhallmark.com' ||
+      email === 'hksup2@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_pa_checklist),
+    can_access_pa_linen_entry:
+      role === 'SUPERUSER' ||
+      email === 'pa@hotelhallmark.com' ||
+      email === 'laundry@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      email === 'manager@hotelhallmark.com' ||
+      email === 'hksup1@hotelhallmark.com' ||
+      email === 'hksup2@hotelhallmark.com' ||
+      email === 'hksup3@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_pa_linen_entry),
     can_create_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_create_task),
     can_edit_task:
