@@ -48,6 +48,8 @@ type CheckMedia = {
   completed_by_name: string | null;
   completed_by_email: string | null;
   created_at: string | null;
+  upload_status?: 'uploading' | 'failed';
+  upload_error?: string | null;
 };
 
 type DraftMedia = {
@@ -859,6 +861,58 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }
   }
 
+  function optimisticMediaRows(check: RoomCheck, items: DraftMedia[], startPosition: number): CheckMedia[] {
+    const now = new Date().toISOString();
+    return items.map((item, index) => ({
+      id: `uploading-${check.id}-${item.id}`,
+      check_id: check.id,
+      media_url: item.previewUrl,
+      media_path: null,
+      media_type: item.media_type,
+      caption: item.caption.trim() || null,
+      position: startPosition + index,
+      completed_at: null,
+      completed_by_name: null,
+      completed_by_email: null,
+      created_at: now,
+      upload_status: 'uploading',
+      upload_error: null,
+    }));
+  }
+
+  function queueMediaUploadJobs(jobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }>) {
+    if (!jobs.length) return;
+    const totalMedia = jobs.reduce((sum, job) => sum + job.items.length, 0);
+    setUploadProgressMsg(`Uploading media 0/${totalMedia} in background...`);
+
+    void (async () => {
+      let uploadedMedia = 0;
+      try {
+        for (const job of jobs) {
+          setUploadProgressMsg(`Uploading ${job.label} media ${uploadedMedia}/${totalMedia} in background...`);
+          await appendMediaToRoomCheck(job.check, job.items, false);
+          uploadedMedia += job.items.length;
+          setUploadProgressMsg(`Uploading media ${uploadedMedia}/${totalMedia} in background...`);
+        }
+        jobs.forEach((job) => job.items.forEach((item) => URL.revokeObjectURL(item.previewUrl)));
+        setUploadProgressMsg('');
+        setSuccessMsg(`${totalMedia} media item${totalMedia === 1 ? '' : 's'} uploaded.`);
+        await loadChecks();
+      } catch (error: any) {
+        const failedIds = new Set(
+          jobs.flatMap((job) => job.items.map((item) => `uploading-${job.check.id}-${item.id}`))
+        );
+        setMedia((current) =>
+          current.filter((item) => !failedIds.has(item.id))
+        );
+        jobs.forEach((job) => job.items.forEach((item) => URL.revokeObjectURL(item.previewUrl)));
+        setUploadProgressMsg('');
+        setErrorMsg(error?.message || 'Background media upload failed. Please add the media again.');
+        await loadChecks();
+      }
+    })();
+  }
+
   async function createCheck() {
     if (!supabase || !profile || !canManageContent) return;
     if (!roomNumber.trim()) {
@@ -934,21 +988,59 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setSaving(true);
     setErrorMsg('');
     try {
-      const groups = groupedDraftMedia(draftMedia);
+      const mediaToUpload = [...draftMedia];
+      const groups = groupedDraftMedia(mediaToUpload);
+      const uploadJobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }> = [];
+      const optimisticRows: CheckMedia[] = [];
+      const touchedChecks: RoomCheck[] = [];
+
       for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
         const items = groups[targetDepartment];
         if (!items.length) continue;
+
+        const targetCheck =
+          targetDepartment === check.department
+            ? check
+            : await getOrCreateRoomCheck(targetDepartment, check.room_number, check.description || '', true);
+
+        if (!targetCheck) continue;
         if (targetDepartment === check.department) {
-          await appendMediaToRoomCheck(check, items, true);
-        } else {
-          await insertRoomCheckWithMedia(targetDepartment, check.room_number, check.description || '', items, true);
+          await createUrgentDashboardTask(targetDepartment, check.room_number);
         }
+
+        const existingCount = await getMediaCountForCheck(targetCheck.id);
+        if (existingCount + items.length > MAX_MEDIA_PER_CHECK) {
+          throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
+        }
+
+        uploadJobs.push({ check: targetCheck, items, label: departmentLabel(targetDepartment) });
+        optimisticRows.push(...optimisticMediaRows(targetCheck, items, existingCount + 1));
+        touchedChecks.push(targetCheck);
       }
-      draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+
+      setMedia((current) => [...optimisticRows, ...current]);
+      setChecks((current) => {
+        const next = [...current];
+        touchedChecks.forEach((targetCheck) => {
+          const existingIndex = next.findIndex((item) => item.id === targetCheck.id);
+          const updatedCheck = {
+            ...targetCheck,
+            status: 'OPEN' as CheckStatus,
+            submitted_for_check_at: null,
+            submitted_for_check_by_name: null,
+            updated_at: new Date().toISOString(),
+          };
+          if (existingIndex >= 0) next[existingIndex] = updatedCheck;
+          else next.unshift(updatedCheck);
+        });
+        return next;
+      });
       setDraftMedia([]);
       setAddingToCheckId(null);
-      setSuccessMsg('Media added.');
-      await loadChecks();
+      setMediaChoiceOpen(false);
+      setSuccessMsg('Media queued. You can take the next photo now.');
+      setSaving(false);
+      queueMediaUploadJobs(uploadJobs);
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to add media.');
     } finally {
@@ -1673,8 +1765,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           <div className="mrc-media-grid">
             {selectedMedia.map((item) => {
               const remark = mediaRemark(item.caption);
+              const isUploading = item.upload_status === 'uploading';
               return (
-              <div key={item.id} className="mrc-media-card">
+              <div key={item.id} className={`mrc-media-card ${isUploading ? 'is-uploading' : ''}`}>
                 {item.media_type === 'video' ? (
                   <video src={item.media_url} controls preload="metadata" />
                 ) : (
@@ -1684,11 +1777,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   <strong>Issue {item.position}</strong>
                   {remark ? <p className="mrc-media-remark">{remark}</p> : null}
                   <span>
-                    {item.completed_at
+                    {isUploading
+                      ? 'Uploading in background...'
+                      : item.completed_at
                       ? `Completed by ${item.completed_by_name || '-'}`
                       : 'Not completed'}
                   </span>
-                  {canManageContent && selectedCheck.status !== 'DONE' ? (
+                  {isUploading ? <span className="mrc-upload-chip">Uploading</span> : null}
+                  {canManageContent && selectedCheck.status !== 'DONE' && !isUploading ? (
                     <div className="mrc-media-route">
                       <span>Assigned to</span>
                       <div>
@@ -1708,7 +1804,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   ) : null}
                 </div>
                 <div className="mrc-media-actions">
-                  {item.completed_at ? (
+                  {isUploading ? (
+                    <button type="button" className="mrc-secondary" disabled>
+                      Uploading...
+                    </button>
+                  ) : item.completed_at ? (
                     <button type="button" className="mrc-secondary" onClick={() => void uncompleteMedia(item)}>
                       Reopen
                     </button>
@@ -1717,7 +1817,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       Mark Complete
                     </button>
                   )}
-                  {canManageContent ? (
+                  {canManageContent && !isUploading ? (
                     <>
                       {item.media_type === 'image' ? (
                         <button
@@ -2551,6 +2651,11 @@ function StyleBlock() {
         overflow: hidden;
         background: #fff;
       }
+      .mrc-media-card.is-uploading {
+        border-color: #bfdbfe;
+        background: linear-gradient(180deg, #ffffff, #eff6ff);
+        box-shadow: 0 0 0 4px rgba(96,165,250,.12);
+      }
       .mrc-draft-card img,
       .mrc-draft-card video,
       .mrc-media-card img,
@@ -2704,6 +2809,22 @@ function StyleBlock() {
         font-weight: 750;
         line-height: 1.35;
         overflow-wrap: anywhere;
+      }
+      .mrc-upload-chip {
+        display: inline-flex;
+        width: max-content;
+        margin-top: 8px;
+        border-radius: 999px;
+        padding: 5px 9px;
+        background: #dbeafe;
+        color: #1d4ed8;
+        font-size: 12px;
+        font-weight: 950;
+      }
+      .mrc-secondary:disabled,
+      .mrc-danger:disabled {
+        opacity: .55;
+        cursor: not-allowed;
       }
       .mrc-add-panel {
         margin-top: 14px;
