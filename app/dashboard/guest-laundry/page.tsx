@@ -783,10 +783,10 @@ function Row({ label, value }: { label: string; value: string }) {
 
 const LAUNDRY_TERMS = [
   'Laundry service is provided at the guest request and at the guest own risk.',
-  'The hotel is not liable for shrinkage, colour run, fading, torn fabric, loose buttons, damaged zips, ornaments, prints, beads, lace, leather, delicate material, or pre-existing garment defects.',
-  'The hotel is not liable for missing items unless every item is individually declared and accepted by Front Office at the time of handover.',
+  'The hotel is not liable for any damages, shrinkage, colour run, fading, torn fabric, loose buttons, damaged zips, ornaments, prints, beads, lace, leather, delicate material, or pre-existing garment defects.',
+  'The hotel is not liable for missing items.',
   'The hotel is not responsible for valuables, cash, documents, room keys, or personal items left inside laundry pockets.',
-  'Stain removal is not guaranteed. Strong stain treatment may affect colour, texture, or fabric condition.',
+  'Stain removal is not guaranteed.',
   'Estimated return time is an estimate only and may change due to laundry load, weather, equipment issues, or contractor delay.',
   'Any concern must be raised immediately upon collection before leaving the counter.',
 ];
@@ -827,7 +827,7 @@ function printAcknowledgementSlip(entry: GuestLaundryEntry) {
     .price { color: #1d4ed8; font-size: 28px; }
     h2 { margin: 20px 0 8px; font-size: 17px; }
     ol { margin: 8px 0 0 20px; padding: 0; line-height: 1.45; font-size: 13px; }
-    .signatures { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 22px; }
+    .signatures { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 22px; }
     .sig { min-height: 112px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; justify-content: flex-end; }
     .line { border-top: 1px solid #0f172a; padding-top: 8px; font-weight: 800; }
     .small { margin-top: 6px; color: #64748b; font-size: 12px; font-weight: 700; }
@@ -859,12 +859,10 @@ function printAcknowledgementSlip(entry: GuestLaundryEntry) {
     <ol>${terms}</ol>
     <section class="signatures">
       <div class="sig"><div class="line">Guest signature at laundry handover</div><div class="small">I agree to the laundry terms above.</div></div>
-      <div class="sig"><div class="line">Front Office witness</div><div class="small">Name / signature / date</div></div>
     </section>
-    <div class="collection">Collection confirmation: I confirm that I have collected my laundry in complete and good condition.</div>
+    <div class="collection">Collection confirmation: I acknowledge that the laundry has been returned to me in full and in satisfactory condition at the time of collection.</div>
     <section class="signatures">
-      <div class="sig"><div class="line">Guest signature upon collection</div><div class="small">Name / signature / date</div></div>
-      <div class="sig"><div class="line">Staff signature upon release</div><div class="small">Name / signature / date</div></div>
+      <div class="sig"><div class="line">Guest signature upon collection</div></div>
     </section>
   </main>
   <script>window.onload = () => { window.print(); };</script>
