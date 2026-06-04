@@ -42,6 +42,7 @@ type CreatePhotoItem = {
   name: string;
   previewUrl: string;
   file: Blob;
+  mediaType: 'image' | 'video';
 };
 
 type DashboardUser = {
@@ -60,6 +61,7 @@ type DashboardInsights = {
   overduePm: number;
   foChecklistSubmitted: number;
   foChecklistHasNoAnswer: boolean;
+  supervisorChecklistSubmitted: number;
   managerRoomCheck: {
     HK: { completed: number; total: number };
     MT: { completed: number; total: number };
@@ -80,6 +82,12 @@ const PROFILE_REFRESH_MIN_MS = 1800000;
 const MAX_RENDERED_TASK_CARDS = 60;
 const MAX_RENDERED_TASK_CARDS_MOBILE = 30;
 const MAX_RENDERED_TASK_THUMBNAILS = 20;
+const MAX_DASHBOARD_TASK_MEDIA = 30;
+const HOUSEKEEPING_SUPERVISOR_EMAILS = [
+  'hksup1@hotelhallmark.com',
+  'hksup2@hotelhallmark.com',
+  'hksup3@hotelhallmark.com',
+];
 
 type AdminUser = {
   email: string;
@@ -100,6 +108,7 @@ type DashboardIconName =
   | 'laundry'
   | 'refresh'
   | 'plus'
+  | 'camera'
   | 'activity';
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
@@ -341,6 +350,10 @@ function getFoChecklistServiceDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function getSupervisorChecklistServiceDateString() {
+  return getFoChecklistServiceDateString();
+}
+
 function normalizeParserText(value: string) {
   return String(value || '')
     .toLowerCase()
@@ -504,6 +517,19 @@ function dataUrlToBlob(dataUrl: string) {
   return new Blob([bytes], { type: mime });
 }
 
+function isVideoUrl(url?: string | null) {
+  if (!url) return false;
+  const cleanUrl = url.split('?')[0].toLowerCase();
+  return /\.(mp4|mov|m4v|webm|ogg)$/.test(cleanUrl);
+}
+
+function revokePreviewUrl(url?: string | null) {
+  if (typeof window === 'undefined') return;
+  if (url?.startsWith('blob:')) {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function compressImageToDataUrl(
   file: File,
   maxDimension = 1200,
@@ -545,6 +571,38 @@ async function compressImageToDataUrl(
 
     reader.readAsDataURL(file);
   });
+}
+
+async function prepareDashboardMediaItems(files: File[]) {
+  return Promise.all(
+    files.map(async (file, index) => {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+
+      if (!isImage && !isVideo) {
+        throw new Error('Only image and video files are allowed');
+      }
+
+      if (isImage) {
+        const compressed = await compressImageToDataUrl(file, 1200, 0.72);
+        return {
+          id: `${Date.now()}-${index}-${file.name}`,
+          name: file.name,
+          previewUrl: compressed,
+          file: dataUrlToBlob(compressed),
+          mediaType: 'image' as const,
+        };
+      }
+
+      return {
+        id: `${Date.now()}-${index}-${file.name}`,
+        name: file.name,
+        previewUrl: URL.createObjectURL(file),
+        file,
+        mediaType: 'video' as const,
+      };
+    })
+  );
 }
 
 
@@ -773,6 +831,16 @@ function DashboardIcon({
     );
   }
 
+  if (name === 'camera') {
+    return (
+      <svg {...common}>
+        <path d="M8.5 7 10 5h4l1.5 2H18a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3h2.5Z" />
+        <circle cx="12" cy="13.5" r="3.25" />
+        <path d="M17.5 10h.01" />
+      </svg>
+    );
+  }
+
   return (
     <svg {...common}>
       <path d="M5 12h3l2-6 4 12 2-6h3" />
@@ -843,6 +911,7 @@ export default function DashboardPage() {
     overduePm: 0,
     foChecklistSubmitted: 0,
     foChecklistHasNoAnswer: false,
+    supervisorChecklistSubmitted: 0,
     managerRoomCheck: {
       HK: { completed: 0, total: 0 },
       MT: { completed: 0, total: 0 },
@@ -865,6 +934,7 @@ export default function DashboardPage() {
   const [createCustomerWaiting, setCreateCustomerWaiting] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
+  const dashboardCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editTaskId, setEditTaskId] = useState('');
@@ -1081,6 +1151,7 @@ export default function DashboardPage() {
         overduePm: Number(parsed.insights.overduePm || 0),
         foChecklistSubmitted: Number(parsed.insights.foChecklistSubmitted || 0),
         foChecklistHasNoAnswer: parsed.insights.foChecklistHasNoAnswer === true,
+        supervisorChecklistSubmitted: Number(parsed.insights.supervisorChecklistSubmitted || 0),
         managerRoomCheck: {
           HK: {
             completed: Number(parsed.insights.managerRoomCheck?.HK?.completed || 0),
@@ -1506,6 +1577,7 @@ export default function DashboardPage() {
 
       let foChecklistSubmitted = 0;
       let foChecklistHasNoAnswer = false;
+      let supervisorChecklistSubmitted = 0;
       const foChecklistDate = getFoChecklistServiceDateString();
       const { data: foTemplates, error: foTemplatesError } = await supabase
         .from('fo_checklist_templates')
@@ -1552,6 +1624,34 @@ export default function DashboardPage() {
         }
       }
 
+      const supervisorChecklistDate = getSupervisorChecklistServiceDateString();
+      const { data: supervisorTemplates, error: supervisorTemplatesError } = await supabase
+        .from('supervisor_checklist_templates')
+        .select('id')
+        .eq('is_active', true);
+
+      if (!supervisorTemplatesError) {
+        const supervisorTemplateIds = ((supervisorTemplates || []) as Array<{ id: string }>)
+          .map((template) => template.id)
+          .filter(Boolean);
+
+        if (supervisorTemplateIds.length > 0) {
+          const { data: supervisorSubmissions, error: supervisorSubmissionsError } = await supabase
+            .from('supervisor_checklist_submissions')
+            .select('submitted_by_email, template_id')
+            .eq('submission_date', supervisorChecklistDate)
+            .in('template_id', supervisorTemplateIds);
+
+          if (!supervisorSubmissionsError) {
+            supervisorChecklistSubmitted = new Set(
+              ((supervisorSubmissions || []) as Array<{ submitted_by_email?: string | null }>)
+                .map((submission) => String(submission.submitted_by_email || '').trim().toLowerCase())
+                .filter((email) => HOUSEKEEPING_SUPERVISOR_EMAILS.includes(email))
+            ).size;
+          }
+        }
+      }
+
       const managerRoomCheck = {
         HK: { completed: 0, total: 0 },
         MT: { completed: 0, total: 0 },
@@ -1582,6 +1682,7 @@ export default function DashboardPage() {
         overduePm,
         foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
         foChecklistHasNoAnswer,
+        supervisorChecklistSubmitted: Math.max(0, Math.min(3, supervisorChecklistSubmitted)),
         managerRoomCheck,
         laundryReceivedBlocks,
         laundryReceivedSaved: laundryReceivedBlocks >= 2,
@@ -1842,8 +1943,44 @@ function canDeleteTask() {
     setCreateError('');
   }
 
+  function openDashboardCameraShortcut() {
+    if (!canCreateTask()) {
+      setLoginOpen(true);
+      return;
+    }
+
+    dashboardCameraInputRef.current?.click();
+  }
+
+  async function handleDashboardCameraCapture(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+
+    if (!files.length) return;
+
+    try {
+      setErrorMsg('');
+      setCreateError('');
+
+      const processed = await prepareDashboardMediaItems(files.slice(0, 1));
+
+      createPhotos.forEach((item) => revokePreviewUrl(item.previewUrl));
+      setCreateSmartMessage('');
+      setCreateSmartHint('');
+      setCreateRoom('');
+      setCreateDepts([]);
+      setCreateTaskText('');
+      setCreateCustomerWaiting(false);
+      setCreatePhotos(processed);
+      setCreateModalOpen(true);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to open camera capture');
+    }
+  }
+
   function closeCreateModal() {
     if (createSubmitting) return;
+    createPhotos.forEach((item) => revokePreviewUrl(item.previewUrl));
     setCreateModalOpen(false);
     setCreateSmartMessage('');
     setCreateSmartHint('');
@@ -1921,6 +2058,7 @@ function canDeleteTask() {
   function closeEditModal() {
     if (editSubmitting) return;
 
+    editNewPhotos.forEach((item) => revokePreviewUrl(item.previewUrl));
     setEditModalOpen(false);
     setEditTaskId('');
     setEditRoom('');
@@ -1944,40 +2082,23 @@ function canDeleteTask() {
     try {
       setCreateError('');
 
-      if (createPhotos.length + files.length > 5) {
-        throw new Error('Maximum 5 photos per task');
+      if (createPhotos.length + files.length > MAX_DASHBOARD_TASK_MEDIA) {
+        throw new Error(`Maximum ${MAX_DASHBOARD_TASK_MEDIA} photos or videos per task`);
       }
 
-      for (const file of files) {
-        if (!file.type.startsWith('image/')) {
-          throw new Error('Only image files are allowed');
-        }
-      }
-
-      const processed = await Promise.all(
-        files.map(async (file, index) => {
-          const compressed = await compressImageToDataUrl(file, 1200, 0.72);
-
-          return {
-            id: `${Date.now()}-${index}-${file.name}`,
-            name: file.name,
-            previewUrl: compressed,
-            file: dataUrlToBlob(compressed),
-          } as CreatePhotoItem;
-        })
-      );
+      const processed = await prepareDashboardMediaItems(files);
 
       setCreatePhotos((prev) => [...prev, ...processed]);
       e.target.value = '';
     } catch (err: any) {
-      setCreateError(err?.message || 'Failed to process photo(s)');
+      setCreateError(err?.message || 'Failed to process media');
     }
   }
 
   function removeCreatePhoto(id: string) {
     setCreatePhotos((prev) => {
       const removed = prev.find((item) => item.id === id);
-      if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
+      revokePreviewUrl(removed?.previewUrl);
       return prev.filter((item) => item.id !== id);
     });
   }
@@ -2068,33 +2189,16 @@ async function handleDeleteTask(taskId: string) {
         (img) => !editRemovedImageIds.includes(img.id)
       );
 
-      if (remainingExisting.length + editNewPhotos.length + files.length > 5) {
-        throw new Error('Maximum 5 photos per task');
+      if (remainingExisting.length + editNewPhotos.length + files.length > MAX_DASHBOARD_TASK_MEDIA) {
+        throw new Error(`Maximum ${MAX_DASHBOARD_TASK_MEDIA} photos or videos per task`);
       }
 
-      for (const file of files) {
-        if (!file.type.startsWith('image/')) {
-          throw new Error('Only image files are allowed');
-        }
-      }
-
-      const processed = await Promise.all(
-        files.map(async (file, index) => {
-          const compressed = await compressImageToDataUrl(file, 1200, 0.72);
-
-          return {
-            id: `${Date.now()}-${index}-${file.name}`,
-            name: file.name,
-            previewUrl: compressed,
-            file: dataUrlToBlob(compressed),
-          } as CreatePhotoItem;
-        })
-      );
+      const processed = await prepareDashboardMediaItems(files);
 
       setEditNewPhotos((prev) => [...prev, ...processed]);
       e.target.value = '';
     } catch (err: any) {
-      setEditError(err?.message || 'Failed to process photo(s)');
+      setEditError(err?.message || 'Failed to process media');
     }
   }
 
@@ -2109,7 +2213,7 @@ async function handleDeleteTask(taskId: string) {
   function removeEditNewPhoto(id: string) {
     setEditNewPhotos((prev) => {
       const removed = prev.find((item) => item.id === id);
-      if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl);
+      revokePreviewUrl(removed?.previewUrl);
       return prev.filter((item) => item.id !== id);
     });
   }
@@ -2478,17 +2582,40 @@ async function handleDeleteTask(taskId: string) {
                   <span style={styles.headerGhostLabel}>Refresh</span>
                 </button>
                 {sidebarView === 'DASHBOARD' ? (
-                  <button
-                    onClick={openCreateModal}
-                    style={styles.addTaskBtn}
-                    aria-label="Create task"
-                    title="Create new task"
-                  >
-                    <span style={styles.addTaskBtnIcon}>
-                      <DashboardIcon name="plus" size={17} />
-                    </span>
-                    <span style={styles.addTaskBtnText}>Create Task</span>
-                  </button>
+                  <>
+                    <input
+                      ref={dashboardCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleDashboardCameraCapture}
+                      style={styles.hiddenFileInput}
+                      aria-hidden="true"
+                      tabIndex={-1}
+                    />
+                    <button
+                      onClick={openDashboardCameraShortcut}
+                      style={styles.headerGhostBtn}
+                      aria-label="Take photo and create task"
+                      title="Take photo and create task"
+                    >
+                      <span style={styles.headerGhostIcon}>
+                        <DashboardIcon name="camera" size={17} />
+                      </span>
+                      <span style={styles.headerGhostLabel}>Camera</span>
+                    </button>
+                    <button
+                      onClick={openCreateModal}
+                      style={styles.addTaskBtn}
+                      aria-label="Create task"
+                      title="Create new task"
+                    >
+                      <span style={styles.addTaskBtnIcon}>
+                        <DashboardIcon name="plus" size={17} />
+                      </span>
+                      <span style={styles.addTaskBtnText}>Create Task</span>
+                    </button>
+                  </>
                 ) : null}
               </div>
             </div>
@@ -2561,6 +2688,14 @@ async function handleDeleteTask(taskId: string) {
                     tone="violet"
                     icon="clipboard"
                     alert={insights.foChecklistHasNoAnswer}
+                  />
+                  <OverviewMetricCard
+                    title="Supervisor Checklist"
+                    value={`${insights.supervisorChecklistSubmitted}/3`}
+                    note="Housekeeping supervisors submitted"
+                    tone={insights.supervisorChecklistSubmitted >= 3 ? 'done' : 'violet'}
+                    icon="housekeeping"
+                    alert={insights.supervisorChecklistSubmitted < 3}
                   />
                   <OverviewMetricCard
                     title="Room Pending Save"
@@ -2947,19 +3082,29 @@ async function handleDeleteTask(taskId: string) {
                               <button
                                 onClick={() => openImageModal(task)}
                                 style={styles.thumbButton}
-                                title="Open task images"
+                                title="Open task media"
                               >
-                                <img
-                                  src={thumb}
-                                  alt="Task thumbnail"
-                                  loading="lazy"
-                                  decoding="async"
-                                  style={styles.thumbImage}
-                                />
+                                {isVideoUrl(thumb) ? (
+                                  <video
+                                    src={thumb}
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    style={styles.thumbImage}
+                                  />
+                                ) : (
+                                  <img
+                                    src={thumb}
+                                    alt="Task thumbnail"
+                                    loading="lazy"
+                                    decoding="async"
+                                    style={styles.thumbImage}
+                                  />
+                                )}
                               </button>
 
                               <div style={styles.imageCountBadge}>
-                                {mediaItems.length > 0 ? `${mediaItems.length} img` : '1 img'}
+                                {mediaItems.length > 0 ? `${mediaItems.length} media` : '1 media'}
                               </div>
                             </div>
                           ) : null}
@@ -3001,12 +3146,21 @@ async function handleDeleteTask(taskId: string) {
             ) : null}
 
             <div style={styles.modalImageWrap}>
-              <img
-                src={selectedTaskImages[selectedImageIndex].image_url}
-                alt={`Task image ${selectedImageIndex + 1}`}
-                decoding="async"
-                style={styles.modalImage}
-              />
+              {isVideoUrl(selectedTaskImages[selectedImageIndex].image_url) ? (
+                <video
+                  src={selectedTaskImages[selectedImageIndex].image_url}
+                  controls
+                  playsInline
+                  style={styles.modalImage}
+                />
+              ) : (
+                <img
+                  src={selectedTaskImages[selectedImageIndex].image_url}
+                  alt={`Task media ${selectedImageIndex + 1}`}
+                  decoding="async"
+                  style={styles.modalImage}
+                />
+              )}
 
               <div style={styles.modalFooter}>
                 <div style={styles.modalCounter}>
@@ -3157,10 +3311,10 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Photos</label>
+              <label style={styles.formLabel}>Photos / Videos</label>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 onChange={handleCreatePhotoChange}
                 disabled={createSubmitting}
@@ -3168,13 +3322,23 @@ async function handleDeleteTask(taskId: string) {
               <div style={modalResponsive.photoPreviewGrid}>
                 {createPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
-                    <img
-                      src={photo.previewUrl}
-                      alt={photo.name}
-                      loading="lazy"
-                      decoding="async"
-                      style={styles.photoPreviewImg}
-                    />
+                    {photo.mediaType === 'video' ? (
+                      <video
+                        src={photo.previewUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        style={styles.photoPreviewImg}
+                      />
+                    ) : (
+                      <img
+                        src={photo.previewUrl}
+                        alt={photo.name}
+                        loading="lazy"
+                        decoding="async"
+                        style={styles.photoPreviewImg}
+                      />
+                    )}
                     <div style={styles.photoPreviewName}>{photo.name}</div>
                     <button
                       type="button"
@@ -3187,7 +3351,7 @@ async function handleDeleteTask(taskId: string) {
                   </div>
                 ))}
                 {createPhotos.length === 0 ? (
-                  <div style={styles.uploadHint}>Upload up to 5 images</div>
+                  <div style={styles.uploadHint}>Upload up to 30 photos or videos</div>
                 ) : null}
               </div>
             </div>
@@ -3277,10 +3441,10 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Existing Images</label>
+              <label style={styles.formLabel}>Existing Media</label>
               <div style={styles.photoPreviewGrid}>
                 {editExistingImages.length === 0 ? (
-                  <div style={styles.uploadHint}>No existing images</div>
+                  <div style={styles.uploadHint}>No existing media</div>
                 ) : (
                   editExistingImages.map((img) => {
                     const removed = editRemovedImageIds.includes(img.id);
@@ -3293,16 +3457,26 @@ async function handleDeleteTask(taskId: string) {
                           opacity: removed ? 0.45 : 1,
                         }}
                       >
-                        <img
-                          src={img.image_url}
-                          alt="Existing task image"
-                          loading="lazy"
-                          decoding="async"
-                          style={styles.photoPreviewImg}
-                        />
+                        {isVideoUrl(img.image_url) ? (
+                          <video
+                            src={img.image_url}
+                            controls
+                            playsInline
+                            preload="metadata"
+                            style={styles.photoPreviewImg}
+                          />
+                        ) : (
+                          <img
+                            src={img.image_url}
+                            alt="Existing task media"
+                            loading="lazy"
+                            decoding="async"
+                            style={styles.photoPreviewImg}
+                          />
+                        )}
 
                         <div style={styles.photoPreviewName}>
-                          {img.caption || 'Existing image'}
+                          {img.caption || 'Existing media'}
                         </div>
 
                         {removed ? (
@@ -3332,10 +3506,10 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Add New Images</label>
+              <label style={styles.formLabel}>Add New Photos / Videos</label>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 onChange={handleEditPhotoChange}
                 disabled={editSubmitting}
@@ -3344,13 +3518,23 @@ async function handleDeleteTask(taskId: string) {
               <div style={styles.photoPreviewGrid}>
                 {editNewPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
-                    <img
-                      src={photo.previewUrl}
-                      alt={photo.name}
-                      loading="lazy"
-                      decoding="async"
-                      style={styles.photoPreviewImg}
-                    />
+                    {photo.mediaType === 'video' ? (
+                      <video
+                        src={photo.previewUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        style={styles.photoPreviewImg}
+                      />
+                    ) : (
+                      <img
+                        src={photo.previewUrl}
+                        alt={photo.name}
+                        loading="lazy"
+                        decoding="async"
+                        style={styles.photoPreviewImg}
+                      />
+                    )}
                     <div style={styles.photoPreviewName}>{photo.name}</div>
                     <button
                       type="button"
@@ -3830,6 +4014,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     lineHeight: 1,
     whiteSpace: 'nowrap',
+  },
+  hiddenFileInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    pointerEvents: 'none',
+    overflow: 'hidden',
   },
   overviewGrid: {
     display: 'grid',
