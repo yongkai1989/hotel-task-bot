@@ -43,7 +43,6 @@ type CreatePhotoItem = {
   previewUrl: string;
   file: Blob;
   mediaType: 'image' | 'video';
-  caption: string;
   marked?: boolean;
 };
 
@@ -340,7 +339,6 @@ async function prepareDashboardMediaItems(files: File[]) {
           previewUrl: compressed,
           file: dataUrlToBlob(compressed),
           mediaType: 'image' as const,
-          caption: '',
         };
       }
 
@@ -350,7 +348,6 @@ async function prepareDashboardMediaItems(files: File[]) {
         previewUrl: URL.createObjectURL(file),
         file,
         mediaType: 'video' as const,
-        caption: '',
       };
     })
   );
@@ -1087,6 +1084,7 @@ export default function DashboardPage() {
   useEffect(() => {
     let mounted = true;
     const supabase = getSupabaseSafe();
+    let hydratedCachedProfile = false;
 
     if (!supabase) {
       setEnvError(
@@ -1096,10 +1094,25 @@ export default function DashboardPage() {
       return;
     }
 
+    if (typeof window !== 'undefined') {
+      const cachedRaw = window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_KEY);
+      const cachedAt = Number(window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_TS_KEY) || '0');
+
+      if (cachedRaw && cachedAt && Date.now() - cachedAt < PROFILE_REFRESH_MIN_MS) {
+        try {
+          setProfile(JSON.parse(cachedRaw));
+          setAuthLoading(false);
+          hydratedCachedProfile = true;
+        } catch {}
+      }
+    }
+
     async function bootstrapAuth() {
       try {
         setEnvError('');
-        setAuthLoading(true);
+        if (!hydratedCachedProfile) {
+          setAuthLoading(true);
+        }
 
         const {
           data: { session },
@@ -1867,18 +1880,6 @@ function canDeleteTask() {
     });
   }
 
-  function updateCreatePhotoCaption(id: string, caption: string) {
-    setCreatePhotos((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, caption } : item))
-    );
-  }
-
-  function updateEditNewPhotoCaption(id: string, caption: string) {
-    setEditNewPhotos((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, caption } : item))
-    );
-  }
-
   function openMediaMarkup(mode: 'create' | 'edit', id: string) {
     const item =
       mode === 'create'
@@ -2032,8 +2033,87 @@ function canDeleteTask() {
 
     return {
       urls: uploaded.map((item: any) => item.url),
-      captions: items.map((item) => item.caption.trim() || null),
+      captions: uploaded.map(() => null),
     };
+  }
+
+  async function createTaskInBackground(params: {
+    room: string;
+    departments: Array<'HK' | 'MT' | 'FO'>;
+    taskText: string;
+    customerWaiting: boolean;
+    mediaItems: CreatePhotoItem[];
+    shouldRefreshAfterMedia: boolean;
+  }) {
+    try {
+      setErrorMsg('');
+      const token = await getAccessToken();
+
+      const createJson = await fetchJson(
+        '/api/tasks',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            room: params.room,
+            department: params.departments[0],
+            departments: params.departments,
+            task_text: params.taskText,
+            source_message: null,
+            image_urls: [],
+            image_captions: [],
+            customer_waiting: params.customerWaiting,
+          }),
+        },
+        30000
+      );
+
+      await loadTasks(false, { force: true });
+
+      if (params.mediaItems.length > 0) {
+        const uploaded = await uploadMediaItems(params.mediaItems);
+        const uploadedUrls = uploaded.urls;
+
+        if (uploadedUrls.length > 0) {
+          const createdTasks = Array.isArray(createJson.tasks)
+            ? createJson.tasks
+            : createJson.task
+            ? [createJson.task]
+            : [];
+
+          await Promise.all(
+            createdTasks
+              .filter((task: any) => task?.id)
+              .map((task: any) =>
+                fetchJson(
+                  `/api/tasks/${task.id}`,
+                  {
+                    method: 'PATCH',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                      new_image_urls: uploadedUrls,
+                      new_image_captions: uploadedUrls.map(() => null),
+                    }),
+                  },
+                  30000
+                )
+              )
+          );
+        }
+      }
+
+      if (params.shouldRefreshAfterMedia) {
+        await loadTasks(false, { force: true });
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Task was created, but background media upload may have failed');
+    }
   }
 async function handleDeleteTask(taskId: string) {
   try {
@@ -2129,58 +2209,40 @@ async function handleDeleteTask(taskId: string) {
 
       setCreateError('');
 
-      const firstCaption = createPhotos
-        .map((item) => item.caption.trim())
-        .find(Boolean) || '';
       const room = createRoom.trim();
-      const taskText = (createTaskText.trim() || firstCaption).trim();
+      const taskText = createTaskText.trim();
       const departments = createDepts;
 
       if (!room) throw new Error('Room Number is required');
       if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
       if (!departments.length) throw new Error('Select at least one department');
-      if (!taskText) throw new Error('Add a task description or at least one media caption');
+      if (!taskText) throw new Error('Task caption / description required');
 
       if (room !== createRoom) setCreateRoom(room);
-      if (taskText !== createTaskText && !createTaskText.trim()) setCreateTaskText(taskText);
+
+      const mediaToUpload = createPhotos.map((item) => ({ ...item }));
+      const shouldRefreshAfterMedia = mediaToUpload.length > 0;
 
       setCreateSubmitting(true);
 
-      let uploadedUrls: string[] = [];
-      let uploadedCaptions: (string | null)[] = [];
+      createPhotos.forEach((item) => revokePreviewUrl(item.previewUrl));
+      setCreateModalOpen(false);
+      setCreateRoom('');
+      setCreateDepts([]);
+      setCreateTaskText('');
+      setCreatePhotos([]);
+      setCreateCustomerWaiting(false);
+      setCreateError('');
+      setCreateSubmitting(false);
 
-      if (createPhotos.length > 0) {
-        const uploaded = await uploadMediaItems(createPhotos);
-        uploadedUrls = uploaded.urls;
-        uploadedCaptions = uploaded.captions;
-      }
-
-      const token = await getAccessToken();
-
-      await fetchJson(
-        '/api/tasks',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            room,
-            department: departments[0],
-            departments,
-            task_text: taskText,
-            source_message: null,
-            image_urls: uploadedUrls,
-            image_captions: uploadedCaptions,
-            customer_waiting: createCustomerWaiting,
-          }),
-        },
-        30000
-      );
-
-      closeCreateModal();
-      await loadTasks(false, { force: true });
+      void createTaskInBackground({
+        room,
+        departments,
+        taskText,
+        customerWaiting: createCustomerWaiting,
+        mediaItems: mediaToUpload,
+        shouldRefreshAfterMedia,
+      });
     } catch (err: any) {
       setCreateError(err?.message || 'Failed to create task');
     } finally {
@@ -2521,7 +2583,7 @@ async function handleDeleteTask(taskId: string) {
           {envError ? <div style={styles.errorBox}>{envError}</div> : null}
           {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
-          {authLoading ? (
+          {authLoading && !profile ? (
             <div style={styles.emptyState}>Checking login...</div>
           ) : !profile ? (
             <div style={styles.emptyState}>
@@ -3262,14 +3324,6 @@ async function handleDeleteTask(taskId: string) {
                         style={styles.photoPreviewImg}
                       />
                     )}
-                    <input
-                      type="text"
-                      value={photo.caption}
-                      onChange={(e) => updateCreatePhotoCaption(photo.id, e.target.value)}
-                      style={styles.mediaCaptionInput}
-                      placeholder={`${photo.mediaType === 'video' ? 'Video' : 'Photo'} caption`}
-                      disabled={createSubmitting}
-                    />
                     <div style={styles.mediaCardActions}>
                       {photo.mediaType === 'image' ? (
                         <button
@@ -3479,14 +3533,6 @@ async function handleDeleteTask(taskId: string) {
                         style={styles.photoPreviewImg}
                       />
                     )}
-                    <input
-                      type="text"
-                      value={photo.caption}
-                      onChange={(e) => updateEditNewPhotoCaption(photo.id, e.target.value)}
-                      style={styles.mediaCaptionInput}
-                      placeholder={`${photo.mediaType === 'video' ? 'Video' : 'Photo'} caption`}
-                      disabled={editSubmitting}
-                    />
                     <div style={styles.mediaCardActions}>
                       {photo.mediaType === 'image' ? (
                         <button
@@ -5135,19 +5181,6 @@ deleteTaskBtn: {
     marginTop: 8,
     color: '#475467',
     wordBreak: 'break-word',
-  },
-  mediaCaptionInput: {
-    width: '100%',
-    marginTop: 8,
-    border: '1px solid #dbe3ee',
-    borderRadius: 10,
-    padding: '9px 10px',
-    fontSize: 13,
-    fontWeight: 700,
-    color: '#0f172a',
-    background: '#ffffff',
-    boxSizing: 'border-box',
-    outline: 'none',
   },
   mediaCardActions: {
     display: 'grid',
