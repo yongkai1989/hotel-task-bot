@@ -411,7 +411,7 @@ async function sendCustomerWaitingReminders() {
         const messageId = await sendTelegramText(
           chatId,
           [
-            `Customer from room ${task.room} is waiting.`,
+            `Customer / location: ${task.room}`,
             `Task ID: ${task.task_code || task.id}`,
             `Task: ${task.task_text}`,
             'Kindly proceed to attend soon.',
@@ -560,7 +560,11 @@ export async function POST(req: NextRequest) {
     const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
 
     if (!room) {
-      return jsonNoCache({ ok: false, error: 'Room is required' }, 400);
+      return jsonNoCache({ ok: false, error: 'Room / area / task name is required' }, 400);
+    }
+
+    if (room.length > 80) {
+      return jsonNoCache({ ok: false, error: 'Room / area / task name must be 80 characters or less' }, 400);
     }
 
     if (!departments.length) {
