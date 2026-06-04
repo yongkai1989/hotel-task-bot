@@ -43,6 +43,8 @@ type CreatePhotoItem = {
   previewUrl: string;
   file: Blob;
   mediaType: 'image' | 'video';
+  caption: string;
+  marked?: boolean;
 };
 
 type DashboardUser = {
@@ -95,7 +97,6 @@ type AdminUser = {
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 };
 
-type ParsedDept = 'HK' | 'MT' | 'FO';
 type DashboardIconName =
   | 'clipboard'
   | 'loader'
@@ -113,158 +114,6 @@ type DashboardIconName =
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
 const liveStatuses = ['ALL', 'OPEN', 'DONE'] as const;
-const DEPARTMENT_KEYWORDS: Record<ParsedDept, string[]> = {
-  MT: [
-    'aircond',
-    'air con',
-    'ac',
-    'tak sejuk',
-    'panas',
-    'guest complain panas',
-    'lampu',
-    'light',
-    'tv',
-    'remote',
-    'paip',
-    'pipe',
-    'sink',
-    'toilet',
-    'tandas',
-    'flush',
-    'heater',
-    'water heater',
-    'tak panas',
-    'socket',
-    'plug',
-    'bocor',
-    'leaking',
-    'tersumbat',
-    'rosak',
-    'pintu',
-    'kunci',
-    'lock',
-    'jammed',
-    'electric',
-    'elektrik',
-    'tak ada air',
-    'x ada air',
-    'tak ada supply',
-    'supply',
-    'pressure',
-    'shower',
-    'minibar',
-    'banjir',
-    'tak boleh buka',
-    'tak ada channel',
-    'channel',
-    'trip',
-    'tak ada electric',
-    'tingkap',
-    'tak ada lampu',
-    'ceiling basah',
-    'safety box',
-    'safe box',
-    'katil rosak',
-    'kerusi rosak',
-    'chair rosak',
-    'patah',
-    'floor trap',
-    'sumbat',
-    'sinki',
-    'flush rosak',
-    'tak boleh flush',
-    'battery',
-    'tak function',
-    'kettle',
-    'longgar',
-  ],
-  HK: [
-    'towel',
-    'bath towel',
-    'bath mat',
-    'bathmat',
-    'bedsheet',
-    'bed sheet',
-    'selimut',
-    'duvet',
-    'blanket',
-    'bantal',
-    'pillow',
-    'linen',
-    'room not cleaned',
-    'bilik kotor',
-    'make up room',
-    'makeup room',
-    'topup',
-    'sabun',
-    'shampoo',
-    'sampah',
-    'clean',
-    'housekeeping',
-    'amenities',
-    'tukar',
-    'kotor',
-    'stain',
-    'tak ada shampoo',
-    'bathfoam',
-    'carpet kotor',
-    'toilet kotor',
-    'ada bau',
-    'bau',
-    'sejadah',
-    'toilet paper',
-    'extra pillow',
-    'extra bed',
-    'katil asing',
-    'keringkan lantai',
-    'guest extend',
-    'make up room',
-    'jagan kemas',
-    'jangan kemas',
-    'nak kemas',
-    'lantai licin',
-    'bedbug',
-    'semut',
-    'cicak',
-    'tangkap cicak',
-    'lipas',
-    'nyamuk',
-    'tukar bilik',
-  ],
-  FO: [
-    'guest marah',
-    'minta tukar bilik',
-    'guest minta tukar bilik',
-    'minta extend',
-    'guest minta extend',
-    'nak extend',
-    'guest nak extend',
-    'translate',
-    'guest minta translate',
-    'bilik block',
-    'guest complain',
-    'check in',
-    'check-in',
-    'check out',
-    'checkout',
-    'booking',
-    'reservation',
-    'payment',
-    'deposit',
-    'refund',
-    'receipt',
-    'resit',
-    'extend stay',
-    'late checkout',
-    'guest complain service',
-    'front office',
-    'bilik release',
-    'bilik boleh jual',
-    'bilik ok',
-    'hold dulu jangan jual',
-    'hold dulu jgn jual',
-  ],
-};
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -352,107 +201,6 @@ function getFoChecklistServiceDateString() {
 
 function getSupervisorChecklistServiceDateString() {
   return getFoChecklistServiceDateString();
-}
-
-function normalizeParserText(value: string) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/\bjgn\b/g, 'jangan')
-    .replace(/\bx\b/g, 'tak')
-    .replace(/\bxda\b/g, 'tak ada')
-    .replace(/\bblm\b/g, 'belum')
-    .replace(/\bac\b/g, 'aircond')
-    .replace(/\baircon\b/g, 'aircond')
-    .replace(/\bair cond\b/g, 'aircond')
-    .replace(/\bsinki\b/g, 'sink')
-    .replace(/\bsafebox\b/g, 'safe box')
-    .replace(/\bsafebox\b/g, 'safe box')
-    .replace(/\bbathmat\b/g, 'bath mat')
-    .replace(/[^\w\s/-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function extractRoomFromMessage(value: string) {
-  const match = String(value || '').match(/\b\d{3,5}\b/);
-  return match ? match[0] : '';
-}
-
-function inferDepartmentFromMessage(value: string): {
-  department: ParsedDept | '';
-  confidence: 'high' | 'medium' | 'low';
-  matches: string[];
-} {
-  const normalized = normalizeParserText(value);
-  const scores: Record<ParsedDept, number> = { HK: 0, MT: 0, FO: 0 };
-  const matches: Record<ParsedDept, string[]> = { HK: [], MT: [], FO: [] };
-  const weakKeywords = new Set([
-    'guest complain',
-    'guest marah',
-    'guest extend',
-    'nak extend',
-    'minta extend',
-  ]);
-
-  (Object.keys(DEPARTMENT_KEYWORDS) as ParsedDept[]).forEach((dept) => {
-    DEPARTMENT_KEYWORDS[dept].forEach((keyword) => {
-      if (normalized.includes(keyword)) {
-        const weight = weakKeywords.has(keyword)
-          ? 1
-          : keyword.split(' ').length >= 3
-          ? 3
-          : keyword.includes(' ')
-          ? 2
-          : 1;
-        scores[dept] += weight;
-        matches[dept].push(keyword);
-      }
-    });
-  });
-
-  const ranked = (Object.keys(scores) as ParsedDept[])
-    .map((dept) => ({ dept, score: scores[dept], hits: matches[dept] }))
-    .sort((a, b) => b.score - a.score);
-
-  if (!ranked[0] || ranked[0].score <= 0) {
-    return { department: '', confidence: 'low', matches: [] };
-  }
-
-  const top = ranked[0];
-  const runnerUp = ranked[1];
-  const confidence =
-    top.score >= 4 && top.score >= (runnerUp?.score || 0) + 2
-      ? 'high'
-      : top.score >= 2 && top.score > (runnerUp?.score || 0)
-      ? 'medium'
-      : 'low';
-
-  return { department: top.dept, confidence, matches: top.hits };
-}
-
-function buildTaskDescriptionFromMessage(value: string, room: string) {
-  const withoutRoom = String(value || '')
-    .replace(new RegExp(`\\b${room}\\b`, 'g'), ' ')
-    .replace(/\b(bilik|room)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return withoutRoom || String(value || '').trim();
-}
-
-function parseSmartTaskMessage(value: string) {
-  const raw = String(value || '').trim();
-  const room = extractRoomFromMessage(raw);
-  const departmentInfo = inferDepartmentFromMessage(raw);
-  const taskText = buildTaskDescriptionFromMessage(raw, room);
-
-  return {
-    room,
-    department: departmentInfo.department,
-    taskText,
-    confidence: departmentInfo.confidence,
-    matches: departmentInfo.matches,
-  };
 }
 
 function getLocalDateStringFromISO(value?: string | null) {
@@ -591,6 +339,7 @@ async function prepareDashboardMediaItems(files: File[]) {
           previewUrl: compressed,
           file: dataUrlToBlob(compressed),
           mediaType: 'image' as const,
+          caption: '',
         };
       }
 
@@ -600,6 +349,7 @@ async function prepareDashboardMediaItems(files: File[]) {
         previewUrl: URL.createObjectURL(file),
         file,
         mediaType: 'video' as const,
+        caption: '',
       };
     })
   );
@@ -925,8 +675,6 @@ export default function DashboardPage() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [createSmartMessage, setCreateSmartMessage] = useState('');
-  const [createSmartHint, setCreateSmartHint] = useState('');
   const [createRoom, setCreateRoom] = useState('');
   const [createDepts, setCreateDepts] = useState<Array<'HK' | 'MT' | 'FO'>>([]);
   const [createTaskText, setCreateTaskText] = useState('');
@@ -935,6 +683,13 @@ export default function DashboardPage() {
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
   const dashboardCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const markupCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const markupDrawingRef = useRef(false);
+  const markupLastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const [markupTarget, setMarkupTarget] = useState<{
+    mode: 'create' | 'edit';
+    id: string;
+  } | null>(null);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editTaskId, setEditTaskId] = useState('');
@@ -1062,11 +817,6 @@ export default function DashboardPage() {
         ...styles.primaryBtn,
         width: isMobile ? '100%' : undefined,
       } as React.CSSProperties,
-      smartDraftRow: {
-        ...styles.smartDraftRow,
-        flexDirection: isMobile ? 'column' : 'row',
-        alignItems: isMobile ? 'stretch' : styles.smartDraftRow.alignItems,
-      } as React.CSSProperties,
       multiDeptRow: {
         ...styles.multiDeptRow,
         flexDirection: isMobile ? 'column' : 'row',
@@ -1079,6 +829,53 @@ export default function DashboardPage() {
     }),
     [isMobile, isTablet]
   );
+
+  useEffect(() => {
+    if (!markupTarget) return;
+
+    const item =
+      markupTarget.mode === 'create'
+        ? createPhotos.find((entry) => entry.id === markupTarget.id)
+        : editNewPhotos.find((entry) => entry.id === markupTarget.id);
+
+    if (!item || item.mediaType !== 'image') return;
+
+    let cancelled = false;
+    const img = new window.Image();
+
+    img.onload = () => {
+      if (cancelled) return;
+
+      const canvas = markupCanvasRef.current;
+      if (!canvas) return;
+
+      const maxWidth = isMobile ? 720 : 1100;
+      const maxHeight = isMobile ? 760 : 900;
+      const scale = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+
+    img.onerror = () => {
+      if (!cancelled) {
+        const message = 'Failed to open image markup';
+        if (markupTarget.mode === 'create') setCreateError(message);
+        else setEditError(message);
+        setMarkupTarget(null);
+      }
+    };
+
+    img.src = item.previewUrl;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [createPhotos, editNewPhotos, isMobile, markupTarget]);
 
   const lastTasksFingerprintRef = useRef('');
   const hasHydratedFromCacheRef = useRef(false);
@@ -1965,8 +1762,6 @@ function canDeleteTask() {
       const processed = await prepareDashboardMediaItems(files.slice(0, 1));
 
       createPhotos.forEach((item) => revokePreviewUrl(item.previewUrl));
-      setCreateSmartMessage('');
-      setCreateSmartHint('');
       setCreateRoom('');
       setCreateDepts([]);
       setCreateTaskText('');
@@ -1982,54 +1777,12 @@ function canDeleteTask() {
     if (createSubmitting) return;
     createPhotos.forEach((item) => revokePreviewUrl(item.previewUrl));
     setCreateModalOpen(false);
-    setCreateSmartMessage('');
-    setCreateSmartHint('');
     setCreateRoom('');
     setCreateDepts([]);
     setCreateTaskText('');
     setCreatePhotos([]);
     setCreateCustomerWaiting(false);
     setCreateError('');
-  }
-
-  function applySmartCreateDraft() {
-    const parsed = parseSmartTaskMessage(createSmartMessage);
-
-    if (!parsed.room && !parsed.department && !parsed.taskText) {
-      setCreateSmartHint('Type a room number and issue first, for example: 1208 aircond tak sejuk');
-      return;
-    }
-
-    if (parsed.room) {
-      setCreateRoom(parsed.room);
-    }
-
-    if (parsed.department) {
-      setCreateDepts((prev) => (prev.includes(parsed.department as 'HK' | 'MT' | 'FO') ? prev : [...prev, parsed.department as 'HK' | 'MT' | 'FO']));
-    }
-
-    if (parsed.taskText) {
-      setCreateTaskText(parsed.taskText);
-    }
-
-    if (!parsed.room) {
-      setCreateSmartHint('Room number not detected. Add something like 1208 or 2612.');
-      return;
-    }
-
-    if (!parsed.department) {
-      setCreateSmartHint('Room found, but department is unclear. Please choose HK, MT, or FO manually.');
-      return;
-    }
-
-    const label =
-      parsed.department === 'HK' ? 'Housekeeping' : parsed.department === 'MT' ? 'Maintenance' : 'Front Office';
-
-    setCreateSmartHint(
-      `${label} suggested (${parsed.confidence} confidence)${
-        parsed.matches.length ? ` from: ${parsed.matches.slice(0, 3).join(', ')}` : ''
-      }`
-    );
   }
 
   function toggleCreateDept(dept: 'HK' | 'MT' | 'FO') {
@@ -2103,8 +1856,146 @@ function canDeleteTask() {
     });
   }
 
+  function updateCreatePhotoCaption(id: string, caption: string) {
+    setCreatePhotos((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, caption } : item))
+    );
+  }
+
+  function updateEditNewPhotoCaption(id: string, caption: string) {
+    setEditNewPhotos((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, caption } : item))
+    );
+  }
+
+  function openMediaMarkup(mode: 'create' | 'edit', id: string) {
+    const item =
+      mode === 'create'
+        ? createPhotos.find((entry) => entry.id === id)
+        : editNewPhotos.find((entry) => entry.id === id);
+
+    if (!item || item.mediaType !== 'image') return;
+    setMarkupTarget({ mode, id });
+  }
+
+  function closeMediaMarkup() {
+    setMarkupTarget(null);
+    markupDrawingRef.current = false;
+    markupLastPointRef.current = null;
+  }
+
+  function markupPointerPosition(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = markupCanvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  }
+
+  function startMarkupDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    const point = markupPointerPosition(event);
+    if (!point) return;
+    markupDrawingRef.current = true;
+    markupLastPointRef.current = point;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function drawMarkup(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!markupDrawingRef.current) return;
+
+    const canvas = markupCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    const point = markupPointerPosition(event);
+    const last = markupLastPointRef.current;
+
+    if (!canvas || !ctx || !point || !last) return;
+
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = Math.max(4, canvas.width / 160);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+    markupLastPointRef.current = point;
+  }
+
+  function stopMarkupDrawing() {
+    markupDrawingRef.current = false;
+    markupLastPointRef.current = null;
+  }
+
+  async function saveMediaMarkup() {
+    if (!markupTarget) return;
+
+    const canvas = markupCanvasRef.current;
+    if (!canvas) return;
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.82)
+    );
+    if (!blob) return;
+
+    const item =
+      markupTarget.mode === 'create'
+        ? createPhotos.find((entry) => entry.id === markupTarget.id)
+        : editNewPhotos.find((entry) => entry.id === markupTarget.id);
+
+    if (!item) return;
+
+    const file = new File([blob], item.name.replace(/\.[^.]+$/, '.jpg') || 'marked-up-image.jpg', {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+    const previewUrl = URL.createObjectURL(file);
+
+    if (markupTarget.mode === 'create') {
+      setCreatePhotos((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== markupTarget.id) return entry;
+          revokePreviewUrl(entry.previewUrl);
+          return {
+            ...entry,
+            name: file.name,
+            previewUrl,
+            file,
+            mediaType: 'image',
+            marked: true,
+          };
+        })
+      );
+    } else {
+      setEditNewPhotos((prev) =>
+        prev.map((entry) => {
+          if (entry.id !== markupTarget.id) return entry;
+          revokePreviewUrl(entry.previewUrl);
+          return {
+            ...entry,
+            name: file.name,
+            previewUrl,
+            file,
+            mediaType: 'image',
+            marked: true,
+          };
+        })
+      );
+    }
+
+    closeMediaMarkup();
+  }
+
+  function getMarkupTargetItem() {
+    if (!markupTarget) return null;
+    return markupTarget.mode === 'create'
+      ? createPhotos.find((entry) => entry.id === markupTarget.id) || null
+      : editNewPhotos.find((entry) => entry.id === markupTarget.id) || null;
+  }
+
   async function uploadMediaItems(items: CreatePhotoItem[]) {
-    if (!items.length) return { urls: [] as string[], captions: [] as string[] };
+    if (!items.length) return { urls: [] as string[], captions: [] as (string | null)[] };
 
     const token = await getAccessToken();
     const form = new FormData();
@@ -2130,7 +2021,7 @@ function canDeleteTask() {
 
     return {
       urls: uploaded.map((item: any) => item.url),
-      captions: items.map((item) => item.name),
+      captions: items.map((item) => item.caption.trim() || null),
     };
   }
 async function handleDeleteTask(taskId: string) {
@@ -2227,30 +2118,25 @@ async function handleDeleteTask(taskId: string) {
 
       setCreateError('');
 
-      const parsed = parseSmartTaskMessage(createSmartMessage);
-      const room = (createRoom.trim() || parsed.room).trim();
-      const taskText = (createTaskText.trim() || parsed.taskText).trim();
-      const departments = createDepts.length
-        ? createDepts
-        : parsed.department
-          ? [parsed.department as 'HK' | 'MT' | 'FO']
-          : [];
+      const firstCaption = createPhotos
+        .map((item) => item.caption.trim())
+        .find(Boolean) || '';
+      const room = createRoom.trim();
+      const taskText = (createTaskText.trim() || firstCaption).trim();
+      const departments = createDepts;
 
       if (!room) throw new Error('Room Number is required');
       if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
       if (!departments.length) throw new Error('Select at least one department');
-      if (!taskText) throw new Error('Task description required');
+      if (!taskText) throw new Error('Add a task description or at least one media caption');
 
       if (room !== createRoom) setCreateRoom(room);
-      if (departments.length !== createDepts.length || departments.some((dept) => !createDepts.includes(dept))) {
-        setCreateDepts(departments);
-      }
-      if (taskText !== createTaskText) setCreateTaskText(taskText);
+      if (taskText !== createTaskText && !createTaskText.trim()) setCreateTaskText(taskText);
 
       setCreateSubmitting(true);
 
       let uploadedUrls: string[] = [];
-      let uploadedCaptions: string[] = [];
+      let uploadedCaptions: (string | null)[] = [];
 
       if (createPhotos.length > 0) {
         const uploaded = await uploadMediaItems(createPhotos);
@@ -2273,7 +2159,7 @@ async function handleDeleteTask(taskId: string) {
             department: departments[0],
             departments,
             task_text: taskText,
-            source_message: createSmartMessage.trim() || null,
+            source_message: null,
             image_urls: uploadedUrls,
             image_captions: uploadedCaptions,
             customer_waiting: createCustomerWaiting,
@@ -2312,7 +2198,7 @@ async function handleDeleteTask(taskId: string) {
       setEditSubmitting(true);
 
       let uploadedUrls: string[] = [];
-      let uploadedCaptions: string[] = [];
+      let uploadedCaptions: (string | null)[] = [];
 
       if (editNewPhotos.length > 0) {
         const uploaded = await uploadMediaItems(editNewPhotos);
@@ -3188,6 +3074,57 @@ async function handleDeleteTask(taskId: string) {
         </div>
       ) : null}
 
+      {markupTarget && getMarkupTargetItem() ? (
+        <div style={styles.modalOverlay} onClick={closeMediaMarkup}>
+          <div style={styles.markupCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.createModalTop}>
+              <div>
+                <div style={styles.createModalTitle}>Mark Up Image</div>
+                <div style={styles.createModalSubtitle}>
+                  Draw directly on the image, then save it back to this task.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeMediaMarkup}
+                style={styles.createModalCloseBtn}
+                aria-label="Close markup"
+              >
+                x
+              </button>
+            </div>
+
+            <div style={styles.markupCanvasWrap}>
+              <canvas
+                ref={markupCanvasRef}
+                style={styles.markupCanvas}
+                onPointerDown={startMarkupDrawing}
+                onPointerMove={drawMarkup}
+                onPointerUp={stopMarkupDrawing}
+                onPointerLeave={stopMarkupDrawing}
+              />
+            </div>
+
+            <div style={styles.createModalActions}>
+              <button
+                type="button"
+                onClick={closeMediaMarkup}
+                style={styles.secondaryBtn}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveMediaMarkup()}
+                style={styles.primaryBtn}
+              >
+                Save Markup
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {createModalOpen ? (
         <div style={modalResponsive.overlay} onClick={closeCreateModal}>
           <div style={modalResponsive.card} onClick={(e) => e.stopPropagation()}>
@@ -3210,31 +3147,6 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             {createError ? <div style={styles.createErrorBox}>{createError}</div> : null}
-
-            <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Quick Staff Message</label>
-              <textarea
-                value={createSmartMessage}
-                onChange={(e) => {
-                  setCreateSmartMessage(e.target.value);
-                  if (createSmartHint) setCreateSmartHint('');
-                }}
-                style={modalResponsive.textArea}
-                placeholder="e.g. 1208 aircond tak sejuk"
-                disabled={createSubmitting}
-              />
-              <div style={modalResponsive.smartDraftRow}>
-                <button
-                  type="button"
-                  onClick={applySmartCreateDraft}
-                  style={modalResponsive.secondaryBtn}
-                  disabled={createSubmitting || !createSmartMessage.trim()}
-                >
-                  Auto Fill
-                </button>
-                {createSmartHint ? <div style={styles.smartDraftHint}>{createSmartHint}</div> : null}
-              </div>
-            </div>
 
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Room Number</label>
@@ -3277,12 +3189,12 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Task Description</label>
+              <label style={styles.formLabel}>Task Caption / Description</label>
               <textarea
                 value={createTaskText}
                 onChange={(e) => setCreateTaskText(e.target.value)}
                 style={modalResponsive.textArea}
-                placeholder="Enter task details"
+                placeholder="Short caption shown in the dashboard and Telegram"
                 disabled={createSubmitting}
               />
             </div>
@@ -3339,15 +3251,34 @@ async function handleDeleteTask(taskId: string) {
                         style={styles.photoPreviewImg}
                       />
                     )}
-                    <div style={styles.photoPreviewName}>{photo.name}</div>
-                    <button
-                      type="button"
-                      style={styles.removePhotoBtn}
-                      onClick={() => removeCreatePhoto(photo.id)}
+                    <input
+                      type="text"
+                      value={photo.caption}
+                      onChange={(e) => updateCreatePhotoCaption(photo.id, e.target.value)}
+                      style={styles.mediaCaptionInput}
+                      placeholder={`${photo.mediaType === 'video' ? 'Video' : 'Photo'} caption`}
                       disabled={createSubmitting}
-                    >
-                      Remove
-                    </button>
+                    />
+                    <div style={styles.mediaCardActions}>
+                      {photo.mediaType === 'image' ? (
+                        <button
+                          type="button"
+                          style={styles.markupPhotoBtn}
+                          onClick={() => openMediaMarkup('create', photo.id)}
+                          disabled={createSubmitting}
+                        >
+                          {photo.marked ? 'Edit Markup' : 'Mark Up'}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        style={styles.removePhotoBtn}
+                        onClick={() => removeCreatePhoto(photo.id)}
+                        disabled={createSubmitting}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {createPhotos.length === 0 ? (
@@ -3535,15 +3466,34 @@ async function handleDeleteTask(taskId: string) {
                         style={styles.photoPreviewImg}
                       />
                     )}
-                    <div style={styles.photoPreviewName}>{photo.name}</div>
-                    <button
-                      type="button"
-                      style={styles.removePhotoBtn}
-                      onClick={() => removeEditNewPhoto(photo.id)}
+                    <input
+                      type="text"
+                      value={photo.caption}
+                      onChange={(e) => updateEditNewPhotoCaption(photo.id, e.target.value)}
+                      style={styles.mediaCaptionInput}
+                      placeholder={`${photo.mediaType === 'video' ? 'Video' : 'Photo'} caption`}
                       disabled={editSubmitting}
-                    >
-                      Remove
-                    </button>
+                    />
+                    <div style={styles.mediaCardActions}>
+                      {photo.mediaType === 'image' ? (
+                        <button
+                          type="button"
+                          style={styles.markupPhotoBtn}
+                          onClick={() => openMediaMarkup('edit', photo.id)}
+                          disabled={editSubmitting}
+                        >
+                          {photo.marked ? 'Edit Markup' : 'Mark Up'}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        style={styles.removePhotoBtn}
+                        onClick={() => removeEditNewPhoto(photo.id)}
+                        disabled={editSubmitting}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -5161,6 +5111,25 @@ deleteTaskBtn: {
     color: '#475467',
     wordBreak: 'break-word',
   },
+  mediaCaptionInput: {
+    width: '100%',
+    marginTop: 8,
+    border: '1px solid #dbe3ee',
+    borderRadius: 10,
+    padding: '9px 10px',
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#0f172a',
+    background: '#ffffff',
+    boxSizing: 'border-box',
+    outline: 'none',
+  },
+  mediaCardActions: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+    gap: 8,
+    alignItems: 'center',
+  },
   removePhotoBtn: {
     marginTop: 8,
     width: '100%',
@@ -5219,19 +5188,6 @@ deleteTaskBtn: {
     gap: 10,
     marginTop: 20,
     flexWrap: 'wrap',
-  },
-  smartDraftRow: {
-    display: 'flex',
-    gap: 10,
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginTop: 10,
-  },
-  smartDraftHint: {
-    fontSize: 12,
-    color: '#475467',
-    fontWeight: 700,
-    lineHeight: 1.45,
   },
   multiDeptRow: {
     display: 'flex',
