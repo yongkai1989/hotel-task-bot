@@ -78,6 +78,127 @@ async function deleteLinkedManagerRoomCheck(task: {
   if (checkDeleteResult.error) throw checkDeleteResult.error;
 }
 
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const taskId = params.id;
+
+    const { user, error: authError } =
+      await getDashboardUserFromRequest(req);
+
+    if (!user) {
+      return jsonNoCache(
+        { ok: false, error: authError || 'Unauthorized' },
+        401
+      );
+    }
+
+    const body = await req.json();
+    const newImageUrls: string[] = Array.isArray(body.new_image_urls)
+      ? body.new_image_urls.map((url: any) => String(url || '').trim()).filter(Boolean)
+      : [];
+    const newImageCaptions: (string | null)[] = Array.isArray(body.new_image_captions)
+      ? body.new_image_captions.map((caption: any) => {
+          const value = String(caption || '').trim();
+          return value || null;
+        })
+      : [];
+
+    if (!taskId) {
+      return jsonNoCache({ ok: false, error: 'Invalid task id' }, 400);
+    }
+
+    if (!newImageUrls.length) {
+      return jsonNoCache({ ok: false, error: 'No media to append' }, 400);
+    }
+
+    const { data: existingTask, error: fetchError } = await supabaseAdmin
+      .from('tasks')
+      .select('id, status, created_by_email')
+      .eq('id', taskId)
+      .single();
+
+    if (fetchError || !existingTask) {
+      return jsonNoCache({ ok: false, error: 'Task not found' }, 404);
+    }
+
+    if (existingTask.status !== 'OPEN') {
+      return jsonNoCache({ ok: false, error: 'Only OPEN tasks can receive media' }, 400);
+    }
+
+    const userEmail = String(user.email || '').trim().toLowerCase();
+    const creatorEmail = String(existingTask.created_by_email || '').trim().toLowerCase();
+    const canAppend = !!user.can_edit_task || (!!user.can_create_task && userEmail === creatorEmail);
+
+    if (!canAppend) {
+      return jsonNoCache({ ok: false, error: 'You are not allowed to add media to this task' }, 403);
+    }
+
+    const rows = newImageUrls.map((url, idx) => ({
+      task_id: taskId,
+      image_url: url,
+      caption: newImageCaptions[idx] || null,
+      created_by_name: user.name,
+    }));
+
+    const { error: insertImgError } = await supabaseAdmin
+      .from('task_images')
+      .insert(rows);
+
+    if (insertImgError) {
+      return jsonNoCache({ ok: false, error: insertImgError.message }, 500);
+    }
+
+    const { data: firstImageAfterAppend, error: firstImageError } = await supabaseAdmin
+      .from('task_images')
+      .select('image_url')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (firstImageError) {
+      return jsonNoCache({ ok: false, error: firstImageError.message }, 500);
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('tasks')
+      .update({
+        image_url: firstImageAfterAppend?.image_url || newImageUrls[0] || null,
+      })
+      .eq('id', taskId);
+
+    if (updateError) {
+      return jsonNoCache({ ok: false, error: updateError.message }, 500);
+    }
+
+    const { data: images } = await supabaseAdmin
+      .from('task_images')
+      .select(
+        `
+        id,
+        image_url,
+        caption,
+        created_at
+      `
+      )
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true });
+
+    return jsonNoCache({
+      ok: true,
+      task_images: images || [],
+    });
+  } catch (error: any) {
+    return jsonNoCache(
+      { ok: false, error: error?.message || 'Unknown error' },
+      500
+    );
+  }
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } }
