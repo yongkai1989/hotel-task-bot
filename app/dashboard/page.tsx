@@ -110,6 +110,7 @@ type DashboardIconName =
   | 'refresh'
   | 'plus'
   | 'camera'
+  | 'pen'
   | 'activity';
 
 const departments = ['ALL', 'HK', 'MT', 'FO'] as const;
@@ -587,6 +588,16 @@ function DashboardIcon({
         <path d="M8.5 7 10 5h4l1.5 2H18a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3h2.5Z" />
         <circle cx="12" cy="13.5" r="3.25" />
         <path d="M17.5 10h.01" />
+      </svg>
+    );
+  }
+
+  if (name === 'pen') {
+    return (
+      <svg {...common}>
+        <path d="m16.9 3.7 3.4 3.4" />
+        <path d="M19 9 8.2 19.8 4 20l.2-4.2L15 5" />
+        <path d="M12 20h8" />
       </svg>
     );
   }
@@ -3075,7 +3086,7 @@ async function handleDeleteTask(taskId: string) {
       ) : null}
 
       {markupTarget && getMarkupTargetItem() ? (
-        <div style={styles.modalOverlay} onClick={closeMediaMarkup}>
+        <div style={styles.markupModalOverlay} onClick={closeMediaMarkup}>
           <div style={styles.markupCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.createModalTop}>
               <div>
@@ -3266,8 +3277,10 @@ async function handleDeleteTask(taskId: string) {
                           style={styles.markupPhotoBtn}
                           onClick={() => openMediaMarkup('create', photo.id)}
                           disabled={createSubmitting}
+                          aria-label={photo.marked ? 'Edit image markup' : 'Mark up image'}
+                          title={photo.marked ? 'Edit image markup' : 'Mark up image'}
                         >
-                          {photo.marked ? 'Edit Markup' : 'Mark Up'}
+                          <DashboardIcon name="pen" size={16} />
                         </button>
                       ) : null}
                       <button
@@ -3481,8 +3494,10 @@ async function handleDeleteTask(taskId: string) {
                           style={styles.markupPhotoBtn}
                           onClick={() => openMediaMarkup('edit', photo.id)}
                           disabled={editSubmitting}
+                          aria-label={photo.marked ? 'Edit image markup' : 'Mark up image'}
+                          title={photo.marked ? 'Edit image markup' : 'Mark up image'}
                         >
-                          {photo.marked ? 'Edit Markup' : 'Mark Up'}
+                          <DashboardIcon name="pen" size={16} />
                         </button>
                       ) : null}
                       <button
@@ -4886,6 +4901,16 @@ deleteTaskBtn: {
     padding: 20,
     zIndex: 1100,
   },
+  markupModalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15,23,42,0.62)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    zIndex: 1300,
+  },
   modalInner: {
     position: 'relative',
     width: '100%',
@@ -5151,6 +5176,9 @@ deleteTaskBtn: {
     padding: '8px 10px',
     fontWeight: 800,
     cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   markupCard: {
     width: 'min(96vw, 920px)',
