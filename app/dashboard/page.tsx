@@ -2213,8 +2213,8 @@ async function handleDeleteTask(taskId: string) {
       const taskText = createTaskText.trim();
       const departments = createDepts;
 
-      if (!room) throw new Error('Room Number is required');
-      if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
+      if (!room) throw new Error('Room / area / task name is required');
+      if (room.length > 80) throw new Error('Room / area / task name must be 80 characters or less');
       if (!departments.length) throw new Error('Select at least one department');
       if (!taskText) throw new Error('Task caption / description required');
 
@@ -2263,8 +2263,8 @@ async function handleDeleteTask(taskId: string) {
       const taskText = editTaskText.trim();
 
       if (!editTaskId) throw new Error('Invalid task');
-      if (!room) throw new Error('Room Number is required');
-      if (!/^\d{3,5}$/.test(room)) throw new Error('Invalid room number');
+      if (!room) throw new Error('Room / area / task name is required');
+      if (room.length > 80) throw new Error('Room / area / task name must be 80 characters or less');
       if (!editDept) throw new Error('Select department');
       if (!taskText) throw new Error('Task description required');
 
@@ -2609,7 +2609,7 @@ async function handleDeleteTask(taskId: string) {
                     <div style={styles.guestWaitingList}>
                       {guestWaitingTasks.slice(0, isMobile ? 4 : 6).map((task) => (
                         <article key={`waiting-${task.id}`} style={styles.guestWaitingItem}>
-                          <div style={styles.guestWaitingRoom}>Room {task.room || '-'}</div>
+                          <div style={styles.guestWaitingRoom}>{task.room || '-'}</div>
                           <div style={styles.guestWaitingBody}>
                             <div style={styles.guestWaitingTask}>{task.task_text}</div>
                             <div style={styles.guestWaitingMeta}>
@@ -2908,7 +2908,7 @@ async function handleDeleteTask(taskId: string) {
                                 </div>
 
                                 <div style={styles.roomLine}>
-                                  <span style={styles.roomText}>Room</span>
+                                  <span style={styles.roomText}>Location</span>
                                   <span style={styles.roomNo}>{task.room}</span>
                                   <span style={styles.dot}>•</span>
                                   <span style={deptBadgeStyle(task.department)}>
@@ -3222,13 +3222,13 @@ async function handleDeleteTask(taskId: string) {
             {createError ? <div style={styles.createErrorBox}>{createError}</div> : null}
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Room Number</label>
+              <label style={styles.formLabel}>Room / Area / Task Name</label>
               <input
                 type="text"
                 value={createRoom}
                 onChange={(e) => setCreateRoom(e.target.value)}
                 style={modalResponsive.textInput}
-                placeholder="e.g. 1308"
+                placeholder="e.g. 1308, Corridor lights, Carpark"
                 disabled={createSubmitting}
               />
             </div>
@@ -3401,13 +3401,13 @@ async function handleDeleteTask(taskId: string) {
             {editError ? <div style={styles.createErrorBox}>{editError}</div> : null}
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Room Number</label>
+              <label style={styles.formLabel}>Room / Area / Task Name</label>
               <input
                 type="text"
                 value={editRoom}
                 onChange={(e) => setEditRoom(e.target.value)}
                 style={styles.textInput}
-                placeholder="e.g. 1308"
+                placeholder="e.g. 1308, Corridor lights, Carpark"
                 disabled={editSubmitting}
               />
             </div>
