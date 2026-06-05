@@ -32,6 +32,7 @@ type CreateBody = {
   can_access_supervisor_checklist?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
+  can_access_fnb_checklist?: boolean;
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
@@ -104,6 +105,8 @@ function withPermissions(row: any) {
       email === 'walter@hotelhallmark.com' ||
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_guest_laundry),
+    can_access_fnb_checklist:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fnb_checklist),
     can_access_pa_checklist:
       role === 'SUPERUSER' ||
       email === 'pa@hotelhallmark.com' ||
@@ -217,6 +220,8 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_price_guide),
       can_access_guest_laundry:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_guest_laundry),
+      can_access_fnb_checklist:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fnb_checklist),
       can_access_pa_checklist:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_pa_checklist),
       can_access_pa_linen_entry:
@@ -250,6 +255,7 @@ export async function POST(req: NextRequest) {
       payload.can_access_fo_checklist = true;
       payload.can_access_price_guide = true;
       payload.can_access_guest_laundry = true;
+      payload.can_access_fnb_checklist = true;
       payload.can_access_pa_checklist = true;
       payload.can_access_pa_linen_entry = true;
       payload.can_create_task = true;
@@ -288,6 +294,7 @@ export async function POST(req: NextRequest) {
         can_access_fo_checklist,
         can_access_price_guide,
         can_access_guest_laundry,
+        can_access_fnb_checklist,
         can_access_pa_checklist,
         can_access_pa_linen_entry,
         can_create_task,
