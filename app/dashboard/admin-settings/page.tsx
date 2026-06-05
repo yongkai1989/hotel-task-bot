@@ -34,6 +34,7 @@ type UserProfile = {
   can_access_fo_checklist: boolean;
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
+  can_access_fnb_checklist: boolean;
   can_access_pa_checklist: boolean;
   can_access_pa_linen_entry: boolean;
   can_create_task: boolean;
@@ -51,7 +52,7 @@ type PermissionRecord = Partial<Record<AccessKey, unknown>>;
 const accessFieldDefs: Array<{
   key: AccessKey;
   label: string;
-  group: 'Maintenance' | 'Housekeeping' | 'Public Area' | 'Front Office' | 'Management' | 'Actions';
+  group: 'Maintenance' | 'Housekeeping' | 'Front Office' | 'Public Area' | 'F&B' | 'Management' | 'Actions';
 }> = [
   { key: 'can_access_preventive_maintenance', label: 'Preventive Maintenance', group: 'Maintenance' },
   { key: 'can_access_maintenance_manager_room_check', label: 'Manager Room Check', group: 'Maintenance' },
@@ -77,6 +78,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_fo_checklist', label: 'FO Checklist', group: 'Front Office' },
   { key: 'can_access_price_guide', label: 'Price Guide', group: 'Front Office' },
   { key: 'can_access_guest_laundry', label: 'Guest Laundry', group: 'Front Office' },
+  { key: 'can_access_fnb_checklist', label: 'F&B Check List', group: 'F&B' },
   { key: 'can_create_task', label: 'Can Create', group: 'Actions' },
   { key: 'can_edit_task', label: 'Can Edit', group: 'Actions' },
   { key: 'can_delete_task', label: 'Can Delete', group: 'Actions' },
@@ -107,6 +109,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_fo_checklist: false,
     can_access_price_guide: false,
     can_access_guest_laundry: false,
+    can_access_fnb_checklist: false,
     can_access_pa_checklist: false,
     can_access_pa_linen_entry: false,
     can_create_task: false,
@@ -196,6 +199,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_price_guide')),
     can_access_guest_laundry:
       toPermissionBoolean(permissionValue('can_access_guest_laundry')),
+    can_access_fnb_checklist:
+      toPermissionBoolean(permissionValue('can_access_fnb_checklist')),
     can_access_pa_checklist:
       toPermissionBoolean(permissionValue('can_access_pa_checklist')),
     can_access_pa_linen_entry:
@@ -235,6 +240,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_fo_checklist: toPermissionBoolean(draft.can_access_fo_checklist),
     can_access_price_guide: toPermissionBoolean(draft.can_access_price_guide),
     can_access_guest_laundry: toPermissionBoolean(draft.can_access_guest_laundry),
+    can_access_fnb_checklist: toPermissionBoolean(draft.can_access_fnb_checklist),
     can_access_pa_checklist: toPermissionBoolean(draft.can_access_pa_checklist),
     can_access_pa_linen_entry: toPermissionBoolean(draft.can_access_pa_linen_entry),
     can_create_task: toPermissionBoolean(draft.can_create_task),
@@ -767,6 +773,7 @@ function renderToggle(key: AccessKey, label: string) {
   const housekeepingToggles = accessFieldDefs.filter((f) => f.group === 'Housekeeping');
   const publicAreaToggles = accessFieldDefs.filter((f) => f.group === 'Public Area');
   const frontOfficeToggles = accessFieldDefs.filter((f) => f.group === 'Front Office');
+  const fnbToggles = accessFieldDefs.filter((f) => f.group === 'F&B');
   const managementToggles = accessFieldDefs.filter((f) => f.group === 'Management');
   const actionToggles = accessFieldDefs.filter((f) => f.group === 'Actions');
   const isMobile = viewportWidth <= 768;
@@ -1026,6 +1033,10 @@ function renderToggle(key: AccessKey, label: string) {
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Public Area Access</div>
                       {publicAreaToggles.map((item) => renderToggle(item.key, item.label))}
+                    </div>
+                    <div style={styles.permissionCard}>
+                      <div style={styles.permissionTitle}>F&B Access</div>
+                      {fnbToggles.map((item) => renderToggle(item.key, item.label))}
                     </div>
                     <div style={styles.permissionCard}>
                       <div style={styles.permissionTitle}>Management Access</div>
