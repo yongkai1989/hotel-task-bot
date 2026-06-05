@@ -37,6 +37,7 @@ type SidebarProfile = {
   can_access_fo_checklist?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
+  can_access_fnb_checklist?: boolean;
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   permissions?: Partial<Record<
@@ -66,6 +67,7 @@ type SidebarProfile = {
     | 'can_access_fo_checklist'
     | 'can_access_price_guide'
     | 'can_access_guest_laundry'
+    | 'can_access_fnb_checklist'
     | 'can_access_pa_checklist'
     | 'can_access_pa_linen_entry',
     unknown
@@ -88,6 +90,7 @@ type SidebarIconName =
   | 'alert'
   | 'housekeeping'
   | 'publicArea'
+  | 'fnb'
   | 'sparkle'
   | 'bed'
   | 'clipboard'
@@ -137,6 +140,7 @@ type EffectiveProfile = Required<
     | 'can_access_fo_checklist'
     | 'can_access_price_guide'
     | 'can_access_guest_laundry'
+    | 'can_access_fnb_checklist'
     | 'can_access_pa_checklist'
     | 'can_access_pa_linen_entry'
   >
@@ -233,6 +237,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       email === 'walter@hotelhallmark.com' ||
       email === 'fenny@hotelhallmark.com' ||
       hasAccess(permissionValue('can_access_guest_laundry')),
+    can_access_fnb_checklist:
+      isSuperuser || hasAccess(permissionValue('can_access_fnb_checklist')),
     can_access_pa_checklist:
       isSuperuser ||
       email === 'pa@hotelhallmark.com' ||
@@ -417,6 +423,17 @@ function SidebarIcon({
         <path d="M9 13V8a3 3 0 0 1 6 0v5" />
         <path d="M6 7h12" />
         <path d="M7.5 4h9" />
+      </svg>
+    );
+  }
+
+  if (name === 'fnb') {
+    return (
+      <svg {...common}>
+        <path d="M7 3v18" />
+        <path d="M4 3v5a3 3 0 0 0 6 0V3" />
+        <path d="M17 3v18" />
+        <path d="M17 3c2.2 1.6 3 3.6 3 6v2h-3" />
       </svg>
     );
   }
@@ -651,6 +668,7 @@ export default function DashboardSidebar({
   const [housekeepingOpen, setHousekeepingOpen] = useState(false);
   const [publicAreaOpen, setPublicAreaOpen] = useState(false);
   const [frontOfficeOpen, setFrontOfficeOpen] = useState(false);
+  const [fnbOpen, setFnbOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
   const [timeGateTick, setTimeGateTick] = useState(Date.now());
 
@@ -714,6 +732,7 @@ export default function DashboardSidebar({
     !!effectiveProfile?.can_access_lost_found;
   const canSeePriceGuide = !!effectiveProfile?.can_access_price_guide;
   const canSeeGuestLaundry = !!effectiveProfile?.can_access_guest_laundry;
+  const canSeeFnbChecklist = !!effectiveProfile?.can_access_fnb_checklist;
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
     (
@@ -747,6 +766,7 @@ export default function DashboardSidebar({
     canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeLostFound || canSeeFoChecklist || canSeePriceGuide || canSeeGuestLaundry;
+  const showFnbGroup = canSeeFnbChecklist;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -772,6 +792,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_lost_found,
     effectiveProfile?.can_access_price_guide,
     effectiveProfile?.can_access_guest_laundry,
+    effectiveProfile?.can_access_fnb_checklist,
     effectiveProfile?.can_access_fo_checklist,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_edit_task,
@@ -1074,70 +1095,6 @@ export default function DashboardSidebar({
             </Link>
           ) : null}
 
-          {showMaintenanceGroup ? (
-            <GroupSection
-              title="Maintenance"
-              icon="maintenance"
-              open={maintenanceOpen}
-              setOpen={setMaintenanceOpen}
-            >
-              {canSeePM ? (
-                <Link
-                  href="/dashboard/preventive-maintenance"
-                  prefetch={false}
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  <SidebarNavContent icon="calendar" sub>Preventive Maintenance</SidebarNavContent>
-                </Link>
-              ) : null}
-
-              {canSeeMaintenanceManagerRoomCheck ? (
-                <Link
-                  href="/dashboard/maintenance-manager-room-check"
-                  prefetch={false}
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  <SidebarNavContent icon="clipboard" sub>Manager Room Check</SidebarNavContent>
-                </Link>
-              ) : null}
-
-              {canSeeMaintenanceOT ? (
-                <Link
-                  href="/dashboard/maintenance-ot"
-                  prefetch={false}
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  <SidebarNavContent icon="clock" sub>Maintenance OT</SidebarNavContent>
-                </Link>
-              ) : null}
-
-              {canSeeMaintenanceStockCard ? (
-                <Link
-                  href="/dashboard/maintenance-stock-card"
-                  prefetch={false}
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  <SidebarNavContent icon="package" sub>Maintenance Stock Card</SidebarNavContent>
-                </Link>
-              ) : null}
-
-              {canSeeMaintenanceDamaged ? (
-                <Link
-                  href="/dashboard/maintenance-damaged"
-                  prefetch={false}
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  <SidebarNavContent icon="alert" sub>Maintenance Damaged</SidebarNavContent>
-                </Link>
-              ) : null}
-            </GroupSection>
-          ) : null}
-
           {showHousekeepingGroup ? (
             <GroupSection
               title="Housekeeping"
@@ -1247,32 +1204,65 @@ export default function DashboardSidebar({
             </GroupSection>
           ) : null}
 
-          {showPublicAreaGroup ? (
+          {showMaintenanceGroup ? (
             <GroupSection
-              title="Public Area"
-              icon="publicArea"
-              open={publicAreaOpen}
-              setOpen={setPublicAreaOpen}
+              title="Maintenance"
+              icon="maintenance"
+              open={maintenanceOpen}
+              setOpen={setMaintenanceOpen}
             >
-              {canSeePAChecklist ? (
+              {canSeePM ? (
                 <Link
-                  href="/dashboard/pa-checklist"
+                  href="/dashboard/preventive-maintenance"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  <SidebarNavContent icon="clipboard" sub>PA Checklist</SidebarNavContent>
+                  <SidebarNavContent icon="calendar" sub>Preventive Maintenance</SidebarNavContent>
                 </Link>
               ) : null}
 
-              {canSeePALinenEntry ? (
+              {canSeeMaintenanceManagerRoomCheck ? (
                 <Link
-                  href="/dashboard/pa-linen-entry"
+                  href="/dashboard/maintenance-manager-room-check"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  <SidebarNavContent icon="laundry" sub>PA Linen Entry</SidebarNavContent>
+                  <SidebarNavContent icon="clipboard" sub>Manager Room Check</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeMaintenanceOT ? (
+                <Link
+                  href="/dashboard/maintenance-ot"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clock" sub>Maintenance OT</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeMaintenanceStockCard ? (
+                <Link
+                  href="/dashboard/maintenance-stock-card"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="package" sub>Maintenance Stock Card</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeMaintenanceDamaged ? (
+                <Link
+                  href="/dashboard/maintenance-damaged"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="alert" sub>Maintenance Damaged</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
@@ -1326,6 +1316,57 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="clipboard" sub>FO Checklist</SidebarNavContent>
+                </Link>
+              ) : null}
+            </GroupSection>
+          ) : null}
+
+          {showPublicAreaGroup ? (
+            <GroupSection
+              title="Public Area"
+              icon="publicArea"
+              open={publicAreaOpen}
+              setOpen={setPublicAreaOpen}
+            >
+              {canSeePAChecklist ? (
+                <Link
+                  href="/dashboard/pa-checklist"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>PA Checklist</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeePALinenEntry ? (
+                <Link
+                  href="/dashboard/pa-linen-entry"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="laundry" sub>PA Linen Entry</SidebarNavContent>
+                </Link>
+              ) : null}
+            </GroupSection>
+          ) : null}
+
+          {showFnbGroup ? (
+            <GroupSection
+              title="F&B"
+              icon="fnb"
+              open={fnbOpen}
+              setOpen={setFnbOpen}
+            >
+              {canSeeFnbChecklist ? (
+                <Link
+                  href="/dashboard/fnb-checklist"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>F&B Check List</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
@@ -1916,4 +1957,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
   },
 };
+
 
