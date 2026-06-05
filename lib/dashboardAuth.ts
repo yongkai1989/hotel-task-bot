@@ -40,6 +40,7 @@ export type DashboardUser = {
   can_access_supervisor_checklist: boolean;
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
+  can_access_fnb_checklist: boolean;
   can_access_pa_checklist: boolean;
   can_access_pa_linen_entry: boolean;
   permissions: {
@@ -69,6 +70,7 @@ export type DashboardUser = {
     can_access_supervisor_checklist: boolean;
     can_access_price_guide: boolean;
     can_access_guest_laundry: boolean;
+    can_access_fnb_checklist: boolean;
     can_access_pa_checklist: boolean;
     can_access_pa_linen_entry: boolean;
   };
@@ -173,6 +175,7 @@ export async function getDashboardUserFromRequest(
         can_access_supervisor_checklist,
         can_access_price_guide,
         can_access_guest_laundry,
+        can_access_fnb_checklist,
         can_access_pa_checklist,
         can_access_pa_linen_entry
         `
@@ -246,6 +249,8 @@ export async function getDashboardUserFromRequest(
         String(profile.email || authUser.email || '').trim().toLowerCase() === 'walter@hotelhallmark.com' ||
         String(profile.email || authUser.email || '').trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
         savedBoolean(profile.can_access_guest_laundry),
+      can_access_fnb_checklist:
+        effectiveBoolean(role, profile.can_access_fnb_checklist),
       can_access_pa_checklist: (() => {
         const email = String(profile.email || authUser.email || '').trim().toLowerCase();
         return (
