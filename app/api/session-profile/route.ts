@@ -39,6 +39,7 @@ const PROFILE_SELECT = `
   can_access_supervisor_checklist,
   can_access_price_guide,
   can_access_guest_laundry,
+  can_access_fnb_checklist,
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   updated_at
@@ -112,6 +113,7 @@ const permissionKeys = [
   'can_access_supervisor_checklist',
   'can_access_price_guide',
   'can_access_guest_laundry',
+  'can_access_fnb_checklist',
   'can_access_pa_checklist',
   'can_access_pa_linen_entry',
 ];
@@ -202,6 +204,8 @@ function buildUser(profile: any, authEmail: string) {
       String(profile.email || authEmail || '').trim().toLowerCase() === 'walter@hotelhallmark.com' ||
       String(profile.email || authEmail || '').trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(profile.can_access_guest_laundry),
+    can_access_fnb_checklist:
+      effectiveBoolean(role, profile.can_access_fnb_checklist),
     can_access_pa_checklist: (() => {
       const email = String(profile.email || authEmail || '').trim().toLowerCase();
       return (
