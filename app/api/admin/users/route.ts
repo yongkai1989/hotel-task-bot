@@ -57,6 +57,7 @@ function enabledCount(row: any) {
     row?.can_access_supervisor_checklist,
     row?.can_access_price_guide,
     row?.can_access_guest_laundry,
+    row?.can_access_fnb_checklist,
     row?.can_access_pa_checklist,
     row?.can_access_pa_linen_entry,
     role === 'SUPERUSER' ||
@@ -131,6 +132,8 @@ function normalizeProfileRow(row: any) {
       email === 'walter@hotelhallmark.com' ||
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_guest_laundry),
+    can_access_fnb_checklist:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fnb_checklist),
     can_access_pa_checklist:
       role === 'SUPERUSER' ||
       email === 'pa@hotelhallmark.com' ||
@@ -270,6 +273,7 @@ const profileSelect = `
   can_access_fo_checklist,
   can_access_price_guide,
   can_access_guest_laundry,
+  can_access_fnb_checklist,
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   can_create_task,
