@@ -643,7 +643,7 @@ function OverviewMetricCard({
   const content = (
     <>
       <div style={{ ...styles.overviewIcon, background: theme.bg, color: theme.fg }}>
-        <DashboardIcon name={icon} size={20} />
+        <DashboardIcon name={icon} size={15} />
         {alert ? <span style={styles.overviewAlertBadge}>!</span> : null}
       </div>
       <div style={styles.overviewContent}>
@@ -2709,7 +2709,7 @@ async function handleDeleteTask(taskId: string) {
                     <div
                       style={{
                         ...styles.overviewBandGrid,
-                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                       }}
                     >
                       <OverviewMetricCard href="/dashboard?status=open" title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
@@ -2736,7 +2736,7 @@ async function handleDeleteTask(taskId: string) {
                     <div
                       style={{
                         ...styles.overviewBandGrid,
-                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                       }}
                     >
                       <OverviewMetricCard
@@ -2776,7 +2776,7 @@ async function handleDeleteTask(taskId: string) {
                     <div
                       style={{
                         ...styles.overviewBandGrid,
-                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                       }}
                     >
                       <OverviewMetricCard
@@ -2819,7 +2819,7 @@ async function handleDeleteTask(taskId: string) {
                     <div
                       style={{
                         ...styles.overviewBandGrid,
-                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                       }}
                     >
                       <OverviewMetricCard
@@ -4141,53 +4141,53 @@ const styles: Record<string, React.CSSProperties> = {
   },
   overviewSectionStack: {
     display: 'grid',
-    gap: 12,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 10,
   },
   overviewBand: {
-    border: '1px solid rgba(198, 213, 232, 0.92)',
+    border: '1px solid rgba(203, 216, 235, 0.9)',
     background:
-      'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(248,251,255,0.84) 100%)',
-    borderRadius: 18,
-    padding: 10,
-    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.96)',
+      'linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(247,250,255,0.88) 100%)',
+    borderRadius: 16,
+    padding: 8,
+    boxShadow: '0 12px 26px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255,255,255,0.96)',
   },
   overviewBandHeader: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
-    padding: '2px 4px 10px',
+    padding: '1px 4px 7px',
   },
   overviewBandEyebrow: {
-    fontSize: 10,
+    fontSize: 9,
     lineHeight: 1,
     fontWeight: 950,
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
     color: '#2563eb',
   },
   overviewBandTitle: {
-    marginTop: 5,
+    marginTop: 4,
     color: '#0f172a',
-    fontSize: 15,
+    fontSize: 13,
     lineHeight: 1.15,
     fontWeight: 950,
   },
   overviewBandGrid: {
     display: 'grid',
-    gap: 10,
+    gap: 7,
   },
   overviewCard: {
     display: 'flex',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 7,
     background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(252,254,255,0.98) 100%)',
-    border: '1px solid rgba(218, 229, 243, 0.95)',
-    borderRadius: 16,
-    padding: 12,
-    minHeight: 82,
-    boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
+    border: '1px solid rgba(218, 229, 243, 0.92)',
+    borderRadius: 14,
+    padding: 8,
+    minHeight: 68,
+    boxShadow: '0 10px 22px rgba(15, 23, 42, 0.048), inset 0 1px 0 rgba(255,255,255,0.92)',
   },
   overviewCardLink: {
     textDecoration: 'none',
@@ -4200,30 +4200,31 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
   },
   overviewLabel: {
-    fontSize: 10,
-    fontWeight: 800,
+    fontSize: 8,
+    lineHeight: 1.1,
+    fontWeight: 900,
     color: '#64748b',
-    marginBottom: 8,
+    marginBottom: 5,
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 0.35,
   },
   overviewValue: {
-    fontSize: 28,
+    fontSize: 22,
     lineHeight: 1,
-    fontWeight: 900,
+    fontWeight: 950,
     color: '#0f172a',
   },
   overviewNote: {
-    marginTop: 7,
-    fontSize: 11,
-    lineHeight: 1.35,
+    marginTop: 5,
+    fontSize: 9,
+    lineHeight: 1.2,
     color: '#64748b',
-    fontWeight: 600,
+    fontWeight: 700,
   },
   overviewIcon: {
     position: 'relative',
-    width: 38,
-    height: 38,
+    width: 28,
+    height: 28,
     borderRadius: 999,
     display: 'inline-flex',
     alignItems: 'center',
@@ -4234,18 +4235,18 @@ const styles: Record<string, React.CSSProperties> = {
   },
   overviewAlertBadge: {
     position: 'absolute',
-    right: -3,
-    top: -3,
-    width: 16,
-    height: 16,
+    right: -4,
+    top: -4,
+    width: 14,
+    height: 14,
     borderRadius: 999,
     background: '#ef4444',
     color: '#ffffff',
-    border: '2px solid #ffffff',
+    border: '1.5px solid #ffffff',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: 10,
+    fontSize: 9,
     lineHeight: 1,
     fontWeight: 900,
     boxShadow: '0 8px 16px rgba(239,68,68,0.28)',
