@@ -72,9 +72,10 @@ type DraftQuestion = {
 type ViewMode = 'LIST' | 'FORM' | 'HISTORY' | 'VIEW_SUBMISSION';
 
 const FNB_CHECKLIST_ALLOWED_EMAILS = [
+  'fnb@hotelhallmark.com',
   'fenny@hotelhallmark.com',
-  'manager@hotelhallmark.com',
 ];
+const FNB_CHECKLIST_SUBMITTER_EMAILS = ['fnb@hotelhallmark.com'];
 
 function getTodayLocalDateString() {
   const d = new Date();
@@ -171,12 +172,13 @@ export default function FNBChecklistPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   const isSuper = profile?.role === 'SUPERUSER';
+  const profileEmail = String(profile?.email || '').toLowerCase();
   const canAccess =
     !!profile && (
       isSuper ||
-      profile.can_access_fnb_checklist === true ||
-      FNB_CHECKLIST_ALLOWED_EMAILS.includes(String(profile.email || '').toLowerCase())
+      FNB_CHECKLIST_ALLOWED_EMAILS.includes(profileEmail)
     );
+  const canSubmitChecklist = !!profile && FNB_CHECKLIST_SUBMITTER_EMAILS.includes(profileEmail);
   const isMobile = viewportWidth <= 640;
   const isTablet = viewportWidth > 640 && viewportWidth <= 980;
 
@@ -371,7 +373,40 @@ export default function FNBChecklistPage() {
         );
 
         if (trackerError) throw trackerError;
-        setTrackerRows((trackerData || []) as TrackerRow[]);
+        let nextTrackerRows = ((trackerData || []) as TrackerRow[]).filter((row) =>
+          FNB_CHECKLIST_SUBMITTER_EMAILS.includes(String(row.email || '').toLowerCase())
+        );
+
+        if (nextTrackerRows.length === 0) {
+          const [{ data: fnbUser }, { data: fnbSubmission }] = await Promise.all([
+            supabase
+              .from('user_profiles')
+              .select('user_id, email, name, role')
+              .eq('email', 'fnb@hotelhallmark.com')
+              .maybeSingle(),
+            supabase
+              .from('fnb_checklist_submissions')
+              .select('id, submitted_by_user_id, submitted_by_name, submitted_by_email, created_at, updated_at')
+              .eq('template_id', templateId)
+              .eq('submission_date', today)
+              .eq('submitted_by_email', 'fnb@hotelhallmark.com')
+              .maybeSingle(),
+          ]);
+
+          nextTrackerRows = [
+            {
+              user_id: fnbUser?.user_id || fnbSubmission?.submitted_by_user_id || 'fnb@hotelhallmark.com',
+              name: fnbUser?.name || fnbSubmission?.submitted_by_name || 'F&B',
+              email: fnbUser?.email || fnbSubmission?.submitted_by_email || 'fnb@hotelhallmark.com',
+              role: fnbUser?.role || 'F&B',
+              submission_id: fnbSubmission?.id || null,
+              submitted_at: fnbSubmission?.created_at || null,
+              updated_at: fnbSubmission?.updated_at || null,
+            },
+          ];
+        }
+
+        setTrackerRows(nextTrackerRows);
       } catch {
         setTrackerRows([]);
       }
@@ -701,6 +736,10 @@ export default function FNBChecklistPage() {
 
   async function handleSaveSubmission() {
     if (!supabase || !profile?.user_id || !selectedTemplate) return;
+    if (!canSubmitChecklist) {
+      setErrorMsg('Only fnb@hotelhallmark.com is required to submit the F&B Check List.');
+      return;
+    }
 
     for (const question of selectedQuestions) {
       if (!question.is_required) continue;
@@ -859,7 +898,7 @@ export default function FNBChecklistPage() {
             <div style={styles.sectionEyebrow}>Submission Tracker</div>
             <div style={styles.trackerTitle}>
               {trackerRows.length > 0
-                ? `${submittedCount}/${trackerRows.length} users submitted`
+                ? `${submittedCount}/${trackerRows.length} F&B submitted`
                 : 'No F&B checklist users found'}
             </div>
           </div>
@@ -901,7 +940,7 @@ export default function FNBChecklistPage() {
           </div>
         ) : (
           <div style={styles.trackerEmpty}>
-            No F&B checklist users are currently listed for this tracker. Make sure the F&B Check List SQL has been run.
+            No F&B submitter is currently listed for this tracker. Make sure fnb@hotelhallmark.com has F&B Check List access.
           </div>
         )}
       </div>
@@ -945,7 +984,7 @@ export default function FNBChecklistPage() {
       <div style={styles.shell}>
         <div style={{ ...styles.topBar, ...(isMobile ? styles.topBarMobile : {}) }}>
           <div>
-            <div style={styles.eyebrow}>Housekeeping Workspace</div>
+            <div style={styles.eyebrow}>F&B Workspace</div>
             <div style={styles.pageTitle}>F&B Check List</div>
             <div style={styles.pageSubTitle}>
               {profile.name} ({profile.role}) - F&B checklist workspace
@@ -1083,6 +1122,11 @@ export default function FNBChecklistPage() {
                     ? `Submitted on ${formatDateTime(todaySubmission.created_at)}`
                     : `No submission yet for ${formatDate(today)}`}
                 </div>
+                {!canSubmitChecklist ? (
+                  <div style={styles.ChecklistsubMeta}>
+                    View only. F&B Check List submission is required from fnb@hotelhallmark.com only.
+                  </div>
+                ) : null}
                 {todaySubmission?.updated_at && todaySubmission.updated_at !== todaySubmission.created_at ? (
                   <div style={styles.ChecklistsubMeta}>
                     Last updated: {formatDateTime(todaySubmission.updated_at)}
@@ -1119,10 +1163,14 @@ export default function FNBChecklistPage() {
                 <div
                   style={{
                     ...styles.statusPill,
-                    ...(todaySubmission ? styles.statusSubmitted : styles.statusPending),
+                    ...(canSubmitChecklist
+                      ? todaySubmission
+                        ? styles.statusSubmitted
+                        : styles.statusPending
+                      : styles.statusNeutral),
                   }}
                 >
-                  {todaySubmission ? 'Submitted Today' : 'Pending Today'}
+                  {canSubmitChecklist ? (todaySubmission ? 'Submitted Today' : 'Pending Today') : 'View Only'}
                 </div>
               </div>
             </div>
@@ -1150,11 +1198,13 @@ export default function FNBChecklistPage() {
                       <button
                         type="button"
                         onClick={() => updateAnswer(question, true)}
+                        disabled={!canSubmitChecklist}
                         style={{
                           ...styles.answerChoiceBtn,
                           ...(answers[question.id]?.answer_yes_no === true
                             ? styles.answerChoiceBtnActive
                             : {}),
+                          opacity: canSubmitChecklist ? 1 : 0.65,
                         }}
                       >
                         Yes
@@ -1162,11 +1212,13 @@ export default function FNBChecklistPage() {
                       <button
                         type="button"
                         onClick={() => updateAnswer(question, false)}
+                        disabled={!canSubmitChecklist}
                         style={{
                           ...styles.answerChoiceBtn,
                           ...(answers[question.id]?.answer_yes_no === false
                             ? styles.answerChoiceBtnActive
                             : {}),
+                          opacity: canSubmitChecklist ? 1 : 0.65,
                         }}
                       >
                         No
@@ -1178,6 +1230,7 @@ export default function FNBChecklistPage() {
                       onChange={(e) => updateAnswer(question, e.target.value)}
                       style={{ ...styles.textarea, ...(isMobile ? styles.textareaMobile : {}) }}
                       placeholder="Enter short answer"
+                      disabled={!canSubmitChecklist}
                     />
                   )}
 
@@ -1188,12 +1241,14 @@ export default function FNBChecklistPage() {
                         onChange={(e) => updateRemark(question, e.target.value)}
                         style={{ ...styles.remarkTextarea, ...(isMobile ? styles.textareaCompactMobile : {}) }}
                         placeholder="Add remark for this question"
+                        disabled={!canSubmitChecklist}
                       />
                     ) : (
                       <button
                         type="button"
                         onClick={() => toggleRemark(question.id)}
                         style={styles.addRemarkBtn}
+                        disabled={!canSubmitChecklist}
                       >
                         + Remark
                       </button>
@@ -1211,18 +1266,20 @@ export default function FNBChecklistPage() {
               >
                 Back to Checklists
               </button>
-              <button
-                type="button"
-                onClick={() => void handleSaveSubmission()}
-                style={{
-                  ...styles.primaryBtn,
-                  ...(isMobile ? styles.mobileActionBtn : {}),
-                  opacity: savingAnswers ? 0.6 : 1,
-                }}
-                disabled={savingAnswers}
-              >
-                {savingAnswers ? 'Saving...' : todaySubmission ? 'Update Answers' : 'Submit Checklist'}
-              </button>
+              {canSubmitChecklist ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSaveSubmission()}
+                  style={{
+                    ...styles.primaryBtn,
+                    ...(isMobile ? styles.mobileActionBtn : {}),
+                    opacity: savingAnswers ? 0.6 : 1,
+                  }}
+                  disabled={savingAnswers}
+                >
+                  {savingAnswers ? 'Saving...' : todaySubmission ? 'Update Answers' : 'Submit Checklist'}
+                </button>
+              ) : null}
             </div>
           </section>
         ) : null}
