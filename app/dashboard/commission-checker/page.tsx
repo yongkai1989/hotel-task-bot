@@ -438,6 +438,11 @@ export default function CommissionCheckerPage() {
     [commissionCsv, pmsCsv, result]
   );
 
+  const disputeNameMatchSet = useMemo(
+    () => new Set(nameMatches.map((match) => normalizeBookingId(match.reservationNumber))),
+    [nameMatches]
+  );
+
   async function handleFile(file: File, type: 'commission' | 'pms') {
     setBusy(true);
     setErrorMsg('');
@@ -606,7 +611,14 @@ export default function CommissionCheckerPage() {
                 <tbody>
                   {disputeRows.length ? (
                     disputeRows.slice(0, 300).map((row, index) => (
-                      <tr key={`${row['Reservation Number']}-${index}`}>
+                      <tr
+                        key={`${row['Reservation Number']}-${index}`}
+                        className={
+                          disputeNameMatchSet.has(normalizeBookingId(row['Reservation Number']))
+                            ? 'cc-dispute-row-name-match'
+                            : 'cc-dispute-row-no-match'
+                        }
+                      >
                         {visibleHeaders.map((header) => <td key={header}>{row[header] || '-'}</td>)}
                       </tr>
                     ))
@@ -992,6 +1004,20 @@ export default function CommissionCheckerPage() {
         }
         .cc-name-table th {
           background: #f0f7ff;
+        }
+        .cc-dispute-row-name-match td {
+          background: #eff6ff;
+          color: #0f2f6e;
+        }
+        .cc-dispute-row-name-match td:first-child {
+          border-left: 4px solid #2563eb;
+        }
+        .cc-dispute-row-no-match td {
+          background: #fff1f2;
+          color: #7f1d1d;
+        }
+        .cc-dispute-row-no-match td:first-child {
+          border-left: 4px solid #e11d48;
         }
         .cc-empty {
           padding: 28px;
