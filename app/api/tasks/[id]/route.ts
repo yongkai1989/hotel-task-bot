@@ -220,7 +220,7 @@ export async function PUT(
 
     const room = String(body.room || '').trim();
     const department = normalizeDept(body.department);
-    const taskText = String(body.task_text || '').trim();
+    const taskText = String(body.task_text || room || '').trim();
 
     const keepImageIds: (string | number)[] =
       Array.isArray(body.keep_image_ids) ? body.keep_image_ids : [];
@@ -238,7 +238,7 @@ export async function PUT(
     }
 
     if (!room) {
-      return jsonNoCache({ ok: false, error: 'Room is required' }, 400);
+      return jsonNoCache({ ok: false, error: 'Room/area and description is required' }, 400);
     }
 
     if (!department) {
@@ -250,7 +250,7 @@ export async function PUT(
 
     if (!taskText) {
       return jsonNoCache(
-        { ok: false, error: 'Task description required' },
+        { ok: false, error: 'Room/area and description is required' },
         400
       );
     }
