@@ -243,33 +243,82 @@ function StatCard({ label, value, tone }: { label: string; value: string | numbe
 
 function FileBox({
   title,
-  hint,
+  eyebrow,
+  description,
+  variant,
   parsed,
   onFile,
 }: {
   title: string;
-  hint: string;
+  eyebrow: string;
+  description: string;
+  variant: 'commission' | 'pms';
   parsed: ParsedCsv | null;
   onFile: (file: File) => void;
 }) {
+  const [dragActive, setDragActive] = useState(false);
+
+  function handlePickedFile(file?: File) {
+    if (!file) return;
+    onFile(file);
+  }
+
   return (
-    <section className="cc-card cc-file-card">
-      <div>
-        <div className="cc-eyebrow">CSV Upload</div>
-        <h2>{title}</h2>
-        <p>{hint}</p>
+    <section className={`cc-card cc-file-card cc-file-card-${variant}`}>
+      <div className="cc-file-top">
+        <div className={`cc-file-icon cc-file-icon-${variant}`}>
+          {variant === 'commission' ? (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+              <path d="M8 8h8M8 12h8M8 16h5" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+              <path d="M8 4v16M16 4v16" />
+            </svg>
+          )}
+        </div>
+        <div className="cc-file-copy">
+          <div className="cc-eyebrow">{eyebrow}</div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
       </div>
-      <label className="cc-upload">
+      <label
+        className={`cc-upload ${dragActive ? 'cc-upload-active' : ''}`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setDragActive(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setDragActive(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setDragActive(false);
+          handlePickedFile(event.dataTransfer.files?.[0]);
+        }}
+      >
         <input
           type="file"
           accept=".csv,text/csv"
           onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) onFile(file);
+            handlePickedFile(event.target.files?.[0]);
             event.currentTarget.value = '';
           }}
         />
-        <span>Choose CSV</span>
+        <span className="cc-upload-main">Drop CSV here</span>
+        <span className="cc-upload-sub">or tap to choose file</span>
       </label>
       {parsed ? (
         <div className={parsed.error ? 'cc-file-status cc-file-error' : 'cc-file-status'}>
@@ -349,13 +398,17 @@ export default function CommissionCheckerPage() {
       <section className="cc-grid">
         <FileBox
           title="Booking.com Commission CSV"
-          hint={`Required column: "${COMMISSION_COLUMN}". Cancelled rows are ignored only when "${COMMISSION_AMOUNT_COLUMN}" is 0.`}
+          eyebrow="Booking.com Statement"
+          description="Upload the reservation statement exported from Booking.com."
+          variant="commission"
           parsed={commissionCsv}
           onFile={(file) => void handleFile(file, 'commission')}
         />
         <FileBox
           title="PMS Transaction CSV"
-          hint={`Required column: "${PMS_COLUMN}"`}
+          eyebrow="PMS Export"
+          description="Upload the Transaction Enquiry file from your PMS."
+          variant="pms"
           parsed={pmsCsv}
           onFile={(file) => void handleFile(file, 'pms')}
         />
@@ -501,11 +554,59 @@ export default function CommissionCheckerPage() {
           margin: 0 auto 16px;
         }
         .cc-card { max-width: 1180px; margin: 0 auto; padding: clamp(16px, 2.3vw, 24px); }
-        .cc-file-card { margin: 0; }
+        .cc-file-card { margin: 0; position: relative; overflow: hidden; }
         .cc-file-card {
           padding: clamp(16px, 2.2vw, 24px);
           display: grid;
+          gap: 16px;
+        }
+        .cc-file-card:before {
+          content: '';
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 5px;
+        }
+        .cc-file-card-commission:before {
+          background: linear-gradient(180deg, #2563eb, #7c3aed);
+        }
+        .cc-file-card-pms:before {
+          background: linear-gradient(180deg, #0891b2, #16a34a);
+        }
+        .cc-file-top {
+          display: grid;
+          grid-template-columns: 54px minmax(0, 1fr);
           gap: 14px;
+          align-items: start;
+        }
+        .cc-file-icon {
+          width: 54px;
+          height: 54px;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+        }
+        .cc-file-icon svg {
+          width: 25px;
+          height: 25px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .cc-file-icon-commission {
+          color: #1d4ed8;
+          background: linear-gradient(135deg, #eff6ff, #dbeafe);
+          border: 1px solid #bfdbfe;
+        }
+        .cc-file-icon-pms {
+          color: #047857;
+          background: linear-gradient(135deg, #ecfeff, #dcfce7);
+          border: 1px solid #bbf7d0;
+        }
+        .cc-file-copy {
+          min-width: 0;
         }
         .cc-card-head {
           display: flex;
@@ -515,17 +616,38 @@ export default function CommissionCheckerPage() {
           margin-bottom: 14px;
         }
         .cc-upload {
-          min-height: 78px;
-          border: 1px dashed #93c5fd;
-          background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+          min-height: 118px;
+          border: 1px dashed #9fb8dc;
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(239,246,255,.96) 100%),
+            radial-gradient(circle at top left, rgba(37,99,235,.14), transparent 35%);
           color: #1d4ed8;
-          border-radius: 18px;
+          border-radius: 22px;
           display: grid;
+          gap: 5px;
           place-items: center;
+          align-content: center;
           font-weight: 950;
           cursor: pointer;
+          transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease, background .18s ease;
+        }
+        .cc-upload:hover,
+        .cc-upload-active {
+          border-color: #2563eb;
+          background: linear-gradient(180deg, #ffffff 0%, #dbeafe 100%);
+          box-shadow: 0 18px 44px rgba(37,99,235,.14);
+          transform: translateY(-1px);
         }
         .cc-upload input { display: none; }
+        .cc-upload-main {
+          font-size: 17px;
+          color: #0f172a;
+        }
+        .cc-upload-sub {
+          color: #64748b;
+          font-size: 13px;
+          font-weight: 850;
+        }
         .cc-file-status {
           padding: 12px;
           border: 1px solid #bfdbfe;
@@ -703,6 +825,19 @@ export default function CommissionCheckerPage() {
           .cc-card,
           .cc-file-card {
             border-radius: 20px;
+          }
+          .cc-file-top {
+            grid-template-columns: 44px minmax(0, 1fr);
+            gap: 10px;
+          }
+          .cc-file-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 15px;
+          }
+          .cc-upload {
+            min-height: 104px;
+            border-radius: 18px;
           }
           .cc-actions {
             display: grid;
