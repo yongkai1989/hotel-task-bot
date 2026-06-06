@@ -250,7 +250,10 @@ export async function getDashboardUserFromRequest(
         String(profile.email || authUser.email || '').trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
         savedBoolean(profile.can_access_guest_laundry),
       can_access_fnb_checklist:
-        effectiveBoolean(role, profile.can_access_fnb_checklist),
+        (() => {
+          const email = String(profile.email || authUser.email || '').trim().toLowerCase();
+          return role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+        })(),
       can_access_pa_checklist: (() => {
         const email = String(profile.email || authUser.email || '').trim().toLowerCase();
         return (
