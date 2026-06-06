@@ -619,6 +619,7 @@ function OverviewMetricCard({
   tone,
   icon,
   alert,
+  href,
 }: {
   title: string;
   value: string | number;
@@ -626,6 +627,7 @@ function OverviewMetricCard({
   tone: 'open' | 'progress' | 'done' | 'violet' | 'danger';
   icon: DashboardIconName;
   alert?: boolean;
+  href?: string;
 }) {
   const theme =
     tone === 'open'
@@ -638,8 +640,8 @@ function OverviewMetricCard({
       ? { bg: '#f5f3ff', fg: '#7c3aed' }
       : { bg: '#fef2f2', fg: '#dc2626' };
 
-  return (
-    <article style={styles.overviewCard}>
+  const content = (
+    <>
       <div style={{ ...styles.overviewIcon, background: theme.bg, color: theme.fg }}>
         <DashboardIcon name={icon} size={20} />
         {alert ? <span style={styles.overviewAlertBadge}>!</span> : null}
@@ -649,6 +651,20 @@ function OverviewMetricCard({
         <div style={styles.overviewValue}>{value}</div>
         {note ? <div style={styles.overviewNote}>{note}</div> : null}
       </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} style={{ ...styles.overviewCard, ...styles.overviewCardLink }}>
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <article style={styles.overviewCard}>
+      {content}
     </article>
   );
 }
@@ -1055,7 +1071,11 @@ export default function DashboardPage() {
     const syncViewFromUrl = () => {
       const params = new URLSearchParams(window.location.search);
       const view = params.get('view');
+      const statusParam = (params.get('status') || '').toUpperCase();
       setSidebarView(view === 'past' ? 'PAST_TASK' : 'DASHBOARD');
+      if (statusParam === 'OPEN' || statusParam === 'DONE' || statusParam === 'ALL') {
+        setStatus(statusParam);
+      }
     };
 
     syncViewFromUrl();
@@ -2520,26 +2540,6 @@ async function handleDeleteTask(taskId: string) {
       });
   }, [tasks]);
 
-  const managerRoomCheckTrackers = useMemo(
-    () => [
-      {
-        key: 'HK' as const,
-        title: 'Housekeeping Room Check',
-        note: 'Housekeeping room checks completed',
-        href: '/dashboard/hk-manager-room-check',
-        ...insights.managerRoomCheck.HK,
-      },
-      {
-        key: 'MT' as const,
-        title: 'Maintenance Room Check',
-        note: 'Maintenance room checks completed',
-        href: '/dashboard/maintenance-manager-room-check',
-        ...insights.managerRoomCheck.MT,
-      },
-    ],
-    [insights.managerRoomCheck]
-  );
-
   const laundryReceivedNote = insights.laundryReceivedSaved
     ? 'Saved for both blocks'
     : `${insights.laundryReceivedBlocks}/2 blocks saved`;
@@ -2698,143 +2698,157 @@ async function handleDeleteTask(taskId: string) {
               ) : null}
 
               {sidebarView === 'DASHBOARD' ? (
-                <section
-                  style={{
-                    ...styles.overviewGrid,
-                    gridTemplateColumns: isMobile
-                      ? 'repeat(2, minmax(0, 1fr))'
-                      : isTablet
-                      ? 'repeat(3, minmax(0, 1fr))'
-                      : 'repeat(3, minmax(0, 1fr))',
-                  }}
-                >
-                  <OverviewMetricCard title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
-                  <OverviewMetricCard title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
-                  <OverviewMetricCard
-                    title="FO Checklist"
-                    value={`${insights.foChecklistSubmitted}/3`}
-                    note="Morning, Afternoon, Night submitted"
-                    tone="violet"
-                    icon="clipboard"
-                    alert={insights.foChecklistHasNoAnswer}
-                  />
-                  <OverviewMetricCard
-                    title="Supervisor Checklist"
-                    value={`${insights.supervisorChecklistSubmitted}/3`}
-                    note="Housekeeping supervisors submitted"
-                    tone={insights.supervisorChecklistSubmitted >= 3 ? 'done' : 'violet'}
-                    icon="housekeeping"
-                    alert={insights.supervisorChecklistSubmitted < 3}
-                  />
-                  <OverviewMetricCard
-                    title="PA Checklist"
-                    value={`${insights.paChecklistSubmitted}/1`}
-                    note="Public Area submitted"
-                    tone={insights.paChecklistSubmitted >= 1 ? 'done' : 'violet'}
-                    icon="clipboard"
-                    alert={insights.paChecklistSubmitted < 1}
-                  />
-                  <OverviewMetricCard
-                    title="F&B Checklist"
-                    value={`${insights.fnbChecklistSubmitted}/1`}
-                    note="F&B submitted"
-                    tone={insights.fnbChecklistSubmitted >= 1 ? 'done' : 'violet'}
-                    icon="clipboard"
-                    alert={insights.fnbChecklistSubmitted < 1}
-                  />
-                  <OverviewMetricCard
-                    title="Room Pending Save"
-                    value={insights.roomPendingSave}
-                    note="Chambermaid entries not saved"
-                    tone="violet"
-                    icon="door"
-                  />
-                  <OverviewMetricCard
-                    title="Special Project Completion"
-                    value={`${insights.specialProjectCompletion}%`}
-                    note={`${insights.specialProjectDoneRooms}/156 rooms completed`}
-                    tone="progress"
-                    icon="progress"
-                  />
-                  <OverviewMetricCard
-                    title="Overdue PM"
-                    value={insights.overduePm}
-                    note="Preventive maintenance overdue"
-                    tone="danger"
-                    icon="alert"
-                  />
-                </section>
-              ) : null}
-
-              {sidebarView === 'DASHBOARD' ? (
-                <section
-                  style={{
-                    ...styles.operationTrackerGrid,
-                    gridTemplateColumns: isMobile
-                      ? 'repeat(2, minmax(0, 1fr))'
-                      : isTablet
-                      ? 'repeat(3, minmax(0, 1fr))'
-                      : 'repeat(3, minmax(0, 1fr))',
-                  }}
-                >
-                  {managerRoomCheckTrackers.map((item) => {
-                    const incomplete = Math.max(0, item.total - item.completed);
-
-                    return (
-                      <Link key={item.key} href={item.href} style={styles.operationTrackerCard}>
-                        <div
-                          style={{
-                            ...styles.operationTrackerIcon,
-                            background: item.key === 'HK' ? '#ecfdf5' : '#eff6ff',
-                            color: item.key === 'HK' ? '#16a34a' : '#2563eb',
-                          }}
-                        >
-                          <DashboardIcon name={item.key === 'HK' ? 'housekeeping' : 'maintenance'} size={19} />
-                        </div>
-                        <div style={styles.operationTrackerContent}>
-                          <div style={styles.operationTrackerLabel}>
-                            {isMobile ? (item.key === 'HK' ? 'HK Room Check' : 'MT Room Check') : item.title}
-                          </div>
-                          <div style={styles.operationTrackerValue}>
-                            {item.completed}/{item.total}
-                          </div>
-                          <div style={styles.operationTrackerNote}>{incomplete} open</div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-
-                  <Link
-                    href="/dashboard/laundry-count"
-                    style={{
-                      ...styles.operationTrackerCard,
-                      gridColumn: isMobile ? '1 / -1' : undefined,
-                    }}
-                  >
+                <section style={styles.overviewSectionStack}>
+                  <div style={styles.overviewBand}>
+                    <div style={styles.overviewBandHeader}>
+                      <div>
+                        <div style={styles.overviewBandEyebrow}>Front Office</div>
+                        <div style={styles.overviewBandTitle}>FO Daily Control</div>
+                      </div>
+                    </div>
                     <div
                       style={{
-                        ...styles.operationTrackerIcon,
-                        background: insights.laundryReceivedSaved ? '#ecfdf5' : '#fff7ed',
-                        color: insights.laundryReceivedSaved ? '#16a34a' : '#d97706',
+                        ...styles.overviewBandGrid,
+                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
                       }}
                     >
-                      <DashboardIcon name={insights.laundryReceivedSaved ? 'laundry' : 'alert'} size={19} />
+                      <OverviewMetricCard href="/dashboard?status=open" title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
+                      <OverviewMetricCard href="/dashboard?status=done" title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
+                      <OverviewMetricCard
+                        href="/dashboard/fo-checklist"
+                        title="FO Checklist"
+                        value={`${insights.foChecklistSubmitted}/3`}
+                        note="Morning, Afternoon, Night submitted"
+                        tone="violet"
+                        icon="clipboard"
+                        alert={insights.foChecklistHasNoAnswer}
+                      />
                     </div>
-                    <div style={styles.operationTrackerContent}>
-                      <div style={styles.operationTrackerLabel}>Laundry Received</div>
-                      <div
-                        style={{
-                          ...styles.operationTrackerValue,
-                          color: insights.laundryReceivedSaved ? '#047857' : '#b45309',
-                        }}
-                      >
-                        {insights.laundryReceivedSaved ? 'Saved' : 'Not saved'}
-                      </div>
-                      <div style={styles.operationTrackerNote}>
-                        {laundryReceivedNote}
+                  </div>
+
+                  <div style={styles.overviewBand}>
+                    <div style={styles.overviewBandHeader}>
+                      <div>
+                        <div style={styles.overviewBandEyebrow}>Housekeeping</div>
+                        <div style={styles.overviewBandTitle}>Room Operations</div>
                       </div>
                     </div>
-                  </Link>
+                    <div
+                      style={{
+                        ...styles.overviewBandGrid,
+                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                      }}
+                    >
+                      <OverviewMetricCard
+                        href="/dashboard/chambermaid-entry"
+                        title="Room Pending Save"
+                        value={insights.roomPendingSave}
+                        note="Chambermaid entries not saved"
+                        tone="violet"
+                        icon="door"
+                      />
+                      <OverviewMetricCard
+                        href="/dashboard/hk-special-project"
+                        title="Special Project Completion"
+                        value={`${insights.specialProjectCompletion}%`}
+                        note={`${insights.specialProjectDoneRooms}/156 rooms completed`}
+                        tone="progress"
+                        icon="progress"
+                      />
+                      <OverviewMetricCard
+                        href="/dashboard/hk-manager-room-check"
+                        title="Housekeeping Room Check"
+                        value={`${insights.managerRoomCheck.HK.completed}/${insights.managerRoomCheck.HK.total}`}
+                        note={`${Math.max(0, insights.managerRoomCheck.HK.total - insights.managerRoomCheck.HK.completed)} open`}
+                        tone={insights.managerRoomCheck.HK.total > 0 && insights.managerRoomCheck.HK.completed >= insights.managerRoomCheck.HK.total ? 'done' : 'violet'}
+                        icon="housekeeping"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.overviewBand}>
+                    <div style={styles.overviewBandHeader}>
+                      <div>
+                        <div style={styles.overviewBandEyebrow}>Housekeeping</div>
+                        <div style={styles.overviewBandTitle}>Supervisor, PA & Linen</div>
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        ...styles.overviewBandGrid,
+                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                      }}
+                    >
+                      <OverviewMetricCard
+                        href="/dashboard/supervisor-checklist"
+                        title="Supervisor Checklist"
+                        value={`${insights.supervisorChecklistSubmitted}/3`}
+                        note="Housekeeping supervisors submitted"
+                        tone={insights.supervisorChecklistSubmitted >= 3 ? 'done' : 'violet'}
+                        icon="housekeeping"
+                        alert={insights.supervisorChecklistSubmitted < 3}
+                      />
+                      <OverviewMetricCard
+                        href="/dashboard/pa-checklist"
+                        title="PA Checklist"
+                        value={`${insights.paChecklistSubmitted}/1`}
+                        note="Public Area submitted"
+                        tone={insights.paChecklistSubmitted >= 1 ? 'done' : 'violet'}
+                        icon="clipboard"
+                        alert={insights.paChecklistSubmitted < 1}
+                      />
+                      <OverviewMetricCard
+                        href="/dashboard/laundry-count"
+                        title="Laundry Received"
+                        value={insights.laundryReceivedSaved ? 'Saved' : 'Not saved'}
+                        note={laundryReceivedNote}
+                        tone={insights.laundryReceivedSaved ? 'done' : 'progress'}
+                        icon={insights.laundryReceivedSaved ? 'laundry' : 'alert'}
+                        alert={!insights.laundryReceivedSaved}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.overviewBand}>
+                    <div style={styles.overviewBandHeader}>
+                      <div>
+                        <div style={styles.overviewBandEyebrow}>Others</div>
+                        <div style={styles.overviewBandTitle}>Maintenance & F&B</div>
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        ...styles.overviewBandGrid,
+                        gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))',
+                      }}
+                    >
+                      <OverviewMetricCard
+                        href="/dashboard/maintenance-manager-room-check"
+                        title="Maintenance Room Check"
+                        value={`${insights.managerRoomCheck.MT.completed}/${insights.managerRoomCheck.MT.total}`}
+                        note={`${Math.max(0, insights.managerRoomCheck.MT.total - insights.managerRoomCheck.MT.completed)} open`}
+                        tone={insights.managerRoomCheck.MT.total > 0 && insights.managerRoomCheck.MT.completed >= insights.managerRoomCheck.MT.total ? 'done' : 'open'}
+                        icon="maintenance"
+                      />
+                      <OverviewMetricCard
+                        href="/dashboard/preventive-maintenance"
+                        title="Overdue PM"
+                        value={insights.overduePm}
+                        note="Preventive maintenance overdue"
+                        tone="danger"
+                        icon="alert"
+                      />
+                      <OverviewMetricCard
+                        href="/dashboard/fnb-checklist"
+                        title="F&B Checklist"
+                        value={`${insights.fnbChecklistSubmitted}/1`}
+                        note="F&B submitted"
+                        tone={insights.fnbChecklistSubmitted >= 1 ? 'done' : 'violet'}
+                        icon="clipboard"
+                        alert={insights.fnbChecklistSubmitted < 1}
+                      />
+                    </div>
+                  </div>
                 </section>
               ) : null}
 
@@ -4125,6 +4139,45 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
     marginBottom: 12,
   },
+  overviewSectionStack: {
+    display: 'grid',
+    gap: 12,
+    marginBottom: 12,
+  },
+  overviewBand: {
+    border: '1px solid rgba(198, 213, 232, 0.92)',
+    background:
+      'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(248,251,255,0.84) 100%)',
+    borderRadius: 18,
+    padding: 10,
+    boxShadow: '0 16px 34px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.96)',
+  },
+  overviewBandHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    padding: '2px 4px 10px',
+  },
+  overviewBandEyebrow: {
+    fontSize: 10,
+    lineHeight: 1,
+    fontWeight: 950,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: '#2563eb',
+  },
+  overviewBandTitle: {
+    marginTop: 5,
+    color: '#0f172a',
+    fontSize: 15,
+    lineHeight: 1.15,
+    fontWeight: 950,
+  },
+  overviewBandGrid: {
+    display: 'grid',
+    gap: 10,
+  },
   overviewCard: {
     display: 'flex',
     alignItems: 'flex-start',
@@ -4135,6 +4188,12 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 12,
     minHeight: 82,
     boxShadow: '0 14px 30px rgba(15, 23, 42, 0.055), inset 0 1px 0 rgba(255,255,255,0.9)',
+  },
+  overviewCardLink: {
+    textDecoration: 'none',
+    color: '#0f172a',
+    cursor: 'pointer',
+    transition: 'transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease',
   },
   overviewContent: {
     minWidth: 0,
