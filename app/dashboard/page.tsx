@@ -64,6 +64,7 @@ type DashboardInsights = {
   foChecklistHasNoAnswer: boolean;
   supervisorChecklistSubmitted: number;
   paChecklistSubmitted: number;
+  fnbChecklistSubmitted: number;
   managerRoomCheck: {
     HK: { completed: number; total: number };
     MT: { completed: number; total: number };
@@ -91,6 +92,7 @@ const HOUSEKEEPING_SUPERVISOR_EMAILS = [
   'hksup3@hotelhallmark.com',
 ];
 const PA_CHECKLIST_SUBMITTER_EMAILS = ['pa@hotelhallmark.com'];
+const FNB_CHECKLIST_SUBMITTER_EMAILS = ['fnb@hotelhallmark.com'];
 
 type AdminUser = {
   email: string;
@@ -673,6 +675,7 @@ export default function DashboardPage() {
     foChecklistHasNoAnswer: false,
     supervisorChecklistSubmitted: 0,
     paChecklistSubmitted: 0,
+    fnbChecklistSubmitted: 0,
     managerRoomCheck: {
       HK: { completed: 0, total: 0 },
       MT: { completed: 0, total: 0 },
@@ -961,6 +964,7 @@ export default function DashboardPage() {
         foChecklistHasNoAnswer: parsed.insights.foChecklistHasNoAnswer === true,
         supervisorChecklistSubmitted: Number(parsed.insights.supervisorChecklistSubmitted || 0),
         paChecklistSubmitted: Number(parsed.insights.paChecklistSubmitted || 0),
+        fnbChecklistSubmitted: Number(parsed.insights.fnbChecklistSubmitted || 0),
         managerRoomCheck: {
           HK: {
             completed: Number(parsed.insights.managerRoomCheck?.HK?.completed || 0),
@@ -1404,6 +1408,7 @@ export default function DashboardPage() {
       let foChecklistHasNoAnswer = false;
       let supervisorChecklistSubmitted = 0;
       let paChecklistSubmitted = 0;
+      let fnbChecklistSubmitted = 0;
       const foChecklistDate = getFoChecklistServiceDateString();
       const { data: foTemplates, error: foTemplatesError } = await supabase
         .from('fo_checklist_templates')
@@ -1507,6 +1512,35 @@ export default function DashboardPage() {
         }
       }
 
+      const fnbChecklistDate = getSupervisorChecklistServiceDateString();
+      const { data: fnbTemplates, error: fnbTemplatesError } = await supabase
+        .from('fnb_checklist_templates')
+        .select('id')
+        .eq('is_active', true);
+
+      if (!fnbTemplatesError) {
+        const fnbTemplateIds = ((fnbTemplates || []) as Array<{ id: string }>)
+          .map((template) => template.id)
+          .filter(Boolean);
+
+        if (fnbTemplateIds.length > 0) {
+          const { data: fnbSubmissions, error: fnbSubmissionsError } = await supabase
+            .from('fnb_checklist_submissions')
+            .select('submitted_by_email, template_id')
+            .eq('submission_date', fnbChecklistDate)
+            .in('template_id', fnbTemplateIds);
+
+          if (!fnbSubmissionsError) {
+            const submittedEmails = new Set(
+              ((fnbSubmissions || []) as Array<{ submitted_by_email?: string | null }>)
+                .map((submission) => String(submission.submitted_by_email || '').trim().toLowerCase())
+                .filter((email) => FNB_CHECKLIST_SUBMITTER_EMAILS.includes(email))
+            );
+            fnbChecklistSubmitted = submittedEmails.size > 0 ? 1 : 0;
+          }
+        }
+      }
+
       const managerRoomCheck = {
         HK: { completed: 0, total: 0 },
         MT: { completed: 0, total: 0 },
@@ -1539,6 +1573,7 @@ export default function DashboardPage() {
         foChecklistHasNoAnswer,
         supervisorChecklistSubmitted: Math.max(0, Math.min(3, supervisorChecklistSubmitted)),
         paChecklistSubmitted: Math.max(0, Math.min(1, paChecklistSubmitted)),
+        fnbChecklistSubmitted: Math.max(0, Math.min(1, fnbChecklistSubmitted)),
         managerRoomCheck,
         laundryReceivedBlocks,
         laundryReceivedSaved: laundryReceivedBlocks >= 2,
@@ -2698,6 +2733,14 @@ async function handleDeleteTask(taskId: string) {
                     tone={insights.paChecklistSubmitted >= 1 ? 'done' : 'violet'}
                     icon="clipboard"
                     alert={insights.paChecklistSubmitted < 1}
+                  />
+                  <OverviewMetricCard
+                    title="F&B Checklist"
+                    value={`${insights.fnbChecklistSubmitted}/1`}
+                    note="F&B submitted"
+                    tone={insights.fnbChecklistSubmitted >= 1 ? 'done' : 'violet'}
+                    icon="clipboard"
+                    alert={insights.fnbChecklistSubmitted < 1}
                   />
                   <OverviewMetricCard
                     title="Room Pending Save"
