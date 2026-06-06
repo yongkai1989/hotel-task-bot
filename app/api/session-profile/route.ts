@@ -205,7 +205,10 @@ function buildUser(profile: any, authEmail: string) {
       String(profile.email || authEmail || '').trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(profile.can_access_guest_laundry),
     can_access_fnb_checklist:
-      effectiveBoolean(role, profile.can_access_fnb_checklist),
+      (() => {
+        const email = String(profile.email || authEmail || '').trim().toLowerCase();
+        return role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+      })(),
     can_access_pa_checklist: (() => {
       const email = String(profile.email || authEmail || '').trim().toLowerCase();
       return (
