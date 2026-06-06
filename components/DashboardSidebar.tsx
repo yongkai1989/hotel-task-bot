@@ -726,6 +726,7 @@ export default function DashboardSidebar({
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
+  const canSeeCommissionChecker = canSeeManagementTasks;
   const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
   const canSeeLostFound =
     effectiveProfile?.role === 'SUPERUSER' ||
@@ -763,7 +764,7 @@ export default function DashboardSidebar({
     canSeeSupervisorChecklist;
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
-    canSeeDailyForms || canSeeManagementTasks || canSeeAdminSettings;
+    canSeeDailyForms || canSeeManagementTasks || canSeeCommissionChecker || canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeLostFound || canSeeFoChecklist || canSeePriceGuide || canSeeGuestLaundry;
   const showFnbGroup = canSeeFnbChecklist;
@@ -788,6 +789,7 @@ export default function DashboardSidebar({
     canSeePALinenEntry,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
+    canSeeCommissionChecker,
     effectiveProfile?.can_access_admin_settings,
     effectiveProfile?.can_access_lost_found,
     effectiveProfile?.can_access_price_guide,
@@ -1398,6 +1400,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="list" sub>Management Tasks</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeCommissionChecker ? (
+                <Link
+                  href="/dashboard/commission-checker"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="file" sub>Commission Checker</SidebarNavContent>
                 </Link>
               ) : null}
 
