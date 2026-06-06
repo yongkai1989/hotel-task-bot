@@ -238,7 +238,7 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       email === 'fenny@hotelhallmark.com' ||
       hasAccess(permissionValue('can_access_guest_laundry')),
     can_access_fnb_checklist:
-      isSuperuser || hasAccess(permissionValue('can_access_fnb_checklist')),
+      isSuperuser || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com',
     can_access_pa_checklist:
       isSuperuser ||
       email === 'pa@hotelhallmark.com' ||
