@@ -2303,10 +2303,9 @@ async function handleDeleteTask(taskId: string) {
       const taskText = createTaskText.trim();
       const departments = createDepts;
 
-      if (!room) throw new Error('Room / area / task name is required');
-      if (room.length > 80) throw new Error('Room / area / task name must be 80 characters or less');
+      if (!room) throw new Error('Room/area and description is required');
+      if (room.length > 80) throw new Error('Room/area and description must be 80 characters or less');
       if (!departments.length) throw new Error('Select at least one department');
-      if (!taskText) throw new Error('Task caption / description required');
 
       if (room !== createRoom) setCreateRoom(room);
 
@@ -2328,7 +2327,7 @@ async function handleDeleteTask(taskId: string) {
       void createTaskInBackground({
         room,
         departments,
-        taskText,
+        taskText: taskText || room,
         customerWaiting: createCustomerWaiting,
         mediaItems: mediaToUpload,
         shouldRefreshAfterMedia,
@@ -2353,10 +2352,9 @@ async function handleDeleteTask(taskId: string) {
       const taskText = editTaskText.trim();
 
       if (!editTaskId) throw new Error('Invalid task');
-      if (!room) throw new Error('Room / area / task name is required');
-      if (room.length > 80) throw new Error('Room / area / task name must be 80 characters or less');
+      if (!room) throw new Error('Room/area and description is required');
+      if (room.length > 80) throw new Error('Room/area and description must be 80 characters or less');
       if (!editDept) throw new Error('Select department');
-      if (!taskText) throw new Error('Task description required');
 
       setEditSubmitting(true);
 
@@ -2382,7 +2380,7 @@ async function handleDeleteTask(taskId: string) {
           body: JSON.stringify({
             room,
             department: editDept,
-            task_text: taskText,
+            task_text: taskText || room,
             keep_image_ids: editExistingImages
               .filter((img) => !editRemovedImageIds.includes(img.id))
               .map((img) => img.id),
@@ -2595,12 +2593,22 @@ async function handleDeleteTask(taskId: string) {
                 style={{
                   ...styles.brandActions,
                   width: isMobile ? '100%' : undefined,
-                  justifyContent: isMobile ? 'space-between' : 'flex-end',
+                  ...(isMobile
+                    ? {
+                        display: 'grid',
+                        gridTemplateColumns:
+                          sidebarView === 'DASHBOARD' ? '44px 44px minmax(0, 1fr)' : 'minmax(0, 1fr)',
+                        gap: 8,
+                      }
+                    : { justifyContent: 'flex-end' }),
                 }}
               >
                 <button
                   onClick={() => loadTasks(false, { force: true })}
-                  style={styles.headerGhostBtn}
+                  style={{
+                    ...styles.headerGhostBtn,
+                    ...(isMobile ? styles.mobileHeaderIconBtn : {}),
+                  }}
                   disabled={refreshing || loading}
                   title="Refresh tasks"
                   aria-label="Refresh tasks"
@@ -2608,7 +2616,7 @@ async function handleDeleteTask(taskId: string) {
                   <span style={styles.headerGhostIcon}>
                     <DashboardIcon name="refresh" size={17} />
                   </span>
-                  <span style={styles.headerGhostLabel}>Refresh</span>
+                  <span style={{ ...styles.headerGhostLabel, display: isMobile ? 'none' : 'inline' }}>Refresh</span>
                 </button>
                 {sidebarView === 'DASHBOARD' ? (
                   <>
@@ -2624,18 +2632,24 @@ async function handleDeleteTask(taskId: string) {
                     />
                     <button
                       onClick={openDashboardCameraShortcut}
-                      style={styles.headerGhostBtn}
+                      style={{
+                        ...styles.headerGhostBtn,
+                        ...(isMobile ? styles.mobileHeaderIconBtn : {}),
+                      }}
                       aria-label="Take photo and create task"
                       title="Take photo and create task"
                     >
                       <span style={styles.headerGhostIcon}>
                         <DashboardIcon name="camera" size={17} />
                       </span>
-                      <span style={styles.headerGhostLabel}>Camera</span>
+                      <span style={{ ...styles.headerGhostLabel, display: isMobile ? 'none' : 'inline' }}>Camera</span>
                     </button>
                     <button
                       onClick={openCreateModal}
-                      style={styles.addTaskBtn}
+                      style={{
+                        ...styles.addTaskBtn,
+                        ...(isMobile ? styles.mobileHeaderPrimaryBtn : {}),
+                      }}
                       aria-label="Create task"
                       title="Create new task"
                     >
@@ -3322,13 +3336,13 @@ async function handleDeleteTask(taskId: string) {
             {createError ? <div style={styles.createErrorBox}>{createError}</div> : null}
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Room / Area / Task Name</label>
+              <label style={styles.formLabel}>Room/Area & Description</label>
               <input
                 type="text"
                 value={createRoom}
                 onChange={(e) => setCreateRoom(e.target.value)}
                 style={modalResponsive.textInput}
-                placeholder="e.g. 1308, Corridor lights, Carpark"
+                placeholder="e.g. 1308 AC leaking, Corridor lights, Carpark"
                 disabled={createSubmitting}
               />
             </div>
@@ -3362,12 +3376,12 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Task Caption / Description</label>
+              <label style={styles.formLabel}>Additional Task Caption/Description</label>
               <textarea
                 value={createTaskText}
                 onChange={(e) => setCreateTaskText(e.target.value)}
                 style={modalResponsive.textArea}
-                placeholder="Short caption shown in the dashboard and Telegram"
+                placeholder="Optional extra details for dashboard and Telegram"
                 disabled={createSubmitting}
               />
             </div>
@@ -3501,7 +3515,7 @@ async function handleDeleteTask(taskId: string) {
             {editError ? <div style={styles.createErrorBox}>{editError}</div> : null}
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Room / Area / Task Name</label>
+              <label style={styles.formLabel}>Room/Area & Description</label>
               <input
                 type="text"
                 value={editRoom}
@@ -3528,7 +3542,7 @@ async function handleDeleteTask(taskId: string) {
             </div>
 
             <div style={styles.formBlock}>
-              <label style={styles.formLabel}>Task Description</label>
+              <label style={styles.formLabel}>Additional Task Caption/Description</label>
               <textarea
                 value={editTaskText}
                 onChange={(e) => setEditTaskText(e.target.value)}
@@ -4125,6 +4139,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     lineHeight: 1,
     whiteSpace: 'nowrap',
+  },
+  mobileHeaderIconBtn: {
+    width: 44,
+    minWidth: 44,
+    height: 44,
+    padding: 0,
+    borderRadius: 15,
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.96)',
+  },
+  mobileHeaderPrimaryBtn: {
+    width: '100%',
+    minWidth: 0,
+    justifyContent: 'center',
+    padding: '0 12px',
+    borderRadius: 15,
   },
   hiddenFileInput: {
     position: 'absolute',
