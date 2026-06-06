@@ -97,9 +97,17 @@ function compactDateTime(value?: string | null) {
 }
 
 function statusLabel(status: CheckStatus) {
-  if (status === 'PENDING_CHECK') return 'Pending Check';
   if (status === 'DONE') return 'Done';
+  if (status === 'PENDING_CHECK') return 'Done';
   return 'Open';
+}
+
+function isDoneLikeStatus(status: CheckStatus) {
+  return status === 'DONE' || status === 'PENDING_CHECK';
+}
+
+function statusClass(status: CheckStatus) {
+  return isDoneLikeStatus(status) ? 'done' : 'open';
 }
 
 function departmentLabel(department: DepartmentCode) {
@@ -267,9 +275,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     : [];
   const quickAddCheck = addingToCheckId ? checks.find((item) => item.id === addingToCheckId) || null : null;
 
-  const visibleChecks = checks.filter((check) =>
-    statusFilter === 'ALL' ? true : check.status === statusFilter
-  );
+  const visibleChecks = checks.filter((check) => {
+    if (statusFilter === 'ALL') return true;
+    if (statusFilter === 'DONE') return isDoneLikeStatus(check.status);
+    return check.status === statusFilter;
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -1111,12 +1121,15 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const checkItems = nextMedia.filter((mediaItem) => mediaItem.check_id === item.check_id);
       const allCompleted = checkItems.length > 0 && checkItems.every((mediaItem) => mediaItem.completed_at);
       if (allCompleted) {
+        const parentCheck = checks.find((check) => check.id === item.check_id) || null;
         const { error: checkError } = await supabase
           .from('manager_room_checks')
           .update({
-            status: 'PENDING_CHECK',
+            status: 'DONE',
             submitted_for_check_at: now,
             submitted_for_check_by_name: profile.name || null,
+            checked_at: now,
+            checked_by_name: profile.name || null,
             updated_at: now,
           })
           .eq('id', item.check_id)
@@ -1127,13 +1140,25 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             check.id === item.check_id
               ? {
                   ...check,
-                  status: 'PENDING_CHECK',
+                  status: 'DONE',
                   submitted_for_check_at: now,
                   submitted_for_check_by_name: profile.name || null,
+                  checked_at: now,
+                  checked_by_name: profile.name || null,
                 }
               : check
           )
         );
+        if (parentCheck) {
+          const synced = await syncDashboardReminderStatus(parentCheck, 'DONE');
+          setSuccessMsg(
+            synced
+              ? `Room check completed. ${synced} dashboard reminder${synced === 1 ? '' : 's'} marked done.`
+              : 'Room check completed.'
+          );
+        } else {
+          setSuccessMsg('Room check completed.');
+        }
       }
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to complete media item.');
@@ -1159,40 +1184,16 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           status: 'OPEN',
           submitted_for_check_at: null,
           submitted_for_check_by_name: null,
+          checked_at: null,
+          checked_by_name: null,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', item.check_id)
-        .neq('status', 'DONE');
+        .eq('id', item.check_id);
+      const parentCheck = checks.find((check) => check.id === item.check_id) || null;
+      if (parentCheck) await syncDashboardReminderStatus(parentCheck, 'OPEN');
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to reopen media item.');
-    }
-  }
-
-  async function markChecked(check: RoomCheck) {
-    if (!supabase || !profile) return;
-    setErrorMsg('');
-    try {
-      const now = new Date().toISOString();
-      const { error } = await supabase
-        .from('manager_room_checks')
-        .update({
-          status: 'DONE',
-          checked_at: now,
-          checked_by_name: profile.name || null,
-          updated_at: now,
-        })
-        .eq('id', check.id);
-      if (error) throw error;
-      const synced = await syncDashboardReminderStatus(check, 'DONE');
-      setSuccessMsg(
-        synced
-          ? `Room check marked as checked. ${synced} dashboard reminder${synced === 1 ? '' : 's'} marked done.`
-          : 'Room check marked as checked.'
-      );
-      await loadChecks();
-    } catch (error: any) {
-      setErrorMsg(error?.message || 'Failed to mark as checked.');
     }
   }
 
@@ -1562,7 +1563,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         <div>
           <div className="mrc-eyebrow">{departmentName} workspace</div>
           <h1>Manager Room Check</h1>
-          <p>Upload room photos or videos, complete each item, then submit for manager checking.</p>
+          <p>Upload room photos or videos, complete each item, and close the room check once the work is done.</p>
         </div>
         <div className="mrc-actions">
           <button className="mrc-secondary" type="button" onClick={() => void loadChecks()}>
@@ -1582,7 +1583,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       {uploadProgressMsg ? <div className="mrc-alert mrc-alert-info">{uploadProgressMsg}</div> : null}
 
       <section className="mrc-summary">
-        {(['OPEN', 'PENDING_CHECK', 'DONE'] as CheckStatus[]).map((status) => (
+        {(['OPEN', 'DONE'] as CheckStatus[]).map((status) => (
           <button
             key={status}
             className={`mrc-stat ${statusFilter === status ? 'is-active' : ''}`}
@@ -1590,7 +1591,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             onClick={() => setStatusFilter(status)}
           >
             <span>{statusLabel(status)}</span>
-            <strong>{checks.filter((check) => check.status === status).length}</strong>
+            <strong>
+              {status === 'DONE'
+                ? checks.filter((check) => isDoneLikeStatus(check.status)).length
+                : checks.filter((check) => check.status === status).length}
+            </strong>
           </button>
         ))}
         <button
@@ -1635,7 +1640,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       <strong>{total} media item{total === 1 ? '' : 's'}</strong>
                       <small>{check.description || 'Notes optional'}</small>
                     </span>
-                    <span className={`mrc-status mrc-status-${check.status.toLowerCase()}`}>
+                    <span className={`mrc-status mrc-status-${statusClass(check.status)}`}>
                       {statusLabel(check.status)}
                     </span>
                     <span className="mrc-progress">{done}/{total} media</span>
@@ -1751,7 +1756,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               <h3>Room {selectedCheck.room_number}</h3>
               <p>{selectedCheck.description || 'No notes'}</p>
             </div>
-            <span className={`mrc-status mrc-status-${selectedCheck.status.toLowerCase()}`}>
+            <span className={`mrc-status mrc-status-${statusClass(selectedCheck.status)}`}>
               {statusLabel(selectedCheck.status)}
             </span>
           </div>
@@ -1898,11 +1903,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 }}
               >
                 Add Media
-              </button>
-            ) : null}
-            {canFinalCheck && selectedCheck.status === 'PENDING_CHECK' ? (
-              <button type="button" className="mrc-primary" onClick={() => void markChecked(selectedCheck)}>
-                Mark Checked
               </button>
             ) : null}
             {canFinalCheck && selectedCheck.status === 'DONE' ? (
@@ -2379,10 +2379,6 @@ function StyleBlock() {
       .mrc-status-open {
         background: #eff6ff;
         color: #1d4ed8;
-      }
-      .mrc-status-pending_check {
-        background: #fff7ed;
-        color: #c2410c;
       }
       .mrc-status-done {
         background: #ecfdf5;
