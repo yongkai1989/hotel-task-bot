@@ -61,6 +61,8 @@ const DISPUTE_HIDDEN_HEADERS = new Set([
   'city',
   'country',
   'original amount',
+  'booked on',
+  'room nights',
 ]);
 
 function normalizeHeader(value: string) {
@@ -646,8 +648,6 @@ export default function CommissionCheckerPage() {
               <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
               <StatCard label="Name Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
               <StatCard label="Guest Name 2 ID Matches" value={reservationGuestName2Matches.length} tone={reservationGuestName2Matches.length ? 'blue' : 'green'} />
-              <StatCard label="PMS IDs" value={pmsCsv?.ids.length || 0} tone="amber" />
-              <StatCard label="Cancelled RM0 Ignored" value={commissionCsv?.ignoredCancelledRows.length || 0} tone="amber" />
             </div>
 
             <div className="cc-actions">
