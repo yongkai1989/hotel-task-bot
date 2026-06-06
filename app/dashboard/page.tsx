@@ -63,6 +63,7 @@ type DashboardInsights = {
   foChecklistSubmitted: number;
   foChecklistHasNoAnswer: boolean;
   supervisorChecklistSubmitted: number;
+  paChecklistSubmitted: number;
   managerRoomCheck: {
     HK: { completed: number; total: number };
     MT: { completed: number; total: number };
@@ -89,6 +90,7 @@ const HOUSEKEEPING_SUPERVISOR_EMAILS = [
   'hksup2@hotelhallmark.com',
   'hksup3@hotelhallmark.com',
 ];
+const PA_CHECKLIST_SUBMITTER_EMAILS = ['pa@hotelhallmark.com'];
 
 type AdminUser = {
   email: string;
@@ -670,6 +672,7 @@ export default function DashboardPage() {
     foChecklistSubmitted: 0,
     foChecklistHasNoAnswer: false,
     supervisorChecklistSubmitted: 0,
+    paChecklistSubmitted: 0,
     managerRoomCheck: {
       HK: { completed: 0, total: 0 },
       MT: { completed: 0, total: 0 },
@@ -957,6 +960,7 @@ export default function DashboardPage() {
         foChecklistSubmitted: Number(parsed.insights.foChecklistSubmitted || 0),
         foChecklistHasNoAnswer: parsed.insights.foChecklistHasNoAnswer === true,
         supervisorChecklistSubmitted: Number(parsed.insights.supervisorChecklistSubmitted || 0),
+        paChecklistSubmitted: Number(parsed.insights.paChecklistSubmitted || 0),
         managerRoomCheck: {
           HK: {
             completed: Number(parsed.insights.managerRoomCheck?.HK?.completed || 0),
@@ -1399,6 +1403,7 @@ export default function DashboardPage() {
       let foChecklistSubmitted = 0;
       let foChecklistHasNoAnswer = false;
       let supervisorChecklistSubmitted = 0;
+      let paChecklistSubmitted = 0;
       const foChecklistDate = getFoChecklistServiceDateString();
       const { data: foTemplates, error: foTemplatesError } = await supabase
         .from('fo_checklist_templates')
@@ -1473,6 +1478,35 @@ export default function DashboardPage() {
         }
       }
 
+      const paChecklistDate = getSupervisorChecklistServiceDateString();
+      const { data: paTemplates, error: paTemplatesError } = await supabase
+        .from('pa_checklist_templates')
+        .select('id')
+        .eq('is_active', true);
+
+      if (!paTemplatesError) {
+        const paTemplateIds = ((paTemplates || []) as Array<{ id: string }>)
+          .map((template) => template.id)
+          .filter(Boolean);
+
+        if (paTemplateIds.length > 0) {
+          const { data: paSubmissions, error: paSubmissionsError } = await supabase
+            .from('pa_checklist_submissions')
+            .select('submitted_by_email, template_id')
+            .eq('submission_date', paChecklistDate)
+            .in('template_id', paTemplateIds);
+
+          if (!paSubmissionsError) {
+            const submittedEmails = new Set(
+              ((paSubmissions || []) as Array<{ submitted_by_email?: string | null }>)
+                .map((submission) => String(submission.submitted_by_email || '').trim().toLowerCase())
+                .filter((email) => PA_CHECKLIST_SUBMITTER_EMAILS.includes(email))
+            );
+            paChecklistSubmitted = submittedEmails.size > 0 ? 1 : 0;
+          }
+        }
+      }
+
       const managerRoomCheck = {
         HK: { completed: 0, total: 0 },
         MT: { completed: 0, total: 0 },
@@ -1504,6 +1538,7 @@ export default function DashboardPage() {
         foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
         foChecklistHasNoAnswer,
         supervisorChecklistSubmitted: Math.max(0, Math.min(3, supervisorChecklistSubmitted)),
+        paChecklistSubmitted: Math.max(0, Math.min(1, paChecklistSubmitted)),
         managerRoomCheck,
         laundryReceivedBlocks,
         laundryReceivedSaved: laundryReceivedBlocks >= 2,
@@ -2655,6 +2690,14 @@ async function handleDeleteTask(taskId: string) {
                     tone={insights.supervisorChecklistSubmitted >= 3 ? 'done' : 'violet'}
                     icon="housekeeping"
                     alert={insights.supervisorChecklistSubmitted < 3}
+                  />
+                  <OverviewMetricCard
+                    title="PA Checklist"
+                    value={`${insights.paChecklistSubmitted}/1`}
+                    note="Public Area submitted"
+                    tone={insights.paChecklistSubmitted >= 1 ? 'done' : 'violet'}
+                    icon="clipboard"
+                    alert={insights.paChecklistSubmitted < 1}
                   />
                   <OverviewMetricCard
                     title="Room Pending Save"
