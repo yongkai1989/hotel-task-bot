@@ -24,8 +24,20 @@ type CompareResult = {
   pmsDuplicates: string[];
 };
 
+type NameMatch = {
+  reservationNumber: string;
+  commissionGuestName: string;
+  commissionRow: number;
+  pmsGuestName: string;
+  pmsRow: number;
+  pmsOtaRef: string;
+  matchType: 'Exact' | 'Likely';
+};
+
 const COMMISSION_COLUMN = 'reservation number';
 const PMS_COLUMN = 'OTA Ref. No';
+const COMMISSION_GUEST_NAME_COLUMN = 'Guest name';
+const PMS_GUEST_NAME_COLUMN = 'Guest Name 1';
 const STATUS_COLUMN = 'status';
 const COMMISSION_AMOUNT_COLUMN = 'Commission amount';
 
@@ -44,6 +56,32 @@ function normalizeBookingId(value: string) {
     .replace(/\s+/g, '')
     .replace(/\.0$/, '')
     .toUpperCase();
+}
+
+function normalizeGuestName(value: string) {
+  return String(value || '')
+    .replace(/^\uFEFF/, '')
+    .toLowerCase()
+    .replace(/\b(mr|mrs|ms|miss|mstr|master|dr|prof)\b\.?/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function guestNameMatchType(left: string, right: string): NameMatch['matchType'] | null {
+  const normalizedLeft = normalizeGuestName(left);
+  const normalizedRight = normalizeGuestName(right);
+
+  if (!normalizedLeft || !normalizedRight) return null;
+  if (normalizedLeft === normalizedRight) return 'Exact';
+
+  const leftTokens = new Set(normalizedLeft.split(' ').filter((token) => token.length > 1));
+  const rightTokens = new Set(normalizedRight.split(' ').filter((token) => token.length > 1));
+  if (!leftTokens.size || !rightTokens.size) return null;
+
+  const shared = Array.from(leftTokens).filter((token) => rightTokens.has(token)).length;
+  const smallerNameTokenCount = Math.min(leftTokens.size, rightTokens.size);
+  return shared >= 2 && shared / smallerNameTokenCount >= 0.75 ? 'Likely' : null;
 }
 
 function parseCsvText(text: string): string[][] {
@@ -122,6 +160,48 @@ function parseMoneyAmount(value: string) {
   if (!Number.isFinite(numeric)) return null;
 
   return isNegative ? -numeric : numeric;
+}
+
+function findGuestNameMatches(
+  disputes: ParsedCsv['ids'],
+  commissionCsv: ParsedCsv | null,
+  pmsCsv: ParsedCsv | null
+): NameMatch[] {
+  if (!commissionCsv || !pmsCsv || !disputes.length) return [];
+
+  const commissionGuestColumn = findColumn(commissionCsv.headers, COMMISSION_GUEST_NAME_COLUMN);
+  const pmsGuestColumn = findColumn(pmsCsv.headers, PMS_GUEST_NAME_COLUMN);
+  const pmsOtaColumn = findColumn(pmsCsv.headers, PMS_COLUMN);
+  if (!commissionGuestColumn || !pmsGuestColumn) return [];
+
+  const pmsRows = pmsCsv.rows
+    .map((row, index) => ({
+      row,
+      rowNumber: index + 2,
+      guestName: String(row[pmsGuestColumn] || '').trim(),
+      otaRef: pmsOtaColumn ? String(row[pmsOtaColumn] || '').trim() : '',
+    }))
+    .filter((item) => normalizeGuestName(item.guestName));
+
+  return disputes.flatMap((dispute) => {
+    const commissionGuestName = String(dispute.row[commissionGuestColumn] || '').trim();
+    if (!normalizeGuestName(commissionGuestName)) return [];
+
+    return pmsRows.flatMap((pmsRow) => {
+      const matchType = guestNameMatchType(commissionGuestName, pmsRow.guestName);
+      if (!matchType) return [];
+
+      return [{
+        reservationNumber: dispute.raw,
+        commissionGuestName,
+        commissionRow: dispute.rowNumber,
+        pmsGuestName: pmsRow.guestName,
+        pmsRow: pmsRow.rowNumber,
+        pmsOtaRef: pmsRow.otaRef,
+        matchType,
+      }];
+    });
+  });
 }
 
 async function readCsvFile(
@@ -353,6 +433,11 @@ export default function CommissionCheckerPage() {
     };
   }, [commissionCsv, pmsCsv]);
 
+  const nameMatches = useMemo(
+    () => findGuestNameMatches(result?.missing || [], commissionCsv, pmsCsv),
+    [commissionCsv, pmsCsv, result]
+  );
+
   async function handleFile(file: File, type: 'commission' | 'pms') {
     setBusy(true);
     setErrorMsg('');
@@ -381,6 +466,26 @@ export default function CommissionCheckerPage() {
     'CSV Row': String(item.rowNumber),
     ...item.row,
   })) || [];
+
+  const nameMatchHeaders = [
+    'Match Type',
+    'Reservation Number',
+    'Booking.com Guest Name',
+    'Booking.com CSV Row',
+    'PMS Guest Name 1',
+    'PMS CSV Row',
+    'PMS OTA Ref. No',
+  ];
+
+  const nameMatchRows: CsvRow[] = nameMatches.map((match) => ({
+    'Match Type': match.matchType,
+    'Reservation Number': match.reservationNumber,
+    'Booking.com Guest Name': match.commissionGuestName,
+    'Booking.com CSV Row': String(match.commissionRow),
+    'PMS Guest Name 1': match.pmsGuestName,
+    'PMS CSV Row': String(match.pmsRow),
+    'PMS OTA Ref. No': match.pmsOtaRef || '-',
+  }));
 
   return (
     <main className="cc-shell">
@@ -429,6 +534,7 @@ export default function CommissionCheckerPage() {
               <StatCard label="Commission IDs" value={commissionCsv?.ids.length || 0} tone="blue" />
               <StatCard label="Matched PMS" value={result.matches.length} tone="green" />
               <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
+              <StatCard label="Name Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
               <StatCard label="PMS IDs" value={pmsCsv?.ids.length || 0} tone="amber" />
               <StatCard label="Cancelled RM0 Ignored" value={commissionCsv?.ignoredCancelledRows.length || 0} tone="amber" />
             </div>
@@ -445,6 +551,14 @@ export default function CommissionCheckerPage() {
               <button
                 type="button"
                 className="cc-secondary-btn"
+                disabled={!nameMatchRows.length}
+                onClick={() => downloadCsv('booking-commission-name-matches.csv', nameMatchHeaders, nameMatchRows)}
+              >
+                Export Name Matches
+              </button>
+              <button
+                type="button"
+                className="cc-secondary-btn"
                 onClick={() => {
                   setCommissionCsv(null);
                   setPmsCsv(null);
@@ -454,15 +568,35 @@ export default function CommissionCheckerPage() {
               </button>
             </div>
 
-            {(result.commissionDuplicates.length || result.pmsDuplicates.length || commissionCsv?.blankRows.length || pmsCsv?.blankRows.length || commissionCsv?.ignoredCancelledRows.length) ? (
-              <div className="cc-warnings">
-                {commissionCsv?.ignoredCancelledRows.length ? <p>Booking.com cancelled rows with RM0 commission ignored: {commissionCsv.ignoredCancelledRows.slice(0, 8).join(', ')}{commissionCsv.ignoredCancelledRows.length > 8 ? '...' : ''}</p> : null}
-                {result.commissionDuplicates.length ? <p>Booking.com duplicate IDs: {result.commissionDuplicates.slice(0, 8).join(', ')}{result.commissionDuplicates.length > 8 ? '...' : ''}</p> : null}
-                {result.pmsDuplicates.length ? <p>PMS duplicate IDs: {result.pmsDuplicates.slice(0, 8).join(', ')}{result.pmsDuplicates.length > 8 ? '...' : ''}</p> : null}
-                {commissionCsv?.blankRows.length ? <p>Booking.com blank reservation rows: {commissionCsv.blankRows.slice(0, 8).join(', ')}{commissionCsv.blankRows.length > 8 ? '...' : ''}</p> : null}
-                {pmsCsv?.blankRows.length ? <p>PMS blank OTA Ref. No rows: {pmsCsv.blankRows.slice(0, 8).join(', ')}{pmsCsv.blankRows.length > 8 ? '...' : ''}</p> : null}
+            <section className="cc-subsection">
+              <div className="cc-subhead">
+                <div>
+                  <div className="cc-eyebrow">Name Cross-Check</div>
+                  <h3>Possible Guest Name Matches</h3>
+                </div>
+                <span className="cc-soft-badge">{nameMatches.length} found</span>
               </div>
-            ) : null}
+              <div className="cc-table-wrap">
+                <table className="cc-table cc-name-table">
+                  <thead>
+                    <tr>{nameMatchHeaders.map((header) => <th key={header}>{header}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {nameMatchRows.length ? (
+                      nameMatchRows.slice(0, 120).map((row, index) => (
+                        <tr key={`${row['Reservation Number']}-${row['PMS CSV Row']}-${index}`}>
+                          {nameMatchHeaders.map((header) => <td key={header}>{row[header] || '-'}</td>)}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={nameMatchHeaders.length}>No guest name match found among the possible disputes.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
             <div className="cc-table-wrap">
               <table className="cc-table">
@@ -767,6 +901,10 @@ export default function CommissionCheckerPage() {
           background: #fff;
           color: #0f172a;
         }
+        .cc-secondary-btn:disabled {
+          opacity: .45;
+          cursor: not-allowed;
+        }
         .cc-badge {
           border-radius: 999px;
           background: #eff6ff;
@@ -775,7 +913,6 @@ export default function CommissionCheckerPage() {
           font-size: 12px;
           font-weight: 900;
         }
-        .cc-warnings,
         .cc-error {
           border: 1px solid #fed7aa;
           background: #fffbeb;
@@ -792,7 +929,37 @@ export default function CommissionCheckerPage() {
           background: #fef2f2;
           color: #b91c1c;
         }
-        .cc-warnings p { margin: 4px 0; }
+        .cc-subsection {
+          border: 1px solid #dbe7f6;
+          border-radius: 20px;
+          background:
+            linear-gradient(180deg, #ffffff, #f8fbff);
+          padding: 14px;
+          margin: 4px 0 14px;
+        }
+        .cc-subhead {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+        .cc-subhead h3 {
+          margin: 0;
+          font-size: 20px;
+          color: #071225;
+          letter-spacing: 0;
+        }
+        .cc-soft-badge {
+          border-radius: 999px;
+          border: 1px solid #bfdbfe;
+          background: #eff6ff;
+          color: #1d4ed8;
+          padding: 7px 11px;
+          font-size: 12px;
+          font-weight: 950;
+          white-space: nowrap;
+        }
         .cc-table-wrap {
           overflow: auto;
           border: 1px solid #e2e8f0;
@@ -822,6 +989,9 @@ export default function CommissionCheckerPage() {
           position: sticky;
           top: 0;
           z-index: 1;
+        }
+        .cc-name-table th {
+          background: #f0f7ff;
         }
         .cc-empty {
           padding: 28px;
