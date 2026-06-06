@@ -25,8 +25,9 @@ type CompareResult = {
 };
 
 const COMMISSION_COLUMN = 'reservation number';
-const PMS_COLUMN = 'ota ref';
+const PMS_COLUMN = 'OTA Ref. No';
 const STATUS_COLUMN = 'status';
+const COMMISSION_AMOUNT_COLUMN = 'Commission amount';
 
 function normalizeHeader(value: string) {
   return String(value || '')
@@ -107,6 +108,22 @@ function isCancelledStatus(value: string) {
   return normalizeHeader(value) === 'cancelled' || normalizeHeader(value) === 'canceled';
 }
 
+function parseMoneyAmount(value: string) {
+  const cleaned = String(value || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/[^\d.,()-]/g, '')
+    .replace(/,/g, '')
+    .trim();
+
+  if (!cleaned) return null;
+
+  const isNegative = cleaned.startsWith('(') && cleaned.endsWith(')');
+  const numeric = Number(cleaned.replace(/[()]/g, ''));
+  if (!Number.isFinite(numeric)) return null;
+
+  return isNegative ? -numeric : numeric;
+}
+
 async function readCsvFile(
   file: File,
   targetColumn: string,
@@ -132,6 +149,7 @@ async function readCsvFile(
   const headers = matrix[0].map((header) => header.trim());
   const matchedColumn = findColumn(headers, targetColumn);
   const statusColumn = findColumn(headers, STATUS_COLUMN);
+  const commissionAmountColumn = findColumn(headers, COMMISSION_AMOUNT_COLUMN);
 
   if (!matchedColumn) {
     return {
@@ -162,7 +180,13 @@ async function readCsvFile(
   rows.forEach((row, index) => {
     const rowNumber = index + 2;
 
-    if (options.ignoreCancelledStatus && statusColumn && isCancelledStatus(row[statusColumn])) {
+    const commissionAmount = commissionAmountColumn ? parseMoneyAmount(row[commissionAmountColumn]) : null;
+    if (
+      options.ignoreCancelledStatus &&
+      statusColumn &&
+      isCancelledStatus(row[statusColumn]) &&
+      commissionAmount === 0
+    ) {
       ignoredCancelledRows.push(rowNumber);
       return;
     }
@@ -253,7 +277,7 @@ function FileBox({
           <span>
             {parsed.error
             ? parsed.error
-              : `${parsed.ids.length} usable IDs, ${parsed.blankRows.length} blank row${parsed.blankRows.length === 1 ? '' : 's'}${parsed.ignoredCancelledRows.length ? `, ${parsed.ignoredCancelledRows.length} cancelled ignored` : ''}`}
+              : `${parsed.ids.length} usable IDs, ${parsed.blankRows.length} blank row${parsed.blankRows.length === 1 ? '' : 's'}${parsed.ignoredCancelledRows.length ? `, ${parsed.ignoredCancelledRows.length} cancelled RM0 ignored` : ''}`}
           </span>
         </div>
       ) : null}
@@ -303,7 +327,7 @@ export default function CommissionCheckerPage() {
     : ['Dispute Reason', 'Reservation Number', 'CSV Row'];
 
   const disputeRows: CsvRow[] = result?.missing.map((item) => ({
-    'Dispute Reason': 'Reservation number not found in PMS OTA Ref',
+    'Dispute Reason': 'Reservation number not found in PMS OTA Ref. No',
     'Reservation Number': item.raw,
     'CSV Row': String(item.rowNumber),
     ...item.row,
@@ -315,7 +339,7 @@ export default function CommissionCheckerPage() {
         <div>
           <div className="cc-eyebrow">Management Workspace</div>
           <h1>Commission Checker</h1>
-          <p>Compare Booking.com commission reservations against PMS OTA references before approving payment.</p>
+          <p>Compare Booking.com commission reservations against PMS OTA Ref. No before approving payment.</p>
         </div>
         <Link href="/dashboard" className="cc-secondary-link">Back to Dashboard</Link>
       </section>
@@ -325,7 +349,7 @@ export default function CommissionCheckerPage() {
       <section className="cc-grid">
         <FileBox
           title="Booking.com Commission CSV"
-          hint={`Required column: "${COMMISSION_COLUMN}". Rows with status "cancelled" are ignored.`}
+          hint={`Required column: "${COMMISSION_COLUMN}". Cancelled rows are ignored only when "${COMMISSION_AMOUNT_COLUMN}" is 0.`}
           parsed={commissionCsv}
           onFile={(file) => void handleFile(file, 'commission')}
         />
@@ -353,7 +377,7 @@ export default function CommissionCheckerPage() {
               <StatCard label="Matched PMS" value={result.matches.length} tone="green" />
               <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
               <StatCard label="PMS IDs" value={pmsCsv?.ids.length || 0} tone="amber" />
-              <StatCard label="Cancelled Ignored" value={commissionCsv?.ignoredCancelledRows.length || 0} tone="amber" />
+              <StatCard label="Cancelled RM0 Ignored" value={commissionCsv?.ignoredCancelledRows.length || 0} tone="amber" />
             </div>
 
             <div className="cc-actions">
@@ -379,11 +403,11 @@ export default function CommissionCheckerPage() {
 
             {(result.commissionDuplicates.length || result.pmsDuplicates.length || commissionCsv?.blankRows.length || pmsCsv?.blankRows.length || commissionCsv?.ignoredCancelledRows.length) ? (
               <div className="cc-warnings">
-                {commissionCsv?.ignoredCancelledRows.length ? <p>Booking.com cancelled rows ignored: {commissionCsv.ignoredCancelledRows.slice(0, 8).join(', ')}{commissionCsv.ignoredCancelledRows.length > 8 ? '...' : ''}</p> : null}
+                {commissionCsv?.ignoredCancelledRows.length ? <p>Booking.com cancelled rows with RM0 commission ignored: {commissionCsv.ignoredCancelledRows.slice(0, 8).join(', ')}{commissionCsv.ignoredCancelledRows.length > 8 ? '...' : ''}</p> : null}
                 {result.commissionDuplicates.length ? <p>Booking.com duplicate IDs: {result.commissionDuplicates.slice(0, 8).join(', ')}{result.commissionDuplicates.length > 8 ? '...' : ''}</p> : null}
                 {result.pmsDuplicates.length ? <p>PMS duplicate IDs: {result.pmsDuplicates.slice(0, 8).join(', ')}{result.pmsDuplicates.length > 8 ? '...' : ''}</p> : null}
                 {commissionCsv?.blankRows.length ? <p>Booking.com blank reservation rows: {commissionCsv.blankRows.slice(0, 8).join(', ')}{commissionCsv.blankRows.length > 8 ? '...' : ''}</p> : null}
-                {pmsCsv?.blankRows.length ? <p>PMS blank OTA ref rows: {pmsCsv.blankRows.slice(0, 8).join(', ')}{pmsCsv.blankRows.length > 8 ? '...' : ''}</p> : null}
+                {pmsCsv?.blankRows.length ? <p>PMS blank OTA Ref. No rows: {pmsCsv.blankRows.slice(0, 8).join(', ')}{pmsCsv.blankRows.length > 8 ? '...' : ''}</p> : null}
               </div>
             ) : null}
 
@@ -401,7 +425,7 @@ export default function CommissionCheckerPage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={visibleHeaders.length}>No dispute IDs found. Every commission reservation number exists in PMS OTA Ref.</td>
+                      <td colSpan={visibleHeaders.length}>No dispute IDs found. Every commission reservation number exists in PMS OTA Ref. No.</td>
                     </tr>
                   )}
                 </tbody>
