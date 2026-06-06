@@ -34,6 +34,10 @@ type CompareResult = {
 const COMMISSION_COLUMN = 'reservation number';
 const PMS_COLUMN = 'ota ref';
 const STATUS_COLUMN = 'status';
+const COMMISSION_CHECKER_ALLOWED_EMAILS = [
+  'walter@hotelhallmark.com',
+  'fenny@hotelhallmark.com',
+];
 
 function normalizeHeader(value: string) {
   return String(value || '')
@@ -295,8 +299,15 @@ export default function CommissionCheckerPage() {
     };
   }, []);
 
+  const profileEmail = String(profile?.email || '').toLowerCase();
+  const profileRole = String(profile?.role || '').toUpperCase();
   const canAccess =
-    !!profile && (profile.role === 'SUPERUSER' || !!profile.can_access_management_tasks);
+    !!profile &&
+    (
+      profileRole === 'SUPERUSER' ||
+      !!profile.can_access_management_tasks ||
+      COMMISSION_CHECKER_ALLOWED_EMAILS.includes(profileEmail)
+    );
 
   const result = useMemo<CompareResult | null>(() => {
     if (!commissionCsv || !pmsCsv || commissionCsv.error || pmsCsv.error) return null;
@@ -349,7 +360,7 @@ export default function CommissionCheckerPage() {
       <main className="cc-shell">
         <div className="cc-center-card">
           <h1>Access denied</h1>
-          <p>Commission Checker is available to users with Management access.</p>
+          <p>Commission Checker is available to Superuser, Walter, Fenny, and users with Management access.</p>
           <Link href="/dashboard" className="cc-primary-link">Back to Dashboard</Link>
         </div>
       </main>
