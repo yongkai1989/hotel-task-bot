@@ -936,17 +936,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setUploadProgressMsg('');
     try {
       const normalizedRoomNumber = roomNumber.trim();
-      const groups = groupedDraftMedia(draftMedia);
+      const mediaToUpload = [...draftMedia];
+      const groups = groupedDraftMedia(mediaToUpload);
       const createdDepartments: string[] = [];
       const uploadJobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }> = [];
-      if (draftMedia.length) {
+      const optimisticRows: CheckMedia[] = [];
+      if (mediaToUpload.length) {
         for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
           const items = groups[targetDepartment];
           if (!items.length) continue;
           const check = await getOrCreateRoomCheck(targetDepartment, normalizedRoomNumber, description, true);
           if (check) {
             createdDepartments.push(departmentLabel(targetDepartment));
+            const existingCount = await getMediaCountForCheck(check.id);
             uploadJobs.push({ check, items, label: departmentLabel(targetDepartment) });
+            optimisticRows.push(...optimisticMediaRows(check, items, existingCount + 1));
           }
         }
       } else {
@@ -965,24 +969,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         });
         return next;
       });
+      if (optimisticRows.length) {
+        setMedia((current) => [...optimisticRows, ...current]);
+      }
       setSaving(false);
-      setSuccessMsg(`Manager room check created for ${createdDepartments.join(' and ')}.`);
+      setSuccessMsg(
+        uploadJobs.length
+          ? `Manager room check created for ${createdDepartments.join(' and ')}. Media is uploading in background.`
+          : `Manager room check created for ${createdDepartments.join(' and ')}.`
+      );
 
       if (uploadJobs.length) {
-        const totalMedia = uploadJobs.reduce((sum, job) => sum + job.items.length, 0);
-        let uploadedMedia = 0;
-        setUploadProgressMsg(`Uploading media 0/${totalMedia}...`);
-        for (const job of uploadJobs) {
-          setUploadProgressMsg(`Uploading ${job.label} media ${uploadedMedia}/${totalMedia}...`);
-          await appendMediaToRoomCheck(job.check, job.items, false);
-          uploadedMedia += job.items.length;
-          setUploadProgressMsg(`Uploading media ${uploadedMedia}/${totalMedia}...`);
-        }
-        draftMedia.forEach((item) => URL.revokeObjectURL(item.previewUrl));
-        setUploadProgressMsg('');
-        setSuccessMsg(`Manager room check and ${totalMedia} media item${totalMedia === 1 ? '' : 's'} uploaded.`);
+        queueMediaUploadJobs(uploadJobs);
+      } else {
+        await loadChecks();
       }
-      await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to create room check.');
       setUploadProgressMsg('');
@@ -1619,8 +1620,10 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         {visibleChecks.length ? (
           <div className="mrc-list">
             {visibleChecks.map((check) => {
-              const total = mediaCount(media, check.id);
-              const done = completedCount(media, check.id);
+              const checkMedia = media.filter((item) => item.check_id === check.id);
+              const total = checkMedia.length;
+              const done = checkMedia.filter((item) => item.completed_at).length;
+              const uploading = checkMedia.filter((item) => item.upload_status === 'uploading').length;
               const progress = total ? Math.round((done / total) * 100) : 0;
               return (
                 <div
@@ -1638,13 +1641,19 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                     <span className="mrc-room">Room {check.room_number}</span>
                     <span className="mrc-row-main">
                       <strong>{total} media item{total === 1 ? '' : 's'}</strong>
-                      <small>{check.description || 'Notes optional'}</small>
+                      {uploading ? (
+                        <small className="mrc-uploading-text">Uploading {uploading} media item{uploading === 1 ? '' : 's'}...</small>
+                      ) : (
+                        <small>{check.description || 'Notes optional'}</small>
+                      )}
                     </span>
                     <span className={`mrc-status mrc-status-${statusClass(check.status)}`}>
                       {statusLabel(check.status)}
                     </span>
-                    <span className="mrc-progress">{done}/{total} media</span>
-                    <span className="mrc-bar"><span style={{ width: `${progress}%` }} /></span>
+                    <span className={`mrc-progress ${uploading ? 'is-uploading' : ''}`}>
+                      {uploading ? 'Uploading' : `${done}/${total} media`}
+                    </span>
+                    <span className={`mrc-bar ${uploading ? 'is-uploading' : ''}`}><span style={{ width: `${uploading ? 100 : progress}%` }} /></span>
                   </button>
                   {canManageContent && check.status !== 'DONE' ? (
                     <label className="mrc-camera-button" title="Take photo for this room">
@@ -2369,6 +2378,10 @@ function StyleBlock() {
         color: #64748b;
         font-weight: 650;
       }
+      .mrc-row-main .mrc-uploading-text {
+        color: #1d4ed8;
+        font-weight: 900;
+      }
       .mrc-status {
         border-radius: 999px;
         padding: 7px 10px;
@@ -2388,6 +2401,9 @@ function StyleBlock() {
         color: #334155;
         font-weight: 850;
       }
+      .mrc-progress.is-uploading {
+        color: #1d4ed8;
+      }
       .mrc-bar {
         grid-column: 1 / -1;
         height: 7px;
@@ -2399,6 +2415,15 @@ function StyleBlock() {
         display: block;
         height: 100%;
         background: linear-gradient(90deg,#2563eb,#22c55e);
+      }
+      .mrc-bar.is-uploading span {
+        background: linear-gradient(90deg,#bfdbfe,#2563eb,#bfdbfe);
+        background-size: 180% 100%;
+        animation: mrcUploadShimmer 1.2s linear infinite;
+      }
+      @keyframes mrcUploadShimmer {
+        from { background-position: 0% 50%; }
+        to { background-position: 180% 50%; }
       }
       .mrc-empty {
         border: 1px dashed #cbd5e1;
