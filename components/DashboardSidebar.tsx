@@ -726,7 +726,11 @@ export default function DashboardSidebar({
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
-  const canSeeCommissionChecker = canSeeManagementTasks;
+  const canSeeCommissionChecker =
+    effectiveProfile?.role === 'SUPERUSER' ||
+    canSeeManagementTasks ||
+    effectiveProfile?.email === 'walter@hotelhallmark.com' ||
+    effectiveProfile?.email === 'fenny@hotelhallmark.com';
   const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
   const canSeeLostFound =
     effectiveProfile?.role === 'SUPERUSER' ||
