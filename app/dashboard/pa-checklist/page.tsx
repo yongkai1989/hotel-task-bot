@@ -77,7 +77,9 @@ const PA_CHECKLIST_ALLOWED_EMAILS = [
   'manager@hotelhallmark.com',
   'hksup1@hotelhallmark.com',
   'hksup2@hotelhallmark.com',
+  'hksup3@hotelhallmark.com',
 ];
+const PA_CHECKLIST_SUBMITTER_EMAILS = ['pa@hotelhallmark.com'];
 
 function getTodayLocalDateString() {
   const d = new Date();
@@ -180,6 +182,7 @@ export default function PAChecklistPage() {
       profile.can_access_pa_checklist === true ||
       PA_CHECKLIST_ALLOWED_EMAILS.includes(String(profile.email || '').toLowerCase())
     );
+  const canSubmitChecklist = !!profile && PA_CHECKLIST_SUBMITTER_EMAILS.includes(String(profile.email || '').toLowerCase());
   const isMobile = viewportWidth <= 640;
   const isTablet = viewportWidth > 640 && viewportWidth <= 980;
 
@@ -376,7 +379,7 @@ export default function PAChecklistPage() {
         if (trackerError) throw trackerError;
         setTrackerRows(
           ((trackerData || []) as TrackerRow[]).filter((row) =>
-            PA_CHECKLIST_ALLOWED_EMAILS.includes(String(row.email || '').toLowerCase())
+            PA_CHECKLIST_SUBMITTER_EMAILS.includes(String(row.email || '').toLowerCase())
           )
         );
       } catch {
@@ -708,6 +711,10 @@ export default function PAChecklistPage() {
 
   async function handleSaveSubmission() {
     if (!supabase || !profile?.user_id || !selectedTemplate) return;
+    if (!canSubmitChecklist) {
+      setErrorMsg('Only pa@hotelhallmark.com is required to submit the PA Checklist.');
+      return;
+    }
 
     for (const question of selectedQuestions) {
       if (!question.is_required) continue;
@@ -866,7 +873,7 @@ export default function PAChecklistPage() {
             <div style={styles.sectionEyebrow}>Submission Tracker</div>
             <div style={styles.trackerTitle}>
               {trackerRows.length > 0
-                ? `${submittedCount}/${trackerRows.length} users submitted`
+                ? `${submittedCount}/${trackerRows.length} PA submitted`
                 : 'No PA checklist users found'}
             </div>
           </div>
@@ -908,7 +915,7 @@ export default function PAChecklistPage() {
           </div>
         ) : (
           <div style={styles.trackerEmpty}>
-            No PA checklist users are currently listed for this tracker. Make sure the PA Checklist SQL has been run.
+            No PA submitter is currently listed for this tracker. Make sure pa@hotelhallmark.com has PA Checklist access.
           </div>
         )}
       </div>
@@ -1090,6 +1097,11 @@ export default function PAChecklistPage() {
                     ? `Submitted on ${formatDateTime(todaySubmission.created_at)}`
                     : `No submission yet for ${formatDate(today)}`}
                 </div>
+                {!canSubmitChecklist ? (
+                  <div style={styles.ChecklistsubMeta}>
+                    View only. PA Checklist submission is required from pa@hotelhallmark.com only.
+                  </div>
+                ) : null}
                 {todaySubmission?.updated_at && todaySubmission.updated_at !== todaySubmission.created_at ? (
                   <div style={styles.ChecklistsubMeta}>
                     Last updated: {formatDateTime(todaySubmission.updated_at)}
@@ -1157,11 +1169,13 @@ export default function PAChecklistPage() {
                       <button
                         type="button"
                         onClick={() => updateAnswer(question, true)}
+                        disabled={!canSubmitChecklist}
                         style={{
                           ...styles.answerChoiceBtn,
                           ...(answers[question.id]?.answer_yes_no === true
                             ? styles.answerChoiceBtnActive
                             : {}),
+                          opacity: canSubmitChecklist ? 1 : 0.65,
                         }}
                       >
                         Yes
@@ -1169,11 +1183,13 @@ export default function PAChecklistPage() {
                       <button
                         type="button"
                         onClick={() => updateAnswer(question, false)}
+                        disabled={!canSubmitChecklist}
                         style={{
                           ...styles.answerChoiceBtn,
                           ...(answers[question.id]?.answer_yes_no === false
                             ? styles.answerChoiceBtnActive
                             : {}),
+                          opacity: canSubmitChecklist ? 1 : 0.65,
                         }}
                       >
                         No
@@ -1185,6 +1201,7 @@ export default function PAChecklistPage() {
                       onChange={(e) => updateAnswer(question, e.target.value)}
                       style={{ ...styles.textarea, ...(isMobile ? styles.textareaMobile : {}) }}
                       placeholder="Enter short answer"
+                      disabled={!canSubmitChecklist}
                     />
                   )}
 
@@ -1195,12 +1212,14 @@ export default function PAChecklistPage() {
                         onChange={(e) => updateRemark(question, e.target.value)}
                         style={{ ...styles.remarkTextarea, ...(isMobile ? styles.textareaCompactMobile : {}) }}
                         placeholder="Add remark for this question"
+                        disabled={!canSubmitChecklist}
                       />
                     ) : (
                       <button
                         type="button"
                         onClick={() => toggleRemark(question.id)}
                         style={styles.addRemarkBtn}
+                        disabled={!canSubmitChecklist}
                       >
                         + Remark
                       </button>
@@ -1218,18 +1237,20 @@ export default function PAChecklistPage() {
               >
                 Back to Checklists
               </button>
-              <button
-                type="button"
-                onClick={() => void handleSaveSubmission()}
-                style={{
-                  ...styles.primaryBtn,
-                  ...(isMobile ? styles.mobileActionBtn : {}),
-                  opacity: savingAnswers ? 0.6 : 1,
-                }}
-                disabled={savingAnswers}
-              >
-                {savingAnswers ? 'Saving...' : todaySubmission ? 'Update Answers' : 'Submit Checklist'}
-              </button>
+              {canSubmitChecklist ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSaveSubmission()}
+                  style={{
+                    ...styles.primaryBtn,
+                    ...(isMobile ? styles.mobileActionBtn : {}),
+                    opacity: savingAnswers ? 0.6 : 1,
+                  }}
+                  disabled={savingAnswers}
+                >
+                  {savingAnswers ? 'Saving...' : todaySubmission ? 'Update Answers' : 'Submit Checklist'}
+                </button>
+              ) : null}
             </div>
           </section>
         ) : null}
