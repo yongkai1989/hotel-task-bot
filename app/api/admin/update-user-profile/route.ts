@@ -204,7 +204,7 @@ function withPermissions(row: any) {
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_guest_laundry),
     can_access_fnb_checklist:
-      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fnb_checklist),
+      role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com',
     can_access_pa_checklist:
       role === 'SUPERUSER' ||
       email === 'pa@hotelhallmark.com' ||
