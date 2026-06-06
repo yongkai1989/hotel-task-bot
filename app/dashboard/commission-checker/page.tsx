@@ -1,14 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-
-type Profile = {
-  email: string;
-  name: string;
-  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
-  can_access_management_tasks?: boolean;
-};
 
 type CsvRow = Record<string, string>;
 
@@ -34,10 +27,6 @@ type CompareResult = {
 const COMMISSION_COLUMN = 'reservation number';
 const PMS_COLUMN = 'ota ref';
 const STATUS_COLUMN = 'status';
-const COMMISSION_CHECKER_ALLOWED_EMAILS = [
-  'walter@hotelhallmark.com',
-  'fenny@hotelhallmark.com',
-];
 
 function normalizeHeader(value: string) {
   return String(value || '')
@@ -273,41 +262,10 @@ function FileBox({
 }
 
 export default function CommissionCheckerPage() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [commissionCsv, setCommissionCsv] = useState<ParsedCsv | null>(null);
   const [pmsCsv, setPmsCsv] = useState<ParsedCsv | null>(null);
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-
-  useEffect(() => {
-    let mounted = true;
-    fetch(`/api/session-profile?t=${Date.now()}`, { cache: 'no-store' })
-      .then((res) => res.json())
-      .then((json) => {
-        if (!mounted) return;
-        setProfile(json?.user || null);
-      })
-      .catch(() => {
-        if (mounted) setProfile(null);
-      })
-      .finally(() => {
-        if (mounted) setAuthLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const profileEmail = String(profile?.email || '').toLowerCase();
-  const profileRole = String(profile?.role || '').toUpperCase();
-  const canAccess =
-    !!profile &&
-    (
-      profileRole === 'SUPERUSER' ||
-      !!profile.can_access_management_tasks ||
-      COMMISSION_CHECKER_ALLOWED_EMAILS.includes(profileEmail)
-    );
 
   const result = useMemo<CompareResult | null>(() => {
     if (!commissionCsv || !pmsCsv || commissionCsv.error || pmsCsv.error) return null;
@@ -350,22 +308,6 @@ export default function CommissionCheckerPage() {
     'CSV Row': String(item.rowNumber),
     ...item.row,
   })) || [];
-
-  if (authLoading) {
-    return <main className="cc-shell"><div className="cc-center-card">Checking access...</div></main>;
-  }
-
-  if (!canAccess) {
-    return (
-      <main className="cc-shell">
-        <div className="cc-center-card">
-          <h1>Access denied</h1>
-          <p>Commission Checker is available to Superuser, Walter, Fenny, and users with Management access.</p>
-          <Link href="/dashboard" className="cc-primary-link">Back to Dashboard</Link>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="cc-shell">
