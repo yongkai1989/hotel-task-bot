@@ -49,6 +49,19 @@ const PMS_GUEST_NAME_COLUMN = 'Guest Name 1';
 const PMS_GUEST_NAME_2_COLUMN = 'Guest Name 2';
 const STATUS_COLUMN = 'status';
 const COMMISSION_AMOUNT_COLUMN = 'Commission amount';
+const DISPUTE_BASE_HEADERS = ['Dispute Reason', 'Reservation Number', 'CSV Row'];
+const DISPUTE_HIDDEN_HEADERS = new Set([
+  'invoice number',
+  'persons',
+  'commission%',
+  'commission %',
+  'currency',
+  'hotel id',
+  'property name',
+  'city',
+  'country',
+  'original amount',
+]);
 
 function normalizeHeader(value: string) {
   return String(value || '')
@@ -140,6 +153,33 @@ function parseCsvText(text: string): string[][] {
 function findColumn(headers: string[], wanted: string) {
   const normalizedWanted = normalizeHeader(wanted);
   return headers.find((header) => normalizeHeader(header) === normalizedWanted) || '';
+}
+
+function buildDisputeHeaders(headers: string[]) {
+  const guestNameColumn = findColumn(headers, COMMISSION_GUEST_NAME_COLUMN);
+  const statusColumn = findColumn(headers, STATUS_COLUMN);
+  const guestRequestColumn = findColumn(headers, 'guest request');
+  const frontColumns = [statusColumn, guestRequestColumn].filter(Boolean);
+  const frontColumnSet = new Set(frontColumns.map((header) => normalizeHeader(header)));
+
+  const cleanedHeaders = headers.filter((header) => {
+    const normalized = normalizeHeader(header);
+    return !DISPUTE_HIDDEN_HEADERS.has(normalized) && !frontColumnSet.has(normalized);
+  });
+
+  if (!guestNameColumn) {
+    return [...DISPUTE_BASE_HEADERS, ...frontColumns, ...cleanedHeaders];
+  }
+
+  const arrangedHeaders: string[] = [];
+  cleanedHeaders.forEach((header) => {
+    arrangedHeaders.push(header);
+    if (normalizeHeader(header) === normalizeHeader(guestNameColumn)) {
+      arrangedHeaders.push(...frontColumns);
+    }
+  });
+
+  return [...DISPUTE_BASE_HEADERS, ...arrangedHeaders];
 }
 
 function duplicateValues(values: string[]) {
@@ -511,8 +551,8 @@ export default function CommissionCheckerPage() {
   }
 
   const visibleHeaders = result?.missing.length
-    ? ['Dispute Reason', 'Reservation Number', 'CSV Row', ...commissionCsv!.headers]
-    : ['Dispute Reason', 'Reservation Number', 'CSV Row'];
+    ? buildDisputeHeaders(commissionCsv!.headers)
+    : DISPUTE_BASE_HEADERS;
 
   const disputeRows: CsvRow[] = result?.missing.map((item) => ({
     'Dispute Reason': 'Reservation number not found in PMS OTA Ref. No',
