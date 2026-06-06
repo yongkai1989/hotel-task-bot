@@ -544,7 +544,7 @@ export async function POST(req: NextRequest) {
     const sourceMessage = String(body.source_message || body.sourceMessage || '').trim();
     const rawTaskText = String(body.task_text || body.taskText || '').trim();
     const room = String(body.room || '').trim() || extractRoomFromText(sourceMessage) || extractRoomFromText(rawTaskText);
-    const taskText = rawTaskText || sourceMessage;
+    const taskText = rawTaskText || sourceMessage || room;
     const inferredDept = inferDepartmentFromText(sourceMessage || taskText);
     const requestedDepartments = normalizeDeptList(body.departments);
     const departments =
@@ -560,11 +560,11 @@ export async function POST(req: NextRequest) {
     const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
 
     if (!room) {
-      return jsonNoCache({ ok: false, error: 'Room / area / task name is required' }, 400);
+      return jsonNoCache({ ok: false, error: 'Room/area and description is required' }, 400);
     }
 
     if (room.length > 80) {
-      return jsonNoCache({ ok: false, error: 'Room / area / task name must be 80 characters or less' }, 400);
+      return jsonNoCache({ ok: false, error: 'Room/area and description must be 80 characters or less' }, 400);
     }
 
     if (!departments.length) {
@@ -575,7 +575,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!taskText) {
-      return jsonNoCache({ ok: false, error: 'Task text is required' }, 400);
+      return jsonNoCache({ ok: false, error: 'Room/area and description is required' }, 400);
     }
 
     const unresolvedDepartment = departments.find((department) => !resolveTelegramChatId(department));
