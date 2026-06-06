@@ -34,10 +34,19 @@ type NameMatch = {
   matchType: 'Exact' | 'Likely';
 };
 
+type ReservationGuestName2Match = {
+  reservationNumber: string;
+  commissionRow: number;
+  pmsGuestName2: string;
+  pmsRow: number;
+  pmsOtaRef: string;
+};
+
 const COMMISSION_COLUMN = 'reservation number';
 const PMS_COLUMN = 'OTA Ref. No';
 const COMMISSION_GUEST_NAME_COLUMN = 'Guest name';
 const PMS_GUEST_NAME_COLUMN = 'Guest Name 1';
+const PMS_GUEST_NAME_2_COLUMN = 'Guest Name 2';
 const STATUS_COLUMN = 'status';
 const COMMISSION_AMOUNT_COLUMN = 'Commission amount';
 
@@ -201,6 +210,36 @@ function findGuestNameMatches(
         matchType,
       }];
     });
+  });
+}
+
+function findReservationGuestName2Matches(
+  disputes: ParsedCsv['ids'],
+  pmsCsv: ParsedCsv | null
+): ReservationGuestName2Match[] {
+  if (!pmsCsv || !disputes.length) return [];
+
+  const pmsGuestName2Column = findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN);
+  const pmsOtaColumn = findColumn(pmsCsv.headers, PMS_COLUMN);
+  if (!pmsGuestName2Column) return [];
+
+  const disputeMap = new Map(
+    disputes.map((dispute) => [normalizeBookingId(dispute.raw), dispute])
+  );
+
+  return pmsCsv.rows.flatMap((row, index) => {
+    const pmsGuestName2 = String(row[pmsGuestName2Column] || '').trim();
+    const normalizedGuestName2 = normalizeBookingId(pmsGuestName2);
+    const dispute = disputeMap.get(normalizedGuestName2);
+    if (!dispute) return [];
+
+    return [{
+      reservationNumber: dispute.raw,
+      commissionRow: dispute.rowNumber,
+      pmsGuestName2,
+      pmsRow: index + 2,
+      pmsOtaRef: pmsOtaColumn ? String(row[pmsOtaColumn] || '').trim() : '',
+    }];
   });
 }
 
@@ -438,9 +477,19 @@ export default function CommissionCheckerPage() {
     [commissionCsv, pmsCsv, result]
   );
 
+  const reservationGuestName2Matches = useMemo(
+    () => findReservationGuestName2Matches(result?.missing || [], pmsCsv),
+    [pmsCsv, result]
+  );
+
   const disputeNameMatchSet = useMemo(
     () => new Set(nameMatches.map((match) => normalizeBookingId(match.reservationNumber))),
     [nameMatches]
+  );
+
+  const disputeReservationGuestName2MatchSet = useMemo(
+    () => new Set(reservationGuestName2Matches.map((match) => normalizeBookingId(match.reservationNumber))),
+    [reservationGuestName2Matches]
   );
 
   async function handleFile(file: File, type: 'commission' | 'pms') {
@@ -488,6 +537,22 @@ export default function CommissionCheckerPage() {
     'Booking.com Guest Name': match.commissionGuestName,
     'Booking.com CSV Row': String(match.commissionRow),
     'PMS Guest Name 1': match.pmsGuestName,
+    'PMS CSV Row': String(match.pmsRow),
+    'PMS OTA Ref. No': match.pmsOtaRef || '-',
+  }));
+
+  const reservationGuestName2Headers = [
+    'Reservation Number',
+    'Booking.com CSV Row',
+    'PMS Guest Name 2',
+    'PMS CSV Row',
+    'PMS OTA Ref. No',
+  ];
+
+  const reservationGuestName2Rows: CsvRow[] = reservationGuestName2Matches.map((match) => ({
+    'Reservation Number': match.reservationNumber,
+    'Booking.com CSV Row': String(match.commissionRow),
+    'PMS Guest Name 2': match.pmsGuestName2,
     'PMS CSV Row': String(match.pmsRow),
     'PMS OTA Ref. No': match.pmsOtaRef || '-',
   }));
@@ -540,6 +605,7 @@ export default function CommissionCheckerPage() {
               <StatCard label="Matched PMS" value={result.matches.length} tone="green" />
               <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
               <StatCard label="Name Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
+              <StatCard label="Guest Name 2 ID Matches" value={reservationGuestName2Matches.length} tone={reservationGuestName2Matches.length ? 'blue' : 'green'} />
               <StatCard label="PMS IDs" value={pmsCsv?.ids.length || 0} tone="amber" />
               <StatCard label="Cancelled RM0 Ignored" value={commissionCsv?.ignoredCancelledRows.length || 0} tone="amber" />
             </div>
@@ -560,6 +626,14 @@ export default function CommissionCheckerPage() {
                 onClick={() => downloadCsv('booking-commission-name-matches.csv', nameMatchHeaders, nameMatchRows)}
               >
                 Export Name Matches
+              </button>
+              <button
+                type="button"
+                className="cc-secondary-btn"
+                disabled={!reservationGuestName2Rows.length}
+                onClick={() => downloadCsv('booking-commission-guest-name-2-id-matches.csv', reservationGuestName2Headers, reservationGuestName2Rows)}
+              >
+                Export Guest Name 2 Matches
               </button>
               <button
                 type="button"
@@ -603,6 +677,36 @@ export default function CommissionCheckerPage() {
               </div>
             </section>
 
+            <section className="cc-subsection cc-subsection-purple">
+              <div className="cc-subhead">
+                <div>
+                  <div className="cc-eyebrow">Reservation Number Cross-Check</div>
+                  <h3>Reservation Number Found In PMS Guest Name 2</h3>
+                </div>
+                <span className="cc-soft-badge cc-soft-badge-purple">{reservationGuestName2Matches.length} found</span>
+              </div>
+              <div className="cc-table-wrap">
+                <table className="cc-table cc-name-table">
+                  <thead>
+                    <tr>{reservationGuestName2Headers.map((header) => <th key={header}>{header}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {reservationGuestName2Rows.length ? (
+                      reservationGuestName2Rows.slice(0, 120).map((row, index) => (
+                        <tr key={`${row['Reservation Number']}-${row['PMS CSV Row']}-${index}`}>
+                          {reservationGuestName2Headers.map((header) => <td key={header}>{row[header] || '-'}</td>)}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={reservationGuestName2Headers.length}>No reservation number match found in PMS Guest Name 2 among the possible disputes.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <div className="cc-table-wrap">
               <table className="cc-table">
                 <thead>
@@ -616,6 +720,8 @@ export default function CommissionCheckerPage() {
                         className={
                           disputeNameMatchSet.has(normalizeBookingId(row['Reservation Number']))
                             ? 'cc-dispute-row-name-match'
+                            : disputeReservationGuestName2MatchSet.has(normalizeBookingId(row['Reservation Number']))
+                              ? 'cc-dispute-row-guest-name-2-match'
                             : 'cc-dispute-row-no-match'
                         }
                       >
@@ -949,6 +1055,10 @@ export default function CommissionCheckerPage() {
           padding: 14px;
           margin: 4px 0 14px;
         }
+        .cc-subsection-purple {
+          border-color: #ddd6fe;
+          background: linear-gradient(180deg, #ffffff, #faf5ff);
+        }
         .cc-subhead {
           display: flex;
           justify-content: space-between;
@@ -971,6 +1081,11 @@ export default function CommissionCheckerPage() {
           font-size: 12px;
           font-weight: 950;
           white-space: nowrap;
+        }
+        .cc-soft-badge-purple {
+          border-color: #ddd6fe;
+          background: #f5f3ff;
+          color: #6d28d9;
         }
         .cc-table-wrap {
           overflow: auto;
@@ -1011,6 +1126,13 @@ export default function CommissionCheckerPage() {
         }
         .cc-dispute-row-name-match td:first-child {
           border-left: 4px solid #2563eb;
+        }
+        .cc-dispute-row-guest-name-2-match td {
+          background: #f5f3ff;
+          color: #4c1d95;
+        }
+        .cc-dispute-row-guest-name-2-match td:first-child {
+          border-left: 4px solid #7c3aed;
         }
         .cc-dispute-row-no-match td {
           background: #fff1f2;
