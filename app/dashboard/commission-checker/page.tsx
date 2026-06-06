@@ -493,22 +493,24 @@ export default function CommissionCheckerPage() {
         )}
       </section>
 
-      <style jsx>{`
+      <style jsx global>{`
         .cc-shell {
           min-height: 100vh;
           padding: clamp(16px, 3vw, 34px);
-          background: radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 34%),
-            linear-gradient(180deg, #f4f8ff 0%, #eef4fb 100%);
+          background:
+            radial-gradient(circle at 8% 4%, rgba(37, 99, 235, 0.13), transparent 28%),
+            radial-gradient(circle at 92% 2%, rgba(14, 165, 233, 0.1), transparent 24%),
+            linear-gradient(180deg, #f6f9ff 0%, #edf3fb 100%);
           color: #0f172a;
           box-sizing: border-box;
         }
         .cc-hero,
         .cc-card,
         .cc-center-card {
-          border: 1px solid #d6e3f5;
-          background: rgba(255,255,255,0.92);
+          border: 1px solid rgba(191, 211, 238, 0.9);
+          background: rgba(255,255,255,0.94);
           border-radius: 24px;
-          box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.95);
+          box-shadow: 0 22px 60px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.95);
         }
         .cc-hero {
           display: flex;
@@ -518,6 +520,9 @@ export default function CommissionCheckerPage() {
           padding: clamp(18px, 2.4vw, 28px);
           max-width: 1180px;
           margin: 0 auto 16px;
+          background:
+            linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,246,255,0.94)),
+            radial-gradient(circle at 90% 0%, rgba(37,99,235,.12), transparent 36%);
         }
         .cc-hero h1,
         .cc-card h2,
@@ -559,6 +564,8 @@ export default function CommissionCheckerPage() {
           padding: clamp(16px, 2.2vw, 24px);
           display: grid;
           gap: 16px;
+          min-height: 274px;
+          align-content: start;
         }
         .cc-file-card:before {
           content: '';
@@ -571,6 +578,16 @@ export default function CommissionCheckerPage() {
         }
         .cc-file-card-pms:before {
           background: linear-gradient(180deg, #0891b2, #16a34a);
+        }
+        .cc-file-card-commission {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,251,255,.96)),
+            radial-gradient(circle at 100% 0%, rgba(37,99,235,.12), transparent 34%);
+        }
+        .cc-file-card-pms {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,.96), rgba(248,251,255,.96)),
+            radial-gradient(circle at 100% 0%, rgba(16,185,129,.11), transparent 34%);
         }
         .cc-file-top {
           display: grid;
@@ -616,11 +633,11 @@ export default function CommissionCheckerPage() {
           margin-bottom: 14px;
         }
         .cc-upload {
-          min-height: 118px;
-          border: 1px dashed #9fb8dc;
+          min-height: 112px;
+          border: 1px dashed #9eb8dc;
           background:
-            linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(239,246,255,.96) 100%),
-            radial-gradient(circle at top left, rgba(37,99,235,.14), transparent 35%);
+            linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(239,246,255,.86) 100%),
+            radial-gradient(circle at top left, rgba(37,99,235,.10), transparent 34%);
           color: #1d4ed8;
           border-radius: 22px;
           display: grid;
@@ -642,6 +659,22 @@ export default function CommissionCheckerPage() {
         .cc-upload-main {
           font-size: 17px;
           color: #0f172a;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .cc-upload-main:before {
+          content: '+';
+          width: 25px;
+          height: 25px;
+          border-radius: 10px;
+          display: inline-grid;
+          place-items: center;
+          background: #2563eb;
+          color: #fff;
+          box-shadow: 0 8px 20px rgba(37,99,235,.22);
+          font-size: 18px;
+          line-height: 1;
         }
         .cc-upload-sub {
           color: #64748b;
