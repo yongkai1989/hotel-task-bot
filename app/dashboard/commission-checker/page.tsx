@@ -265,23 +265,27 @@ function findReservationGuestName2Matches(
   const pmsOtaColumn = findColumn(pmsCsv.headers, PMS_COLUMN);
   if (!pmsGuestName2Column) return [];
 
-  const disputeMap = new Map(
-    disputes.map((dispute) => [normalizeBookingId(dispute.raw), dispute])
-  );
+  const normalizedDisputes = disputes
+    .map((dispute) => ({
+      dispute,
+      normalizedReservationNumber: normalizeBookingId(dispute.raw),
+    }))
+    .filter((item) => item.normalizedReservationNumber);
 
   return pmsCsv.rows.flatMap((row, index) => {
     const pmsGuestName2 = String(row[pmsGuestName2Column] || '').trim();
     const normalizedGuestName2 = normalizeBookingId(pmsGuestName2);
-    const dispute = disputeMap.get(normalizedGuestName2);
-    if (!dispute) return [];
+    if (!normalizedGuestName2) return [];
 
-    return [{
+    return normalizedDisputes
+      .filter((item) => normalizedGuestName2.includes(item.normalizedReservationNumber))
+      .map(({ dispute }) => ({
       reservationNumber: dispute.raw,
       commissionRow: dispute.rowNumber,
       pmsGuestName2,
       pmsRow: index + 2,
       pmsOtaRef: pmsOtaColumn ? String(row[pmsOtaColumn] || '').trim() : '',
-    }];
+    }));
   });
 }
 
@@ -721,7 +725,7 @@ export default function CommissionCheckerPage() {
               <div className="cc-subhead">
                 <div>
                   <div className="cc-eyebrow">Reservation Number Cross-Check</div>
-                  <h3>Reservation Number Found In PMS Guest Name 2</h3>
+                  <h3>Reservation Number Contained In PMS Guest Name 2</h3>
                 </div>
                 <span className="cc-soft-badge cc-soft-badge-purple">{reservationGuestName2Matches.length} found</span>
               </div>
@@ -739,7 +743,7 @@ export default function CommissionCheckerPage() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={reservationGuestName2Headers.length}>No reservation number match found in PMS Guest Name 2 among the possible disputes.</td>
+                        <td colSpan={reservationGuestName2Headers.length}>No reservation number found inside PMS Guest Name 2 among the possible disputes.</td>
                       </tr>
                     )}
                   </tbody>
