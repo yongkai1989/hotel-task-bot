@@ -1,6 +1,6 @@
 'use client';
 
-import { type CSSProperties, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 
 type Category = 'All' | 'Comfort' | 'Laundry' | 'Room Service' | 'Essentials';
 
@@ -23,7 +23,7 @@ type CartItem = {
 
 const categories: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
 
-const SHOP_ITEMS: ShopItem[] = [
+const DEFAULT_SHOP_ITEMS: ShopItem[] = [
   {
     id: 'late-checkout',
     name: 'Late Check-Out',
@@ -99,6 +99,7 @@ function money(value: number) {
 }
 
 export default function GuestShopPage() {
+  const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [roomNumber, setRoomNumber] = useState('');
@@ -107,14 +108,53 @@ export default function GuestShopPage() {
   const [notice, setNotice] = useState('');
 
   const visibleItems = useMemo(() => {
-    if (activeCategory === 'All') return SHOP_ITEMS;
-    return SHOP_ITEMS.filter((item) => item.category === activeCategory);
-  }, [activeCategory]);
+    if (activeCategory === 'All') return items;
+    return items.filter((item) => item.category === activeCategory);
+  }, [activeCategory, items]);
 
-  const featuredItem = SHOP_ITEMS[0];
+  const featuredItem = items[0] || DEFAULT_SHOP_ITEMS[0];
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
   const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadItems() {
+      try {
+        const res = await fetch('/api/guest-shop/items', { cache: 'no-store' });
+        const json = await res.json();
+        if (!alive || !json?.ok || !Array.isArray(json.items) || !json.items.length) return;
+
+        const nextItems = json.items
+          .filter((item: any) => item?.is_active !== false)
+          .map((item: any): ShopItem => ({
+            id: String(item.id),
+            name: String(item.name || ''),
+            category: categories.includes(item.category) && item.category !== 'All'
+              ? item.category
+              : 'Essentials',
+            description: String(item.description || ''),
+            price: Number(item.price_myr || 0),
+            stock: item.out_of_stock ? 0 : Math.max(0, Number(item.stock || 0)),
+            imageUrl: String(item.image_url || ''),
+            accent: String(item.accent || '#b6813a'),
+            label: String(item.label || ''),
+          }))
+          .filter((item: ShopItem) => item.name);
+
+        if (nextItems.length) setItems(nextItems);
+      } catch {
+        // Keep the curated fallback so the guest shop stays usable if the catalog table is not ready.
+      }
+    }
+
+    loadItems();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function addItem(item: ShopItem) {
     if (item.stock <= 0) return;
