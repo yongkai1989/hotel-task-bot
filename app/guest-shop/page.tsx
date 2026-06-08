@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 
-type Category = 'All' | 'Room Services' | 'Laundry' | 'Comfort' | 'Refreshments';
+type Category = 'All' | 'Guest Comfort' | 'Laundry' | 'Room Service' | 'Essentials';
 
 type ShopItem = {
   id: string;
@@ -11,8 +11,8 @@ type ShopItem = {
   description: string;
   price: number;
   stock: number;
-  badge?: string;
   imageUrl: string;
+  tag?: string;
 };
 
 type CartItem = {
@@ -20,17 +20,17 @@ type CartItem = {
   quantity: number;
 };
 
-const categories: Category[] = ['All', 'Room Services', 'Laundry', 'Comfort', 'Refreshments'];
+const categories: Category[] = ['All', 'Guest Comfort', 'Laundry', 'Room Service', 'Essentials'];
 
 const SHOP_ITEMS: ShopItem[] = [
   {
     id: 'late-checkout',
     name: 'Late Check-Out',
-    category: 'Room Services',
-    description: 'Extend your stay comfortably, subject to front office confirmation.',
+    category: 'Room Service',
+    description: 'Extend your stay comfortably, subject to availability.',
     price: 60,
     stock: 8,
-    badge: 'Guest Favorite',
+    tag: 'Limited daily',
     imageUrl:
       'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=900&q=80',
   },
@@ -38,64 +38,66 @@ const SHOP_ITEMS: ShopItem[] = [
     id: 'express-laundry',
     name: 'Express Laundry',
     category: 'Laundry',
-    description: 'Priority laundry handling for guests who need a faster return.',
+    description: 'Priority handling for garments that need a faster return.',
     price: 40,
     stock: 12,
     imageUrl:
       'https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?auto=format&fit=crop&w=900&q=80',
   },
   {
+    id: 'extra-bed',
+    name: 'Extra Bed',
+    category: 'Guest Comfort',
+    description: 'Additional bed setup for selected room categories.',
+    price: 60,
+    stock: 4,
+    tag: 'Upon request',
+    imageUrl:
+      'https://images.unsplash.com/photo-1615874959474-d609969a20ed?auto=format&fit=crop&w=900&q=80',
+  },
+  {
     id: 'extra-pillow',
     name: 'Extra Pillow',
-    category: 'Comfort',
-    description: 'Fresh pillow delivered to your room for a better night of rest.',
+    category: 'Guest Comfort',
+    description: 'Fresh pillow delivered to your room for a better rest.',
     price: 15,
     stock: 18,
     imageUrl:
       'https://images.unsplash.com/photo-1585495336621-dcfb1aaf2a45?auto=format&fit=crop&w=900&q=80',
   },
   {
-    id: 'bottled-water',
-    name: 'Mineral Water Set',
-    category: 'Refreshments',
-    description: 'A set of chilled bottled mineral water delivered to your room.',
-    price: 12,
-    stock: 30,
-    imageUrl:
-      'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=900&q=80',
-  },
-  {
     id: 'travel-adapter',
     name: 'Travel Adapter',
-    category: 'Comfort',
-    description: 'Universal adapter for guest convenience during the stay.',
+    category: 'Essentials',
+    description: 'Universal adapter prepared for guest convenience.',
     price: 25,
     stock: 6,
     imageUrl:
       'https://images.unsplash.com/photo-1625834311143-7b6f5c9fdb40?auto=format&fit=crop&w=900&q=80',
   },
   {
-    id: 'extra-bed',
-    name: 'Extra Bed',
-    category: 'Room Services',
-    description: 'Additional bed setup for selected room types, subject to availability.',
-    price: 60,
-    stock: 4,
-    badge: 'Limited',
+    id: 'mineral-water',
+    name: 'Mineral Water Set',
+    category: 'Essentials',
+    description: 'Chilled bottled mineral water delivered to your room.',
+    price: 12,
+    stock: 30,
     imageUrl:
-      'https://images.unsplash.com/photo-1615874959474-d609969a20ed?auto=format&fit=crop&w=900&q=80',
+      'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=900&q=80',
   },
 ];
 
-const formatCurrency = (amount: number) => `RM${amount.toFixed(2)}`;
+function money(value: number) {
+  return `RM${value.toFixed(2)}`;
+}
 
 export default function GuestShopPage() {
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
-  const [room, setRoom] = useState('');
+  const [roomNumber, setRoomNumber] = useState('');
   const [guestName, setGuestName] = useState('');
   const [email, setEmail] = useState('');
-  const [checkoutMessage, setCheckoutMessage] = useState('');
+  const [notice, setNotice] = useState('');
 
   const visibleItems = useMemo(() => {
     if (activeCategory === 'All') return SHOP_ITEMS;
@@ -103,28 +105,25 @@ export default function GuestShopPage() {
   }, [activeCategory]);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
-  const cartCount = cartItems.reduce((sum, row) => sum + row.quantity, 0);
-  const total = cartItems.reduce((sum, row) => sum + row.item.price * row.quantity, 0);
+  const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
+  const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
 
-  function addToCart(item: ShopItem) {
+  function addItem(item: ShopItem) {
     if (item.stock <= 0) return;
 
     setCart((current) => {
       const existing = current[item.id];
-      const nextQuantity = Math.min((existing?.quantity ?? 0) + 1, item.stock);
+      const quantity = Math.min((existing?.quantity ?? 0) + 1, item.stock);
 
       return {
         ...current,
-        [item.id]: {
-          item,
-          quantity: nextQuantity,
-        },
+        [item.id]: { item, quantity },
       };
     });
-    setCheckoutMessage('');
+    setNotice('');
   }
 
-  function updateQuantity(itemId: string, quantity: number) {
+  function setQuantity(itemId: string, quantity: number) {
     setCart((current) => {
       const existing = current[itemId];
       if (!existing) return current;
@@ -145,91 +144,83 @@ export default function GuestShopPage() {
     });
   }
 
-  function startCheckout() {
+  function proceedToPayment() {
     if (!cartItems.length) {
-      setCheckoutMessage('Please select at least one item before payment.');
+      setNotice('Please select at least one item before payment.');
       return;
     }
 
-    if (!room.trim() || !guestName.trim() || !email.trim()) {
-      setCheckoutMessage('Please enter room number, guest name, and email before payment.');
+    if (!roomNumber.trim() || !guestName.trim() || !email.trim()) {
+      setNotice('Please enter room number, guest name, and email before payment.');
       return;
     }
 
-    setCheckoutMessage(
-      'Payment link setup is ready for Billplz integration. A ticket will only be released after verified successful payment.'
+    setNotice(
+      'Billplz payment integration is pending. A ticket should only be shown after verified successful payment.'
     );
   }
 
   return (
-    <main className="shop-page">
-      <header className="shop-nav">
-        <a className="shop-brand" href="/guest-shop" aria-label="Hallmark Crown Hotel guest shop">
-          <span className="shop-logo">
+    <main className="guest-shop">
+      <header className="nav">
+        <a className="brand" href="/guest-shop" aria-label="Hallmark Crown Hotel guest shop">
+          <span className="brand-mark">
             <img src="/logo.png" alt="" />
           </span>
           <span>
-            <span className="brand-overline">Hallmark Crown Hotel</span>
-            <strong>Guest Shop</strong>
+            <small>Hallmark Crown Hotel</small>
+            <strong>Guest Collection</strong>
           </span>
         </a>
 
-        <a className="shop-cart-link" href="#order">
-          <span>Cart</span>
+        <a className="cart-pill" href="#order">
+          <span>Order</span>
           <b>{cartCount}</b>
         </a>
       </header>
 
-      <section className="shop-hero">
+      <section className="hero">
         <div className="hero-copy">
-          <span className="hero-kicker">In-room convenience</span>
-          <h1>Hotel essentials, delivered with a quieter kind of luxury.</h1>
+          <span className="eyebrow">Private guest service</span>
+          <h1>Selected comforts for a more refined stay.</h1>
           <p>
-            Browse guest services and add-ons from your room. Select what you need, confirm your
-            order, and our team will prepare it after payment is verified.
+            A quiet collection of room essentials, comfort upgrades, and hotel services prepared
+            for Hallmark Crown Hotel guests.
           </p>
           <div className="hero-actions">
-            <a href="#shop" className="primary-link">
-              Start shopping
+            <a className="primary-action" href="#shop">
+              View collection
             </a>
-            <a href="#order" className="secondary-link">
-              View order
+            <a className="secondary-action" href="#order">
+              Review order
             </a>
-          </div>
-          <div className="hero-notes" aria-label="Guest shop benefits">
-            <span>Secure payment flow</span>
-            <span>Front office notified</span>
-            <span>Room delivery</span>
           </div>
         </div>
 
-        <div className="hero-feature" aria-label="Featured guest service">
-          <div className="feature-image">
-            <img
-              src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1200&q=80"
-              alt="Premium hotel room service setting"
-            />
-          </div>
-          <div className="feature-card">
-            <span>Featured</span>
-            <strong>Comfort Upgrade</strong>
-            <p>Extra bed, pillows, adapters, and guest essentials in one calm ordering flow.</p>
+        <div className="hero-visual">
+          <img
+            src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1300&q=80"
+            alt="Luxury hotel guest room"
+          />
+          <div className="hero-card">
+            <span>Prepared by Front Office</span>
+            <strong>Room delivery after verified payment</strong>
           </div>
         </div>
       </section>
 
-      <section id="shop" className="shop-section">
-        <div className="section-heading">
-          <span>Guest menu</span>
-          <h2>Choose your items</h2>
+      <section id="shop" className="collection">
+        <div className="section-title">
+          <span className="eyebrow">Guest menu</span>
+          <h2>Choose from the collection</h2>
         </div>
 
-        <div className="category-row" role="tablist" aria-label="Shop categories">
+        <div className="categories" role="tablist" aria-label="Product categories">
           {categories.map((category) => (
             <button
               key={category}
               type="button"
-              className={category === activeCategory ? 'active' : ''}
+              className={activeCategory === category ? 'active' : ''}
               onClick={() => setActiveCategory(category)}
             >
               {category}
@@ -237,14 +228,14 @@ export default function GuestShopPage() {
           ))}
         </div>
 
-        <div className="shop-layout">
+        <div className="content-grid">
           <div className="product-grid">
             {visibleItems.map((item) => {
               const isUnavailable = item.stock <= 0;
 
               return (
-                <article key={item.id} className="product-card">
-                  <div className="product-media">
+                <article className="product-card" key={item.id}>
+                  <div className="product-image">
                     <span className="image-fallback">{item.name.slice(0, 2).toUpperCase()}</span>
                     {item.imageUrl ? (
                       <img
@@ -255,22 +246,19 @@ export default function GuestShopPage() {
                         }}
                       />
                     ) : null}
-                    {item.badge ? <span className="product-badge">{item.badge}</span> : null}
+                    {item.tag ? <span className="product-tag">{item.tag}</span> : null}
                   </div>
 
-                  <div className="product-body">
-                    <div>
-                      <span className="product-category">{item.category}</span>
-                      <h3>{item.name}</h3>
-                      <p>{item.description}</p>
-                    </div>
-
-                    <div className="product-footer">
+                  <div className="product-info">
+                    <span>{item.category}</span>
+                    <h3>{item.name}</h3>
+                    <p>{item.description}</p>
+                    <div className="product-bottom">
                       <div>
-                        <strong>{formatCurrency(item.price)}</strong>
-                        <span>{isUnavailable ? 'Out of stock' : `${item.stock} available`}</span>
+                        <strong>{money(item.price)}</strong>
+                        <small>{isUnavailable ? 'Out of stock' : `${item.stock} available`}</small>
                       </div>
-                      <button type="button" disabled={isUnavailable} onClick={() => addToCart(item)}>
+                      <button type="button" disabled={isUnavailable} onClick={() => addItem(item)}>
                         {isUnavailable ? 'Unavailable' : 'Add'}
                       </button>
                     </div>
@@ -280,96 +268,96 @@ export default function GuestShopPage() {
             })}
           </div>
 
-          <aside id="order" className="order-panel" aria-label="Guest order summary">
-            <div className="order-heading">
-              <span>Your order</span>
+          <aside id="order" className="order-panel">
+            <div className="order-top">
+              <span className="eyebrow">Your selection</span>
               <strong>{cartCount} item{cartCount === 1 ? '' : 's'}</strong>
             </div>
 
             <div className="order-lines">
               {cartItems.length ? (
                 cartItems.map(({ item, quantity }) => (
-                  <div key={item.id} className="order-line">
+                  <div className="order-line" key={item.id}>
                     <div>
                       <strong>{item.name}</strong>
-                      <span>{formatCurrency(item.price)} each</span>
+                      <span>{money(item.price)} each</span>
                     </div>
-                    <div className="quantity-control">
-                      <button type="button" onClick={() => updateQuantity(item.id, quantity - 1)}>
+                    <div className="stepper">
+                      <button type="button" onClick={() => setQuantity(item.id, quantity - 1)}>
                         -
                       </button>
                       <span>{quantity}</span>
-                      <button type="button" onClick={() => updateQuantity(item.id, quantity + 1)}>
+                      <button type="button" onClick={() => setQuantity(item.id, quantity + 1)}>
                         +
                       </button>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="empty-cart">
-                  <strong>Your cart is empty</strong>
-                  <span>Select an item to begin.</span>
+                <div className="empty">
+                  <strong>Your order is empty.</strong>
+                  <span>Select any item to begin.</span>
                 </div>
               )}
             </div>
 
-            <div className="guest-form">
+            <div className="guest-details">
               <label>
                 Room number
-                <input value={room} onChange={(event) => setRoom(event.target.value)} placeholder="Example: 1205" />
+                <input
+                  value={roomNumber}
+                  onChange={(event) => setRoomNumber(event.target.value)}
+                  placeholder="Example: 1205"
+                />
               </label>
               <label>
                 Guest name
-                <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Name on room" />
+                <input
+                  value={guestName}
+                  onChange={(event) => setGuestName(event.target.value)}
+                  placeholder="Name on room"
+                />
               </label>
               <label>
                 Email
-                <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="For optional receipt" />
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="For receipt"
+                />
               </label>
             </div>
 
-            <div className="order-total">
+            <div className="total-row">
               <span>Total</span>
-              <strong>{formatCurrency(total)}</strong>
+              <strong>{money(cartTotal)}</strong>
             </div>
 
-            <button type="button" className="checkout-button" onClick={startCheckout}>
-              Proceed to Billplz
+            <button className="payment-button" type="button" onClick={proceedToPayment}>
+              Proceed to payment
             </button>
 
-            {checkoutMessage ? <p className="checkout-message">{checkoutMessage}</p> : null}
-
+            {notice ? <p className="notice">{notice}</p> : null}
             <p className="payment-note">
-              Tickets and staff notifications should be released only after Billplz confirms a
-              successful payment.
+              Orders are released to staff only after the payment provider confirms success.
             </p>
           </aside>
         </div>
       </section>
 
-      <section className="image-admin-note" aria-label="SKU image setup">
-        <div>
-          <span>SKU image control</span>
-          <h2>Every product already has its own image field.</h2>
-        </div>
-        <p>
-          To change an item photo, replace that item&apos;s <code>imageUrl</code>. When the SKU admin
-          page is connected later, this same field can be saved from an upload form.
-        </p>
-      </section>
-
       <style jsx>{`
         :global(body) {
           margin: 0;
-          background: #f7f3ec;
+          background: #f5efe6;
         }
 
-        .shop-page {
+        .guest-shop {
           min-height: 100vh;
-          color: #122033;
+          color: #17120d;
           background:
-            radial-gradient(circle at 12% 10%, rgba(196, 154, 92, 0.2), transparent 30%),
-            linear-gradient(180deg, #fffaf1 0%, #f5f7fb 42%, #eef4fb 100%);
+            radial-gradient(circle at 8% 0%, rgba(184, 132, 63, 0.2), transparent 32%),
+            radial-gradient(circle at 92% 12%, rgba(30, 22, 15, 0.12), transparent 34%),
+            linear-gradient(180deg, #fffaf2 0%, #f6efe4 54%, #efe4d5 100%);
           font-family:
             Inter,
             ui-sans-serif,
@@ -380,269 +368,240 @@ export default function GuestShopPage() {
             sans-serif;
         }
 
-        .shop-nav {
+        .nav {
           position: sticky;
           top: 0;
-          z-index: 10;
+          z-index: 20;
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 16px;
-          padding: 18px clamp(18px, 4vw, 56px);
-          border-bottom: 1px solid rgba(113, 89, 54, 0.14);
-          background: rgba(255, 250, 242, 0.88);
-          backdrop-filter: blur(18px);
+          padding: 18px clamp(18px, 4vw, 58px);
+          border-bottom: 1px solid rgba(92, 62, 31, 0.12);
+          background: rgba(255, 250, 241, 0.9);
+          backdrop-filter: blur(20px);
         }
 
-        .shop-brand {
-          display: inline-flex;
-          align-items: center;
-          gap: 12px;
+        .brand,
+        .cart-pill,
+        .hero-actions a {
           color: inherit;
           text-decoration: none;
         }
 
-        .shop-logo {
-          display: grid;
-          width: 46px;
-          height: 46px;
-          place-items: center;
-          overflow: hidden;
-          border: 1px solid rgba(143, 103, 54, 0.28);
-          border-radius: 50%;
-          background: #fffdf8;
-          box-shadow: 0 14px 34px rgba(77, 53, 24, 0.12);
+        .brand {
+          display: inline-flex;
+          align-items: center;
+          gap: 13px;
         }
 
-        .shop-logo img {
+        .brand-mark {
+          display: grid;
+          width: 48px;
+          height: 48px;
+          place-items: center;
+          overflow: hidden;
+          border: 1px solid rgba(121, 83, 42, 0.22);
+          border-radius: 50%;
+          background: linear-gradient(145deg, #fffaf2, #ead9bf);
+          box-shadow: 0 18px 42px rgba(71, 48, 25, 0.12);
+        }
+
+        .brand-mark img {
           width: 32px;
           height: 32px;
           object-fit: contain;
         }
 
-        .brand-overline,
-        .hero-kicker,
-        .section-heading span,
-        .product-category,
-        .image-admin-note span {
+        .brand small,
+        .eyebrow,
+        .product-info > span {
           display: block;
-          color: #8b663a;
+          color: #9a6b31;
           font-size: 11px;
           font-weight: 900;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.16em;
           text-transform: uppercase;
         }
 
-        .shop-brand strong {
+        .brand strong {
           display: block;
+          margin-top: 2px;
           font-size: 20px;
           letter-spacing: 0;
         }
 
-        .shop-cart-link {
+        .cart-pill {
           display: inline-flex;
+          min-height: 44px;
           align-items: center;
           gap: 10px;
-          min-height: 44px;
           padding: 0 16px;
-          color: #fff;
+          color: #fff4df;
           border-radius: 999px;
-          background: #0f2747;
-          text-decoration: none;
-          box-shadow: 0 16px 38px rgba(15, 39, 71, 0.22);
+          background: #1b1713;
+          box-shadow: 0 18px 42px rgba(29, 20, 13, 0.18);
         }
 
-        .shop-cart-link b {
+        .cart-pill b {
           display: grid;
           min-width: 26px;
           height: 26px;
           place-items: center;
-          color: #0f2747;
+          color: #1b1713;
           border-radius: 50%;
           background: #d8b56d;
         }
 
-        .shop-hero {
+        .hero {
           display: grid;
-          grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
-          gap: clamp(24px, 4vw, 54px);
+          grid-template-columns: minmax(0, 1.02fr) minmax(340px, 0.98fr);
+          gap: clamp(26px, 4.4vw, 64px);
           align-items: center;
-          padding: clamp(28px, 6vw, 86px) clamp(18px, 4vw, 56px) clamp(24px, 5vw, 58px);
+          padding: clamp(32px, 6vw, 92px) clamp(18px, 4vw, 58px) clamp(28px, 5vw, 70px);
         }
 
         .hero-copy h1 {
-          max-width: 760px;
-          margin: 12px 0 18px;
-          font-family:
-            Georgia,
-            "Times New Roman",
-            serif;
-          font-size: clamp(42px, 6vw, 78px);
-          line-height: 0.96;
+          max-width: 780px;
+          margin: 14px 0 18px;
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: clamp(44px, 6.5vw, 88px);
+          font-weight: 500;
+          line-height: 0.94;
           letter-spacing: 0;
         }
 
         .hero-copy p {
-          max-width: 660px;
+          max-width: 640px;
           margin: 0;
-          color: #51647e;
-          font-size: clamp(16px, 2vw, 20px);
-          line-height: 1.7;
-        }
-
-        .hero-actions,
-        .hero-notes,
-        .category-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
+          color: #5c5147;
+          font-size: clamp(16px, 1.8vw, 20px);
+          line-height: 1.75;
         }
 
         .hero-actions {
-          margin-top: 28px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-top: 30px;
         }
 
-        .primary-link,
-        .secondary-link,
-        .category-row button,
-        .product-footer button,
-        .checkout-button {
+        .hero-actions a,
+        .categories button,
+        .product-bottom button,
+        .payment-button {
           min-height: 46px;
           border-radius: 999px;
           border: 1px solid transparent;
           font-weight: 900;
-          text-decoration: none;
           cursor: pointer;
         }
 
-        .primary-link,
-        .checkout-button {
+        .primary-action,
+        .payment-button {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          padding: 0 22px;
-          color: #fff;
-          background: #194cff;
-          box-shadow: 0 18px 42px rgba(25, 76, 255, 0.25);
+          padding: 0 24px;
+          color: #21170d;
+          background: linear-gradient(135deg, #f0d38f, #c8963e);
+          box-shadow: 0 20px 48px rgba(150, 104, 41, 0.26);
         }
 
-        .secondary-link {
+        .secondary-action {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          padding: 0 22px;
-          color: #0f2747;
-          border-color: rgba(15, 39, 71, 0.18);
-          background: rgba(255, 255, 255, 0.72);
+          padding: 0 24px;
+          color: #1b1713;
+          border-color: rgba(94, 67, 38, 0.2);
+          background: rgba(255, 252, 246, 0.78);
         }
 
-        .hero-notes {
-          margin-top: 24px;
-          color: #566981;
-          font-size: 14px;
-          font-weight: 800;
-        }
-
-        .hero-notes span {
-          padding: 9px 12px;
-          border: 1px solid rgba(143, 103, 54, 0.18);
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.68);
-        }
-
-        .hero-feature {
+        .hero-visual {
           position: relative;
-          min-height: 500px;
+          min-height: 520px;
           overflow: hidden;
-          border: 1px solid rgba(143, 103, 54, 0.18);
-          border-radius: 34px;
-          background: #1d2c42;
-          box-shadow: 0 34px 90px rgba(25, 36, 52, 0.2);
+          border: 1px solid rgba(121, 83, 42, 0.2);
+          border-radius: 18px;
+          background: #1b1713;
+          box-shadow: 0 36px 95px rgba(45, 31, 18, 0.22);
         }
 
-        .feature-image,
-        .feature-image img {
+        .hero-visual img {
           width: 100%;
           height: 100%;
-        }
-
-        .feature-image {
-          position: absolute;
-          inset: 0;
-        }
-
-        .feature-image img {
+          min-height: 520px;
           object-fit: cover;
-          opacity: 0.84;
+          opacity: 0.9;
         }
 
-        .feature-card {
+        .hero-card {
           position: absolute;
-          right: 24px;
-          bottom: 24px;
-          left: 24px;
-          padding: 22px;
-          color: #fff;
-          border: 1px solid rgba(255, 255, 255, 0.22);
-          border-radius: 24px;
-          background: rgba(10, 22, 38, 0.72);
+          right: 22px;
+          bottom: 22px;
+          left: 22px;
+          padding: 20px;
+          color: #fff8ec;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 16px;
+          background: rgba(23, 18, 13, 0.76);
           backdrop-filter: blur(18px);
         }
 
-        .feature-card span {
-          color: #d8b56d;
+        .hero-card span {
+          display: block;
+          color: #e2c17a;
           font-size: 12px;
           font-weight: 900;
           text-transform: uppercase;
         }
 
-        .feature-card strong {
+        .hero-card strong {
           display: block;
           margin-top: 8px;
-          font-size: 28px;
+          font-size: 24px;
+          line-height: 1.22;
         }
 
-        .feature-card p {
-          margin: 8px 0 0;
-          color: rgba(255, 255, 255, 0.78);
-          line-height: 1.5;
+        .collection {
+          margin: 0 clamp(18px, 4vw, 58px) clamp(30px, 5vw, 70px);
         }
 
-        .shop-section,
-        .image-admin-note {
-          margin: 0 clamp(18px, 4vw, 56px) clamp(24px, 5vw, 58px);
-        }
-
-        .section-heading {
+        .section-title {
           margin-bottom: 18px;
         }
 
-        .section-heading h2,
-        .image-admin-note h2 {
+        .section-title h2 {
           margin: 6px 0 0;
-          font-size: clamp(28px, 4vw, 42px);
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: clamp(30px, 4vw, 48px);
+          font-weight: 500;
           letter-spacing: 0;
         }
 
-        .category-row {
+        .categories {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
           margin-bottom: 22px;
         }
 
-        .category-row button {
+        .categories button {
           padding: 0 18px;
-          color: #33445b;
-          border-color: rgba(16, 39, 71, 0.14);
-          background: rgba(255, 255, 255, 0.72);
+          color: #4a3d30;
+          border-color: rgba(94, 67, 38, 0.18);
+          background: rgba(255, 252, 246, 0.78);
         }
 
-        .category-row button.active {
-          color: #fff;
-          background: #0f2747;
+        .categories button.active {
+          color: #fff4df;
+          background: #1b1713;
         }
 
-        .shop-layout {
+        .content-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+          grid-template-columns: minmax(0, 1fr) minmax(330px, 410px);
           gap: 24px;
           align-items: start;
         }
@@ -654,34 +613,38 @@ export default function GuestShopPage() {
         }
 
         .product-card,
-        .order-panel,
-        .image-admin-note {
-          border: 1px solid rgba(95, 124, 157, 0.18);
-          border-radius: 28px;
-          background: rgba(255, 255, 255, 0.78);
-          box-shadow: 0 24px 70px rgba(30, 52, 80, 0.1);
+        .order-panel {
+          overflow: hidden;
+          border: 1px solid rgba(118, 89, 55, 0.16);
+          border-radius: 18px;
+          background: rgba(255, 252, 246, 0.86);
+          box-shadow: 0 24px 70px rgba(54, 38, 22, 0.09);
         }
 
         .product-card {
           display: flex;
-          min-height: 450px;
-          overflow: hidden;
+          min-height: 420px;
           flex-direction: column;
         }
 
-        .product-media {
+        .product-image {
           position: relative;
-          height: 220px;
+          height: 218px;
           overflow: hidden;
-          background: linear-gradient(135deg, #f8efe0, #eaf2ff);
+          background: linear-gradient(135deg, #f2e2c9, #fbf7ec);
         }
 
-        .product-media img {
+        .product-image img {
           position: absolute;
           inset: 0;
           width: 100%;
           height: 100%;
           object-fit: cover;
+          transition: transform 240ms ease;
+        }
+
+        .product-card:hover .product-image img {
+          transform: scale(1.035);
         }
 
         .image-fallback {
@@ -689,24 +652,24 @@ export default function GuestShopPage() {
           inset: 0;
           display: grid;
           place-items: center;
-          color: rgba(15, 39, 71, 0.42);
-          font-size: 44px;
+          color: rgba(42, 31, 20, 0.34);
+          font-size: 42px;
           font-weight: 900;
         }
 
-        .product-badge {
+        .product-tag {
           position: absolute;
           top: 14px;
           left: 14px;
           padding: 8px 11px;
-          color: #3d2811;
+          color: #3e2a13;
           border-radius: 999px;
-          background: rgba(255, 244, 214, 0.92);
+          background: rgba(247, 224, 169, 0.94);
           font-size: 12px;
           font-weight: 900;
         }
 
-        .product-body {
+        .product-info {
           display: flex;
           flex: 1;
           flex-direction: column;
@@ -715,50 +678,50 @@ export default function GuestShopPage() {
           padding: 20px;
         }
 
-        .product-body h3 {
+        .product-info h3 {
           margin: 8px 0;
           font-size: 22px;
           letter-spacing: 0;
         }
 
-        .product-body p {
+        .product-info p {
           margin: 0;
-          color: #60728b;
+          color: #655b51;
           line-height: 1.55;
         }
 
-        .product-footer {
+        .product-bottom {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 14px;
           padding-top: 16px;
-          border-top: 1px solid rgba(95, 124, 157, 0.16);
+          border-top: 1px solid rgba(118, 89, 55, 0.14);
         }
 
-        .product-footer strong {
+        .product-bottom strong {
           display: block;
           font-size: 22px;
         }
 
-        .product-footer span {
+        .product-bottom small {
           display: block;
-          color: #687b93;
-          font-size: 13px;
+          margin-top: 4px;
+          color: #75695d;
           font-weight: 800;
         }
 
-        .product-footer button {
+        .product-bottom button {
           min-width: 82px;
           padding: 0 18px;
-          color: #fff;
-          background: #0f2747;
+          color: #fff4df;
+          background: #1b1713;
         }
 
-        .product-footer button:disabled {
+        .product-bottom button:disabled {
           cursor: not-allowed;
-          color: #75869b;
-          background: #e7edf4;
+          color: #8d8174;
+          background: #eee6dc;
         }
 
         .order-panel {
@@ -767,7 +730,7 @@ export default function GuestShopPage() {
           padding: 22px;
         }
 
-        .order-heading {
+        .order-top {
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -775,138 +738,128 @@ export default function GuestShopPage() {
           margin-bottom: 18px;
         }
 
-        .order-heading span {
-          color: #8b663a;
-          font-weight: 900;
-          text-transform: uppercase;
-        }
-
-        .order-heading strong {
-          color: #0f2747;
-        }
-
-        .order-lines {
+        .order-lines,
+        .guest-details {
           display: grid;
           gap: 12px;
         }
 
         .order-line,
-        .empty-cart {
+        .empty {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 14px;
+          gap: 12px;
           padding: 14px;
-          border: 1px solid rgba(95, 124, 157, 0.16);
-          border-radius: 18px;
-          background: rgba(247, 250, 253, 0.86);
+          border: 1px solid rgba(118, 89, 55, 0.14);
+          border-radius: 14px;
+          background: rgba(255, 250, 241, 0.84);
         }
 
         .order-line strong,
-        .empty-cart strong {
+        .empty strong {
           display: block;
         }
 
         .order-line span,
-        .empty-cart span {
+        .empty span {
           display: block;
           margin-top: 4px;
-          color: #687b93;
+          color: #75695d;
           font-size: 13px;
           font-weight: 800;
         }
 
-        .quantity-control {
+        .stepper {
           display: inline-flex;
           align-items: center;
           gap: 8px;
           padding: 4px;
           border-radius: 999px;
           background: #fff;
-          box-shadow: inset 0 0 0 1px rgba(95, 124, 157, 0.16);
+          box-shadow: inset 0 0 0 1px rgba(118, 89, 55, 0.14);
         }
 
-        .quantity-control button {
+        .stepper button {
           display: grid;
           width: 30px;
           height: 30px;
           place-items: center;
           border: 0;
           border-radius: 50%;
-          background: #eef4fb;
+          background: #f3eadb;
           font-weight: 900;
+          cursor: pointer;
         }
 
-        .quantity-control span {
+        .stepper span {
           min-width: 20px;
           margin: 0;
-          color: #122033;
+          color: #17120d;
           text-align: center;
         }
 
-        .guest-form {
-          display: grid;
-          gap: 12px;
+        .guest-details {
           margin-top: 18px;
         }
 
-        .guest-form label {
-          color: #4d5f77;
+        .guest-details label {
+          color: #5d5148;
           font-size: 13px;
           font-weight: 900;
         }
 
-        .guest-form input {
+        .guest-details input {
           width: 100%;
           min-height: 46px;
           margin-top: 7px;
           padding: 0 14px;
-          color: #122033;
-          border: 1px solid rgba(95, 124, 157, 0.22);
-          border-radius: 15px;
-          background: #fff;
+          border: 1px solid rgba(118, 89, 55, 0.18);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.92);
+          color: #17120d;
           font: inherit;
           box-sizing: border-box;
         }
 
-        .order-total {
+        .total-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 16px;
           margin: 20px 0 14px;
           padding-top: 18px;
-          border-top: 1px solid rgba(95, 124, 157, 0.16);
+          border-top: 1px solid rgba(118, 89, 55, 0.14);
         }
 
-        .order-total span {
-          color: #687b93;
+        .total-row span {
+          color: #75695d;
           font-weight: 900;
         }
 
-        .order-total strong {
+        .total-row strong {
           font-size: 34px;
           letter-spacing: 0;
         }
 
-        .checkout-button {
+        .payment-button {
           width: 100%;
           border: 0;
           font-size: 16px;
         }
 
-        .checkout-message,
+        .notice,
         .payment-note {
           margin: 14px 0 0;
-          color: #52667f;
+          color: #63594f;
           line-height: 1.5;
         }
 
-        .checkout-message {
+        .notice {
           padding: 12px;
-          border: 1px solid rgba(216, 181, 109, 0.46);
-          border-radius: 16px;
-          background: rgba(255, 247, 225, 0.82);
+          border: 1px solid rgba(194, 150, 69, 0.42);
+          border-radius: 14px;
+          background: rgba(255, 246, 226, 0.82);
           font-weight: 800;
         }
 
@@ -914,30 +867,8 @@ export default function GuestShopPage() {
           font-size: 13px;
         }
 
-        .image-admin-note {
-          display: grid;
-          grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-          gap: 18px;
-          align-items: center;
-          padding: 24px;
-        }
-
-        .image-admin-note p {
-          margin: 0;
-          color: #5d7089;
-          line-height: 1.65;
-        }
-
-        .image-admin-note code {
-          padding: 2px 6px;
-          border-radius: 8px;
-          background: rgba(25, 76, 255, 0.1);
-          color: #194cff;
-          font-weight: 900;
-        }
-
         @media (max-width: 1180px) {
-          .shop-layout {
+          .content-grid {
             grid-template-columns: 1fr;
           }
 
@@ -951,43 +882,42 @@ export default function GuestShopPage() {
         }
 
         @media (max-width: 820px) {
-          .shop-nav {
+          .nav {
             padding: 14px 16px;
           }
 
-          .shop-brand strong {
+          .brand strong {
             font-size: 16px;
           }
 
-          .brand-overline {
+          .brand small {
             font-size: 9px;
           }
 
-          .shop-cart-link {
+          .cart-pill {
             min-height: 40px;
             padding: 0 12px;
           }
 
-          .shop-cart-link span {
+          .cart-pill span {
             display: none;
           }
 
-          .shop-hero {
+          .hero {
             grid-template-columns: 1fr;
-            padding: 28px 16px;
+            padding: 30px 16px;
           }
 
           .hero-copy h1 {
-            font-size: 40px;
+            font-size: 42px;
           }
 
-          .hero-feature {
+          .hero-visual,
+          .hero-visual img {
             min-height: 360px;
-            border-radius: 26px;
           }
 
-          .shop-section,
-          .image-admin-note {
+          .collection {
             margin-right: 16px;
             margin-left: 16px;
           }
@@ -999,46 +929,37 @@ export default function GuestShopPage() {
           .product-card {
             min-height: 0;
           }
-
-          .product-media {
-            height: 210px;
-          }
-
-          .image-admin-note {
-            grid-template-columns: 1fr;
-          }
         }
 
         @media (max-width: 520px) {
-          .hero-actions a,
-          .category-row button {
+          .hero-actions a {
             width: 100%;
           }
 
-          .category-row {
+          .categories {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
-          .category-row button {
+          .categories button {
             padding: 0 10px;
           }
 
-          .product-footer,
+          .product-bottom,
           .order-line {
             align-items: stretch;
             flex-direction: column;
           }
 
-          .product-footer button {
+          .product-bottom button {
             width: 100%;
           }
 
-          .quantity-control {
+          .stepper {
             justify-content: space-between;
           }
 
-          .order-total strong {
+          .total-row strong {
             font-size: 28px;
           }
         }
