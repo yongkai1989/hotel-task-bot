@@ -112,6 +112,7 @@ export default function GuestShopPage() {
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [hero, setHero] = useState(DEFAULT_HERO);
+  const [heroLoaded, setHeroLoaded] = useState(false);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [roomNumber, setRoomNumber] = useState('');
@@ -180,6 +181,7 @@ export default function GuestShopPage() {
               : null,
           });
         }
+        setHeroLoaded(true);
 
         if (!json?.ok || !Array.isArray(json.items) || !json.items.length) return;
 
@@ -206,6 +208,7 @@ export default function GuestShopPage() {
           });
         }
       } catch {
+        if (alive) setHeroLoaded(true);
         // Keep the curated fallback so the guest shop stays usable if the catalog table is not ready.
       }
     }
@@ -272,14 +275,16 @@ export default function GuestShopPage() {
   return (
     <main className="guest-shop">
       <section
-        className="hero"
-        style={{ '--hero-image': `url("${hero.hero_image_url}")` } as CSSProperties}
+        className={heroLoaded ? 'hero hero-ready' : 'hero'}
+        style={{ '--hero-image': heroLoaded ? `url("${hero.hero_image_url}")` : 'none' } as CSSProperties}
       >
-        <img
-          className="hero-image"
-          src={hero.hero_image_url}
-          alt="Luxury hotel suite"
-        />
+        {heroLoaded ? (
+          <img
+            className="hero-image"
+            src={hero.hero_image_url}
+            alt="Luxury hotel suite"
+          />
+        ) : null}
         <div className="hero-shade" />
 
         <header className="nav">
@@ -293,8 +298,12 @@ export default function GuestShopPage() {
             </span>
           </a>
 
-          <a className="cart-button" href="#order">
-            <span>Order</span>
+          <a className="cart-button" href="#order" aria-label={`Cart with ${cartCount} item${cartCount === 1 ? '' : 's'}`}>
+            <svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7.2 7.8h13.1l-1.4 7.1a2 2 0 0 1-2 1.6H9.1a2 2 0 0 1-2-1.7L5.8 4.9H3.4" />
+              <path d="M9.4 20.1h.1M17 20.1h.1" />
+            </svg>
+            <span>Cart</span>
             <b>{cartCount}</b>
           </a>
         </header>
@@ -319,7 +328,7 @@ export default function GuestShopPage() {
           <strong>{featuredItem.name}</strong>
           <p>{featuredItem.description}</p>
           <button type="button" onClick={() => addItem(featuredItem)}>
-            Add {money(featuredItem.price)}
+            {cart[featuredItem.id] ? `Added ${money(featuredItem.price)}` : `Add ${money(featuredItem.price)}`}
           </button>
         </div>
       </section>
@@ -349,6 +358,7 @@ export default function GuestShopPage() {
           <div className="products">
             {visibleItems.map((item) => {
               const isUnavailable = item.stock <= 0;
+              const isAdded = Boolean(cart[item.id]);
 
               return (
                 <article className="product-card" key={item.id}>
@@ -378,8 +388,13 @@ export default function GuestShopPage() {
                         <strong>{money(item.price)}</strong>
                         <span>{isUnavailable ? 'Out of stock' : `${item.stock} available`}</span>
                       </div>
-                      <button type="button" disabled={isUnavailable} onClick={() => addItem(item)}>
-                        {isUnavailable ? 'Unavailable' : 'Add'}
+                      <button
+                        type="button"
+                        className={isAdded ? 'added' : ''}
+                        disabled={isUnavailable}
+                        onClick={() => addItem(item)}
+                      >
+                        {isUnavailable ? 'Unavailable' : isAdded ? 'Added' : 'Add'}
                       </button>
                     </div>
                   </div>
@@ -491,7 +506,9 @@ export default function GuestShopPage() {
           position: relative;
           min-height: min(760px, 92vh);
           overflow: hidden;
-          background: #080808;
+          background:
+            radial-gradient(circle at 70% 28%, rgba(223, 191, 119, 0.12), transparent 32%),
+            linear-gradient(135deg, #080808, #15110d);
           color: #fff8ed;
           isolation: isolate;
         }
@@ -600,6 +617,16 @@ export default function GuestShopPage() {
           background: rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(18px);
           font-weight: 900;
+        }
+
+        .cart-icon {
+          width: 20px;
+          height: 20px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
         }
 
         .cart-button b {
@@ -905,6 +932,12 @@ export default function GuestShopPage() {
           background: #1b1713;
         }
 
+        .product-footer button.added {
+          color: #1f160c;
+          background: linear-gradient(135deg, #f2d68c, #c8933d);
+          box-shadow: 0 14px 30px rgba(186, 132, 48, 0.18);
+        }
+
         .product-footer button:disabled {
           cursor: not-allowed;
           color: #887d72;
@@ -1108,8 +1141,9 @@ export default function GuestShopPage() {
             padding: 0 12px;
           }
 
-          .cart-button span {
-            display: none;
+          .cart-icon {
+            width: 18px;
+            height: 18px;
           }
 
           .hero-content {
