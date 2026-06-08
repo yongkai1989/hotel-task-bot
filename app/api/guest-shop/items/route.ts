@@ -6,8 +6,6 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-const VALID_CATEGORIES = new Set(['Comfort', 'Laundry', 'Room Service', 'Essentials']);
-
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -46,7 +44,7 @@ function normalizeItemPayload(body: any) {
   const outOfStock = body?.out_of_stock ?? body?.outOfStock;
 
   if (!name) throw new Error('Item name is required');
-  if (!VALID_CATEGORIES.has(category)) throw new Error('Invalid category');
+  if (!category) throw new Error('Category is required');
   if (!Number.isFinite(price) || price < 0) throw new Error('Price must be 0 or higher');
   if (!Number.isFinite(stock) || stock < 0) throw new Error('Stock must be 0 or higher');
 
