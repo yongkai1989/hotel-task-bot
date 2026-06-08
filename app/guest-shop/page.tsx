@@ -131,6 +131,20 @@ export default function GuestShopPage() {
   const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    window.history.scrollRestoration = 'manual';
+
+    if (window.location.hash) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    });
+  }, []);
+
+  useEffect(() => {
     let alive = true;
 
     async function loadShop() {
@@ -1059,11 +1073,16 @@ export default function GuestShopPage() {
 
         @media (max-width: 820px) {
           .hero {
-            min-height: 760px;
+            min-height: 100svh;
+            display: flex;
+            flex-direction: column;
           }
 
           .hero-image {
-            padding: 10px;
+            inset: 0 0 auto;
+            height: 58svh;
+            min-height: 360px;
+            padding: 8px;
             object-position: center top;
           }
 
@@ -1095,7 +1114,8 @@ export default function GuestShopPage() {
 
           .hero-content {
             width: auto;
-            padding: 54px 16px 220px;
+            margin-top: auto;
+            padding: 18px 16px 150px;
           }
 
           .hero-content h1 {
@@ -1104,9 +1124,10 @@ export default function GuestShopPage() {
 
           .hero-feature {
             right: 16px;
-            bottom: 18px;
+            bottom: 14px;
             left: 16px;
             width: auto;
+            padding: 16px;
           }
 
           .collection {
