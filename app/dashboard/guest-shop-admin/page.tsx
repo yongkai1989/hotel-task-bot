@@ -67,8 +67,9 @@ function normalizeEmail(value?: string | null) {
 function canManageGuestShop(profile: Profile | null) {
   if (!profile) return false;
   const email = normalizeEmail(profile.email);
+  const role = String(profile.role || '').trim().toUpperCase();
   return (
-    profile.role === 'SUPERUSER' ||
+    role === 'SUPERUSER' ||
     email === 'fenny@hotelhallmark.com' ||
     email === 'walter@hotelhallmark.com'
   );
@@ -149,8 +150,21 @@ export default function GuestShopAdminPage() {
         setLoading(true);
         setError('');
 
-        const profileRes = await fetch('/api/session-profile', { cache: 'no-store' });
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const token = session?.access_token || '';
+
+        if (!token) throw new Error('Please log in again');
+
+        const profileRes = await fetch('/api/session-profile', {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const profileJson = await profileRes.json();
+        if (!profileRes.ok || !profileJson?.ok) {
+          throw new Error(profileJson?.error || 'Failed to read session profile');
+        }
         const user = profileJson?.user;
 
         if (alive && user) {
@@ -161,14 +175,9 @@ export default function GuestShopAdminPage() {
           });
         }
 
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const token = session?.access_token || '';
-
         const itemsRes = await fetch('/api/guest-shop/items?include_inactive=1', {
           cache: 'no-store',
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          headers: { Authorization: `Bearer ${token}` },
         });
         const itemsJson = await itemsRes.json();
 
