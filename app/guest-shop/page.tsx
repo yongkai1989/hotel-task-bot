@@ -2,243 +2,276 @@
 
 import { useMemo, useState } from 'react';
 
-type ShopCategory = 'Essentials' | 'Laundry' | 'Comfort' | 'Food & Drink';
+type Category = 'All' | 'Room Services' | 'Laundry' | 'Comfort' | 'Refreshments';
 
 type ShopItem = {
   id: string;
   name: string;
-  category: ShopCategory;
+  category: Exclude<Category, 'All'>;
   description: string;
   price: number;
   stock: number;
-  outOfStock?: boolean;
-  accent: 'blue' | 'gold' | 'green' | 'rose';
-  initials: string;
+  badge?: string;
+  imageUrl: string;
 };
 
-type CartLine = {
-  itemId: string;
+type CartItem = {
+  item: ShopItem;
   quantity: number;
 };
 
-type CheckoutStatus = 'SHOPPING' | 'CHECKOUT' | 'PAID';
-
-const CURRENCY = 'RM';
+const categories: Category[] = ['All', 'Room Services', 'Laundry', 'Comfort', 'Refreshments'];
 
 const SHOP_ITEMS: ShopItem[] = [
   {
     id: 'late-checkout',
     name: 'Late Check-Out',
-    category: 'Essentials',
-    description: 'Extend your stay subject to front office confirmation.',
-    price: 50,
+    category: 'Room Services',
+    description: 'Extend your stay comfortably, subject to front office confirmation.',
+    price: 60,
+    stock: 8,
+    badge: 'Guest Favorite',
+    imageUrl:
+      'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=900&q=80',
+  },
+  {
+    id: 'express-laundry',
+    name: 'Express Laundry',
+    category: 'Laundry',
+    description: 'Priority laundry handling for guests who need a faster return.',
+    price: 40,
+    stock: 12,
+    imageUrl:
+      'https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?auto=format&fit=crop&w=900&q=80',
+  },
+  {
+    id: 'extra-pillow',
+    name: 'Extra Pillow',
+    category: 'Comfort',
+    description: 'Fresh pillow delivered to your room for a better night of rest.',
+    price: 15,
+    stock: 18,
+    imageUrl:
+      'https://images.unsplash.com/photo-1585495336621-dcfb1aaf2a45?auto=format&fit=crop&w=900&q=80',
+  },
+  {
+    id: 'bottled-water',
+    name: 'Mineral Water Set',
+    category: 'Refreshments',
+    description: 'A set of chilled bottled mineral water delivered to your room.',
+    price: 12,
+    stock: 30,
+    imageUrl:
+      'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=900&q=80',
+  },
+  {
+    id: 'travel-adapter',
+    name: 'Travel Adapter',
+    category: 'Comfort',
+    description: 'Universal adapter for guest convenience during the stay.',
+    price: 25,
     stock: 6,
-    accent: 'blue',
-    initials: 'LC',
+    imageUrl:
+      'https://images.unsplash.com/photo-1625834311143-7b6f5c9fdb40?auto=format&fit=crop&w=900&q=80',
   },
   {
     id: 'extra-bed',
     name: 'Extra Bed',
-    category: 'Comfort',
-    description: 'Additional bed setup for your room.',
+    category: 'Room Services',
+    description: 'Additional bed setup for selected room types, subject to availability.',
     price: 60,
     stock: 4,
-    accent: 'gold',
-    initials: 'EB',
-  },
-  {
-    id: 'guest-laundry',
-    name: 'Guest Laundry',
-    category: 'Laundry',
-    description: 'Laundry collection request with front office follow-up.',
-    price: 30,
-    stock: 20,
-    accent: 'green',
-    initials: 'GL',
-  },
-  {
-    id: 'towel-set',
-    name: 'Fresh Towel Set',
-    category: 'Comfort',
-    description: 'Extra bath towel and hand towel set.',
-    price: 12,
-    stock: 18,
-    accent: 'blue',
-    initials: 'TS',
-  },
-  {
-    id: 'bottled-water',
-    name: 'Mineral Water Pack',
-    category: 'Food & Drink',
-    description: 'Six bottles delivered to your room.',
-    price: 10,
-    stock: 30,
-    accent: 'green',
-    initials: 'MW',
-  },
-  {
-    id: 'umbrella',
-    name: 'Hotel Umbrella',
-    category: 'Essentials',
-    description: 'Compact umbrella for city walks and rainy days.',
-    price: 25,
-    stock: 0,
-    outOfStock: true,
-    accent: 'rose',
-    initials: 'HU',
+    badge: 'Limited',
+    imageUrl:
+      'https://images.unsplash.com/photo-1615874959474-d609969a20ed?auto=format&fit=crop&w=900&q=80',
   },
 ];
 
-const CATEGORIES: Array<'All' | ShopCategory> = ['All', 'Essentials', 'Laundry', 'Comfort', 'Food & Drink'];
-
-function formatMoney(value: number) {
-  return `${CURRENCY}${value.toLocaleString('en-MY', {
-    minimumFractionDigits: value % 1 ? 2 : 0,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function lineTotal(item: ShopItem, quantity: number) {
-  return item.price * quantity;
-}
+const formatCurrency = (amount: number) => `RM${amount.toFixed(2)}`;
 
 export default function GuestShopPage() {
-  const [selectedCategory, setSelectedCategory] = useState<'All' | ShopCategory>('All');
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [roomNumber, setRoomNumber] = useState('');
+  const [activeCategory, setActiveCategory] = useState<Category>('All');
+  const [cart, setCart] = useState<Record<string, CartItem>>({});
+  const [room, setRoom] = useState('');
   const [guestName, setGuestName] = useState('');
   const [email, setEmail] = useState('');
-  const [status, setStatus] = useState<CheckoutStatus>('SHOPPING');
+  const [checkoutMessage, setCheckoutMessage] = useState('');
 
-  const visibleItems = useMemo(
-    () => SHOP_ITEMS.filter((item) => selectedCategory === 'All' || item.category === selectedCategory),
-    [selectedCategory]
-  );
+  const visibleItems = useMemo(() => {
+    if (activeCategory === 'All') return SHOP_ITEMS;
+    return SHOP_ITEMS.filter((item) => item.category === activeCategory);
+  }, [activeCategory]);
 
-  const cartItems = useMemo(
-    () => cart
-      .map((line) => {
-        const item = SHOP_ITEMS.find((candidate) => candidate.id === line.itemId);
-        return item ? { item, quantity: line.quantity } : null;
-      })
-      .filter(Boolean) as Array<{ item: ShopItem; quantity: number }>,
-    [cart]
-  );
+  const cartItems = useMemo(() => Object.values(cart), [cart]);
+  const cartCount = cartItems.reduce((sum, row) => sum + row.quantity, 0);
+  const total = cartItems.reduce((sum, row) => sum + row.item.price * row.quantity, 0);
 
-  const total = useMemo(
-    () => cartItems.reduce((sum, line) => sum + lineTotal(line.item, line.quantity), 0),
-    [cartItems]
-  );
+  function addToCart(item: ShopItem) {
+    if (item.stock <= 0) return;
 
-  const cartCount = useMemo(
-    () => cart.reduce((sum, line) => sum + line.quantity, 0),
-    [cart]
-  );
-
-  const canCheckout = cartItems.length > 0 && roomNumber.trim().length >= 3 && guestName.trim().length >= 2;
-
-  function addItem(item: ShopItem) {
-    if (item.outOfStock || item.stock <= 0) return;
     setCart((current) => {
-      const existing = current.find((line) => line.itemId === item.id);
-      if (!existing) return [...current, { itemId: item.id, quantity: 1 }];
-      if (existing.quantity >= item.stock) return current;
-      return current.map((line) =>
-        line.itemId === item.id ? { ...line, quantity: line.quantity + 1 } : line
-      );
+      const existing = current[item.id];
+      const nextQuantity = Math.min((existing?.quantity ?? 0) + 1, item.stock);
+
+      return {
+        ...current,
+        [item.id]: {
+          item,
+          quantity: nextQuantity,
+        },
+      };
+    });
+    setCheckoutMessage('');
+  }
+
+  function updateQuantity(itemId: string, quantity: number) {
+    setCart((current) => {
+      const existing = current[itemId];
+      if (!existing) return current;
+
+      if (quantity <= 0) {
+        const next = { ...current };
+        delete next[itemId];
+        return next;
+      }
+
+      return {
+        ...current,
+        [itemId]: {
+          ...existing,
+          quantity: Math.min(quantity, existing.item.stock),
+        },
+      };
     });
   }
 
-  function changeQuantity(itemId: string, delta: number) {
-    setCart((current) => current
-      .map((line) => {
-        if (line.itemId !== itemId) return line;
-        const item = SHOP_ITEMS.find((candidate) => candidate.id === itemId);
-        const max = item?.stock || 0;
-        return { ...line, quantity: Math.max(0, Math.min(max, line.quantity + delta)) };
-      })
-      .filter((line) => line.quantity > 0));
-  }
+  function startCheckout() {
+    if (!cartItems.length) {
+      setCheckoutMessage('Please select at least one item before payment.');
+      return;
+    }
 
-  function startNewOrder() {
-    setCart([]);
-    setRoomNumber('');
-    setGuestName('');
-    setEmail('');
-    setStatus('SHOPPING');
+    if (!room.trim() || !guestName.trim() || !email.trim()) {
+      setCheckoutMessage('Please enter room number, guest name, and email before payment.');
+      return;
+    }
+
+    setCheckoutMessage(
+      'Payment link setup is ready for Billplz integration. A ticket will only be released after verified successful payment.'
+    );
   }
 
   return (
-    <main className="gs-shell">
-      <section className="gs-hero">
-        <div className="gs-brand-row">
-          <div className="gs-logo-wrap">
-            <img src="/logo.png" alt="Hallmark Crown Hotel" />
-          </div>
-          <div>
-            <div className="gs-eyebrow">Hallmark Crown Hotel</div>
-            <h1>Guest Shop</h1>
-          </div>
-        </div>
-        <div className="gs-hero-copy">
-          <p>Order hotel services and guest essentials from your phone. Your ticket appears only after secure payment confirmation.</p>
-        </div>
-        <button
-          type="button"
-          className="gs-cart-pill"
-          onClick={() => setStatus('CHECKOUT')}
-          disabled={!cartItems.length}
-        >
+    <main className="shop-page">
+      <header className="shop-nav">
+        <a className="shop-brand" href="/guest-shop" aria-label="Hallmark Crown Hotel guest shop">
+          <span className="shop-logo">
+            <img src="/logo.png" alt="" />
+          </span>
+          <span>
+            <span className="brand-overline">Hallmark Crown Hotel</span>
+            <strong>Guest Shop</strong>
+          </span>
+        </a>
+
+        <a className="shop-cart-link" href="#order">
           <span>Cart</span>
-          <strong>{cartCount}</strong>
-        </button>
+          <b>{cartCount}</b>
+        </a>
+      </header>
+
+      <section className="shop-hero">
+        <div className="hero-copy">
+          <span className="hero-kicker">In-room convenience</span>
+          <h1>Hotel essentials, delivered with a quieter kind of luxury.</h1>
+          <p>
+            Browse guest services and add-ons from your room. Select what you need, confirm your
+            order, and our team will prepare it after payment is verified.
+          </p>
+          <div className="hero-actions">
+            <a href="#shop" className="primary-link">
+              Start shopping
+            </a>
+            <a href="#order" className="secondary-link">
+              View order
+            </a>
+          </div>
+          <div className="hero-notes" aria-label="Guest shop benefits">
+            <span>Secure payment flow</span>
+            <span>Front office notified</span>
+            <span>Room delivery</span>
+          </div>
+        </div>
+
+        <div className="hero-feature" aria-label="Featured guest service">
+          <div className="feature-image">
+            <img
+              src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1200&q=80"
+              alt="Premium hotel room service setting"
+            />
+          </div>
+          <div className="feature-card">
+            <span>Featured</span>
+            <strong>Comfort Upgrade</strong>
+            <p>Extra bed, pillows, adapters, and guest essentials in one calm ordering flow.</p>
+          </div>
+        </div>
       </section>
 
-      <section className="gs-content">
-        <section className="gs-shop-panel">
-          <div className="gs-section-head">
-            <div>
-              <div className="gs-eyebrow">Browse</div>
-              <h2>Available Items</h2>
-            </div>
-            <span className="gs-soft-pill">{visibleItems.length} items</span>
-          </div>
+      <section id="shop" className="shop-section">
+        <div className="section-heading">
+          <span>Guest menu</span>
+          <h2>Choose your items</h2>
+        </div>
 
-          <div className="gs-tabs" aria-label="Shop categories">
-            {CATEGORIES.map((category) => (
-              <button
-                key={category}
-                type="button"
-                className={selectedCategory === category ? 'active' : ''}
-                onClick={() => setSelectedCategory(category)}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
+        <div className="category-row" role="tablist" aria-label="Shop categories">
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              className={category === activeCategory ? 'active' : ''}
+              onClick={() => setActiveCategory(category)}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
 
-          <div className="gs-product-grid">
+        <div className="shop-layout">
+          <div className="product-grid">
             {visibleItems.map((item) => {
-              const disabled = item.outOfStock || item.stock <= 0;
-              const inCart = cart.find((line) => line.itemId === item.id)?.quantity || 0;
+              const isUnavailable = item.stock <= 0;
+
               return (
-                <article key={item.id} className={`gs-product gs-product-${item.accent}`}>
-                  <div className="gs-product-media">
-                    <span>{item.initials}</span>
+                <article key={item.id} className="product-card">
+                  <div className="product-media">
+                    <span className="image-fallback">{item.name.slice(0, 2).toUpperCase()}</span>
+                    {item.imageUrl ? (
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        onError={(event) => {
+                          event.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : null}
+                    {item.badge ? <span className="product-badge">{item.badge}</span> : null}
                   </div>
-                  <div className="gs-product-body">
-                    <div className="gs-product-meta">
-                      <span>{item.category}</span>
-                      <strong>{formatMoney(item.price)}</strong>
+
+                  <div className="product-body">
+                    <div>
+                      <span className="product-category">{item.category}</span>
+                      <h3>{item.name}</h3>
+                      <p>{item.description}</p>
                     </div>
-                    <h3>{item.name}</h3>
-                    <p>{item.description}</p>
-                    <div className="gs-product-footer">
-                      <span className={disabled ? 'gs-stock out' : 'gs-stock'}>
-                        {disabled ? 'Out of stock' : `${item.stock} available`}
-                      </span>
-                      <button type="button" onClick={() => addItem(item)} disabled={disabled}>
-                        {inCart ? `Added ${inCart}` : 'Add'}
+
+                    <div className="product-footer">
+                      <div>
+                        <strong>{formatCurrency(item.price)}</strong>
+                        <span>{isUnavailable ? 'Out of stock' : `${item.stock} available`}</span>
+                      </div>
+                      <button type="button" disabled={isUnavailable} onClick={() => addToCart(item)}>
+                        {isUnavailable ? 'Unavailable' : 'Add'}
                       </button>
                     </div>
                   </div>
@@ -246,606 +279,767 @@ export default function GuestShopPage() {
               );
             })}
           </div>
-        </section>
 
-        <aside className="gs-order-panel">
-          {status === 'PAID' ? (
-            <section className="gs-ticket">
-              <div className="gs-success-icon">OK</div>
-              <div className="gs-eyebrow">Payment Confirmed</div>
-              <h2>Ticket Ready</h2>
-              <p>Show this ticket to front office. Your order has been sent to the team.</p>
-              <div className="gs-ticket-box">
-                <span>Ticket No.</span>
-                <strong>HC-{Math.max(1000, cartCount * 137 + 924)}</strong>
-              </div>
-              <div className="gs-ticket-summary">
-                <div><span>Room</span><strong>{roomNumber || '-'}</strong></div>
-                <div><span>Total</span><strong>{formatMoney(total)}</strong></div>
-              </div>
-              <button type="button" className="gs-primary" onClick={startNewOrder}>Start New Order</button>
-            </section>
-          ) : (
-            <>
-              <div className="gs-section-head">
-                <div>
-                  <div className="gs-eyebrow">Order</div>
-                  <h2>Your Cart</h2>
-                </div>
-                <span className="gs-soft-pill">{cartCount} selected</span>
-              </div>
+          <aside id="order" className="order-panel" aria-label="Guest order summary">
+            <div className="order-heading">
+              <span>Your order</span>
+              <strong>{cartCount} item{cartCount === 1 ? '' : 's'}</strong>
+            </div>
 
+            <div className="order-lines">
               {cartItems.length ? (
-                <div className="gs-cart-lines">
-                  {cartItems.map(({ item, quantity }) => (
-                    <div className="gs-cart-line" key={item.id}>
-                      <div>
-                        <strong>{item.name}</strong>
-                        <span>{formatMoney(item.price)} each</span>
-                      </div>
-                      <div className="gs-stepper">
-                        <button type="button" onClick={() => changeQuantity(item.id, -1)}>-</button>
-                        <span>{quantity}</span>
-                        <button type="button" onClick={() => changeQuantity(item.id, 1)}>+</button>
-                      </div>
+                cartItems.map(({ item, quantity }) => (
+                  <div key={item.id} className="order-line">
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span>{formatCurrency(item.price)} each</span>
                     </div>
-                  ))}
-                </div>
+                    <div className="quantity-control">
+                      <button type="button" onClick={() => updateQuantity(item.id, quantity - 1)}>
+                        -
+                      </button>
+                      <span>{quantity}</span>
+                      <button type="button" onClick={() => updateQuantity(item.id, quantity + 1)}>
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))
               ) : (
-                <div className="gs-empty-cart">
+                <div className="empty-cart">
                   <strong>Your cart is empty</strong>
                   <span>Select an item to begin.</span>
                 </div>
               )}
+            </div>
 
-              <div className="gs-form">
-                <label>
-                  Room Number
-                  <input value={roomNumber} onChange={(event) => setRoomNumber(event.target.value)} placeholder="Example: 1205" />
-                </label>
-                <label>
-                  Guest Name
-                  <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Name on order" />
-                </label>
-                <label>
-                  Email Receipt <span>optional</span>
-                  <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="guest@email.com" inputMode="email" />
-                </label>
-              </div>
+            <div className="guest-form">
+              <label>
+                Room number
+                <input value={room} onChange={(event) => setRoom(event.target.value)} placeholder="Example: 1205" />
+              </label>
+              <label>
+                Guest name
+                <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Name on room" />
+              </label>
+              <label>
+                Email
+                <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="For optional receipt" />
+              </label>
+            </div>
 
-              <div className="gs-total-box">
-                <span>Total Amount</span>
-                <strong>{formatMoney(total)}</strong>
-              </div>
+            <div className="order-total">
+              <span>Total</span>
+              <strong>{formatCurrency(total)}</strong>
+            </div>
 
-              {status === 'CHECKOUT' ? (
-                <div className="gs-payment-note">
-                  <strong>Billplz payment step</strong>
-                  <span>In production, this button will create a Billplz bill and only show the ticket after verified successful payment.</span>
-                </div>
-              ) : null}
+            <button type="button" className="checkout-button" onClick={startCheckout}>
+              Proceed to Billplz
+            </button>
 
-              <button
-                type="button"
-                className="gs-primary"
-                disabled={!canCheckout || status === 'CHECKOUT'}
-                onClick={() => setStatus('CHECKOUT')}
-              >
-                {status === 'CHECKOUT' ? 'Billplz Integration Pending' : 'Continue to Payment'}
-              </button>
-            </>
-          )}
-        </aside>
+            {checkoutMessage ? <p className="checkout-message">{checkoutMessage}</p> : null}
+
+            <p className="payment-note">
+              Tickets and staff notifications should be released only after Billplz confirms a
+              successful payment.
+            </p>
+          </aside>
+        </div>
       </section>
 
-      <style jsx global>{`
-        .gs-shell {
+      <section className="image-admin-note" aria-label="SKU image setup">
+        <div>
+          <span>SKU image control</span>
+          <h2>Every product already has its own image field.</h2>
+        </div>
+        <p>
+          To change an item photo, replace that item&apos;s <code>imageUrl</code>. When the SKU admin
+          page is connected later, this same field can be saved from an upload form.
+        </p>
+      </section>
+
+      <style jsx>{`
+        :global(body) {
+          margin: 0;
+          background: #f7f3ec;
+        }
+
+        .shop-page {
           min-height: 100vh;
-          padding: clamp(14px, 3vw, 34px);
+          color: #122033;
           background:
-            radial-gradient(circle at 8% 0%, rgba(37,99,235,.13), transparent 30%),
-            radial-gradient(circle at 100% 6%, rgba(197,151,77,.18), transparent 26%),
-            linear-gradient(180deg, #f7faff 0%, #eef4fb 100%);
-          color: #0f172a;
-          box-sizing: border-box;
+            radial-gradient(circle at 12% 10%, rgba(196, 154, 92, 0.2), transparent 30%),
+            linear-gradient(180deg, #fffaf1 0%, #f5f7fb 42%, #eef4fb 100%);
+          font-family:
+            Inter,
+            ui-sans-serif,
+            system-ui,
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
         }
-        .gs-hero,
-        .gs-shop-panel,
-        .gs-order-panel {
-          border: 1px solid rgba(193, 211, 235, .9);
-          background: rgba(255,255,255,.94);
-          box-shadow: 0 24px 70px rgba(15,23,42,.09), inset 0 1px 0 rgba(255,255,255,.95);
-          border-radius: 26px;
-        }
-        .gs-hero {
-          max-width: 1220px;
-          margin: 0 auto 16px;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(260px, 440px) auto;
-          gap: 18px;
+
+        .shop-nav {
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          display: flex;
           align-items: center;
-          padding: clamp(16px, 2.2vw, 24px);
-          background:
-            linear-gradient(135deg, rgba(255,255,255,.98), rgba(242,247,255,.95)),
-            radial-gradient(circle at 92% 8%, rgba(37,99,235,.13), transparent 34%);
+          justify-content: space-between;
+          gap: 16px;
+          padding: 18px clamp(18px, 4vw, 56px);
+          border-bottom: 1px solid rgba(113, 89, 54, 0.14);
+          background: rgba(255, 250, 242, 0.88);
+          backdrop-filter: blur(18px);
         }
-        .gs-brand-row {
-          display: grid;
-          grid-template-columns: 58px minmax(0, 1fr);
-          gap: 14px;
+
+        .shop-brand {
+          display: inline-flex;
           align-items: center;
+          gap: 12px;
+          color: inherit;
+          text-decoration: none;
         }
-        .gs-logo-wrap {
-          width: 58px;
-          height: 58px;
-          border-radius: 18px;
-          border: 1px solid #decba6;
-          background: linear-gradient(135deg, #fff, #fbf7ef);
+
+        .shop-logo {
           display: grid;
+          width: 46px;
+          height: 46px;
           place-items: center;
           overflow: hidden;
+          border: 1px solid rgba(143, 103, 54, 0.28);
+          border-radius: 50%;
+          background: #fffdf8;
+          box-shadow: 0 14px 34px rgba(77, 53, 24, 0.12);
         }
-        .gs-logo-wrap img {
-          width: 84%;
-          height: 84%;
+
+        .shop-logo img {
+          width: 32px;
+          height: 32px;
           object-fit: contain;
         }
-        .gs-eyebrow {
-          color: #2563eb;
+
+        .brand-overline,
+        .hero-kicker,
+        .section-heading span,
+        .product-category,
+        .image-admin-note span {
+          display: block;
+          color: #8b663a;
           font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
           text-transform: uppercase;
-          letter-spacing: .9px;
-          font-weight: 950;
-          margin-bottom: 6px;
         }
-        .gs-hero h1,
-        .gs-shop-panel h2,
-        .gs-order-panel h2,
-        .gs-ticket h2 {
-          margin: 0;
-          color: #071225;
+
+        .shop-brand strong {
+          display: block;
+          font-size: 20px;
           letter-spacing: 0;
-          line-height: 1.05;
         }
-        .gs-hero h1 {
-          font-size: clamp(32px, 5vw, 52px);
-        }
-        .gs-hero-copy p {
-          margin: 0;
-          color: #516783;
-          font-weight: 750;
-          line-height: 1.5;
-        }
-        .gs-cart-pill {
-          border: 0;
-          min-height: 48px;
-          border-radius: 16px;
+
+        .shop-cart-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          min-height: 44px;
           padding: 0 16px;
+          color: #fff;
+          border-radius: 999px;
+          background: #0f2747;
+          text-decoration: none;
+          box-shadow: 0 16px 38px rgba(15, 39, 71, 0.22);
+        }
+
+        .shop-cart-link b {
+          display: grid;
+          min-width: 26px;
+          height: 26px;
+          place-items: center;
+          color: #0f2747;
+          border-radius: 50%;
+          background: #d8b56d;
+        }
+
+        .shop-hero {
+          display: grid;
+          grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+          gap: clamp(24px, 4vw, 54px);
+          align-items: center;
+          padding: clamp(28px, 6vw, 86px) clamp(18px, 4vw, 56px) clamp(24px, 5vw, 58px);
+        }
+
+        .hero-copy h1 {
+          max-width: 760px;
+          margin: 12px 0 18px;
+          font-family:
+            Georgia,
+            "Times New Roman",
+            serif;
+          font-size: clamp(42px, 6vw, 78px);
+          line-height: 0.96;
+          letter-spacing: 0;
+        }
+
+        .hero-copy p {
+          max-width: 660px;
+          margin: 0;
+          color: #51647e;
+          font-size: clamp(16px, 2vw, 20px);
+          line-height: 1.7;
+        }
+
+        .hero-actions,
+        .hero-notes,
+        .category-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+
+        .hero-actions {
+          margin-top: 28px;
+        }
+
+        .primary-link,
+        .secondary-link,
+        .category-row button,
+        .product-footer button,
+        .checkout-button {
+          min-height: 46px;
+          border-radius: 999px;
+          border: 1px solid transparent;
+          font-weight: 900;
+          text-decoration: none;
+          cursor: pointer;
+        }
+
+        .primary-link,
+        .checkout-button {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 10px;
+          padding: 0 22px;
           color: #fff;
-          background: linear-gradient(135deg, #1d4ed8, #2563eb 55%, #3b82f6);
-          box-shadow: 0 18px 34px rgba(37,99,235,.22);
-          font-weight: 950;
-          cursor: pointer;
+          background: #194cff;
+          box-shadow: 0 18px 42px rgba(25, 76, 255, 0.25);
         }
-        .gs-cart-pill:disabled,
-        .gs-primary:disabled,
-        .gs-product-footer button:disabled {
-          opacity: .45;
-          cursor: not-allowed;
-          box-shadow: none;
-        }
-        .gs-cart-pill strong {
-          min-width: 26px;
-          min-height: 26px;
-          display: grid;
-          place-items: center;
-          border-radius: 999px;
-          background: rgba(255,255,255,.18);
-        }
-        .gs-content {
-          max-width: 1220px;
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(330px, 390px);
-          gap: 16px;
-          align-items: start;
-        }
-        .gs-shop-panel,
-        .gs-order-panel {
-          padding: clamp(16px, 2.2vw, 24px);
-        }
-        .gs-order-panel {
-          position: sticky;
-          top: 14px;
-        }
-        .gs-section-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: start;
-          gap: 12px;
-          margin-bottom: 14px;
-        }
-        .gs-section-head h2 {
-          font-size: clamp(24px, 3vw, 30px);
-        }
-        .gs-soft-pill {
-          border: 1px solid #bfdbfe;
-          background: #eff6ff;
-          color: #1d4ed8;
-          border-radius: 999px;
-          padding: 8px 11px;
-          font-size: 12px;
-          font-weight: 950;
-          white-space: nowrap;
-        }
-        .gs-tabs {
-          display: flex;
-          gap: 8px;
-          overflow-x: auto;
-          padding: 4px;
-          margin-bottom: 16px;
-          border-radius: 18px;
-          border: 1px solid #dde8f6;
-          background: #f7fbff;
-        }
-        .gs-tabs button {
-          border: 0;
-          border-radius: 14px;
-          min-height: 42px;
-          padding: 0 14px;
-          background: transparent;
-          color: #334155;
-          font-weight: 950;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .gs-tabs button.active {
-          color: #fff;
-          background: #0f172a;
-          box-shadow: 0 12px 26px rgba(15,23,42,.18);
-        }
-        .gs-product-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 14px;
-        }
-        .gs-product {
-          border: 1px solid #dbe7f6;
-          border-radius: 22px;
-          background: #fff;
-          overflow: hidden;
-          display: grid;
-          box-shadow: 0 18px 42px rgba(15,23,42,.055);
-        }
-        .gs-product-media {
-          min-height: 110px;
-          display: grid;
-          place-items: center;
-          background:
-            radial-gradient(circle at 20% 20%, rgba(255,255,255,.65), transparent 36%),
-            linear-gradient(135deg, #eaf2ff, #dbeafe);
-        }
-        .gs-product-media span {
-          width: 64px;
-          height: 64px;
-          border-radius: 22px;
-          display: grid;
-          place-items: center;
-          background: rgba(255,255,255,.78);
-          color: #1d4ed8;
-          font-size: 22px;
-          font-weight: 950;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 18px 38px rgba(30,64,175,.14);
-        }
-        .gs-product-gold .gs-product-media { background: linear-gradient(135deg, #fff7ed, #fef3c7); }
-        .gs-product-gold .gs-product-media span { color: #92400e; }
-        .gs-product-green .gs-product-media { background: linear-gradient(135deg, #ecfdf5, #dcfce7); }
-        .gs-product-green .gs-product-media span { color: #047857; }
-        .gs-product-rose .gs-product-media { background: linear-gradient(135deg, #fff1f2, #ffe4e6); }
-        .gs-product-rose .gs-product-media span { color: #be123c; }
-        .gs-product-body {
-          padding: 14px;
-          display: grid;
-          gap: 9px;
-        }
-        .gs-product-meta,
-        .gs-product-footer {
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
+
+        .secondary-link {
+          display: inline-flex;
           align-items: center;
+          justify-content: center;
+          padding: 0 22px;
+          color: #0f2747;
+          border-color: rgba(15, 39, 71, 0.18);
+          background: rgba(255, 255, 255, 0.72);
         }
-        .gs-product-meta span,
-        .gs-stock,
-        .gs-cart-line span,
-        .gs-ticket-summary span {
-          color: #64748b;
-          font-size: 12px;
-          font-weight: 850;
-        }
-        .gs-product-meta strong {
-          color: #0f172a;
-          font-size: 18px;
-        }
-        .gs-product h3 {
-          margin: 0;
-          font-size: 19px;
-          line-height: 1.15;
-          color: #071225;
-        }
-        .gs-product p {
-          margin: 0;
-          color: #526783;
-          font-size: 13px;
-          line-height: 1.42;
-          min-height: 38px;
-        }
-        .gs-stock.out {
-          color: #be123c;
-        }
-        .gs-product-footer button {
-          border: 0;
-          border-radius: 14px;
-          min-height: 38px;
-          min-width: 76px;
-          padding: 0 13px;
-          background: #2563eb;
-          color: #fff;
-          font-weight: 950;
-          cursor: pointer;
-          box-shadow: 0 12px 24px rgba(37,99,235,.18);
-        }
-        .gs-cart-lines {
-          display: grid;
-          gap: 10px;
-          margin-bottom: 14px;
-        }
-        .gs-cart-line {
-          border: 1px solid #dde8f6;
-          background: #fff;
-          border-radius: 18px;
-          padding: 12px;
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 10px;
-          align-items: center;
-        }
-        .gs-cart-line strong {
-          display: block;
-          margin-bottom: 3px;
-        }
-        .gs-stepper {
-          display: grid;
-          grid-template-columns: 34px 34px 34px;
-          align-items: center;
-          border: 1px solid #dbe7f6;
-          border-radius: 14px;
-          overflow: hidden;
-          background: #f8fbff;
-        }
-        .gs-stepper button {
-          border: 0;
-          height: 34px;
-          background: transparent;
-          color: #1d4ed8;
-          font-weight: 950;
-          cursor: pointer;
-        }
-        .gs-stepper span {
-          text-align: center;
-          font-weight: 950;
-        }
-        .gs-empty-cart {
-          border: 1px dashed #cbd9eb;
-          border-radius: 18px;
-          padding: 24px;
-          text-align: center;
-          display: grid;
-          gap: 5px;
-          color: #64748b;
-          margin-bottom: 14px;
-        }
-        .gs-empty-cart strong {
-          color: #0f172a;
-        }
-        .gs-form {
-          display: grid;
-          gap: 10px;
-          margin-bottom: 14px;
-        }
-        .gs-form label {
-          display: grid;
-          gap: 7px;
-          color: #334155;
-          font-size: 12px;
-          font-weight: 950;
-        }
-        .gs-form label span {
-          color: #94a3b8;
-          font-weight: 850;
-        }
-        .gs-form input {
-          width: 100%;
-          height: 48px;
-          border-radius: 15px;
-          border: 1px solid #cbd9eb;
-          padding: 0 13px;
-          box-sizing: border-box;
-          font: inherit;
+
+        .hero-notes {
+          margin-top: 24px;
+          color: #566981;
+          font-size: 14px;
           font-weight: 800;
-          outline: none;
-          background: #fff;
         }
-        .gs-form input:focus {
-          border-color: #2563eb;
-          box-shadow: 0 0 0 4px rgba(37,99,235,.1);
+
+        .hero-notes span {
+          padding: 9px 12px;
+          border: 1px solid rgba(143, 103, 54, 0.18);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.68);
         }
-        .gs-total-box {
-          border: 1px solid #c7d2fe;
-          border-radius: 20px;
-          padding: 16px;
-          background: linear-gradient(135deg, #172554, #1d4ed8 72%, #2563eb);
-          color: #fff;
-          display: grid;
-          gap: 4px;
-          margin-bottom: 12px;
+
+        .hero-feature {
+          position: relative;
+          min-height: 500px;
+          overflow: hidden;
+          border: 1px solid rgba(143, 103, 54, 0.18);
+          border-radius: 34px;
+          background: #1d2c42;
+          box-shadow: 0 34px 90px rgba(25, 36, 52, 0.2);
         }
-        .gs-total-box span {
-          opacity: .78;
-          text-transform: uppercase;
-          font-size: 11px;
-          letter-spacing: .7px;
-          font-weight: 950;
-        }
-        .gs-total-box strong {
-          font-size: 34px;
-          line-height: 1;
-        }
-        .gs-payment-note {
-          border: 1px solid #bfdbfe;
-          border-radius: 16px;
-          padding: 12px;
-          background: #eff6ff;
-          color: #1e3a8a;
-          display: grid;
-          gap: 5px;
-          margin-bottom: 12px;
-          font-size: 13px;
-          line-height: 1.38;
-        }
-        .gs-primary {
+
+        .feature-image,
+        .feature-image img {
           width: 100%;
-          min-height: 52px;
-          border: 0;
-          border-radius: 17px;
+          height: 100%;
+        }
+
+        .feature-image {
+          position: absolute;
+          inset: 0;
+        }
+
+        .feature-image img {
+          object-fit: cover;
+          opacity: 0.84;
+        }
+
+        .feature-card {
+          position: absolute;
+          right: 24px;
+          bottom: 24px;
+          left: 24px;
+          padding: 22px;
           color: #fff;
-          background: linear-gradient(135deg, #1d4ed8, #2563eb 60%, #3b82f6);
-          box-shadow: 0 18px 36px rgba(37,99,235,.22);
-          font-weight: 950;
-          cursor: pointer;
+          border: 1px solid rgba(255, 255, 255, 0.22);
+          border-radius: 24px;
+          background: rgba(10, 22, 38, 0.72);
+          backdrop-filter: blur(18px);
         }
-        .gs-ticket {
-          text-align: center;
+
+        .feature-card span {
+          color: #d8b56d;
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .feature-card strong {
+          display: block;
+          margin-top: 8px;
+          font-size: 28px;
+        }
+
+        .feature-card p {
+          margin: 8px 0 0;
+          color: rgba(255, 255, 255, 0.78);
+          line-height: 1.5;
+        }
+
+        .shop-section,
+        .image-admin-note {
+          margin: 0 clamp(18px, 4vw, 56px) clamp(24px, 5vw, 58px);
+        }
+
+        .section-heading {
+          margin-bottom: 18px;
+        }
+
+        .section-heading h2,
+        .image-admin-note h2 {
+          margin: 6px 0 0;
+          font-size: clamp(28px, 4vw, 42px);
+          letter-spacing: 0;
+        }
+
+        .category-row {
+          margin-bottom: 22px;
+        }
+
+        .category-row button {
+          padding: 0 18px;
+          color: #33445b;
+          border-color: rgba(16, 39, 71, 0.14);
+          background: rgba(255, 255, 255, 0.72);
+        }
+
+        .category-row button.active {
+          color: #fff;
+          background: #0f2747;
+        }
+
+        .shop-layout {
           display: grid;
-          gap: 14px;
+          grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+          gap: 24px;
+          align-items: start;
         }
-        .gs-success-icon {
-          width: 62px;
-          height: 62px;
-          margin: 0 auto;
-          border-radius: 22px;
+
+        .product-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 18px;
+        }
+
+        .product-card,
+        .order-panel,
+        .image-admin-note {
+          border: 1px solid rgba(95, 124, 157, 0.18);
+          border-radius: 28px;
+          background: rgba(255, 255, 255, 0.78);
+          box-shadow: 0 24px 70px rgba(30, 52, 80, 0.1);
+        }
+
+        .product-card {
+          display: flex;
+          min-height: 450px;
+          overflow: hidden;
+          flex-direction: column;
+        }
+
+        .product-media {
+          position: relative;
+          height: 220px;
+          overflow: hidden;
+          background: linear-gradient(135deg, #f8efe0, #eaf2ff);
+        }
+
+        .product-media img {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .image-fallback {
+          position: absolute;
+          inset: 0;
           display: grid;
           place-items: center;
-          background: #dcfce7;
-          color: #047857;
-          font-size: 30px;
-          font-weight: 950;
+          color: rgba(15, 39, 71, 0.42);
+          font-size: 44px;
+          font-weight: 900;
         }
-        .gs-ticket p {
-          color: #526783;
+
+        .product-badge {
+          position: absolute;
+          top: 14px;
+          left: 14px;
+          padding: 8px 11px;
+          color: #3d2811;
+          border-radius: 999px;
+          background: rgba(255, 244, 214, 0.92);
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .product-body {
+          display: flex;
+          flex: 1;
+          flex-direction: column;
+          justify-content: space-between;
+          gap: 22px;
+          padding: 20px;
+        }
+
+        .product-body h3 {
+          margin: 8px 0;
+          font-size: 22px;
+          letter-spacing: 0;
+        }
+
+        .product-body p {
           margin: 0;
-          line-height: 1.45;
-          font-weight: 750;
+          color: #60728b;
+          line-height: 1.55;
         }
-        .gs-ticket-box {
-          border: 1px dashed #93c5fd;
-          border-radius: 20px;
-          padding: 16px;
-          display: grid;
-          gap: 5px;
-          background: #eff6ff;
+
+        .product-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding-top: 16px;
+          border-top: 1px solid rgba(95, 124, 157, 0.16);
         }
-        .gs-ticket-box span {
-          color: #1d4ed8;
-          font-size: 11px;
+
+        .product-footer strong {
+          display: block;
+          font-size: 22px;
+        }
+
+        .product-footer span {
+          display: block;
+          color: #687b93;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .product-footer button {
+          min-width: 82px;
+          padding: 0 18px;
+          color: #fff;
+          background: #0f2747;
+        }
+
+        .product-footer button:disabled {
+          cursor: not-allowed;
+          color: #75869b;
+          background: #e7edf4;
+        }
+
+        .order-panel {
+          position: sticky;
+          top: 92px;
+          padding: 22px;
+        }
+
+        .order-heading {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .order-heading span {
+          color: #8b663a;
+          font-weight: 900;
           text-transform: uppercase;
-          letter-spacing: .8px;
-          font-weight: 950;
         }
-        .gs-ticket-box strong {
-          font-size: 30px;
-          color: #071225;
+
+        .order-heading strong {
+          color: #0f2747;
         }
-        .gs-ticket-summary {
+
+        .order-lines {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
+          gap: 12px;
         }
-        .gs-ticket-summary div {
-          border: 1px solid #dbe7f6;
-          border-radius: 16px;
+
+        .order-line,
+        .empty-cart {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 14px;
+          border: 1px solid rgba(95, 124, 157, 0.16);
+          border-radius: 18px;
+          background: rgba(247, 250, 253, 0.86);
+        }
+
+        .order-line strong,
+        .empty-cart strong {
+          display: block;
+        }
+
+        .order-line span,
+        .empty-cart span {
+          display: block;
+          margin-top: 4px;
+          color: #687b93;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .quantity-control {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 4px;
+          border-radius: 999px;
+          background: #fff;
+          box-shadow: inset 0 0 0 1px rgba(95, 124, 157, 0.16);
+        }
+
+        .quantity-control button {
+          display: grid;
+          width: 30px;
+          height: 30px;
+          place-items: center;
+          border: 0;
+          border-radius: 50%;
+          background: #eef4fb;
+          font-weight: 900;
+        }
+
+        .quantity-control span {
+          min-width: 20px;
+          margin: 0;
+          color: #122033;
+          text-align: center;
+        }
+
+        .guest-form {
+          display: grid;
+          gap: 12px;
+          margin-top: 18px;
+        }
+
+        .guest-form label {
+          color: #4d5f77;
+          font-size: 13px;
+          font-weight: 900;
+        }
+
+        .guest-form input {
+          width: 100%;
+          min-height: 46px;
+          margin-top: 7px;
+          padding: 0 14px;
+          color: #122033;
+          border: 1px solid rgba(95, 124, 157, 0.22);
+          border-radius: 15px;
+          background: #fff;
+          font: inherit;
+          box-sizing: border-box;
+        }
+
+        .order-total {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin: 20px 0 14px;
+          padding-top: 18px;
+          border-top: 1px solid rgba(95, 124, 157, 0.16);
+        }
+
+        .order-total span {
+          color: #687b93;
+          font-weight: 900;
+        }
+
+        .order-total strong {
+          font-size: 34px;
+          letter-spacing: 0;
+        }
+
+        .checkout-button {
+          width: 100%;
+          border: 0;
+          font-size: 16px;
+        }
+
+        .checkout-message,
+        .payment-note {
+          margin: 14px 0 0;
+          color: #52667f;
+          line-height: 1.5;
+        }
+
+        .checkout-message {
           padding: 12px;
+          border: 1px solid rgba(216, 181, 109, 0.46);
+          border-radius: 16px;
+          background: rgba(255, 247, 225, 0.82);
+          font-weight: 800;
+        }
+
+        .payment-note {
+          font-size: 13px;
+        }
+
+        .image-admin-note {
           display: grid;
-          gap: 5px;
-          text-align: left;
+          grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+          gap: 18px;
+          align-items: center;
+          padding: 24px;
         }
-        .gs-ticket-summary strong {
-          font-size: 20px;
+
+        .image-admin-note p {
+          margin: 0;
+          color: #5d7089;
+          line-height: 1.65;
         }
-        @media (max-width: 920px) {
-          .gs-hero {
+
+        .image-admin-note code {
+          padding: 2px 6px;
+          border-radius: 8px;
+          background: rgba(25, 76, 255, 0.1);
+          color: #194cff;
+          font-weight: 900;
+        }
+
+        @media (max-width: 1180px) {
+          .shop-layout {
             grid-template-columns: 1fr;
           }
-          .gs-cart-pill {
-            width: 100%;
-          }
-          .gs-content {
-            grid-template-columns: 1fr;
-          }
-          .gs-order-panel {
+
+          .order-panel {
             position: static;
           }
+
+          .product-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
         }
-        @media (max-width: 640px) {
-          .gs-shell {
-            padding: 10px;
+
+        @media (max-width: 820px) {
+          .shop-nav {
+            padding: 14px 16px;
           }
-          .gs-hero,
-          .gs-shop-panel,
-          .gs-order-panel {
-            border-radius: 20px;
+
+          .shop-brand strong {
+            font-size: 16px;
           }
-          .gs-brand-row {
-            grid-template-columns: 48px minmax(0, 1fr);
+
+          .brand-overline {
+            font-size: 9px;
           }
-          .gs-logo-wrap {
-            width: 48px;
-            height: 48px;
-            border-radius: 15px;
+
+          .shop-cart-link {
+            min-height: 40px;
+            padding: 0 12px;
           }
-          .gs-product-grid {
+
+          .shop-cart-link span {
+            display: none;
+          }
+
+          .shop-hero {
+            grid-template-columns: 1fr;
+            padding: 28px 16px;
+          }
+
+          .hero-copy h1 {
+            font-size: 40px;
+          }
+
+          .hero-feature {
+            min-height: 360px;
+            border-radius: 26px;
+          }
+
+          .shop-section,
+          .image-admin-note {
+            margin-right: 16px;
+            margin-left: 16px;
+          }
+
+          .product-grid {
             grid-template-columns: 1fr;
           }
-          .gs-product {
-            grid-template-columns: 94px minmax(0, 1fr);
-          }
-          .gs-product-media {
-            min-height: auto;
-          }
-          .gs-product-media span {
-            width: 52px;
-            height: 52px;
-            border-radius: 18px;
-            font-size: 18px;
-          }
-          .gs-product h3 {
-            font-size: 17px;
-          }
-          .gs-product p {
+
+          .product-card {
             min-height: 0;
           }
-          .gs-product-footer {
-            align-items: stretch;
+
+          .product-media {
+            height: 210px;
           }
-          .gs-product-footer button {
-            min-width: 70px;
-          }
-          .gs-ticket-summary {
+
+          .image-admin-note {
             grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .hero-actions a,
+          .category-row button {
+            width: 100%;
+          }
+
+          .category-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .category-row button {
+            padding: 0 10px;
+          }
+
+          .product-footer,
+          .order-line {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .product-footer button {
+            width: 100%;
+          }
+
+          .quantity-control {
+            justify-content: space-between;
+          }
+
+          .order-total strong {
+            font-size: 28px;
           }
         }
       `}</style>
