@@ -2,12 +2,12 @@
 
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 
-type Category = 'All' | 'Comfort' | 'Laundry' | 'Room Service' | 'Essentials';
+type Category = string;
 
 type ShopItem = {
   id: string;
   name: string;
-  category: Exclude<Category, 'All'>;
+  category: string;
   description: string;
   price: number;
   stock: number;
@@ -21,7 +21,17 @@ type CartItem = {
   quantity: number;
 };
 
-const categories: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
+const DEFAULT_CATEGORIES: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
+
+const DEFAULT_HERO = {
+  hero_image_url:
+    'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84',
+  hero_kicker: 'Private in-room collection',
+  hero_title: 'Quiet luxuries, ready on request.',
+  hero_body:
+    'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
+  featured_item_id: null as string | null,
+};
 
 const DEFAULT_SHOP_ITEMS: ShopItem[] = [
   {
@@ -100,6 +110,8 @@ function money(value: number) {
 
 export default function GuestShopPage() {
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [hero, setHero] = useState(DEFAULT_HERO);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [roomNumber, setRoomNumber] = useState('');
@@ -112,7 +124,8 @@ export default function GuestShopPage() {
     return items.filter((item) => item.category === activeCategory);
   }, [activeCategory, items]);
 
-  const featuredItem = items[0] || DEFAULT_SHOP_ITEMS[0];
+  const featuredItem =
+    items.find((item) => item.id === hero.featured_item_id) || items[0] || DEFAULT_SHOP_ITEMS[0];
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
   const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
@@ -120,20 +133,48 @@ export default function GuestShopPage() {
   useEffect(() => {
     let alive = true;
 
-    async function loadItems() {
+    async function loadShop() {
       try {
-        const res = await fetch('/api/guest-shop/items', { cache: 'no-store' });
-        const json = await res.json();
-        if (!alive || !json?.ok || !Array.isArray(json.items) || !json.items.length) return;
+        const [itemsRes, categoriesRes, settingsRes] = await Promise.all([
+          fetch('/api/guest-shop/items', { cache: 'no-store' }),
+          fetch('/api/guest-shop/categories', { cache: 'no-store' }),
+          fetch('/api/guest-shop/settings', { cache: 'no-store' }),
+        ]);
+
+        const json = await itemsRes.json();
+        const categoriesJson = await categoriesRes.json();
+        const settingsJson = await settingsRes.json();
+        if (!alive) return;
+
+        if (categoriesJson?.ok && Array.isArray(categoriesJson.categories)) {
+          const nextCategories = categoriesJson.categories
+            .filter((category: any) => category?.is_active !== false)
+            .map((category: any) => String(category?.name || '').trim())
+            .filter(Boolean);
+
+          if (nextCategories.length) setCategories(['All', ...nextCategories]);
+        }
+
+        if (settingsJson?.ok && settingsJson.settings) {
+          setHero({
+            hero_image_url: String(settingsJson.settings.hero_image_url || DEFAULT_HERO.hero_image_url),
+            hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_HERO.hero_kicker),
+            hero_title: String(settingsJson.settings.hero_title || DEFAULT_HERO.hero_title),
+            hero_body: String(settingsJson.settings.hero_body || DEFAULT_HERO.hero_body),
+            featured_item_id: settingsJson.settings.featured_item_id
+              ? String(settingsJson.settings.featured_item_id)
+              : null,
+          });
+        }
+
+        if (!json?.ok || !Array.isArray(json.items) || !json.items.length) return;
 
         const nextItems = json.items
           .filter((item: any) => item?.is_active !== false)
           .map((item: any): ShopItem => ({
             id: String(item.id),
             name: String(item.name || ''),
-            category: categories.includes(item.category) && item.category !== 'All'
-              ? item.category
-              : 'Essentials',
+            category: String(item.category || 'Essentials'),
             description: String(item.description || ''),
             price: Number(item.price_myr || 0),
             stock: item.out_of_stock ? 0 : Math.max(0, Number(item.stock || 0)),
@@ -143,13 +184,19 @@ export default function GuestShopPage() {
           }))
           .filter((item: ShopItem) => item.name);
 
-        if (nextItems.length) setItems(nextItems);
+        if (nextItems.length) {
+          setItems(nextItems);
+          setCategories((current) => {
+            const itemCategories = nextItems.map((item) => item.category).filter(Boolean);
+            return ['All', ...Array.from(new Set([...current.filter((item) => item !== 'All'), ...itemCategories]))];
+          });
+        }
       } catch {
         // Keep the curated fallback so the guest shop stays usable if the catalog table is not ready.
       }
     }
 
-    loadItems();
+    loadShop();
 
     return () => {
       alive = false;
@@ -213,7 +260,7 @@ export default function GuestShopPage() {
       <section className="hero">
         <img
           className="hero-image"
-          src="https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84"
+          src={hero.hero_image_url}
           alt="Luxury hotel suite"
         />
         <div className="hero-shade" />
@@ -236,12 +283,9 @@ export default function GuestShopPage() {
         </header>
 
         <div className="hero-content">
-          <p className="eyebrow">Private in-room collection</p>
-          <h1>Quiet luxuries, ready on request.</h1>
-          <p className="hero-copy">
-            Order selected comforts, guest essentials, and hotel services from your room. Prepared
-            by the team after verified payment.
-          </p>
+          <p className="eyebrow">{hero.hero_kicker}</p>
+          <h1>{hero.hero_title}</h1>
+          <p className="hero-copy">{hero.hero_body}</p>
 
           <div className="hero-actions">
             <a href="#shop" className="primary-action">
