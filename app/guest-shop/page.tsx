@@ -257,7 +257,10 @@ export default function GuestShopPage() {
 
   return (
     <main className="guest-shop">
-      <section className="hero">
+      <section
+        className="hero"
+        style={{ '--hero-image': `url("${hero.hero_image_url}")` } as CSSProperties}
+      >
         <img
           className="hero-image"
           src={hero.hero_image_url}
@@ -474,8 +477,22 @@ export default function GuestShopPage() {
           position: relative;
           min-height: min(760px, 92vh);
           overflow: hidden;
+          background: #080808;
           color: #fff8ed;
           isolation: isolate;
+        }
+
+        .hero::before {
+          position: absolute;
+          inset: -28px;
+          z-index: -3;
+          content: "";
+          background-image: var(--hero-image);
+          background-position: center;
+          background-size: cover;
+          filter: blur(20px) saturate(1.08);
+          transform: scale(1.08);
+          opacity: 0.8;
         }
 
         .hero-image,
@@ -487,15 +504,19 @@ export default function GuestShopPage() {
         .hero-image {
           width: 100%;
           height: 100%;
-          object-fit: cover;
+          object-fit: contain;
+          object-position: center center;
+          padding: clamp(18px, 3vw, 42px);
+          box-sizing: border-box;
           z-index: -2;
         }
 
         .hero-shade {
           z-index: -1;
           background:
-            linear-gradient(90deg, rgba(13, 14, 16, 0.8) 0%, rgba(13, 14, 16, 0.54) 42%, rgba(13, 14, 16, 0.2) 100%),
-            linear-gradient(180deg, rgba(13, 14, 16, 0.36) 0%, rgba(13, 14, 16, 0.74) 100%);
+            radial-gradient(circle at 70% 42%, rgba(255, 236, 189, 0.08), transparent 30%),
+            linear-gradient(90deg, rgba(8, 8, 10, 0.88) 0%, rgba(8, 8, 10, 0.62) 42%, rgba(8, 8, 10, 0.34) 100%),
+            linear-gradient(180deg, rgba(8, 8, 10, 0.2) 0%, rgba(8, 8, 10, 0.78) 100%);
         }
 
         .nav {
@@ -1039,6 +1060,11 @@ export default function GuestShopPage() {
         @media (max-width: 820px) {
           .hero {
             min-height: 760px;
+          }
+
+          .hero-image {
+            padding: 10px;
+            object-position: center top;
           }
 
           .nav {
