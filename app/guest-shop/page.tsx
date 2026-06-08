@@ -125,8 +125,6 @@ export default function GuestShopPage() {
     return items.filter((item) => item.category === activeCategory);
   }, [activeCategory, items]);
 
-  const featuredItem =
-    items.find((item) => item.id === hero.featured_item_id) || items[0] || DEFAULT_SHOP_ITEMS[0];
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
   const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
@@ -323,14 +321,6 @@ export default function GuestShopPage() {
           </div>
         </div>
 
-        <div className="hero-feature">
-          <span>Tonight&apos;s selection</span>
-          <strong>{featuredItem.name}</strong>
-          <p>{featuredItem.description}</p>
-          <button type="button" onClick={() => addItem(featuredItem)}>
-            {cart[featuredItem.id] ? `Added ${money(featuredItem.price)}` : `Add ${money(featuredItem.price)}`}
-          </button>
-        </div>
       </section>
 
       <section id="shop" className="collection">
@@ -479,6 +469,27 @@ export default function GuestShopPage() {
             </p>
           </aside>
         </div>
+      </section>
+
+      <section className="front-office-contact" aria-label="Contact Front Office">
+        <div>
+          <p className="eyebrow">Need assistance?</p>
+          <h2>Speak with Front Office</h2>
+          <p>Questions about your order or a special request can be sent directly to our team.</p>
+        </div>
+        <a
+          className="whatsapp-button"
+          href="https://wa.me/60126308316"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Contact Front Office on WhatsApp"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3.2a8.8 8.8 0 0 0-7.6 13.2L3.5 21l4.7-1.2A8.8 8.8 0 1 0 12 3.2Z" />
+            <path d="M8.8 8.5c.2-.5.4-.6.7-.6h.5c.2 0 .4.1.5.4l.8 1.8c.1.3 0 .5-.2.7l-.5.6c.8 1.4 1.8 2.3 3.2 3.1l.7-.7c.2-.2.4-.2.7-.1l1.7.8c.3.1.4.3.4.6v.5c0 .3-.1.6-.6.8-.5.2-1.2.4-2 .2-2.5-.5-5.5-3.1-6.5-5.5-.3-.8-.2-1.6 0-2.1Z" />
+          </svg>
+          <span>WhatsApp Front Office</span>
+        </a>
       </section>
 
       <style jsx>{`
@@ -669,7 +680,6 @@ export default function GuestShopPage() {
         }
 
         .hero-actions a,
-        .hero-feature button,
         .categories button,
         .product-footer button,
         .payment-button {
@@ -700,45 +710,6 @@ export default function GuestShopPage() {
           border-color: rgba(255, 248, 235, 0.28);
           background: rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(18px);
-        }
-
-        .hero-feature {
-          position: absolute;
-          right: clamp(18px, 4vw, 64px);
-          bottom: 34px;
-          width: min(420px, calc(100% - 36px));
-          padding: 22px;
-          border: 1px solid rgba(255, 248, 235, 0.22);
-          border-radius: 24px;
-          background: rgba(15, 16, 18, 0.56);
-          backdrop-filter: blur(20px);
-          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
-        }
-
-        .hero-feature span {
-          color: #dfbf77;
-          font-size: 11px;
-          font-weight: 900;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-        }
-
-        .hero-feature strong {
-          display: block;
-          margin-top: 8px;
-          font-size: 28px;
-        }
-
-        .hero-feature p {
-          margin: 8px 0 16px;
-          color: rgba(255, 248, 237, 0.78);
-          line-height: 1.5;
-        }
-
-        .hero-feature button {
-          width: 100%;
-          color: #17110c;
-          background: #fff8ed;
         }
 
         .collection {
@@ -1090,6 +1061,62 @@ export default function GuestShopPage() {
           font-size: 13px;
         }
 
+        .front-office-contact {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 18px;
+          margin: 0 clamp(18px, 4vw, 64px) clamp(34px, 5vw, 70px);
+          padding: clamp(22px, 4vw, 34px);
+          border: 1px solid rgba(91, 74, 50, 0.14);
+          border-radius: 30px;
+          background:
+            radial-gradient(circle at 10% 0%, rgba(223, 191, 119, 0.22), transparent 34%),
+            rgba(255, 252, 246, 0.92);
+          box-shadow: 0 24px 70px rgba(44, 34, 23, 0.09);
+        }
+
+        .front-office-contact h2 {
+          margin: 6px 0 8px;
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: clamp(30px, 4vw, 48px);
+          font-weight: 500;
+          letter-spacing: 0;
+        }
+
+        .front-office-contact p:last-child {
+          max-width: 560px;
+          margin: 0;
+          color: #655b51;
+          line-height: 1.6;
+        }
+
+        .whatsapp-button {
+          display: inline-flex;
+          min-height: 54px;
+          align-items: center;
+          justify-content: center;
+          gap: 11px;
+          padding: 0 22px;
+          border-radius: 999px;
+          color: #fff;
+          background: linear-gradient(135deg, #1fbf62, #128c47);
+          box-shadow: 0 18px 42px rgba(18, 140, 71, 0.22);
+          font-weight: 900;
+          text-decoration: none;
+          white-space: nowrap;
+        }
+
+        .whatsapp-button svg {
+          width: 23px;
+          height: 23px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.9;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
         @media (max-width: 1180px) {
           .shop-grid {
             grid-template-columns: 1fr;
@@ -1149,19 +1176,11 @@ export default function GuestShopPage() {
           .hero-content {
             width: auto;
             margin-top: auto;
-            padding: 18px 16px 150px;
+            padding: 18px 16px 34px;
           }
 
           .hero-content h1 {
             font-size: 52px;
-          }
-
-          .hero-feature {
-            right: 16px;
-            bottom: 14px;
-            left: 16px;
-            width: auto;
-            padding: 16px;
           }
 
           .collection {
@@ -1225,6 +1244,18 @@ export default function GuestShopPage() {
 
           .total-row strong {
             font-size: 30px;
+          }
+
+          .front-office-contact {
+            align-items: stretch;
+            flex-direction: column;
+            margin-right: 16px;
+            margin-left: 16px;
+          }
+
+          .whatsapp-button {
+            width: 100%;
+            box-sizing: border-box;
           }
         }
       `}</style>
