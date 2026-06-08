@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
-type Category = 'Comfort' | 'Laundry' | 'Room Service' | 'Essentials';
 type Role = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 
 type Profile = {
@@ -16,7 +15,7 @@ type Profile = {
 type ShopItem = {
   id: string;
   name: string;
-  category: Category;
+  category: string;
   description: string;
   price_myr: number;
   stock: number;
@@ -28,10 +27,40 @@ type ShopItem = {
   out_of_stock: boolean;
 };
 
+type CategoryRow = {
+  id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
+type ShopSettings = {
+  hero_image_url: string;
+  hero_kicker: string;
+  hero_title: string;
+  hero_body: string;
+  featured_item_id: string | null;
+};
+
+type ShopOrder = {
+  id: string;
+  room_number: string;
+  guest_name: string;
+  guest_email: string;
+  status: string;
+  payment_provider: string;
+  payment_reference: string;
+  total_myr: number;
+  items_json: any[];
+  paid_at: string | null;
+  fulfilled_at: string | null;
+  created_at: string | null;
+};
+
 type Draft = {
   id: string;
   name: string;
-  category: Category;
+  category: string;
   description: string;
   price_myr: string;
   stock: string;
@@ -43,7 +72,14 @@ type Draft = {
   out_of_stock: boolean;
 };
 
-const CATEGORIES: Category[] = ['Comfort', 'Laundry', 'Room Service', 'Essentials'];
+type CategoryDraft = {
+  id: string;
+  name: string;
+  sort_order: string;
+  is_active: boolean;
+};
+
+const DEFAULT_CATEGORIES = ['Comfort', 'Laundry', 'Room Service', 'Essentials'];
 
 const EMPTY_DRAFT: Draft = {
   id: '',
@@ -58,6 +94,23 @@ const EMPTY_DRAFT: Draft = {
   sort_order: '0',
   is_active: true,
   out_of_stock: false,
+};
+
+const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
+  id: '',
+  name: '',
+  sort_order: '0',
+  is_active: true,
+};
+
+const DEFAULT_SETTINGS: ShopSettings = {
+  hero_image_url:
+    'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84',
+  hero_kicker: 'Private in-room collection',
+  hero_title: 'Quiet luxuries, ready on request.',
+  hero_body:
+    'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
+  featured_item_id: null,
 };
 
 function normalizeEmail(value?: string | null) {
@@ -75,11 +128,44 @@ function canManageGuestShop(profile: Profile | null) {
   );
 }
 
+function todayInputValue() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function money(value: number) {
   return `RM${Number(value || 0).toLocaleString('en-MY', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString('en-MY', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function statusLabel(status: string) {
+  return String(status || '').replace(/_/g, ' ');
+}
+
+function orderItemSummary(items: any[]) {
+  if (!Array.isArray(items) || !items.length) return 'No item details';
+  return items
+    .map((item) => {
+      const name = String(item?.name || item?.item_name || 'Item');
+      const quantity = Number(item?.quantity || item?.qty || 1);
+      return `${quantity}x ${name}`;
+    })
+    .join(', ');
 }
 
 function draftFromItem(item: ShopItem): Draft {
@@ -100,11 +186,10 @@ function draftFromItem(item: ShopItem): Draft {
 }
 
 function normalizeItem(row: any): ShopItem {
-  const category = CATEGORIES.includes(row?.category) ? row.category : 'Essentials';
   return {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
-    category,
+    category: String(row?.category || 'Essentials'),
     description: String(row?.description || ''),
     price_myr: Number(row?.price_myr || 0),
     stock: Number(row?.stock || 0),
@@ -114,6 +199,32 @@ function normalizeItem(row: any): ShopItem {
     sort_order: Number(row?.sort_order || 0),
     is_active: row?.is_active !== false,
     out_of_stock: row?.out_of_stock === true,
+  };
+}
+
+function normalizeCategory(row: any): CategoryRow {
+  return {
+    id: String(row?.id || ''),
+    name: String(row?.name || ''),
+    sort_order: Number(row?.sort_order || 0),
+    is_active: row?.is_active !== false,
+  };
+}
+
+function normalizeOrder(row: any): ShopOrder {
+  return {
+    id: String(row?.id || ''),
+    room_number: String(row?.room_number || ''),
+    guest_name: String(row?.guest_name || ''),
+    guest_email: String(row?.guest_email || ''),
+    status: String(row?.status || 'PENDING_PAYMENT'),
+    payment_provider: String(row?.payment_provider || ''),
+    payment_reference: String(row?.payment_reference || ''),
+    total_myr: Number(row?.total_myr || 0),
+    items_json: Array.isArray(row?.items_json) ? row.items_json : [],
+    paid_at: row?.paid_at || null,
+    fulfilled_at: row?.fulfilled_at || null,
+    created_at: row?.created_at || null,
   };
 }
 
@@ -130,8 +241,15 @@ export default function GuestShopAdminPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [items, setItems] = useState<ShopItem[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [settings, setSettings] = useState<ShopSettings>(DEFAULT_SETTINGS);
+  const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(EMPTY_CATEGORY_DRAFT);
   const [selectedId, setSelectedId] = useState('');
+  const [activeTab, setActiveTab] = useState<'items' | 'hero' | 'categories' | 'orders'>('items');
+  const [orderDate, setOrderDate] = useState(todayInputValue());
+  const [orderStatus, setOrderStatus] = useState('ALL');
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
@@ -139,8 +257,11 @@ export default function GuestShopAdminPage() {
   const [loading, setLoading] = useState(true);
 
   const canManage = canManageGuestShop(profile);
-  const activeItems = items.filter((item) => item.is_active && !item.out_of_stock).length;
-  const inactiveItems = items.length - activeItems;
+  const liveItems = items.filter((item) => item.is_active && !item.out_of_stock).length;
+  const visibleCategories = categories.filter((category) => category.is_active);
+  const categoryNames = visibleCategories.length ? visibleCategories.map((category) => category.name) : DEFAULT_CATEGORIES;
+  const paidOrders = orders.filter((order) => order.status === 'PAID' || order.status === 'FULFILLED').length;
+  const failedOrders = orders.filter((order) => order.status === 'FAILED' || order.status === 'CANCELLED').length;
 
   useEffect(() => {
     let alive = true;
@@ -150,11 +271,7 @@ export default function GuestShopAdminPage() {
         setLoading(true);
         setError('');
 
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const token = session?.access_token || '';
-
+        const token = await getToken();
         if (!token) throw new Error('Please log in again');
 
         const profileRes = await fetch('/api/session-profile', {
@@ -169,25 +286,37 @@ export default function GuestShopAdminPage() {
 
         if (alive && user) {
           setProfile({
-            email: String(user.email || '').trim().toLowerCase(),
+            email: normalizeEmail(user.email),
             name: String(user.name || user.email || 'User'),
             role: String(user.role || 'FO').toUpperCase() as Role,
           });
         }
 
-        const itemsRes = await fetch('/api/guest-shop/items?include_inactive=1', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const itemsJson = await itemsRes.json();
+        const [itemsJson, categoriesJson, settingsJson] = await Promise.all([
+          fetchJson('/api/guest-shop/items?include_inactive=1', token),
+          fetchJson('/api/guest-shop/categories?include_inactive=1', token),
+          fetchJson('/api/guest-shop/settings', token),
+        ]);
 
-        if (!itemsJson?.ok) throw new Error(itemsJson?.error || 'Failed to load SKUs');
+        if (!alive) return;
 
-        const nextItems = Array.isArray(itemsJson.items)
-          ? itemsJson.items.map(normalizeItem)
+        setItems(Array.isArray(itemsJson.items) ? itemsJson.items.map(normalizeItem) : []);
+        const nextCategories = Array.isArray(categoriesJson.categories)
+          ? categoriesJson.categories.map(normalizeCategory)
           : [];
+        setCategories(nextCategories);
 
-        if (alive) setItems(nextItems);
+        if (settingsJson?.settings) {
+          setSettings({
+            hero_image_url: String(settingsJson.settings.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
+            hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
+            hero_title: String(settingsJson.settings.hero_title || DEFAULT_SETTINGS.hero_title),
+            hero_body: String(settingsJson.settings.hero_body || DEFAULT_SETTINGS.hero_body),
+            featured_item_id: settingsJson.settings.featured_item_id
+              ? String(settingsJson.settings.featured_item_id)
+              : null,
+          });
+        }
       } catch (err: any) {
         if (alive) setError(err?.message || 'Failed to load Guest Shop Admin');
       } finally {
@@ -202,16 +331,10 @@ export default function GuestShopAdminPage() {
     };
   }, []);
 
-  function updateDraft<K extends keyof Draft>(key: K, value: Draft[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-  }
-
-  function resetDraft() {
-    setSelectedId('');
-    setDraft(EMPTY_DRAFT);
-    setMessage('');
-    setError('');
-  }
+  useEffect(() => {
+    if (activeTab !== 'orders' || !canManage) return;
+    loadOrders();
+  }, [activeTab, orderDate, orderStatus, canManage]);
 
   async function getToken() {
     const {
@@ -220,7 +343,34 @@ export default function GuestShopAdminPage() {
     return session?.access_token || '';
   }
 
-  async function uploadImage(file: File) {
+  async function fetchJson(url: string, token: string) {
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) throw new Error(json?.error || 'Request failed');
+    return json;
+  }
+
+  function updateDraft<K extends keyof Draft>(key: K, value: Draft[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function resetDraft() {
+    setSelectedId('');
+    setDraft({ ...EMPTY_DRAFT, category: categoryNames[0] || 'Comfort' });
+    setMessage('');
+    setError('');
+  }
+
+  function resetCategoryDraft() {
+    setCategoryDraft(EMPTY_CATEGORY_DRAFT);
+    setMessage('');
+    setError('');
+  }
+
+  async function uploadImage(file: File, target: 'item' | 'hero') {
     try {
       setUploading(true);
       setError('');
@@ -241,8 +391,13 @@ export default function GuestShopAdminPage() {
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to upload image');
 
-      updateDraft('image_url', String(json.url || ''));
-      setMessage('Image uploaded. Save the SKU to publish it.');
+      if (target === 'hero') {
+        setSettings((current) => ({ ...current, hero_image_url: String(json.url || '') }));
+        setMessage('Hero image uploaded. Save Hero to publish it.');
+      } else {
+        updateDraft('image_url', String(json.url || ''));
+        setMessage('Image uploaded. Save the SKU to publish it.');
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to upload image');
     } finally {
@@ -262,7 +417,7 @@ export default function GuestShopAdminPage() {
       const payload = {
         id: draft.id,
         name: draft.name,
-        category: draft.category,
+        category: draft.category || categoryNames[0] || 'Comfort',
         description: draft.description,
         price_myr: Number(draft.price_myr || 0),
         stock: Number(draft.stock || 0),
@@ -289,8 +444,8 @@ export default function GuestShopAdminPage() {
       const saved = normalizeItem(json.item);
       setItems((current) => {
         const exists = current.some((item) => item.id === saved.id);
-        if (exists) return current.map((item) => (item.id === saved.id ? saved : item));
-        return [...current, saved].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+        const next = exists ? current.map((item) => (item.id === saved.id ? saved : item)) : [...current, saved];
+        return next.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
       });
 
       setSelectedId(saved.id);
@@ -333,6 +488,131 @@ export default function GuestShopAdminPage() {
     }
   }
 
+  async function saveHero() {
+    try {
+      setBusy(true);
+      setError('');
+      setMessage('');
+
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const res = await fetch('/api/guest-shop/settings', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save hero');
+
+      setSettings({
+        hero_image_url: String(json.settings.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
+        hero_kicker: String(json.settings.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
+        hero_title: String(json.settings.hero_title || DEFAULT_SETTINGS.hero_title),
+        hero_body: String(json.settings.hero_body || DEFAULT_SETTINGS.hero_body),
+        featured_item_id: json.settings.featured_item_id ? String(json.settings.featured_item_id) : null,
+      });
+      setMessage('Hero saved. The guest shop display will refresh with this image/text.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save hero');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCategory() {
+    try {
+      setBusy(true);
+      setError('');
+      setMessage('');
+
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const res = await fetch('/api/guest-shop/categories', {
+        method: categoryDraft.id ? 'PUT' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: categoryDraft.id,
+          name: categoryDraft.name,
+          sort_order: Number(categoryDraft.sort_order || 0),
+          is_active: categoryDraft.is_active,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save category');
+
+      const saved = normalizeCategory(json.category);
+      setCategories((current) => {
+        const exists = current.some((category) => category.id === saved.id);
+        const next = exists
+          ? current.map((category) => (category.id === saved.id ? saved : category))
+          : [...current, saved];
+        return next.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+      });
+      setCategoryDraft({ id: saved.id, name: saved.name, sort_order: String(saved.sort_order), is_active: saved.is_active });
+      setMessage('Category saved.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save category');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCategory(category: CategoryRow) {
+    const confirmed = window.confirm(`Remove "${category.name}" from the guest shop filter? Existing SKUs will not be deleted.`);
+    if (!confirmed) return;
+
+    try {
+      setBusy(true);
+      setError('');
+      setMessage('');
+
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const res = await fetch(`/api/guest-shop/categories?id=${encodeURIComponent(category.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to remove category');
+
+      const saved = normalizeCategory(json.category);
+      setCategories((current) => current.map((row) => (row.id === saved.id ? saved : row)));
+      setMessage('Category hidden from the guest shop.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to remove category');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadOrders() {
+    try {
+      setError('');
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+      const json = await fetchJson(
+        `/api/guest-shop/orders?date=${encodeURIComponent(orderDate)}&status=${encodeURIComponent(orderStatus)}`,
+        token
+      );
+      setOrders(Array.isArray(json.orders) ? json.orders.map(normalizeOrder) : []);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load orders');
+      setOrders([]);
+    }
+  }
+
   if (loading) {
     return (
       <main style={styles.page}>
@@ -360,7 +640,7 @@ export default function GuestShopAdminPage() {
           <div style={styles.kicker}>Front Office Commerce</div>
           <h1 style={styles.title}>Guest Shop Admin</h1>
           <p style={styles.subtitle}>
-            Manage guest-facing SKUs, pricing, stock status, and product images.
+            Manage guest-facing products, hero display, categories, and purchase history.
           </p>
         </div>
         <div style={styles.heroActions}>
@@ -373,216 +653,334 @@ export default function GuestShopAdminPage() {
       {message ? <div style={styles.successBox}>{message}</div> : null}
 
       <section style={styles.statsGrid}>
-        <div style={styles.statCard}>
-          <span>SKUs</span>
-          <strong>{items.length}</strong>
-        </div>
-        <div style={styles.statCard}>
-          <span>Active</span>
-          <strong>{activeItems}</strong>
-        </div>
-        <div style={styles.statCard}>
-          <span>Hidden / Out</span>
-          <strong>{inactiveItems}</strong>
-        </div>
+        <div style={styles.statCard}><span>SKUs</span><strong>{items.length}</strong></div>
+        <div style={styles.statCard}><span>Live Items</span><strong>{liveItems}</strong></div>
+        <div style={styles.statCard}><span>Categories</span><strong>{visibleCategories.length}</strong></div>
+        <div style={styles.statCard}><span>Orders Today</span><strong>{orders.length}</strong></div>
       </section>
 
-      <section style={styles.layout}>
-        <div style={styles.formCard}>
-          <div style={styles.cardHead}>
-            <div>
-              <div style={styles.kicker}>SKU Editor</div>
-              <h2 style={styles.cardTitle}>{draft.id ? 'Edit Item' : 'New Item'}</h2>
-            </div>
-            <button type="button" onClick={resetDraft} style={styles.ghostButton}>New SKU</button>
-          </div>
+      <nav style={styles.tabs}>
+        {([
+          ['items', 'SKUs'],
+          ['hero', 'Hero Image'],
+          ['categories', 'Categories'],
+          ['orders', 'Orders'],
+        ] as Array<[typeof activeTab, string]>).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            style={activeTab === id ? styles.activeTab : styles.tabButton}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
 
-          <div style={styles.formGrid}>
-            <label style={styles.label}>
-              Item Name
-              <input
-                value={draft.name}
-                onChange={(event) => updateDraft('name', event.target.value)}
-                placeholder="Example: Late Check-Out"
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Category
-              <select
-                value={draft.category}
-                onChange={(event) => updateDraft('category', event.target.value as Category)}
-                style={styles.input}
-              >
-                {CATEGORIES.map((category) => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
-            </label>
-
-            <label style={styles.label}>
-              Price (RM)
-              <input
-                value={draft.price_myr}
-                onChange={(event) => updateDraft('price_myr', event.target.value)}
-                inputMode="decimal"
-                placeholder="0.00"
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Stock
-              <input
-                value={draft.stock}
-                onChange={(event) => updateDraft('stock', event.target.value)}
-                inputMode="numeric"
-                placeholder="0"
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Sort Order
-              <input
-                value={draft.sort_order}
-                onChange={(event) => updateDraft('sort_order', event.target.value)}
-                inputMode="numeric"
-                placeholder="0"
-                style={styles.input}
-              />
-            </label>
-
-            <label style={styles.label}>
-              Label
-              <input
-                value={draft.label}
-                onChange={(event) => updateDraft('label', event.target.value)}
-                placeholder="Example: Limited daily"
-                style={styles.input}
-              />
-            </label>
-          </div>
-
-          <label style={styles.label}>
-            Description
-            <textarea
-              value={draft.description}
-              onChange={(event) => updateDraft('description', event.target.value)}
-              placeholder="Short guest-facing description"
-              style={styles.textarea}
-            />
-          </label>
-
-          <div style={styles.imageEditor}>
-            <div style={styles.previewBox}>
-              {draft.image_url ? (
-                <img src={draft.image_url} alt="SKU preview" style={styles.previewImage} />
-              ) : (
-                <span style={styles.previewFallback}>Image</span>
-              )}
+      {activeTab === 'items' ? (
+        <section style={styles.layout}>
+          <div style={styles.formCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>SKU Editor</div>
+                <h2 style={styles.cardTitle}>{draft.id ? 'Edit Item' : 'New Item'}</h2>
+              </div>
+              <button type="button" onClick={resetDraft} style={styles.ghostButton}>New SKU</button>
             </div>
 
-            <div style={styles.imageControls}>
+            <div style={styles.formGrid}>
               <label style={styles.label}>
-                Product Image URL
-                <input
-                  value={draft.image_url}
-                  onChange={(event) => updateDraft('image_url', event.target.value)}
-                  placeholder="Paste image URL or upload below"
-                  style={styles.input}
-                />
+                Item Name
+                <input value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} placeholder="Example: Late Check-Out" style={styles.input} />
               </label>
 
-              <label style={styles.uploadButton}>
-                {uploading ? 'Uploading...' : 'Upload New Image'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={uploading}
-                  onChange={(event) => {
+              <label style={styles.label}>
+                Category
+                <select value={draft.category} onChange={(event) => updateDraft('category', event.target.value)} style={styles.input}>
+                  {categoryNames.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </label>
+
+              <label style={styles.label}>
+                Price (RM)
+                <input value={draft.price_myr} onChange={(event) => updateDraft('price_myr', event.target.value)} inputMode="decimal" placeholder="0.00" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
+                Stock
+                <input value={draft.stock} onChange={(event) => updateDraft('stock', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
+                Sort Order
+                <input value={draft.sort_order} onChange={(event) => updateDraft('sort_order', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
+                Label
+                <input value={draft.label} onChange={(event) => updateDraft('label', event.target.value)} placeholder="Example: Limited daily" style={styles.input} />
+              </label>
+            </div>
+
+            <label style={styles.label}>
+              Description
+              <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Short guest-facing description" style={styles.textarea} />
+            </label>
+
+            <div style={styles.imageEditor}>
+              <div style={styles.previewBox}>
+                {draft.image_url ? <img src={draft.image_url} alt="SKU preview" style={styles.previewImage} /> : <span style={styles.previewFallback}>Image</span>}
+              </div>
+
+              <div style={styles.imageControls}>
+                <label style={styles.label}>
+                  Product Image URL
+                  <input value={draft.image_url} onChange={(event) => updateDraft('image_url', event.target.value)} placeholder="Paste image URL or upload below" style={styles.input} />
+                </label>
+
+                <label style={styles.uploadButton}>
+                  {uploading ? 'Uploading...' : 'Upload New Image'}
+                  <input type="file" accept="image/*" disabled={uploading} onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.currentTarget.value = '';
-                    if (file) uploadImage(file);
-                  }}
-                  style={styles.hiddenInput}
-                />
+                    if (file) uploadImage(file, 'item');
+                  }} style={styles.hiddenInput} />
+                </label>
+              </div>
+            </div>
+
+            <div style={styles.switchRow}>
+              <label style={styles.checkLabel}>
+                <input type="checkbox" checked={draft.is_active} onChange={(event) => updateDraft('is_active', event.target.checked)} />
+                Show on Guest Shop
+              </label>
+              <label style={styles.checkLabel}>
+                <input type="checkbox" checked={draft.out_of_stock} onChange={(event) => updateDraft('out_of_stock', event.target.checked)} />
+                Mark Out of Stock
               </label>
             </div>
+
+            <button type="button" disabled={busy || uploading} onClick={saveItem} style={styles.saveButton}>
+              {busy ? 'Saving...' : 'Save SKU'}
+            </button>
           </div>
 
-          <div style={styles.switchRow}>
-            <label style={styles.checkLabel}>
-              <input
-                type="checkbox"
-                checked={draft.is_active}
-                onChange={(event) => updateDraft('is_active', event.target.checked)}
-              />
-              Show on Guest Shop
-            </label>
-            <label style={styles.checkLabel}>
-              <input
-                type="checkbox"
-                checked={draft.out_of_stock}
-                onChange={(event) => updateDraft('out_of_stock', event.target.checked)}
-              />
-              Mark Out of Stock
-            </label>
-          </div>
+          <div style={styles.listCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Catalog</div>
+                <h2 style={styles.cardTitle}>Current SKUs</h2>
+              </div>
+            </div>
 
-          <button type="button" disabled={busy || uploading} onClick={saveItem} style={styles.saveButton}>
-            {busy ? 'Saving...' : 'Save SKU'}
-          </button>
-        </div>
-
-        <div style={styles.listCard}>
-          <div style={styles.cardHead}>
-            <div>
-              <div style={styles.kicker}>Catalog</div>
-              <h2 style={styles.cardTitle}>Current SKUs</h2>
+            <div style={styles.itemList}>
+              {items.length ? items.map((item) => (
+                <article key={item.id} style={{ ...styles.itemRow, borderColor: selectedId === item.id ? '#1d4ed8' : '#d7e0eb' }}>
+                  <div style={styles.itemThumb}>{item.image_url ? <img src={item.image_url} alt="" style={styles.itemThumbImage} /> : null}</div>
+                  <div style={styles.itemMain}>
+                    <div style={styles.itemTop}>
+                      <strong>{item.name}</strong>
+                      <span style={item.out_of_stock || !item.is_active ? styles.inactiveBadge : styles.activeBadge}>
+                        {item.out_of_stock ? 'Out of Stock' : item.is_active ? 'Live' : 'Hidden'}
+                      </span>
+                    </div>
+                    <div style={styles.itemMeta}>{item.category} | {money(item.price_myr)} | Stock {item.stock}</div>
+                  </div>
+                  <div style={styles.rowActions}>
+                    <button type="button" onClick={() => {
+                      setSelectedId(item.id);
+                      setDraft(draftFromItem(item));
+                      setMessage('');
+                      setError('');
+                    }} style={styles.smallButton}>Edit</button>
+                    <button type="button" onClick={() => deleteItem(item)} style={styles.deleteButton}>Delete</button>
+                  </div>
+                </article>
+              )) : <div style={styles.emptyState}>No SKUs yet. Add your first guest shop item.</div>}
             </div>
           </div>
+        </section>
+      ) : null}
 
-          <div style={styles.itemList}>
-            {items.length ? items.map((item) => (
-              <article
-                key={item.id}
-                style={{
-                  ...styles.itemRow,
-                  borderColor: selectedId === item.id ? '#1d4ed8' : '#d7e0eb',
-                }}
-              >
-                <div style={styles.itemThumb}>
-                  {item.image_url ? <img src={item.image_url} alt="" style={styles.itemThumbImage} /> : null}
-                </div>
-                <div style={styles.itemMain}>
-                  <div style={styles.itemTop}>
-                    <strong>{item.name}</strong>
-                    <span style={item.out_of_stock || !item.is_active ? styles.inactiveBadge : styles.activeBadge}>
-                      {item.out_of_stock ? 'Out of Stock' : item.is_active ? 'Live' : 'Hidden'}
-                    </span>
+      {activeTab === 'hero' ? (
+        <section style={styles.layout}>
+          <div style={styles.formCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Hero Display</div>
+                <h2 style={styles.cardTitle}>Guest Landing Image</h2>
+              </div>
+            </div>
+
+            <div style={styles.heroPreview}>
+              <img src={settings.hero_image_url} alt="Guest shop hero preview" style={styles.heroPreviewImage} />
+            </div>
+
+            <label style={styles.label}>
+              Hero Image URL
+              <input value={settings.hero_image_url} onChange={(event) => setSettings((current) => ({ ...current, hero_image_url: event.target.value }))} style={styles.input} />
+            </label>
+
+            <label style={styles.uploadButton}>
+              {uploading ? 'Uploading...' : 'Upload Hero Image'}
+              <input type="file" accept="image/*" disabled={uploading} onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = '';
+                if (file) uploadImage(file, 'hero');
+              }} style={styles.hiddenInput} />
+            </label>
+
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Small Text
+                <input value={settings.hero_kicker} onChange={(event) => setSettings((current) => ({ ...current, hero_kicker: event.target.value }))} style={styles.input} />
+              </label>
+              <label style={styles.label}>
+                Featured Item
+                <select value={settings.featured_item_id || ''} onChange={(event) => setSettings((current) => ({ ...current, featured_item_id: event.target.value || null }))} style={styles.input}>
+                  <option value="">Use first live item</option>
+                  {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <label style={styles.label}>
+              Big Headline
+              <input value={settings.hero_title} onChange={(event) => setSettings((current) => ({ ...current, hero_title: event.target.value }))} style={styles.input} />
+            </label>
+            <label style={styles.label}>
+              Supporting Text
+              <textarea value={settings.hero_body} onChange={(event) => setSettings((current) => ({ ...current, hero_body: event.target.value }))} style={styles.textarea} />
+            </label>
+
+            <button type="button" disabled={busy || uploading} onClick={saveHero} style={styles.saveButton}>
+              {busy ? 'Saving...' : 'Save Hero'}
+            </button>
+          </div>
+
+          <div style={styles.displayCard}>
+            <div style={styles.kicker}>Live Copy Preview</div>
+            <h2 style={styles.previewTitle}>{settings.hero_title}</h2>
+            <p style={styles.previewText}>{settings.hero_body}</p>
+            <p style={styles.helperText}>The public guest page reads this on load. Tablet displays will show the updated hero after refresh or revisit.</p>
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === 'categories' ? (
+        <section style={styles.layout}>
+          <div style={styles.formCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Category Editor</div>
+                <h2 style={styles.cardTitle}>{categoryDraft.id ? 'Edit Category' : 'New Category'}</h2>
+              </div>
+              <button type="button" onClick={resetCategoryDraft} style={styles.ghostButton}>New Category</button>
+            </div>
+
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Category Name
+                <input value={categoryDraft.name} onChange={(event) => setCategoryDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Example: Snacks" style={styles.input} />
+              </label>
+              <label style={styles.label}>
+                Sort Order
+                <input value={categoryDraft.sort_order} onChange={(event) => setCategoryDraft((current) => ({ ...current, sort_order: event.target.value }))} inputMode="numeric" style={styles.input} />
+              </label>
+            </div>
+            <label style={styles.checkLabel}>
+              <input type="checkbox" checked={categoryDraft.is_active} onChange={(event) => setCategoryDraft((current) => ({ ...current, is_active: event.target.checked }))} />
+              Show category on Guest Shop
+            </label>
+            <button type="button" disabled={busy} onClick={saveCategory} style={styles.saveButton}>{busy ? 'Saving...' : 'Save Category'}</button>
+          </div>
+
+          <div style={styles.listCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Filters</div>
+                <h2 style={styles.cardTitle}>Current Categories</h2>
+              </div>
+            </div>
+            <div style={styles.itemList}>
+              {categories.map((category) => (
+                <article key={category.id} style={styles.itemRow}>
+                  <div style={styles.itemMain}>
+                    <div style={styles.itemTop}>
+                      <strong>{category.name}</strong>
+                      <span style={category.is_active ? styles.activeBadge : styles.inactiveBadge}>{category.is_active ? 'Shown' : 'Hidden'}</span>
+                    </div>
+                    <div style={styles.itemMeta}>Sort {category.sort_order}</div>
                   </div>
-                  <div style={styles.itemMeta}>
-                    {item.category} | {money(item.price_myr)} | Stock {item.stock}
+                  <div style={styles.rowActions}>
+                    <button type="button" onClick={() => setCategoryDraft({ id: category.id, name: category.name, sort_order: String(category.sort_order), is_active: category.is_active })} style={styles.smallButton}>Edit</button>
+                    <button type="button" onClick={() => removeCategory(category)} style={styles.deleteButton}>Remove</button>
                   </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === 'orders' ? (
+        <section style={styles.fullCard}>
+          <div style={styles.cardHead}>
+            <div>
+              <div style={styles.kicker}>Purchase Listing</div>
+              <h2 style={styles.cardTitle}>Orders by Date</h2>
+            </div>
+            <button type="button" onClick={loadOrders} style={styles.ghostButton}>Refresh</button>
+          </div>
+
+          <div style={styles.orderToolbar}>
+            <label style={styles.label}>
+              Purchase Date
+              <input type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} style={styles.input} />
+            </label>
+            <label style={styles.label}>
+              Payment Status
+              <select value={orderStatus} onChange={(event) => setOrderStatus(event.target.value)} style={styles.input}>
+                <option value="ALL">All statuses</option>
+                <option value="PENDING_PAYMENT">Pending Payment</option>
+                <option value="PAID">Paid</option>
+                <option value="FAILED">Failed</option>
+                <option value="CANCELLED">Cancelled</option>
+                <option value="FULFILLED">Fulfilled</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={styles.orderSummary}>
+            <span>{orders.length} orders on {orderDate}</span>
+            <span>{paidOrders} paid / fulfilled</span>
+            <span>{failedOrders} failed / cancelled</span>
+          </div>
+
+          <div style={styles.orderList}>
+            {orders.length ? orders.map((order) => (
+              <article key={order.id} style={styles.orderCard}>
+                <div style={styles.orderCardHead}>
+                  <div>
+                    <strong>Room {order.room_number || '-'}</strong>
+                    <span>{order.guest_name || 'Guest'} {order.guest_email ? `| ${order.guest_email}` : ''}</span>
+                  </div>
+                  <span style={styles[`status_${order.status}`] || styles.statusBadge}>{statusLabel(order.status)}</span>
                 </div>
-                <div style={styles.rowActions}>
-                  <button type="button" onClick={() => {
-                    setSelectedId(item.id);
-                    setDraft(draftFromItem(item));
-                    setMessage('');
-                    setError('');
-                  }} style={styles.smallButton}>Edit</button>
-                  <button type="button" onClick={() => deleteItem(item)} style={styles.deleteButton}>Delete</button>
+                <div style={styles.orderDetails}>
+                  <div><span>Total</span><strong>{money(order.total_myr)}</strong></div>
+                  <div><span>Created</span><strong>{formatTime(order.created_at)}</strong></div>
+                  <div><span>Paid</span><strong>{formatTime(order.paid_at)}</strong></div>
+                  <div><span>Payment Ref</span><strong>{order.payment_reference || '-'}</strong></div>
                 </div>
+                <p style={styles.orderItems}>{orderItemSummary(order.items_json)}</p>
               </article>
             )) : (
-              <div style={styles.emptyState}>No SKUs yet. Add your first guest shop item.</div>
+              <div style={styles.emptyState}>No guest shop orders found for this date and status.</div>
             )}
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
     </main>
   );
 }
@@ -641,16 +1039,8 @@ const styles: Record<string, any> = {
     fontSize: 'clamp(34px, 5vw, 56px)',
     letterSpacing: 0,
   },
-  subtitle: {
-    margin: 0,
-    color: '#526173',
-    fontSize: 16,
-  },
-  heroActions: {
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
+  subtitle: { margin: 0, color: '#526173', fontSize: 16 },
+  heroActions: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   lightButton: {
     minHeight: 46,
     display: 'inline-flex',
@@ -696,16 +1086,48 @@ const styles: Record<string, any> = {
   },
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
     gap: 12,
-    marginBottom: 18,
+    marginBottom: 14,
   },
   statCard: {
-    padding: 18,
-    borderRadius: 20,
+    padding: 16,
+    borderRadius: 18,
     background: '#fff',
     border: '1px solid #d7e0eb',
     boxShadow: '0 18px 45px rgba(15,23,42,0.06)',
+  },
+  tabs: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginBottom: 18,
+    padding: 6,
+    borderRadius: 18,
+    background: '#eaf3ff',
+    width: 'fit-content',
+    maxWidth: '100%',
+  },
+  tabButton: {
+    minHeight: 42,
+    padding: '0 16px',
+    borderRadius: 13,
+    border: 0,
+    background: 'transparent',
+    color: '#334155',
+    fontWeight: 900,
+    cursor: 'pointer',
+  },
+  activeTab: {
+    minHeight: 42,
+    padding: '0 16px',
+    borderRadius: 13,
+    border: 0,
+    background: '#2563eb',
+    color: '#fff',
+    fontWeight: 900,
+    cursor: 'pointer',
+    boxShadow: '0 12px 26px rgba(37,99,235,0.24)',
   },
   layout: {
     display: 'grid',
@@ -727,18 +1149,33 @@ const styles: Record<string, any> = {
     border: '1px solid #d7e0eb',
     boxShadow: '0 24px 70px rgba(15,23,42,0.08)',
   },
+  fullCard: {
+    padding: 22,
+    borderRadius: 24,
+    background: '#fff',
+    border: '1px solid #d7e0eb',
+    boxShadow: '0 24px 70px rgba(15,23,42,0.08)',
+  },
+  displayCard: {
+    padding: 24,
+    borderRadius: 24,
+    background: 'linear-gradient(135deg, #101827, #243b6b)',
+    color: '#fff',
+    border: '1px solid #d7e0eb',
+    boxShadow: '0 24px 70px rgba(15,23,42,0.12)',
+  },
   cardHead: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     marginBottom: 18,
+    flexWrap: 'wrap',
   },
-  cardTitle: {
-    margin: '4px 0 0',
-    fontSize: 28,
-    letterSpacing: 0,
-  },
+  cardTitle: { margin: '4px 0 0', fontSize: 28, letterSpacing: 0 },
+  previewTitle: { margin: '12px 0', fontSize: 'clamp(34px, 5vw, 58px)', lineHeight: 1, fontFamily: 'Georgia, serif' },
+  previewText: { color: '#dbeafe', lineHeight: 1.7, fontSize: 16 },
+  helperText: { color: '#bfdbfe', lineHeight: 1.6 },
   ghostButton: {
     minHeight: 42,
     padding: '0 15px',
@@ -759,6 +1196,7 @@ const styles: Record<string, any> = {
     color: '#334155',
     fontSize: 13,
     fontWeight: 900,
+    marginTop: 12,
   },
   input: {
     width: '100%',
@@ -774,7 +1212,6 @@ const styles: Record<string, any> = {
   textarea: {
     width: '100%',
     minHeight: 98,
-    marginTop: 12,
     padding: 13,
     borderRadius: 13,
     border: '1px solid #c8d7e8',
@@ -802,47 +1239,31 @@ const styles: Record<string, any> = {
     display: 'grid',
     placeItems: 'center',
   },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  previewFallback: {
-    color: '#64748b',
-    fontWeight: 900,
-  },
-  imageControls: {
-    display: 'grid',
-    alignContent: 'center',
-    gap: 12,
-  },
+  previewImage: { width: '100%', height: '100%', objectFit: 'cover' },
+  previewFallback: { color: '#64748b', fontWeight: 900 },
+  imageControls: { display: 'grid', alignContent: 'center', gap: 12 },
   uploadButton: {
     minHeight: 46,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     padding: '0 16px',
+    marginTop: 12,
     borderRadius: 13,
     background: '#2563eb',
     color: '#fff',
     fontWeight: 900,
     cursor: 'pointer',
   },
-  hiddenInput: {
-    display: 'none',
-  },
-  switchRow: {
-    display: 'flex',
-    gap: 14,
-    flexWrap: 'wrap',
-    marginTop: 16,
-  },
+  hiddenInput: { display: 'none' },
+  switchRow: { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 16 },
   checkLabel: {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 9,
     minHeight: 42,
     padding: '0 13px',
+    marginTop: 12,
     borderRadius: 12,
     background: '#f8fbff',
     border: '1px solid #d7e0eb',
@@ -860,10 +1281,20 @@ const styles: Record<string, any> = {
     fontSize: 16,
     cursor: 'pointer',
   },
-  itemList: {
-    display: 'grid',
-    gap: 12,
+  heroPreview: {
+    height: 300,
+    overflow: 'hidden',
+    borderRadius: 20,
+    background: '#0f172a',
+    border: '1px solid #d7e0eb',
   },
+  heroPreviewImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block',
+  },
+  itemList: { display: 'grid', gap: 12 },
   itemRow: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -874,57 +1305,14 @@ const styles: Record<string, any> = {
     borderRadius: 18,
     background: '#f8fbff',
   },
-  itemThumb: {
-    width: 74,
-    height: 74,
-    overflow: 'hidden',
-    borderRadius: 14,
-    background: '#eaf1fb',
-  },
-  itemThumbImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  itemMain: {
-    minWidth: 0,
-    flex: '1 1 220px',
-  },
-  itemTop: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  itemMeta: {
-    marginTop: 5,
-    color: '#64748b',
-    fontSize: 13,
-    fontWeight: 800,
-  },
-  activeBadge: {
-    padding: '6px 9px',
-    borderRadius: 999,
-    background: '#dcfce7',
-    color: '#047857',
-    fontSize: 12,
-    fontWeight: 900,
-  },
-  inactiveBadge: {
-    padding: '6px 9px',
-    borderRadius: 999,
-    background: '#fee2e2',
-    color: '#b91c1c',
-    fontSize: 12,
-    fontWeight: 900,
-  },
-  rowActions: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    marginLeft: 'auto',
-  },
+  itemThumb: { width: 74, height: 74, overflow: 'hidden', borderRadius: 14, background: '#eaf1fb' },
+  itemThumbImage: { width: '100%', height: '100%', objectFit: 'cover' },
+  itemMain: { minWidth: 0, flex: '1 1 220px' },
+  itemTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  itemMeta: { marginTop: 5, color: '#64748b', fontSize: 13, fontWeight: 800 },
+  activeBadge: { padding: '6px 9px', borderRadius: 999, background: '#dcfce7', color: '#047857', fontSize: 12, fontWeight: 900 },
+  inactiveBadge: { padding: '6px 9px', borderRadius: 999, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 900 },
+  rowActions: { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' },
   smallButton: {
     minHeight: 38,
     padding: '0 12px',
@@ -952,4 +1340,43 @@ const styles: Record<string, any> = {
     textAlign: 'center',
     fontWeight: 900,
   },
+  orderToolbar: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))',
+    gap: 12,
+    marginBottom: 12,
+  },
+  orderSummary: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginBottom: 14,
+  },
+  orderList: { display: 'grid', gap: 12 },
+  orderCard: {
+    padding: 16,
+    borderRadius: 18,
+    background: '#f8fbff',
+    border: '1px solid #d7e0eb',
+  },
+  orderCardHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  orderDetails: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))',
+    gap: 10,
+    marginTop: 14,
+  },
+  orderItems: { margin: '14px 0 0', color: '#475569', fontWeight: 800 },
+  statusBadge: { padding: '7px 10px', borderRadius: 999, background: '#e2e8f0', color: '#334155', fontSize: 12, fontWeight: 900 },
+  status_PENDING_PAYMENT: { padding: '7px 10px', borderRadius: 999, background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 900 },
+  status_PAID: { padding: '7px 10px', borderRadius: 999, background: '#dcfce7', color: '#047857', fontSize: 12, fontWeight: 900 },
+  status_FULFILLED: { padding: '7px 10px', borderRadius: 999, background: '#dbeafe', color: '#1d4ed8', fontSize: 12, fontWeight: 900 },
+  status_FAILED: { padding: '7px 10px', borderRadius: 999, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 900 },
+  status_CANCELLED: { padding: '7px 10px', borderRadius: 999, background: '#fee2e2', color: '#b91c1c', fontSize: 12, fontWeight: 900 },
 };
