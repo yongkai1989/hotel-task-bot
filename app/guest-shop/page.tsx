@@ -613,18 +613,20 @@ export default function GuestShopPage() {
         .service-strip {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 1px;
-          margin: -34px clamp(18px, 4vw, 64px) 0;
-          overflow: hidden;
-          border: 1px solid rgba(104, 82, 53, 0.14);
-          border-radius: 26px;
-          background: rgba(104, 82, 53, 0.14);
-          box-shadow: 0 26px 70px rgba(41, 33, 25, 0.14);
+          gap: 14px;
+          margin: 22px clamp(18px, 4vw, 64px) 0;
         }
 
         .service-strip div {
+          min-height: 92px;
           padding: 22px;
-          background: rgba(255, 252, 246, 0.94);
+          border: 1px solid rgba(104, 82, 53, 0.14);
+          border-radius: 22px;
+          background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 248, 237, 0.82)),
+            #fffaf1;
+          box-shadow: 0 22px 60px rgba(41, 33, 25, 0.1);
+          box-sizing: border-box;
         }
 
         .service-strip span {
@@ -640,6 +642,7 @@ export default function GuestShopPage() {
           display: block;
           margin-top: 6px;
           font-size: 17px;
+          line-height: 1.25;
         }
 
         .collection {
