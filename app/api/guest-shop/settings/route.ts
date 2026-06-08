@@ -1,0 +1,120 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
+const DEFAULT_SETTINGS = {
+  id: 'main',
+  hero_image_url:
+    'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84',
+  hero_kicker: 'Private in-room collection',
+  hero_title: 'Quiet luxuries, ready on request.',
+  hero_body:
+    'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
+  featured_item_id: null,
+};
+
+function jsonNoCache(body: any, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    },
+  });
+}
+
+function normalizeEmail(value: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function canManageGuestShop(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = normalizeEmail(user?.email);
+
+  return (
+    role === 'SUPERUSER' ||
+    email === 'fenny@hotelhallmark.com' ||
+    email === 'walter@hotelhallmark.com'
+  );
+}
+
+function normalizeSettings(row: any) {
+  return {
+    id: String(row?.id || 'main'),
+    hero_image_url: String(row?.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
+    hero_kicker: String(row?.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
+    hero_title: String(row?.hero_title || DEFAULT_SETTINGS.hero_title),
+    hero_body: String(row?.hero_body || DEFAULT_SETTINGS.hero_body),
+    featured_item_id: row?.featured_item_id ? String(row.featured_item_id) : null,
+    updated_at: row?.updated_at || null,
+  };
+}
+
+function normalizeSettingsPayload(body: any) {
+  const heroImageUrl = String(body?.hero_image_url ?? body?.heroImageUrl ?? '').trim();
+  const heroKicker = String(body?.hero_kicker ?? body?.heroKicker ?? '').trim();
+  const heroTitle = String(body?.hero_title ?? body?.heroTitle ?? '').trim();
+  const heroBody = String(body?.hero_body ?? body?.heroBody ?? '').trim();
+  const featuredItemId = String(body?.featured_item_id ?? body?.featuredItemId ?? '').trim();
+
+  if (!heroImageUrl) throw new Error('Hero image URL is required');
+  if (!heroTitle) throw new Error('Hero title is required');
+
+  return {
+    id: 'main',
+    hero_image_url: heroImageUrl,
+    hero_kicker: heroKicker || DEFAULT_SETTINGS.hero_kicker,
+    hero_title: heroTitle,
+    hero_body: heroBody || DEFAULT_SETTINGS.hero_body,
+    featured_item_id: featuredItemId || null,
+  };
+}
+
+async function requireManager(req: NextRequest) {
+  const { user, error } = await getDashboardUserFromRequest(req);
+  if (error || !user) return { error: error || 'Unauthorized', status: 401 };
+  if (!canManageGuestShop(user)) return { error: 'Guest Shop Admin access denied', status: 403 };
+  return { error: '', status: 200 };
+}
+
+export async function GET() {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('guest_shop_settings')
+      .select('*')
+      .eq('id', 'main')
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return jsonNoCache({ ok: true, settings: normalizeSettings(data || DEFAULT_SETTINGS) });
+  } catch (error: any) {
+    return jsonNoCache(
+      { ok: false, error: error?.message || 'Failed to load guest shop settings', settings: DEFAULT_SETTINGS },
+      500
+    );
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const auth = await requireManager(req);
+    if (auth.error) return jsonNoCache({ ok: false, error: auth.error }, auth.status);
+
+    const payload = normalizeSettingsPayload(await req.json());
+    const { data, error } = await supabaseAdmin
+      .from('guest_shop_settings')
+      .upsert(payload, { onConflict: 'id' })
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    return jsonNoCache({ ok: true, settings: normalizeSettings(data) });
+  } catch (error: any) {
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to update settings' }, 500);
+  }
+}
