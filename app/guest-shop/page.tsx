@@ -492,6 +492,19 @@ export default function GuestShopPage() {
         </a>
       </section>
 
+      <a
+        className={cartCount > 0 ? 'floating-cart has-items' : 'floating-cart'}
+        href="#order"
+        aria-label={`Jump to cart with ${cartCount} item${cartCount === 1 ? '' : 's'}`}
+      >
+        <svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7.2 7.8h13.1l-1.4 7.1a2 2 0 0 1-2 1.6H9.1a2 2 0 0 1-2-1.7L5.8 4.9H3.4" />
+          <path d="M9.4 20.1h.1M17 20.1h.1" />
+        </svg>
+        <span>Cart</span>
+        <b>{cartCount}</b>
+      </a>
+
       <style jsx>{`
         :global(body) {
           margin: 0;
@@ -648,6 +661,42 @@ export default function GuestShopPage() {
           color: #17110c;
           border-radius: 50%;
           background: #dfbf77;
+        }
+
+        .floating-cart {
+          position: fixed;
+          right: max(16px, env(safe-area-inset-right));
+          bottom: max(16px, env(safe-area-inset-bottom));
+          z-index: 60;
+          display: inline-flex;
+          min-height: 56px;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          padding: 0 16px;
+          border: 1px solid rgba(255, 248, 235, 0.42);
+          border-radius: 999px;
+          color: #17110c;
+          background: linear-gradient(135deg, #fff8ed, #f1d48b);
+          box-shadow: 0 20px 48px rgba(43, 30, 14, 0.24);
+          font-weight: 900;
+          text-decoration: none;
+          backdrop-filter: blur(18px);
+        }
+
+        .floating-cart.has-items {
+          background: linear-gradient(135deg, #f2d68c, #c8933d);
+        }
+
+        .floating-cart b {
+          display: grid;
+          min-width: 28px;
+          height: 28px;
+          place-items: center;
+          color: #fff8ed;
+          border-radius: 50%;
+          background: #1b1713;
+          font-size: 13px;
         }
 
         .hero-content {
@@ -1180,85 +1229,4 @@ export default function GuestShopPage() {
           }
 
           .hero-content h1 {
-            font-size: 52px;
-          }
-
-          .collection {
-            padding-right: 16px;
-            padding-left: 16px;
-          }
-
-          .collection-head {
-            align-items: stretch;
-            flex-direction: column;
-          }
-
-          .categories {
-            justify-content: flex-start;
-          }
-
-          .products {
-            grid-template-columns: 1fr;
-          }
-
-          .product-card {
-            min-height: 0;
-          }
-        }
-
-        @media (max-width: 520px) {
-          .hero-content h1 {
-            font-size: 46px;
-          }
-
-          .hero-actions a {
-            width: 100%;
-          }
-
-          .categories {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .categories button {
-            padding: 0 10px;
-          }
-
-          .product-image {
-            height: 234px;
-          }
-
-          .product-footer,
-          .order-line {
-            align-items: stretch;
-            flex-direction: column;
-          }
-
-          .product-footer button {
-            width: 100%;
-          }
-
-          .stepper {
-            justify-content: space-between;
-          }
-
-          .total-row strong {
-            font-size: 30px;
-          }
-
-          .front-office-contact {
-            align-items: stretch;
-            flex-direction: column;
-            margin-right: 16px;
-            margin-left: 16px;
-          }
-
-          .whatsapp-button {
-            width: 100%;
-            box-sizing: border-box;
-          }
-        }
-      `}</style>
-    </main>
-  );
-}
+            font-size: 52p
