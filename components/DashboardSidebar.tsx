@@ -739,6 +739,10 @@ export default function DashboardSidebar({
     !!effectiveProfile?.can_access_lost_found;
   const canSeePriceGuide = !!effectiveProfile?.can_access_price_guide;
   const canSeeGuestLaundry = !!effectiveProfile?.can_access_guest_laundry;
+  const canSeeGuestShopAdmin =
+    effectiveRole === 'SUPERUSER' ||
+    effectiveEmail === 'walter@hotelhallmark.com' ||
+    effectiveEmail === 'fenny@hotelhallmark.com';
   const canSeeFnbChecklist = !!effectiveProfile?.can_access_fnb_checklist;
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
@@ -772,7 +776,11 @@ export default function DashboardSidebar({
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeCommissionChecker || canSeeAdminSettings;
   const showFrontOfficeGroup =
-    canSeeLostFound || canSeeFoChecklist || canSeePriceGuide || canSeeGuestLaundry;
+    canSeeLostFound ||
+    canSeeFoChecklist ||
+    canSeePriceGuide ||
+    canSeeGuestLaundry ||
+    canSeeGuestShopAdmin;
   const showFnbGroup = canSeeFnbChecklist;
 
   const sidebarAccessFlags = [
@@ -1313,6 +1321,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="laundry" sub>Guest Laundry</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeGuestShopAdmin ? (
+                <Link
+                  href="/dashboard/guest-shop-admin"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="package" sub>Guest Shop Admin</SidebarNavContent>
                 </Link>
               ) : null}
 
