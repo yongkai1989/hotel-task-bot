@@ -223,39 +223,24 @@ export default function GuestShopPage() {
         </div>
       </section>
 
-      <section className="service-strip" aria-label="Guest service promise">
-        <div>
-          <span>Payment verified</span>
-          <strong>Released only after success</strong>
-        </div>
-        <div>
-          <span>Prepared by hotel team</span>
-          <strong>Front office is notified</strong>
-        </div>
-        <div>
-          <span>Room delivery</span>
-          <strong>Sent to your room</strong>
-        </div>
-      </section>
-
       <section id="shop" className="collection">
+        <div className="categories" role="tablist" aria-label="Product categories">
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              className={activeCategory === category ? 'active' : ''}
+              onClick={() => setActiveCategory(category)}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+
         <div className="collection-head">
           <div>
             <p className="eyebrow">Guest menu</p>
             <h2>Curated for your stay</h2>
-          </div>
-
-          <div className="categories" role="tablist" aria-label="Product categories">
-            {categories.map((category) => (
-              <button
-                key={category}
-                type="button"
-                className={activeCategory === category ? 'active' : ''}
-                onClick={() => setActiveCategory(category)}
-              >
-                {category}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -610,41 +595,6 @@ export default function GuestShopPage() {
           background: #fff8ed;
         }
 
-        .service-strip {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px;
-          margin: 22px clamp(18px, 4vw, 64px) 0;
-        }
-
-        .service-strip div {
-          min-height: 92px;
-          padding: 22px;
-          border: 1px solid rgba(104, 82, 53, 0.14);
-          border-radius: 22px;
-          background:
-            linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 248, 237, 0.82)),
-            #fffaf1;
-          box-shadow: 0 22px 60px rgba(41, 33, 25, 0.1);
-          box-sizing: border-box;
-        }
-
-        .service-strip span {
-          display: block;
-          color: #8d6330;
-          font-size: 11px;
-          font-weight: 900;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-        }
-
-        .service-strip strong {
-          display: block;
-          margin-top: 6px;
-          font-size: 17px;
-          line-height: 1.25;
-        }
-
         .collection {
           padding: clamp(34px, 6vw, 82px) clamp(18px, 4vw, 64px) clamp(38px, 6vw, 90px);
         }
@@ -672,8 +622,9 @@ export default function GuestShopPage() {
         .categories {
           display: flex;
           flex-wrap: wrap;
-          justify-content: flex-end;
+          justify-content: flex-start;
           gap: 10px;
+          margin-bottom: 18px;
         }
 
         .categories button {
@@ -1046,12 +997,6 @@ export default function GuestShopPage() {
             bottom: 18px;
             left: 16px;
             width: auto;
-          }
-
-          .service-strip {
-            grid-template-columns: 1fr;
-            margin-right: 16px;
-            margin-left: 16px;
           }
 
           .collection {
