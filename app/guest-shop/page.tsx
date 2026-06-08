@@ -128,6 +128,9 @@ export default function GuestShopPage() {
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
   const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
+  const heroStyle = {
+    '--hero-image': heroLoaded ? `url("${hero.hero_image_url}")` : 'none',
+  } as CSSProperties;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -274,7 +277,7 @@ export default function GuestShopPage() {
     <main className="guest-shop">
       <section
         className={heroLoaded ? 'hero hero-ready' : 'hero'}
-        style={{ '--hero-image': heroLoaded ? `url("${hero.hero_image_url}")` : 'none' } as CSSProperties}
+        style={heroStyle}
       >
         {heroLoaded ? (
           <img
@@ -1229,4 +1232,97 @@ export default function GuestShopPage() {
           }
 
           .hero-content h1 {
-            font-size: 52p
+            font-size: 52px;
+          }
+
+          .collection {
+            padding-right: 16px;
+            padding-left: 16px;
+          }
+
+          .collection-head {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .categories {
+            justify-content: flex-start;
+          }
+
+          .products {
+            grid-template-columns: 1fr;
+          }
+
+          .product-card {
+            min-height: 0;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .guest-shop {
+            padding-bottom: 76px;
+          }
+
+          .hero-content h1 {
+            font-size: 46px;
+          }
+
+          .hero-actions a {
+            width: 100%;
+          }
+
+          .categories {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .categories button {
+            padding: 0 10px;
+          }
+
+          .product-image {
+            height: 234px;
+          }
+
+          .product-footer,
+          .order-line {
+            align-items: stretch;
+            flex-direction: column;
+          }
+
+          .product-footer button {
+            width: 100%;
+          }
+
+          .stepper {
+            justify-content: space-between;
+          }
+
+          .total-row strong {
+            font-size: 30px;
+          }
+
+          .front-office-contact {
+            align-items: stretch;
+            flex-direction: column;
+            margin-right: 16px;
+            margin-left: 16px;
+          }
+
+          .whatsapp-button {
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .floating-cart {
+            right: 14px;
+            bottom: 14px;
+            min-height: 52px;
+            padding: 0 14px;
+            font-size: 14px;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
