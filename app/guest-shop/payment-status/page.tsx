@@ -13,6 +13,14 @@ type OrderStatus = {
   paid_at: string | null;
 };
 
+type OrderedItem = {
+  key: string;
+  name: string;
+  options: string;
+  quantity: number;
+  lineTotal: number;
+};
+
 function money(value: number) {
   return `RM${Number(value || 0).toLocaleString('en-MY', {
     minimumFractionDigits: 2,
@@ -68,16 +76,18 @@ function optionSummary(item: any) {
     .join(', ');
 }
 
-function orderItems(items: any[]) {
+function orderItems(items: any[]): OrderedItem[] {
   if (!Array.isArray(items)) return [];
 
-  return items.map((item, index) => ({
-    key: `${String(item?.id || item?.name || 'item')}-${index}`,
-    name: String(item?.name || item?.item_name || 'Item'),
-    options: optionSummary(item),
-    quantity: Number(item?.quantity || item?.qty || 1),
-    lineTotal: Number(item?.line_total_myr || 0),
-  }));
+  return items.map((item, index): OrderedItem => {
+    const key = `${String(item?.id || item?.name || 'item')}-${index}`;
+    const name = String(item?.name || item?.item_name || 'Item');
+    const options = optionSummary(item);
+    const quantity = Number(item?.quantity || item?.qty || 1);
+    const lineTotal = Number(item?.line_total_myr || 0);
+
+    return { key, name, options, quantity, lineTotal };
+  });
 }
 
 function whatsappMessage(order: OrderStatus | null) {
@@ -193,7 +203,7 @@ export default function GuestShopPaymentStatusPage() {
     <main className="status-page">
       <section className="status-card">
         <div className={`status-orb ${copy.tone}`} aria-hidden="true">
-          {copy.tone === 'success' ? '✓' : copy.tone === 'danger' ? '!' : '…'}
+          {copy.tone === 'success' ? 'OK' : copy.tone === 'danger' ? '!' : '...'}
         </div>
 
         <p className="eyebrow">Hallmark Crown Hotel</p>
