@@ -223,6 +223,16 @@ function selectedOptionLabels(item: ShopItem, selectedOptions: SelectedOptionGro
   );
 }
 
+function isFnbItem(item: ShopItem) {
+  const category = item.category.trim().toLowerCase();
+  return item.isFnb || category === 'f&b' || category.includes('food & beverage');
+}
+
+function isFnbCategory(category: string) {
+  const normalized = category.trim().toLowerCase();
+  return normalized === 'f&b' || normalized.includes('food & beverage');
+}
+
 export default function GuestShopPage() {
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
@@ -239,22 +249,36 @@ export default function GuestShopPage() {
   const [selectedOptionsByItem, setSelectedOptionsByItem] = useState<Record<string, SelectedOptionGroup[]>>({});
 
   const visibleItems = useMemo(() => {
-    const categoryItems = activeCategory === 'All'
-      ? items
-      : items.filter((item) => item.category === activeCategory);
+    if (activeCategory === 'FNB') {
+      const fnbItems = items.filter(isFnbItem);
+      if (activeSubmenu === 'All') return fnbItems;
+      return fnbItems.filter((item) => item.submenu === activeSubmenu);
+    }
 
-    if (activeSubmenu === 'All') return categoryItems;
-    return categoryItems.filter((item) => item.submenu === activeSubmenu);
+    const guestItems = items.filter((item) => !isFnbItem(item));
+    if (activeCategory === 'All') return guestItems;
+    return guestItems.filter((item) => item.category === activeCategory);
   }, [activeCategory, activeSubmenu, items]);
 
-  const submenuChoices = useMemo(() => {
-    if (activeCategory === 'All') return [];
+  const guestCategories = useMemo(() => {
+    const choices = categories
+      .filter((category) => category !== 'All')
+      .filter((category) => !isFnbCategory(category));
+
+    return ['All', ...Array.from(new Set(choices))];
+  }, [categories]);
+
+  const fnbSubmenuChoices = useMemo(() => {
+    const fnbItems = items.filter(isFnbItem);
+    if (!fnbItems.length) return [];
+
     const choices = items
-      .filter((item) => item.category === activeCategory)
+      .filter(isFnbItem)
       .map((item) => item.submenu)
       .filter(Boolean);
+
     return ['All', ...Array.from(new Set(choices))];
-  }, [activeCategory, items]);
+  }, [items]);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
@@ -565,9 +589,9 @@ export default function GuestShopPage() {
       <section id="shop" className="collection">
         <div className="menu-toolbar">
           <div className="filter-block">
-            <span>Category</span>
+            <span>Guest Shop</span>
             <div className="categories" role="tablist" aria-label="Product categories">
-              {categories.map((category) => (
+              {guestCategories.map((category) => (
                 <button
                   key={category}
                   type="button"
@@ -583,19 +607,22 @@ export default function GuestShopPage() {
             </div>
           </div>
 
-          {submenuChoices.length > 1 ? (
-            <div className="filter-block submenu-block">
-              <span>{activeCategory} Menu</span>
-              <div className="submenus" role="tablist" aria-label={`${activeCategory} submenus`}>
-                {submenuChoices.map((submenu) => (
-              <button
-                key={submenu}
-                type="button"
-                className={activeSubmenu === submenu ? 'active' : ''}
-                onClick={() => setActiveSubmenu(submenu)}
-              >
-                {submenu}
-              </button>
+          {fnbSubmenuChoices.length ? (
+            <div className="filter-block fnb-filter-block">
+              <span>Food & Beverage</span>
+              <div className="submenus fnb-submenus" role="tablist" aria-label="Food and beverage menu">
+                {fnbSubmenuChoices.map((submenu) => (
+                  <button
+                    key={submenu}
+                    type="button"
+                    className={activeCategory === 'FNB' && activeSubmenu === submenu ? 'active' : ''}
+                    onClick={() => {
+                      setActiveCategory('FNB');
+                      setActiveSubmenu(submenu);
+                    }}
+                  >
+                    {submenu}
+                  </button>
                 ))}
               </div>
             </div>
@@ -1132,6 +1159,11 @@ export default function GuestShopPage() {
           gap: 10px;
         }
 
+        .fnb-filter-block {
+          padding-top: 16px;
+          border-top: 1px solid rgba(91, 74, 50, 0.1);
+        }
+
         .filter-block > span {
           color: #9a6b31;
           font-size: 11px;
@@ -1168,6 +1200,11 @@ export default function GuestShopPage() {
           border-radius: 20px;
           background: rgba(255, 255, 255, 0.64);
           border: 1px solid rgba(91, 74, 50, 0.1);
+        }
+
+        .fnb-submenus {
+          background:
+            linear-gradient(135deg, rgba(255, 248, 235, 0.88), rgba(255, 255, 255, 0.7));
         }
 
         .submenus button {
