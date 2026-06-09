@@ -21,7 +21,16 @@ function orderItemsSummary(items: any[]) {
     .map((item) => {
       const quantity = Number(item?.quantity || item?.qty || 1);
       const name = String(item?.name || item?.item_name || 'Item');
-      return `${quantity}x ${name}`;
+      const optionText = Array.isArray(item?.selected_options)
+        ? item.selected_options
+            .flatMap((group: any) =>
+              Array.isArray(group?.options)
+                ? group.options.map((option: any) => String(option?.name || '').trim()).filter(Boolean)
+                : []
+            )
+            .join(', ')
+        : '';
+      return `${quantity}x ${name}${optionText ? ` (${optionText})` : ''}`;
     })
     .join(', ');
 }
@@ -47,10 +56,11 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
   const paymentRef = String(order?.payment_reference || '-').trim() || '-';
   const total = Number(order?.total_myr || 0).toFixed(2);
   const items = orderItemsSummary(order?.items_json || []);
+  const orderType = String(order?.order_type || 'GUEST_SHOP').trim().toUpperCase();
   const chatId = resolveFoTelegramChatId();
 
   const taskText = [
-    `Guest Shop paid order ${marker}`,
+    `${orderType === 'FNB' ? 'F&B' : 'Guest Shop'} paid order ${marker}`,
     `Guest: ${guest}`,
     `Items: ${items}`,
     `Total: RM${total}`,
@@ -101,7 +111,7 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
   await supabaseAdmin.from('task_events').insert({
     task_id: task.id,
     event_type: 'CREATED',
-    event_text: `Guest Shop paid order created from Billplz payment ${paymentRef}`,
+    event_text: `${orderType === 'FNB' ? 'F&B' : 'Guest Shop'} paid order created from Billplz payment ${paymentRef}`,
     actor_name: 'Guest Shop',
   });
 
