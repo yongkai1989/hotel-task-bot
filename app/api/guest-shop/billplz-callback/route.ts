@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
-      .select('id, status, items_json')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json')
       .eq('payment_reference', billId)
       .maybeSingle();
 
@@ -127,15 +128,19 @@ export async function POST(req: NextRequest) {
         await decrementPaidStock(order.items_json);
       }
 
-      const { error: updateError } = await supabaseAdmin
+      const { data: updatedOrder, error: updateError } = await supabaseAdmin
         .from('guest_shop_orders')
         .update({
           status: 'PAID',
           paid_at: paidAt || new Date().toISOString(),
         })
-        .eq('id', order.id);
+        .eq('id', order.id)
+        .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json')
+        .single();
 
       if (updateError) throw updateError;
+
+      await createFoTaskForPaidGuestShopOrder(updatedOrder || order);
       return plainText('ok');
     }
 
