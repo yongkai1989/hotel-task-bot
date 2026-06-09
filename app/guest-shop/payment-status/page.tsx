@@ -17,6 +17,7 @@ type OrderedItem = {
   key: string;
   name: string;
   options: string;
+  instructions: string;
   quantity: number;
   lineTotal: number;
 };
@@ -60,7 +61,8 @@ function orderItemSummary(items: any[]) {
       const quantity = Number(item?.quantity || item?.qty || 1);
       const name = String(item?.name || item?.item_name || 'Item');
       const options = optionSummary(item);
-      return `${quantity}x ${name}${options ? ` (${options})` : ''}`;
+      const instructions = String(item?.special_instructions || '').trim();
+      return `${quantity}x ${name}${options ? ` (${options})` : ''}${instructions ? ` - Note: ${instructions}` : ''}`;
     })
     .join(', ');
 }
@@ -83,10 +85,11 @@ function orderItems(items: any[]): OrderedItem[] {
     const key = `${String(item?.id || item?.name || 'item')}-${index}`;
     const name = String(item?.name || item?.item_name || 'Item');
     const options = optionSummary(item);
+    const instructions = String(item?.special_instructions || '').trim();
     const quantity = Number(item?.quantity || item?.qty || 1);
     const lineTotal = Number(item?.line_total_myr || 0);
 
-    return { key, name, options, quantity, lineTotal };
+    return { key, name, options, instructions, quantity, lineTotal };
   });
 }
 
@@ -251,6 +254,7 @@ export default function GuestShopPaymentStatusPage() {
                     <span>
                       {item.quantity}x {item.name}
                       {item.options ? <small>{item.options}</small> : null}
+                      {item.instructions ? <small>Note: {item.instructions}</small> : null}
                     </span>
                     <strong>{item.lineTotal > 0 ? money(item.lineTotal) : '-'}</strong>
                   </div>
