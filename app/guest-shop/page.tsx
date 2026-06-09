@@ -264,8 +264,8 @@ export default function GuestShopPage() {
       return;
     }
 
-    if (!roomNumber.trim() || !guestName.trim() || !email.trim()) {
-      setNotice('Please enter room number, guest name, and email before payment.');
+    if (!roomNumber.trim() || !guestName.trim()) {
+      setNotice('Please enter room number and guest name before payment.');
       return;
     }
 
@@ -473,11 +473,11 @@ export default function GuestShopPage() {
                 />
               </label>
               <label>
-                Email
+                Email (optional)
                 <input
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="For receipt"
+                  placeholder="For receipt, optional"
                 />
               </label>
             </div>
