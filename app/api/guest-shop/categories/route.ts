@@ -19,14 +19,26 @@ function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canManageGuestShop(user: any) {
+function canFullManageGuestShop(user: any) {
   const role = String(user?.role || '').trim().toUpperCase();
   const email = normalizeEmail(user?.email);
 
   return (
     role === 'SUPERUSER' ||
-    email === 'fenny@hotelhallmark.com' ||
-    email === 'walter@hotelhallmark.com'
+    email === 'fenny@hotelhallmark.com'
+  );
+}
+
+function canViewGuestShopAdmin(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = normalizeEmail(user?.email);
+  return (
+    canFullManageGuestShop(user) ||
+    role === 'FO' ||
+    role === 'MANAGER' ||
+    role === 'FNB' ||
+    email === 'walter@hotelhallmark.com' ||
+    email === 'fnb@hotelhallmark.com'
   );
 }
 
@@ -59,7 +71,7 @@ function normalizeCategoryPayload(body: any) {
 async function requireManager(req: NextRequest) {
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return { error: error || 'Unauthorized', status: 401, user: null };
-  if (!canManageGuestShop(user)) {
+  if (!canFullManageGuestShop(user)) {
     return { error: 'Guest Shop Admin access denied', status: 403, user: null };
   }
   return { error: '', status: 200, user };
@@ -70,8 +82,11 @@ export async function GET(req: NextRequest) {
     const includeInactive = req.nextUrl.searchParams.get('include_inactive') === '1';
 
     if (includeInactive) {
-      const auth = await requireManager(req);
-      if (auth.error) return jsonNoCache({ ok: false, error: auth.error }, auth.status);
+      const { user, error } = await getDashboardUserFromRequest(req);
+      if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
+      if (!canViewGuestShopAdmin(user)) {
+        return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
+      }
     }
 
     let query = supabaseAdmin
