@@ -56,6 +56,17 @@ function orderItemSummary(items: any[]) {
     .join(', ');
 }
 
+function orderItems(items: any[]) {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((item, index) => ({
+    key: `${String(item?.id || item?.name || 'item')}-${index}`,
+    name: String(item?.name || item?.item_name || 'Item'),
+    quantity: Number(item?.quantity || item?.qty || 1),
+    lineTotal: Number(item?.line_total_myr || 0),
+  }));
+}
+
 function whatsappMessage(order: OrderStatus | null) {
   if (!order) {
     return 'Hello Front Office, I need assistance with my Guest Shop order.';
@@ -161,6 +172,9 @@ export default function GuestShopPaymentStatusPage() {
   }, [orderId]);
 
   const copy = statusCopy(order?.status || 'PENDING_PAYMENT');
+  const orderedItems = orderItems(order?.items_json || []);
+  const shouldSendToDesk =
+    order?.status === 'PAID' || order?.status === 'FULFILLED' || order?.status === 'PENDING_PAYMENT';
 
   return (
     <main className="status-page">
@@ -173,33 +187,62 @@ export default function GuestShopPaymentStatusPage() {
         <h1>{loading ? 'Checking payment' : copy.title}</h1>
         <p>{loading ? 'Please wait while we verify your order.' : copy.body}</p>
 
+        {!loading && shouldSendToDesk ? (
+          <div className="next-step">
+            <strong>Next step</strong>
+            <span>Press Send to Hotel Front Desk to send your order details to our team.</span>
+          </div>
+        ) : null}
+
         {error ? <div className="message error">{error}</div> : null}
 
         {order ? (
-          <div className="receipt">
-            <div>
-              <span>Room</span>
-              <strong>{order.room_number || '-'}</strong>
+          <>
+            <div className="receipt">
+              <div>
+                <span>Room</span>
+                <strong>{order.room_number || '-'}</strong>
+              </div>
+              <div>
+                <span>Guest</span>
+                <strong>{order.guest_name || '-'}</strong>
+              </div>
+              <div>
+                <span>Total</span>
+                <strong>{money(order.total_myr)}</strong>
+              </div>
+              <div>
+                <span>Payment Ref</span>
+                <strong>{order.payment_reference || '-'}</strong>
+              </div>
             </div>
-            <div>
-              <span>Guest</span>
-              <strong>{order.guest_name || '-'}</strong>
+
+            <div className="ordered-items">
+              <div className="ordered-items-head">
+                <span>Items ordered</span>
+                <strong>{orderedItems.length} item{orderedItems.length === 1 ? '' : 's'}</strong>
+              </div>
+              {orderedItems.length ? (
+                orderedItems.map((item) => (
+                  <div className="ordered-item" key={item.key}>
+                    <span>{item.quantity}x {item.name}</span>
+                    <strong>{item.lineTotal > 0 ? money(item.lineTotal) : '-'}</strong>
+                  </div>
+                ))
+              ) : (
+                <div className="ordered-item">
+                  <span>No item details available</span>
+                  <strong>-</strong>
+                </div>
+              )}
             </div>
-            <div>
-              <span>Total</span>
-              <strong>{money(order.total_myr)}</strong>
-            </div>
-            <div>
-              <span>Payment Ref</span>
-              <strong>{order.payment_reference || '-'}</strong>
-            </div>
-          </div>
+          </>
         ) : null}
 
         <div className="actions">
           <a href="/guest-shop">Back to shop</a>
           <a href={whatsappUrl(order)} target="_blank" rel="noopener noreferrer">
-            WhatsApp Front Office
+            Send to Hotel Front Desk
           </a>
         </div>
       </section>
@@ -301,6 +344,34 @@ export default function GuestShopPaymentStatusPage() {
           background: #fee2e2;
         }
 
+        .next-step {
+          display: grid;
+          gap: 6px;
+          margin: 20px auto 0;
+          padding: 14px 16px;
+          max-width: 430px;
+          border: 1px solid rgba(176, 137, 72, 0.26);
+          border-radius: 18px;
+          color: #4a3519;
+          background: linear-gradient(135deg, #fff8e8, #fffdf8);
+          text-align: left;
+        }
+
+        .next-step strong {
+          color: #9a6a2f;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+
+        .next-step span {
+          color: #2f3846;
+          font-size: 15px;
+          font-weight: 800;
+          line-height: 1.45;
+        }
+
         .receipt {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -329,6 +400,47 @@ export default function GuestShopPaymentStatusPage() {
           margin-top: 6px;
           overflow-wrap: anywhere;
           font-size: 16px;
+        }
+
+        .ordered-items {
+          margin-top: 12px;
+          padding: 14px 16px;
+          border: 1px solid #eadfce;
+          border-radius: 20px;
+          background: rgba(255, 250, 242, 0.82);
+          text-align: left;
+        }
+
+        .ordered-items-head,
+        .ordered-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+        }
+
+        .ordered-items-head {
+          padding-bottom: 10px;
+          border-bottom: 1px solid #eadfce;
+        }
+
+        .ordered-items-head span {
+          color: #9a6a2f;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+
+        .ordered-items-head strong,
+        .ordered-item strong {
+          white-space: nowrap;
+        }
+
+        .ordered-item {
+          padding-top: 10px;
+          color: #263244;
+          font-weight: 800;
         }
 
         .actions {
@@ -371,6 +483,11 @@ export default function GuestShopPaymentStatusPage() {
 
           .receipt {
             grid-template-columns: 1fr;
+          }
+
+          .ordered-items-head,
+          .ordered-item {
+            align-items: flex-start;
           }
 
           .actions a {
