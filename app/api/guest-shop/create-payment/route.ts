@@ -9,6 +9,10 @@ export const runtime = 'nodejs';
 type CheckoutItem = {
   id: string;
   quantity: number;
+  selected_options?: Array<{
+    group_id: string;
+    option_ids: string[];
+  }>;
 };
 
 function jsonNoCache(body: any, status = 200) {
@@ -60,15 +64,131 @@ function billplzErrorMessage(status: number, rawError: unknown) {
 function normalizeCheckoutItems(value: unknown): CheckoutItem[] {
   if (!Array.isArray(value)) return [];
 
-  const merged = new Map<string, number>();
+  const merged = new Map<string, CheckoutItem>();
   for (const row of value) {
     const id = sanitizeText((row as any)?.id, 80);
     const quantity = Math.max(0, Math.floor(Number((row as any)?.quantity || 0)));
     if (!id || quantity <= 0) continue;
-    merged.set(id, Math.min((merged.get(id) || 0) + quantity, 99));
+
+    const selectedOptions = Array.isArray((row as any)?.selected_options)
+      ? (row as any).selected_options.map((group: any) => ({
+          group_id: sanitizeText(group?.group_id, 80),
+          option_ids: Array.isArray(group?.option_ids)
+            ? group.option_ids.map((optionId: any) => sanitizeText(optionId, 80)).filter(Boolean)
+            : [],
+        })).filter((group: any) => group.group_id && group.option_ids.length)
+      : [];
+
+    const key = `${id}:${JSON.stringify(selectedOptions)}`;
+    const existing = merged.get(key);
+    merged.set(key, {
+      id,
+      quantity: Math.min((existing?.quantity || 0) + quantity, 99),
+      selected_options: selectedOptions,
+    });
   }
 
-  return Array.from(merged.entries()).map(([id, quantity]) => ({ id, quantity }));
+  return Array.from(merged.values());
+}
+
+async function loadOptionsForItems(itemIds: string[]) {
+  if (!itemIds.length) return new Map<string, any[]>();
+
+  const { data: groups, error: groupError } = await supabaseAdmin
+    .from('guest_shop_item_option_groups')
+    .select('*')
+    .in('item_id', itemIds)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+
+  if (groupError) throw groupError;
+
+  const groupIds = (groups || []).map((group: any) => String(group.id));
+  const { data: options, error: optionError } = groupIds.length
+    ? await supabaseAdmin
+        .from('guest_shop_item_options')
+        .select('*')
+        .in('group_id', groupIds)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+    : { data: [], error: null };
+
+  if (optionError) throw optionError;
+
+  const optionsByGroupId = new Map<string, any[]>();
+  for (const option of options || []) {
+    const groupId = String((option as any).group_id);
+    const next = optionsByGroupId.get(groupId) || [];
+    next.push(option);
+    optionsByGroupId.set(groupId, next);
+  }
+
+  const groupsByItemId = new Map<string, any[]>();
+  for (const group of groups || []) {
+    const itemId = String((group as any).item_id);
+    const next = groupsByItemId.get(itemId) || [];
+    next.push({
+      ...group,
+      options: optionsByGroupId.get(String((group as any).id)) || [],
+    });
+    groupsByItemId.set(itemId, next);
+  }
+
+  return groupsByItemId;
+}
+
+function resolveSelectedOptions(item: CheckoutItem, groups: any[]) {
+  const selectedByGroupId = new Map(
+    (item.selected_options || []).map((group) => [
+      String(group.group_id),
+      new Set((group.option_ids || []).map(String)),
+    ])
+  );
+
+  const selected: any[] = [];
+  let addOnTotal = 0;
+
+  for (const group of groups) {
+    const groupId = String(group.id);
+    const groupOptions = Array.isArray(group.options) ? group.options : [];
+    const requested = selectedByGroupId.get(groupId) || new Set<string>();
+    const picked = groupOptions.filter((option: any) => requested.has(String(option.id)));
+
+    if (group.is_required === true && picked.length < Math.max(1, Number(group.min_select || 0))) {
+      throw new Error(`${group.name || 'Required option'} must be selected`);
+    }
+
+    if (String(group.selection_type || 'single') === 'single' && picked.length > 1) {
+      throw new Error(`${group.name || 'Option group'} only allows one choice`);
+    }
+
+    const maxSelect = Number(group.max_select || 0);
+    if (maxSelect > 0 && picked.length > maxSelect) {
+      throw new Error(`${group.name || 'Option group'} allows up to ${maxSelect} choices`);
+    }
+
+    if (!picked.length) continue;
+
+    selected.push({
+      group_id: groupId,
+      group_name: String(group.name || ''),
+      selection_type: String(group.selection_type || 'single'),
+      options: picked.map((option: any) => {
+        const priceDelta = Number(option.price_delta_myr || 0);
+        addOnTotal += priceDelta;
+        return {
+          id: String(option.id),
+          name: String(option.name || ''),
+          price_delta_myr: priceDelta,
+        };
+      }),
+    });
+  }
+
+  return {
+    selected_options: selected,
+    add_on_total_myr: Number(addOnTotal.toFixed(2)),
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -99,31 +219,49 @@ export async function POST(req: NextRequest) {
     const ids = checkoutItems.map((item) => item.id);
     const { data: catalogRows, error: catalogError } = await supabaseAdmin
       .from('guest_shop_items')
-      .select('id, name, category, price_myr, stock, is_active, out_of_stock')
+      .select('id, name, category, submenu, price_myr, stock, is_active, out_of_stock, is_fnb')
       .in('id', ids);
 
     if (catalogError) throw catalogError;
 
     const catalogById = new Map((catalogRows || []).map((row: any) => [String(row.id), row]));
+    const groupsByItemId = await loadOptionsForItems(ids);
+    const quantityByItemId = new Map<string, number>();
+    for (const item of checkoutItems) {
+      quantityByItemId.set(item.id, (quantityByItemId.get(item.id) || 0) + item.quantity);
+    }
+
+    for (const [id, quantity] of quantityByItemId.entries()) {
+      const catalog = catalogById.get(id);
+      const stock = Math.max(0, Number(catalog?.stock || 0));
+      if (!catalog || catalog.is_active === false || catalog.out_of_stock === true) {
+        throw new Error('One of the selected items is no longer available');
+      }
+      if (quantity > stock) {
+        throw new Error(`${catalog.name || 'Selected item'} only has ${stock} available`);
+      }
+    }
+
     const orderItems = checkoutItems.map((item) => {
       const catalog = catalogById.get(item.id);
       if (!catalog || catalog.is_active === false || catalog.out_of_stock === true) {
         throw new Error('One of the selected items is no longer available');
       }
 
-      const stock = Math.max(0, Number(catalog.stock || 0));
-      if (item.quantity > stock) {
-        throw new Error(`${catalog.name || 'Selected item'} only has ${stock} available`);
-      }
-
       const price = Number(catalog.price_myr || 0);
+      const selected = resolveSelectedOptions(item, groupsByItemId.get(item.id) || []);
+      const unitPrice = Number((price + selected.add_on_total_myr).toFixed(2));
       return {
         id: String(catalog.id),
         name: String(catalog.name || ''),
         category: String(catalog.category || ''),
+        submenu: String(catalog.submenu || ''),
         quantity: item.quantity,
-        price_myr: price,
-        line_total_myr: Number((price * item.quantity).toFixed(2)),
+        base_price_myr: price,
+        add_on_total_myr: selected.add_on_total_myr,
+        price_myr: unitPrice,
+        line_total_myr: Number((unitPrice * item.quantity).toFixed(2)),
+        selected_options: selected.selected_options,
       };
     });
 
@@ -135,6 +273,11 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Order total must be more than RM0.00' }, 400);
     }
 
+    const isFnbOrder = orderItems.some((item) => {
+      const catalog = catalogById.get(item.id);
+      return catalog?.is_fnb === true || String(item.category).trim().toLowerCase() === 'f&b';
+    });
+
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
       .insert({
@@ -142,6 +285,7 @@ export async function POST(req: NextRequest) {
         guest_name: guestName,
         guest_email: guestEmail,
         status: 'PENDING_PAYMENT',
+        order_type: isFnbOrder ? 'FNB' : 'GUEST_SHOP',
         payment_provider: `BILLPLZ_${String(process.env.BILLPLZ_MODE || 'sandbox').toUpperCase()}`,
         total_myr: totalMyr,
         items_json: orderItems,
