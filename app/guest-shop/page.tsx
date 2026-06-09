@@ -414,6 +414,19 @@ export default function GuestShopPage() {
     });
   }
 
+  function clearGroupSelection(item: ShopItem, group: OptionGroup) {
+    if (group.isRequired) return;
+
+    setSelectedOptionsByItem((current) => {
+      const existing = current[item.id] || defaultSelection(item);
+      const next = existing.map((row) =>
+        row.groupId === group.id ? { ...row, optionIds: [] } : { ...row, optionIds: [...row.optionIds] }
+      );
+
+      return { ...current, [item.id]: next };
+    });
+  }
+
   function addItem(item: ShopItem) {
     if (item.stock <= 0) return;
 
@@ -684,13 +697,24 @@ export default function GuestShopPage() {
                             <div className="option-group" key={group.id}>
                               <div className="option-title">
                                 <span>{group.name}</span>
-                                {group.isRequired ? <b>Required</b> : <b>Optional</b>}
+                                <div className="option-title-actions">
+                                  {group.isRequired ? <b>Required</b> : <b>Optional</b>}
+                                  {!group.isRequired && selected.size ? (
+                                    <button
+                                      type="button"
+                                      className="clear-options"
+                                      onClick={() => clearGroupSelection(item, group)}
+                                    >
+                                      Remove
+                                    </button>
+                                  ) : null}
+                                </div>
                               </div>
                               <div className="option-list">
                                 {group.options.map((option) => (
                                   <label className="option-pill" key={option.id}>
                                     <input
-                                      type={group.selectionType === 'single' ? 'radio' : 'checkbox'}
+                                      type={group.selectionType === 'single' && group.isRequired ? 'radio' : 'checkbox'}
                                       name={`${item.id}-${group.id}`}
                                       checked={selected.has(option.id)}
                                       onChange={(event) => setGroupSelection(item, group, option.id, event.target.checked)}
@@ -1402,6 +1426,28 @@ export default function GuestShopPage() {
           font-size: 10px;
           letter-spacing: 0.08em;
           text-transform: uppercase;
+        }
+
+        .option-title-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .clear-options {
+          min-height: 26px;
+          padding: 0 10px;
+          border: 1px solid rgba(178, 72, 54, 0.2);
+          border-radius: 999px;
+          background: rgba(255, 238, 234, 0.84);
+          color: #9f2f22;
+          font-size: 11px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .clear-options:hover {
+          background: rgba(255, 225, 218, 0.95);
         }
 
         .option-list {
