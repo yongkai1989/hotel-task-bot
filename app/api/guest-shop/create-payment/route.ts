@@ -84,10 +84,12 @@ export async function POST(req: NextRequest) {
     const roomNumber = sanitizeText(body?.roomNumber, 40);
     const guestName = sanitizeText(body?.guestName, 120);
     const guestEmail = sanitizeText(body?.email, 180).toLowerCase();
+    const billplzEmail =
+      guestEmail || String(process.env.BILLPLZ_FALLBACK_EMAIL || 'frontoffice@hotelhallmark.com').trim();
     const checkoutItems = normalizeCheckoutItems(body?.items);
 
-    if (!roomNumber || !guestName || !guestEmail) {
-      return jsonNoCache({ ok: false, error: 'Room number, guest name, and email are required' }, 400);
+    if (!roomNumber || !guestName) {
+      return jsonNoCache({ ok: false, error: 'Room number and guest name are required' }, 400);
     }
 
     if (!checkoutItems.length) {
@@ -157,7 +159,7 @@ export async function POST(req: NextRequest) {
 
     const billBody = new URLSearchParams();
     billBody.set('collection_id', collectionId);
-    billBody.set('email', guestEmail);
+    billBody.set('email', billplzEmail);
     billBody.set('name', guestName);
     billBody.set('amount', String(Math.round(totalMyr * 100)));
     billBody.set('callback_url', callbackUrl);
