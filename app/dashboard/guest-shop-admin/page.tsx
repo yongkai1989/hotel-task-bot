@@ -953,7 +953,7 @@ export default function GuestShopAdminPage() {
 
           <div style={styles.orderSummary}>
             <span>{orders.length} orders on {orderDate}</span>
-            <span>{paidOrders} paid / fulfilled</span>
+            <span>{paidOrders} confirmed paid</span>
             <span>{failedOrders} failed / cancelled</span>
           </div>
 
@@ -970,7 +970,14 @@ export default function GuestShopAdminPage() {
                 <div style={styles.orderDetails}>
                   <div><span>Total</span><strong>{money(order.total_myr)}</strong></div>
                   <div><span>Created</span><strong>{formatTime(order.created_at)}</strong></div>
-                  <div><span>Paid</span><strong>{formatTime(order.paid_at)}</strong></div>
+                  <div>
+                    <span>{order.status === 'PAID' || order.status === 'FULFILLED' ? 'Paid At' : 'Payment Status'}</span>
+                    <strong>
+                      {order.status === 'PAID' || order.status === 'FULFILLED'
+                        ? formatTime(order.paid_at)
+                        : statusLabel(order.status)}
+                    </strong>
+                  </div>
                   <div><span>Payment Ref</span><strong>{order.payment_reference || '-'}</strong></div>
                 </div>
                 <p style={styles.orderItems}>{orderItemSummary(order.items_json)}</p>
