@@ -47,6 +47,7 @@ type CartItem = {
   quantity: number;
   selectedOptions: SelectedOptionGroup[];
   unitPrice: number;
+  specialInstructions: string;
 };
 
 const DEFAULT_CATEGORIES: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
@@ -412,10 +413,31 @@ export default function GuestShopPage() {
 
       return {
         ...current,
-        [cartKey]: { cartKey, item, quantity, selectedOptions, unitPrice },
+        [cartKey]: {
+          cartKey,
+          item,
+          quantity,
+          selectedOptions,
+          unitPrice,
+          specialInstructions: existing?.specialInstructions || '',
+        },
       };
     });
     setNotice('');
+  }
+
+  function setCartInstruction(cartKey: string, value: string) {
+    setCart((current) => {
+      const existing = current[cartKey];
+      if (!existing) return current;
+      return {
+        ...current,
+        [cartKey]: {
+          ...existing,
+          specialInstructions: value.slice(0, 240),
+        },
+      };
+    });
   }
 
   function setQuantity(cartKey: string, quantity: number) {
@@ -461,9 +483,10 @@ export default function GuestShopPage() {
           roomNumber,
           guestName,
           email,
-          items: cartItems.map(({ item, quantity, selectedOptions }) => ({
+          items: cartItems.map(({ item, quantity, selectedOptions, specialInstructions }) => ({
             id: item.id,
             quantity,
+            special_instructions: specialInstructions,
             selected_options: item.optionGroups.length
               ? selectedOptions.map((group) => ({
                   group_id: group.groupId,
@@ -540,25 +563,31 @@ export default function GuestShopPage() {
       </section>
 
       <section id="shop" className="collection">
-        <div className="categories" role="tablist" aria-label="Product categories">
-          {categories.map((category) => (
-            <button
-              key={category}
-              type="button"
-              className={activeCategory === category ? 'active' : ''}
-              onClick={() => {
-                setActiveCategory(category);
-                setActiveSubmenu('All');
-              }}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
+        <div className="menu-toolbar">
+          <div className="filter-block">
+            <span>Category</span>
+            <div className="categories" role="tablist" aria-label="Product categories">
+              {categories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={activeCategory === category ? 'active' : ''}
+                  onClick={() => {
+                    setActiveCategory(category);
+                    setActiveSubmenu('All');
+                  }}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        {submenuChoices.length > 1 ? (
-          <div className="submenus" role="tablist" aria-label={`${activeCategory} submenus`}>
-            {submenuChoices.map((submenu) => (
+          {submenuChoices.length > 1 ? (
+            <div className="filter-block submenu-block">
+              <span>{activeCategory} Menu</span>
+              <div className="submenus" role="tablist" aria-label={`${activeCategory} submenus`}>
+                {submenuChoices.map((submenu) => (
               <button
                 key={submenu}
                 type="button"
@@ -567,9 +596,11 @@ export default function GuestShopPage() {
               >
                 {submenu}
               </button>
-            ))}
-          </div>
-        ) : null}
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="collection-head">
           <div>
@@ -613,6 +644,10 @@ export default function GuestShopPage() {
 
                     {item.optionGroups.length ? (
                       <div className="option-panel">
+                        <div className="customize-head">
+                          <strong>Customize</strong>
+                          <span>Choose any add-ons or preparation options</span>
+                        </div>
                         {item.optionGroups.map((group) => {
                           const selected = new Set(
                             selectedOptions.find((row) => row.groupId === group.id)?.optionIds || []
@@ -672,24 +707,35 @@ export default function GuestShopPage() {
 
             <div className="order-lines">
               {cartItems.length ? (
-                cartItems.map(({ cartKey, item, quantity, selectedOptions, unitPrice }) => (
+                cartItems.map(({ cartKey, item, quantity, selectedOptions, unitPrice, specialInstructions }) => (
                   <div className="order-line" key={cartKey}>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span>{money(unitPrice)} each</span>
-                      {selectedOptionLabels(item, selectedOptions).length ? (
-                        <small>{selectedOptionLabels(item, selectedOptions).join(', ')}</small>
-                      ) : null}
+                    <div className="order-line-top">
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span>{money(unitPrice)} each</span>
+                        {selectedOptionLabels(item, selectedOptions).length ? (
+                          <small>{selectedOptionLabels(item, selectedOptions).join(', ')}</small>
+                        ) : null}
+                      </div>
+                      <div className="stepper">
+                        <button type="button" onClick={() => setQuantity(cartKey, quantity - 1)}>
+                          -
+                        </button>
+                        <span>{quantity}</span>
+                        <button type="button" onClick={() => setQuantity(cartKey, quantity + 1)}>
+                          +
+                        </button>
+                      </div>
                     </div>
-                    <div className="stepper">
-                      <button type="button" onClick={() => setQuantity(cartKey, quantity - 1)}>
-                        -
-                      </button>
-                      <span>{quantity}</span>
-                      <button type="button" onClick={() => setQuantity(cartKey, quantity + 1)}>
-                        +
-                      </button>
-                    </div>
+                    <label className="line-remark">
+                      Special instructions
+                      <textarea
+                        value={specialInstructions}
+                        onChange={(event) => setCartInstruction(cartKey, event.target.value)}
+                        placeholder="Example: less spicy, no onion, extra chilli"
+                        rows={2}
+                      />
+                    </label>
                   </div>
                 ))
               ) : (
@@ -1070,12 +1116,35 @@ export default function GuestShopPage() {
           color: #9a6b31;
         }
 
+        .menu-toolbar {
+          display: grid;
+          gap: 18px;
+          margin-bottom: 34px;
+          padding: 18px;
+          border: 1px solid rgba(91, 74, 50, 0.12);
+          border-radius: 26px;
+          background: rgba(255, 252, 246, 0.62);
+          box-shadow: 0 22px 60px rgba(44, 34, 23, 0.06);
+        }
+
+        .filter-block {
+          display: grid;
+          gap: 10px;
+        }
+
+        .filter-block > span {
+          color: #9a6b31;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+
         .categories {
           display: flex;
           flex-wrap: wrap;
           justify-content: flex-start;
           gap: 10px;
-          margin-bottom: 18px;
         }
 
         .categories button {
@@ -1095,7 +1164,10 @@ export default function GuestShopPage() {
           display: flex;
           gap: 10px;
           flex-wrap: wrap;
-          margin: -18px 0 24px;
+          padding: 12px;
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.64);
+          border: 1px solid rgba(91, 74, 50, 0.1);
         }
 
         .submenus button {
@@ -1251,6 +1323,28 @@ export default function GuestShopPage() {
           background: rgba(255, 255, 255, 0.58);
         }
 
+        .customize-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 10px;
+          padding-bottom: 10px;
+          border-bottom: 1px solid rgba(91, 74, 50, 0.1);
+        }
+
+        .customize-head strong {
+          color: #1b1713;
+          font-size: 14px;
+        }
+
+        .customize-head span {
+          max-width: 190px;
+          color: #6b6259;
+          font-size: 12px;
+          font-weight: 800;
+          text-align: right;
+        }
+
         .option-group {
           display: grid;
           gap: 8px;
@@ -1372,13 +1466,24 @@ export default function GuestShopPage() {
         .order-line,
         .empty-order {
           display: flex;
-          align-items: center;
+          align-items: stretch;
           justify-content: space-between;
           gap: 12px;
           padding: 14px;
           border: 1px solid rgba(91, 74, 50, 0.12);
           border-radius: 18px;
           background: rgba(255, 250, 241, 0.88);
+        }
+
+        .order-line {
+          flex-direction: column;
+        }
+
+        .order-line-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
         }
 
         .order-line strong,
@@ -1401,6 +1506,27 @@ export default function GuestShopPage() {
           color: #a56a1d;
           font-size: 11px;
           line-height: 1.35;
+        }
+
+        .line-remark {
+          display: grid;
+          gap: 7px;
+          color: #5e5349;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .line-remark textarea {
+          width: 100%;
+          min-height: 62px;
+          padding: 10px 12px;
+          border: 1px solid rgba(91, 74, 50, 0.14);
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.86);
+          color: #1b1713;
+          font: inherit;
+          resize: vertical;
+          box-sizing: border-box;
         }
 
         .stepper {
