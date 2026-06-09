@@ -19,14 +19,18 @@ function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canManageGuestShop(user: any) {
+function canViewGuestShopAdmin(user: any) {
   const role = String(user?.role || '').trim().toUpperCase();
   const email = normalizeEmail(user?.email);
 
   return (
     role === 'SUPERUSER' ||
     email === 'fenny@hotelhallmark.com' ||
-    email === 'walter@hotelhallmark.com'
+    email === 'walter@hotelhallmark.com' ||
+    role === 'FO' ||
+    role === 'MANAGER' ||
+    role === 'FNB' ||
+    email === 'fnb@hotelhallmark.com'
   );
 }
 
@@ -71,7 +75,7 @@ export async function GET(req: NextRequest) {
   try {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
     if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
-    if (!canManageGuestShop(user)) {
+    if (!canViewGuestShopAdmin(user)) {
       return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
     }
 
