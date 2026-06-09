@@ -30,6 +30,14 @@ function billPaid(value: any) {
   return value?.paid === true || state === 'paid';
 }
 
+function billFailed(value: any) {
+  const state = String(value?.state || '').trim().toLowerCase();
+  return (
+    value?.paid === false &&
+    ['due', 'failed', 'cancelled', 'canceled', 'expired'].includes(state)
+  );
+}
+
 async function decrementPaidStock(items: any[]) {
   if (!Array.isArray(items)) return;
 
@@ -69,7 +77,22 @@ async function refreshFromBillplz(order: any) {
   });
 
   const bill = await res.json().catch(() => ({}));
-  if (!res.ok || !billPaid(bill)) return order;
+  if (!res.ok) return order;
+
+  if (billFailed(bill)) {
+    const { data: updated, error } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .update({ status: 'FAILED' })
+      .eq('id', order.id)
+      .eq('status', 'PENDING_PAYMENT')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at')
+      .maybeSingle();
+
+    if (error) throw error;
+    return updated || order;
+  }
+
+  if (!billPaid(bill)) return order;
 
   await decrementPaidStock(order.items_json);
 
