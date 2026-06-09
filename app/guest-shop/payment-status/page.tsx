@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type OrderStatus = {
   id: string;
@@ -48,10 +48,10 @@ export default function GuestShopPaymentStatusPage() {
   const [order, setOrder] = useState<OrderStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [orderId, setOrderId] = useState<string | null>(null);
 
-  const orderId = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    return new URLSearchParams(window.location.search).get('order_id') || '';
+  useEffect(() => {
+    setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
   }, []);
 
   useEffect(() => {
@@ -60,6 +60,8 @@ export default function GuestShopPaymentStatusPage() {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     async function loadStatus() {
+      if (orderId === null) return;
+
       if (!orderId) {
         setError('Missing order reference.');
         setLoading(false);
@@ -91,7 +93,7 @@ export default function GuestShopPaymentStatusPage() {
       }
     }
 
-    loadStatus();
+    if (orderId !== null) loadStatus();
 
     return () => {
       alive = false;
