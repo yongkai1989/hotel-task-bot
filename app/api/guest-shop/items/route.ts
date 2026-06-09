@@ -19,13 +19,30 @@ function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canManageGuestShop(user: any) {
+function canFullManageGuestShop(user: any) {
   const role = String(user?.role || '').trim().toUpperCase();
   const email = normalizeEmail(user?.email);
 
   return (
     role === 'SUPERUSER' ||
-    email === 'fenny@hotelhallmark.com' ||
+    email === 'fenny@hotelhallmark.com'
+  );
+}
+
+function canManageFnbStock(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = normalizeEmail(user?.email);
+  return role === 'FNB' || email === 'fnb@hotelhallmark.com';
+}
+
+function canViewGuestShopAdmin(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = normalizeEmail(user?.email);
+  return (
+    canFullManageGuestShop(user) ||
+    canManageFnbStock(user) ||
+    role === 'FO' ||
+    role === 'MANAGER' ||
     email === 'walter@hotelhallmark.com'
   );
 }
@@ -247,7 +264,7 @@ export async function GET(req: NextRequest) {
       if (authError || !user) {
         return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
       }
-      if (!canManageGuestShop(user)) {
+      if (!canViewGuestShopAdmin(user)) {
         return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
       }
     }
@@ -283,7 +300,7 @@ export async function POST(req: NextRequest) {
   try {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
     if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
-    if (!canManageGuestShop(user)) {
+    if (!canFullManageGuestShop(user)) {
       return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
     }
 
@@ -309,13 +326,46 @@ export async function PUT(req: NextRequest) {
   try {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
     if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
-    if (!canManageGuestShop(user)) {
+    const canFullManage = canFullManageGuestShop(user);
+    const canFnbStock = canManageFnbStock(user);
+    if (!canFullManage && !canFnbStock) {
       return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
     }
 
     const body = await req.json();
     const id = String(body?.id || '').trim();
     if (!id) throw new Error('Missing item id');
+
+    if (!canFullManage) {
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from('guest_shop_items')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+      if (!existing) throw new Error('Item not found');
+      if (existing.is_fnb !== true && String(existing.category || '').trim().toLowerCase() !== 'f&b') {
+        return jsonNoCache({ ok: false, error: 'F&B can only update F&B menu stock' }, 403);
+      }
+
+      const stock = Number(body?.stock ?? existing.stock ?? 0);
+      if (!Number.isFinite(stock) || stock < 0) throw new Error('Stock must be 0 or higher');
+
+      const { data, error } = await supabaseAdmin
+        .from('guest_shop_items')
+        .update({
+          stock: Math.floor(stock),
+          out_of_stock: body?.out_of_stock === true || body?.outOfStock === true,
+        })
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      const groupsByItemId = await loadOptionGroups([String(data.id)]);
+      return jsonNoCache({ ok: true, item: normalizeItem(data, groupsByItemId.get(String(data.id)) || []) });
+    }
 
     const payload = normalizeItemPayload(body);
     const { data, error } = await supabaseAdmin
@@ -339,7 +389,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const { user, error: authError } = await getDashboardUserFromRequest(req);
     if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
-    if (!canManageGuestShop(user)) {
+    if (!canFullManageGuestShop(user)) {
       return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
     }
 
