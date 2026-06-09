@@ -100,6 +100,21 @@ async function decrementPaidStock(items: any[]) {
   }
 }
 
+async function paidOrderUpdatePayload(order: any, paidAt: string | null) {
+  const isFnb = String(order?.order_type || '').trim().toUpperCase() === 'FNB';
+  return {
+    status: 'PAID',
+    paid_at: paidAt || new Date().toISOString(),
+    ...(isFnb
+      ? {
+          print_status: 'QUEUED',
+          print_requested_at: new Date().toISOString(),
+          print_error: null,
+        }
+      : {}),
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const params = await parsePayload(req);
@@ -116,7 +131,7 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
-      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, order_type')
       .eq('payment_reference', billId)
       .maybeSingle();
 
@@ -130,12 +145,9 @@ export async function POST(req: NextRequest) {
 
       const { data: updatedOrder, error: updateError } = await supabaseAdmin
         .from('guest_shop_orders')
-        .update({
-          status: 'PAID',
-          paid_at: paidAt || new Date().toISOString(),
-        })
+        .update(await paidOrderUpdatePayload(order, paidAt))
         .eq('id', order.id)
-        .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json')
+        .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, order_type')
         .single();
 
       if (updateError) throw updateError;
