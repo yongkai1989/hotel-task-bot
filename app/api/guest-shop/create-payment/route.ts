@@ -38,6 +38,25 @@ function basicAuthHeader(apiKey: string) {
   return `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
 }
 
+function billplzErrorMessage(status: number, rawError: unknown) {
+  const text = String(
+    (rawError as any)?.message ||
+      (rawError as any)?.title ||
+      rawError ||
+      ''
+  ).trim();
+
+  if (status === 401 || /access denied/i.test(text)) {
+    return 'Billplz sandbox access denied. Please check that BILLPLZ_API_KEY and BILLPLZ_COLLECTION_ID are from the same Billplz sandbox account.';
+  }
+
+  if (/collection/i.test(text)) {
+    return `Billplz collection issue: ${text}`;
+  }
+
+  return text || 'Failed to create Billplz bill';
+}
+
 function normalizeCheckoutItems(value: unknown): CheckoutItem[] {
   if (!Array.isArray(value)) return [];
 
@@ -167,8 +186,14 @@ export async function POST(req: NextRequest) {
         .update({ status: 'FAILED', payment_reference: String(billJson?.id || '') })
         .eq('id', orderId);
 
+      const rawError = billJson?.error || billJson?.message || billJson;
       return jsonNoCache(
-        { ok: false, error: billJson?.error?.message || billJson?.error || 'Failed to create Billplz bill' },
+        {
+          ok: false,
+          error: billplzErrorMessage(billRes.status, rawError),
+          billplz_status: billRes.status,
+          billplz_mode: String(process.env.BILLPLZ_MODE || 'sandbox').trim().toLowerCase() || 'sandbox',
+        },
         502
       );
     }
