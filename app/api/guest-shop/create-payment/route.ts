@@ -9,6 +9,7 @@ export const runtime = 'nodejs';
 type CheckoutItem = {
   id: string;
   quantity: number;
+  special_instructions?: string;
   selected_options?: Array<{
     group_id: string;
     option_ids: string[];
@@ -69,6 +70,7 @@ function normalizeCheckoutItems(value: unknown): CheckoutItem[] {
     const id = sanitizeText((row as any)?.id, 80);
     const quantity = Math.max(0, Math.floor(Number((row as any)?.quantity || 0)));
     if (!id || quantity <= 0) continue;
+    const specialInstructions = sanitizeText((row as any)?.special_instructions, 240);
 
     const selectedOptions = Array.isArray((row as any)?.selected_options)
       ? (row as any).selected_options.map((group: any) => ({
@@ -79,11 +81,12 @@ function normalizeCheckoutItems(value: unknown): CheckoutItem[] {
         })).filter((group: any) => group.group_id && group.option_ids.length)
       : [];
 
-    const key = `${id}:${JSON.stringify(selectedOptions)}`;
+    const key = `${id}:${JSON.stringify(selectedOptions)}:${specialInstructions}`;
     const existing = merged.get(key);
     merged.set(key, {
       id,
       quantity: Math.min((existing?.quantity || 0) + quantity, 99),
+      special_instructions: specialInstructions,
       selected_options: selectedOptions,
     });
   }
@@ -261,6 +264,7 @@ export async function POST(req: NextRequest) {
         add_on_total_myr: selected.add_on_total_myr,
         price_myr: unitPrice,
         line_total_myr: Number((unitPrice * item.quantity).toFixed(2)),
+        special_instructions: item.special_instructions || '',
         selected_options: selected.selected_options,
       };
     });
