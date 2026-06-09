@@ -190,7 +190,7 @@ export default function GuestShopPaymentStatusPage() {
         {!loading && shouldSendToDesk ? (
           <div className="next-step">
             <strong>Next step</strong>
-            <span>Press Send to Hotel Front Desk to send your order details to our team.</span>
+            <span>Press Send to Front Desk to send your order details to our team.</span>
           </div>
         ) : null}
 
@@ -240,10 +240,10 @@ export default function GuestShopPaymentStatusPage() {
         ) : null}
 
         <div className="actions">
-          <a href="/guest-shop">Back to shop</a>
           <a href={whatsappUrl(order)} target="_blank" rel="noopener noreferrer">
-            Send to Hotel Front Desk
+            Send to Front Desk
           </a>
+          <a href="/guest-shop">Back to shop</a>
         </div>
       </section>
 
