@@ -16,6 +16,7 @@ type ShopItem = {
   id: string;
   name: string;
   category: string;
+  submenu: string;
   description: string;
   price_myr: number;
   stock: number;
@@ -25,6 +26,8 @@ type ShopItem = {
   sort_order: number;
   is_active: boolean;
   out_of_stock: boolean;
+  is_fnb: boolean;
+  option_groups: any[];
 };
 
 type CategoryRow = {
@@ -61,6 +64,7 @@ type Draft = {
   id: string;
   name: string;
   category: string;
+  submenu: string;
   description: string;
   price_myr: string;
   stock: string;
@@ -70,6 +74,8 @@ type Draft = {
   sort_order: string;
   is_active: boolean;
   out_of_stock: boolean;
+  is_fnb: boolean;
+  option_groups_json: string;
 };
 
 type CategoryDraft = {
@@ -85,6 +91,7 @@ const EMPTY_DRAFT: Draft = {
   id: '',
   name: '',
   category: 'Comfort',
+  submenu: '',
   description: '',
   price_myr: '',
   stock: '0',
@@ -94,6 +101,8 @@ const EMPTY_DRAFT: Draft = {
   sort_order: '0',
   is_active: true,
   out_of_stock: false,
+  is_fnb: false,
+  option_groups_json: '[]',
 };
 
 const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
@@ -163,7 +172,16 @@ function orderItemSummary(items: any[]) {
     .map((item) => {
       const name = String(item?.name || item?.item_name || 'Item');
       const quantity = Number(item?.quantity || item?.qty || 1);
-      return `${quantity}x ${name}`;
+      const options = Array.isArray(item?.selected_options)
+        ? item.selected_options
+            .flatMap((group: any) =>
+              Array.isArray(group?.options)
+                ? group.options.map((option: any) => String(option?.name || '').trim()).filter(Boolean)
+                : []
+            )
+            .join(', ')
+        : '';
+      return `${quantity}x ${name}${options ? ` (${options})` : ''}`;
     })
     .join(', ');
 }
@@ -173,6 +191,7 @@ function draftFromItem(item: ShopItem): Draft {
     id: item.id,
     name: item.name,
     category: item.category,
+    submenu: item.submenu || '',
     description: item.description,
     price_myr: String(item.price_myr ?? ''),
     stock: String(item.stock ?? '0'),
@@ -182,6 +201,8 @@ function draftFromItem(item: ShopItem): Draft {
     sort_order: String(item.sort_order ?? '0'),
     is_active: item.is_active !== false,
     out_of_stock: item.out_of_stock === true,
+    is_fnb: item.is_fnb === true,
+    option_groups_json: JSON.stringify(item.option_groups || [], null, 2),
   };
 }
 
@@ -190,6 +211,7 @@ function normalizeItem(row: any): ShopItem {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
     category: String(row?.category || 'Essentials'),
+    submenu: String(row?.submenu || ''),
     description: String(row?.description || ''),
     price_myr: Number(row?.price_myr || 0),
     stock: Number(row?.stock || 0),
@@ -199,6 +221,8 @@ function normalizeItem(row: any): ShopItem {
     sort_order: Number(row?.sort_order || 0),
     is_active: row?.is_active !== false,
     out_of_stock: row?.out_of_stock === true,
+    is_fnb: row?.is_fnb === true,
+    option_groups: Array.isArray(row?.option_groups) ? row.option_groups : [],
   };
 }
 
@@ -414,10 +438,20 @@ export default function GuestShopAdminPage() {
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
 
+      let optionGroups: any[] = [];
+      try {
+        optionGroups = draft.option_groups_json.trim()
+          ? JSON.parse(draft.option_groups_json)
+          : [];
+      } catch {
+        throw new Error('Option groups must be valid JSON');
+      }
+
       const payload = {
         id: draft.id,
         name: draft.name,
         category: draft.category || categoryNames[0] || 'Comfort',
+        submenu: draft.submenu,
         description: draft.description,
         price_myr: Number(draft.price_myr || 0),
         stock: Number(draft.stock || 0),
@@ -427,6 +461,8 @@ export default function GuestShopAdminPage() {
         sort_order: Number(draft.sort_order || 0),
         is_active: draft.is_active,
         out_of_stock: draft.out_of_stock,
+        is_fnb: draft.is_fnb,
+        option_groups: Array.isArray(optionGroups) ? optionGroups : [],
       };
 
       const res = await fetch('/api/guest-shop/items', {
@@ -702,6 +738,11 @@ export default function GuestShopAdminPage() {
               </label>
 
               <label style={styles.label}>
+                Submenu
+                <input value={draft.submenu} onChange={(event) => updateDraft('submenu', event.target.value)} placeholder="Example: Asian Cuisine" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
                 Price (RM)
                 <input value={draft.price_myr} onChange={(event) => updateDraft('price_myr', event.target.value)} inputMode="decimal" placeholder="0.00" style={styles.input} />
               </label>
@@ -727,6 +768,16 @@ export default function GuestShopAdminPage() {
               <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Short guest-facing description" style={styles.textarea} />
             </label>
 
+            <label style={styles.label}>
+              Options / Add-ons JSON
+              <textarea
+                value={draft.option_groups_json}
+                onChange={(event) => updateDraft('option_groups_json', event.target.value)}
+                placeholder='Example: [{"name":"Size","selection_type":"single","is_required":true,"options":[{"name":"Regular","price_delta_myr":0},{"name":"Upsize","price_delta_myr":3}]}]'
+                style={{ ...styles.textarea, minHeight: 180, fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontSize: 13 }}
+              />
+            </label>
+
             <div style={styles.imageEditor}>
               <div style={styles.previewBox}>
                 {draft.image_url ? <img src={draft.image_url} alt="SKU preview" style={styles.previewImage} /> : <span style={styles.previewFallback}>Image</span>}
@@ -750,6 +801,10 @@ export default function GuestShopAdminPage() {
             </div>
 
             <div style={styles.switchRow}>
+              <label style={styles.checkLabel}>
+                <input type="checkbox" checked={draft.is_fnb} onChange={(event) => updateDraft('is_fnb', event.target.checked)} />
+                F&B menu item
+              </label>
               <label style={styles.checkLabel}>
                 <input type="checkbox" checked={draft.is_active} onChange={(event) => updateDraft('is_active', event.target.checked)} />
                 Show on Guest Shop
@@ -784,7 +839,10 @@ export default function GuestShopAdminPage() {
                         {item.out_of_stock ? 'Out of Stock' : item.is_active ? 'Live' : 'Hidden'}
                       </span>
                     </div>
-                    <div style={styles.itemMeta}>{item.category} | {money(item.price_myr)} | Stock {item.stock}</div>
+                    <div style={styles.itemMeta}>
+                      {item.category}{item.submenu ? ` / ${item.submenu}` : ''} | {money(item.price_myr)} | Stock {item.stock}
+                      {item.option_groups?.length ? ` | ${item.option_groups.length} option group${item.option_groups.length === 1 ? '' : 's'}` : ''}
+                    </div>
                   </div>
                   <div style={styles.rowActions}>
                     <button type="button" onClick={() => {
