@@ -1404,7 +1404,7 @@ export default function DashboardSidebar({
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
                 >
-                  <SidebarNavContent icon="package" sub>F&B Menu Admin</SidebarNavContent>
+                  <SidebarNavContent icon="fnb" sub>F&B Menu Admin</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
