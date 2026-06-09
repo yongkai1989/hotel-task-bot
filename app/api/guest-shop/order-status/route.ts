@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
@@ -7,68 +6,28 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
 
-function plainText(body: string, status = 200) {
-  return new NextResponse(body, {
+function jsonNoCache(body: any, status = 200) {
+  return NextResponse.json(body, {
     status,
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     },
   });
 }
 
-function truthy(value: unknown) {
-  const text = String(value || '').trim().toLowerCase();
-  return text === 'true' || text === '1' || text === 'paid';
+function billplzBaseUrl() {
+  return String(process.env.BILLPLZ_MODE || '').trim().toLowerCase() === 'production'
+    ? 'https://www.billplz.com/api/v3'
+    : 'https://www.billplz-sandbox.com/api/v3';
 }
 
-function readParam(params: Record<string, string>, key: string) {
-  return params[key] || params[`billplz[${key}]`] || '';
+function basicAuthHeader(apiKey: string) {
+  return `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
 }
 
-async function parsePayload(req: NextRequest) {
-  const contentType = req.headers.get('content-type') || '';
-  const params: Record<string, string> = {};
-
-  if (contentType.includes('application/json')) {
-    const json = await req.json().catch(() => ({}));
-    for (const [key, value] of Object.entries(json || {})) {
-      params[key] = String(value ?? '');
-    }
-    return params;
-  }
-
-  const form = await req.formData();
-  for (const [key, value] of form.entries()) {
-    params[key] = String(value ?? '');
-  }
-  return params;
-}
-
-function buildSignatureSource(params: Record<string, string>) {
-  return Object.entries(params)
-    .filter(([key]) => key !== 'x_signature' && key !== 'billplz[x_signature]')
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-    .map(([key, value]) => `${key}${value}`)
-    .join('|');
-}
-
-function verifySignature(params: Record<string, string>) {
-  const signatureKey = String(process.env.BILLPLZ_X_SIGNATURE_KEY || '').trim();
-  const received = readParam(params, 'x_signature');
-  if (!signatureKey || !received) return false;
-
-  const digest = crypto
-    .createHmac('sha256', signatureKey)
-    .update(buildSignatureSource(params))
-    .digest('hex');
-
-  const expectedBuffer = Buffer.from(digest);
-  const receivedBuffer = Buffer.from(received);
-  return (
-    expectedBuffer.length === receivedBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
-  );
+function billPaid(value: any) {
+  const state = String(value?.state || '').trim().toLowerCase();
+  return value?.paid === true || state === 'paid';
 }
 
 async function decrementPaidStock(items: any[]) {
@@ -94,57 +53,80 @@ async function decrementPaidStock(items: any[]) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function refreshFromBillplz(order: any) {
+  const apiKey = String(process.env.BILLPLZ_API_KEY || '').trim();
+  const billId = String(order?.payment_reference || '').trim();
+
+  if (!apiKey || !billId || order?.status === 'PAID' || order?.status === 'FULFILLED') {
+    return order;
+  }
+
+  const res = await fetch(`${billplzBaseUrl()}/bills/${encodeURIComponent(billId)}`, {
+    headers: {
+      Authorization: basicAuthHeader(apiKey),
+    },
+    cache: 'no-store',
+  });
+
+  const bill = await res.json().catch(() => ({}));
+  if (!res.ok || !billPaid(bill)) return order;
+
+  await decrementPaidStock(order.items_json);
+
+  const paidAt = bill?.paid_at || new Date().toISOString();
+  const { data: updated, error } = await supabaseAdmin
+    .from('guest_shop_orders')
+    .update({
+      status: 'PAID',
+      paid_at: paidAt,
+    })
+    .eq('id', order.id)
+    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at')
+    .single();
+
+  if (error) throw error;
+  return updated || order;
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const params = await parsePayload(req);
+    const orderId = String(req.nextUrl.searchParams.get('order_id') || '').trim();
+    if (!orderId) return jsonNoCache({ ok: false, error: 'Missing order id' }, 400);
 
-    if (!verifySignature(params)) {
-      return plainText('invalid signature', 401);
-    }
-
-    const billId = readParam(params, 'id');
-    const paid = truthy(readParam(params, 'paid')) || truthy(readParam(params, 'state'));
-    const paidAt = readParam(params, 'paid_at') || null;
-
-    if (!billId) return plainText('missing bill id', 400);
-
-    const { data: order, error: orderError } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('guest_shop_orders')
-      .select('id, status, items_json')
-      .eq('payment_reference', billId)
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at')
+      .eq('id', orderId)
       .maybeSingle();
 
-    if (orderError) throw orderError;
-    if (!order) return plainText('order not found', 404);
+    if (error) throw error;
+    if (!data) return jsonNoCache({ ok: false, error: 'Order not found' }, 404);
 
-    if (paid) {
-      if (order.status !== 'PAID' && order.status !== 'FULFILLED') {
-        await decrementPaidStock(order.items_json);
-      }
+    let refreshed = data;
+    let paymentCheckError = '';
 
-      const { error: updateError } = await supabaseAdmin
-        .from('guest_shop_orders')
-        .update({
-          status: 'PAID',
-          paid_at: paidAt || new Date().toISOString(),
-        })
-        .eq('id', order.id);
-
-      if (updateError) throw updateError;
-      return plainText('ok');
+    try {
+      refreshed = await refreshFromBillplz(data);
+    } catch (billplzError: any) {
+      paymentCheckError = billplzError?.message || 'Billplz status check failed';
     }
 
-    if (order.status === 'PENDING_PAYMENT') {
-      const { error: updateError } = await supabaseAdmin
-        .from('guest_shop_orders')
-        .update({ status: 'FAILED' })
-        .eq('id', order.id);
-
-      if (updateError) throw updateError;
-    }
-
-    return plainText('ok');
+    return jsonNoCache({
+      ok: true,
+      payment_check_error: paymentCheckError,
+      order: {
+        id: String(refreshed.id || ''),
+        room_number: String(refreshed.room_number || ''),
+        guest_name: String(refreshed.guest_name || ''),
+        status: String(refreshed.status || 'PENDING_PAYMENT'),
+        payment_reference: String(refreshed.payment_reference || ''),
+        total_myr: Number(refreshed.total_myr || 0),
+        items_json: Array.isArray(refreshed.items_json) ? refreshed.items_json : [],
+        paid_at: refreshed.paid_at || null,
+        created_at: refreshed.created_at || null,
+      },
+    });
   } catch (error: any) {
-    return plainText(error?.message || 'callback failed', 500);
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to load order status' }, 500);
   }
 }
