@@ -119,6 +119,7 @@ export default function GuestShopPage() {
   const [guestName, setGuestName] = useState('');
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
+  const [paymentBusy, setPaymentBusy] = useState(false);
 
   const visibleItems = useMemo(() => {
     if (activeCategory === 'All') return items;
@@ -257,7 +258,7 @@ export default function GuestShopPage() {
     });
   }
 
-  function proceedToPayment() {
+  async function proceedToPayment() {
     if (!cartItems.length) {
       setNotice('Please select at least one item before payment.');
       return;
@@ -268,9 +269,34 @@ export default function GuestShopPage() {
       return;
     }
 
-    setNotice(
-      'Billplz payment integration is pending. A ticket should only be shown after verified successful payment.'
-    );
+    try {
+      setPaymentBusy(true);
+      setNotice('Preparing secure payment...');
+
+      const res = await fetch('/api/guest-shop/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomNumber,
+          guestName,
+          email,
+          items: cartItems.map(({ item, quantity }) => ({
+            id: item.id,
+            quantity,
+          })),
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok || !json?.payment_url) {
+        throw new Error(json?.error || 'Unable to start payment');
+      }
+
+      window.location.href = String(json.payment_url);
+    } catch (error: any) {
+      setNotice(error?.message || 'Unable to start payment. Please contact Front Office.');
+      setPaymentBusy(false);
+    }
   }
 
   return (
@@ -461,8 +487,13 @@ export default function GuestShopPage() {
               <strong>{money(cartTotal)}</strong>
             </div>
 
-            <button type="button" className="payment-button" onClick={proceedToPayment}>
-              Proceed to payment
+            <button
+              type="button"
+              className="payment-button"
+              onClick={proceedToPayment}
+              disabled={paymentBusy}
+            >
+              {paymentBusy ? 'Opening secure payment...' : 'Proceed to payment'}
             </button>
 
             {notice ? <p className="notice">{notice}</p> : null}
@@ -751,6 +782,12 @@ export default function GuestShopPage() {
           color: #17110c;
           background: linear-gradient(135deg, #f2d68c, #c8933d);
           box-shadow: 0 22px 50px rgba(18, 12, 6, 0.24);
+        }
+
+        .payment-button:disabled {
+          cursor: wait;
+          opacity: 0.72;
+          box-shadow: none;
         }
 
         .secondary-action {
