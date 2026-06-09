@@ -181,7 +181,8 @@ function orderItemSummary(items: any[]) {
             )
             .join(', ')
         : '';
-      return `${quantity}x ${name}${options ? ` (${options})` : ''}`;
+      const instructions = String(item?.special_instructions || '').trim();
+      return `${quantity}x ${name}${options ? ` (${options})` : ''}${instructions ? ` - Note: ${instructions}` : ''}`;
     })
     .join(', ');
 }
@@ -250,6 +251,10 @@ function normalizeOrder(row: any): ShopOrder {
     fulfilled_at: row?.fulfilled_at || null,
     created_at: row?.created_at || null,
   };
+}
+
+function uniqueOptionId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function fileToDataUrl(file: File) {
@@ -392,6 +397,97 @@ export default function GuestShopAdminPage() {
     setCategoryDraft(EMPTY_CATEGORY_DRAFT);
     setMessage('');
     setError('');
+  }
+
+  function draftOptionGroups() {
+    try {
+      const parsed = draft.option_groups_json.trim() ? JSON.parse(draft.option_groups_json) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function setDraftOptionGroups(groups: any[]) {
+    updateDraft('option_groups_json', JSON.stringify(groups, null, 2));
+  }
+
+  function addOptionGroup() {
+    const groups = draftOptionGroups();
+    setDraftOptionGroups([
+      ...groups,
+      {
+        id: uniqueOptionId('group'),
+        name: 'New option group',
+        selection_type: 'single',
+        is_required: false,
+        min_select: 0,
+        max_select: 1,
+        options: [
+          {
+            id: uniqueOptionId('option'),
+            name: 'Regular',
+            price_delta_myr: 0,
+            is_default: true,
+          },
+        ],
+      },
+    ]);
+  }
+
+  function updateOptionGroup(index: number, patch: Record<string, any>) {
+    const groups = draftOptionGroups();
+    groups[index] = { ...groups[index], ...patch };
+    if (patch.selection_type === 'single') {
+      groups[index].max_select = 1;
+    }
+    setDraftOptionGroups(groups);
+  }
+
+  function removeOptionGroup(index: number) {
+    setDraftOptionGroups(draftOptionGroups().filter((_group: any, rowIndex: number) => rowIndex !== index));
+  }
+
+  function addOptionChoice(groupIndex: number) {
+    const groups = draftOptionGroups();
+    const group = groups[groupIndex];
+    if (!group) return;
+    const options = Array.isArray(group.options) ? group.options : [];
+    groups[groupIndex] = {
+      ...group,
+      options: [
+        ...options,
+        {
+          id: uniqueOptionId('option'),
+          name: 'New choice',
+          price_delta_myr: 0,
+          is_default: false,
+        },
+      ],
+    };
+    setDraftOptionGroups(groups);
+  }
+
+  function updateOptionChoice(groupIndex: number, optionIndex: number, patch: Record<string, any>) {
+    const groups = draftOptionGroups();
+    const group = groups[groupIndex];
+    if (!group) return;
+    const options = Array.isArray(group.options) ? [...group.options] : [];
+    options[optionIndex] = { ...options[optionIndex], ...patch };
+    groups[groupIndex] = { ...group, options };
+    setDraftOptionGroups(groups);
+  }
+
+  function removeOptionChoice(groupIndex: number, optionIndex: number) {
+    const groups = draftOptionGroups();
+    const group = groups[groupIndex];
+    if (!group) return;
+    const options = Array.isArray(group.options) ? group.options : [];
+    groups[groupIndex] = {
+      ...group,
+      options: options.filter((_: any, rowIndex: number) => rowIndex !== optionIndex),
+    };
+    setDraftOptionGroups(groups);
   }
 
   async function uploadImage(file: File, target: 'item' | 'hero') {
@@ -768,15 +864,120 @@ export default function GuestShopAdminPage() {
               <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Short guest-facing description" style={styles.textarea} />
             </label>
 
-            <label style={styles.label}>
-              Options / Add-ons JSON
-              <textarea
-                value={draft.option_groups_json}
-                onChange={(event) => updateDraft('option_groups_json', event.target.value)}
-                placeholder='Example: [{"name":"Size","selection_type":"single","is_required":true,"options":[{"name":"Regular","price_delta_myr":0},{"name":"Upsize","price_delta_myr":3}]}]'
-                style={{ ...styles.textarea, minHeight: 180, fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontSize: 13 }}
-              />
-            </label>
+            <div style={styles.optionBuilder}>
+              <div style={styles.optionBuilderHead}>
+                <div>
+                  <div style={styles.kicker}>Guest Choices</div>
+                  <h3 style={styles.optionBuilderTitle}>Add-ons and options</h3>
+                  <p style={styles.optionBuilderHelp}>
+                    Use this for upsize, spicy level, add egg, no ice, or any paid/optional choice guests can select.
+                  </p>
+                </div>
+                <button type="button" onClick={addOptionGroup} style={styles.ghostButton}>Add Option Group</button>
+              </div>
+
+              {draftOptionGroups().length ? (
+                <div style={styles.optionGroups}>
+                  {draftOptionGroups().map((group: any, groupIndex: number) => {
+                    const options = Array.isArray(group.options) ? group.options : [];
+                    const isMultiple = String(group.selection_type || 'single') === 'multiple';
+
+                    return (
+                      <div style={styles.optionGroupCard} key={group.id || groupIndex}>
+                        <div style={styles.optionGroupTop}>
+                          <label style={styles.label}>
+                            Group Name
+                            <input
+                              value={String(group.name || '')}
+                              onChange={(event) => updateOptionGroup(groupIndex, { name: event.target.value })}
+                              placeholder="Example: Size"
+                              style={styles.input}
+                            />
+                          </label>
+
+                          <label style={styles.label}>
+                            Selection
+                            <select
+                              value={isMultiple ? 'multiple' : 'single'}
+                              onChange={(event) => updateOptionGroup(groupIndex, {
+                                selection_type: event.target.value,
+                                max_select: event.target.value === 'single' ? 1 : Math.max(1, Number(group.max_select || 3)),
+                              })}
+                              style={styles.input}
+                            >
+                              <option value="single">Choose one</option>
+                              <option value="multiple">Can choose many</option>
+                            </select>
+                          </label>
+
+                          <label style={styles.label}>
+                            Max Choice
+                            <input
+                              value={String(group.max_select ?? (isMultiple ? 3 : 1))}
+                              disabled={!isMultiple}
+                              onChange={(event) => updateOptionGroup(groupIndex, { max_select: Number(event.target.value || 0) })}
+                              inputMode="numeric"
+                              style={styles.input}
+                            />
+                          </label>
+                        </div>
+
+                        <div style={styles.optionGroupActions}>
+                          <label style={styles.checkLabel}>
+                            <input
+                              type="checkbox"
+                              checked={group.is_required === true}
+                              onChange={(event) => updateOptionGroup(groupIndex, {
+                                is_required: event.target.checked,
+                                min_select: event.target.checked ? 1 : 0,
+                              })}
+                            />
+                            Required for guest
+                          </label>
+                          <button type="button" onClick={() => addOptionChoice(groupIndex)} style={styles.ghostButton}>Add Choice</button>
+                          <button type="button" onClick={() => removeOptionGroup(groupIndex)} style={styles.dangerButton}>Remove Group</button>
+                        </div>
+
+                        <div style={styles.optionChoices}>
+                          {options.map((option: any, optionIndex: number) => (
+                            <div style={styles.optionChoiceRow} key={option.id || optionIndex}>
+                              <input
+                                value={String(option.name || '')}
+                                onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { name: event.target.value })}
+                                placeholder="Example: Add egg"
+                                style={styles.input}
+                              />
+                              <input
+                                value={String(option.price_delta_myr ?? 0)}
+                                onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { price_delta_myr: Number(event.target.value || 0) })}
+                                inputMode="decimal"
+                                placeholder="Add RM"
+                                style={styles.input}
+                              />
+                              <label style={styles.compactCheck}>
+                                <input
+                                  type="checkbox"
+                                  checked={option.is_default === true}
+                                  onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { is_default: event.target.checked })}
+                                />
+                                Default
+                              </label>
+                              <button type="button" onClick={() => removeOptionChoice(groupIndex, optionIndex)} style={styles.smallDangerButton}>
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={styles.emptyOptionBox}>
+                  No add-ons yet. Add an option group for Size, Spicy Level, Extra Egg, or other guest choices.
+                </div>
+              )}
+            </div>
 
             <div style={styles.imageEditor}>
               <div style={styles.previewBox}>
@@ -1285,6 +1486,115 @@ const styles: Record<string, any> = {
     font: 'inherit',
     boxSizing: 'border-box',
     resize: 'vertical',
+  },
+  optionBuilder: {
+    display: 'grid',
+    gap: 14,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 20,
+    background: 'linear-gradient(135deg, #f8fbff, #eef6ff)',
+    border: '1px solid #d7e0eb',
+  },
+  optionBuilderHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  optionBuilderTitle: {
+    margin: '4px 0',
+    fontSize: 22,
+    letterSpacing: 0,
+  },
+  optionBuilderHelp: {
+    maxWidth: 560,
+    margin: 0,
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: 800,
+    lineHeight: 1.5,
+  },
+  optionGroups: {
+    display: 'grid',
+    gap: 14,
+  },
+  optionGroupCard: {
+    display: 'grid',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    background: '#fff',
+    border: '1px solid #d7e0eb',
+    boxShadow: '0 16px 40px rgba(15,23,42,0.05)',
+  },
+  optionGroupTop: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))',
+    gap: 10,
+  },
+  optionGroupActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  optionChoices: {
+    display: 'grid',
+    gap: 10,
+  },
+  optionChoiceRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 130px), 1fr))',
+    gap: 10,
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 14,
+    background: '#f8fbff',
+    border: '1px solid #e2eaf4',
+  },
+  compactCheck: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    minHeight: 42,
+    padding: '0 10px',
+    borderRadius: 12,
+    background: '#fff',
+    border: '1px solid #d7e0eb',
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  dangerButton: {
+    minHeight: 42,
+    padding: '0 15px',
+    borderRadius: 12,
+    border: '1px solid #fecaca',
+    background: '#fff1f2',
+    color: '#be123c',
+    fontWeight: 900,
+    cursor: 'pointer',
+  },
+  smallDangerButton: {
+    minHeight: 42,
+    padding: '0 12px',
+    borderRadius: 12,
+    border: '1px solid #fecaca',
+    background: '#fff',
+    color: '#be123c',
+    fontWeight: 900,
+    cursor: 'pointer',
+  },
+  emptyOptionBox: {
+    padding: 16,
+    borderRadius: 16,
+    border: '1px dashed #bdd2ea',
+    background: '#fff',
+    color: '#64748b',
+    fontWeight: 900,
+    lineHeight: 1.5,
   },
   imageEditor: {
     display: 'grid',
