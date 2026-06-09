@@ -741,8 +741,12 @@ export default function DashboardSidebar({
   const canSeeGuestLaundry = !!effectiveProfile?.can_access_guest_laundry;
   const canSeeGuestShopAdmin =
     effectiveRole === 'SUPERUSER' ||
+    effectiveRole === 'FO' ||
+    effectiveRole === 'MANAGER' ||
+    effectiveRole === 'FNB' ||
     effectiveEmail === 'walter@hotelhallmark.com' ||
-    effectiveEmail === 'fenny@hotelhallmark.com';
+    effectiveEmail === 'fenny@hotelhallmark.com' ||
+    effectiveEmail === 'fnb@hotelhallmark.com';
   const canSeeFnbChecklist = !!effectiveProfile?.can_access_fnb_checklist;
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
