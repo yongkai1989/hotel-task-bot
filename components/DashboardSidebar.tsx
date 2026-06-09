@@ -781,7 +781,7 @@ export default function DashboardSidebar({
     canSeePriceGuide ||
     canSeeGuestLaundry ||
     canSeeGuestShopAdmin;
-  const showFnbGroup = canSeeFnbChecklist;
+  const showFnbGroup = canSeeFnbChecklist || canSeeGuestShopAdmin;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -1394,6 +1394,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="clipboard" sub>F&B Check List</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeGuestShopAdmin ? (
+                <Link
+                  href="/dashboard/guest-shop-admin"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="package" sub>F&B Menu Admin</SidebarNavContent>
                 </Link>
               ) : null}
             </GroupSection>
