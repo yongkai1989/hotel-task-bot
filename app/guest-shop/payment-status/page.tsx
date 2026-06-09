@@ -51,8 +51,20 @@ function orderItemSummary(items: any[]) {
     .map((item) => {
       const quantity = Number(item?.quantity || item?.qty || 1);
       const name = String(item?.name || item?.item_name || 'Item');
-      return `${quantity}x ${name}`;
+      const options = optionSummary(item);
+      return `${quantity}x ${name}${options ? ` (${options})` : ''}`;
     })
+    .join(', ');
+}
+
+function optionSummary(item: any) {
+  if (!Array.isArray(item?.selected_options)) return '';
+  return item.selected_options
+    .flatMap((group: any) =>
+      Array.isArray(group?.options)
+        ? group.options.map((option: any) => String(option?.name || '').trim()).filter(Boolean)
+        : []
+    )
     .join(', ');
 }
 
@@ -62,6 +74,7 @@ function orderItems(items: any[]) {
   return items.map((item, index) => ({
     key: `${String(item?.id || item?.name || 'item')}-${index}`,
     name: String(item?.name || item?.item_name || 'Item'),
+    options: optionSummary(item),
     quantity: Number(item?.quantity || item?.qty || 1),
     lineTotal: Number(item?.line_total_myr || 0),
   }));
@@ -225,7 +238,10 @@ export default function GuestShopPaymentStatusPage() {
               {orderedItems.length ? (
                 orderedItems.map((item) => (
                   <div className="ordered-item" key={item.key}>
-                    <span>{item.quantity}x {item.name}</span>
+                    <span>
+                      {item.quantity}x {item.name}
+                      {item.options ? <small>{item.options}</small> : null}
+                    </span>
                     <strong>{item.lineTotal > 0 ? money(item.lineTotal) : '-'}</strong>
                   </div>
                 ))
@@ -440,6 +456,15 @@ export default function GuestShopPaymentStatusPage() {
         .ordered-item {
           padding-top: 10px;
           color: #263244;
+          font-weight: 800;
+        }
+
+        .ordered-item small {
+          display: block;
+          margin-top: 4px;
+          color: #9a6a2f;
+          font-size: 12px;
+          line-height: 1.35;
           font-weight: 800;
         }
 
