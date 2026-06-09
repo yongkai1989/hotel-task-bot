@@ -44,6 +44,65 @@ function statusCopy(status: string) {
   };
 }
 
+function orderItemSummary(items: any[]) {
+  if (!Array.isArray(items) || !items.length) return 'No item details';
+
+  return items
+    .map((item) => {
+      const quantity = Number(item?.quantity || item?.qty || 1);
+      const name = String(item?.name || item?.item_name || 'Item');
+      return `${quantity}x ${name}`;
+    })
+    .join(', ');
+}
+
+function whatsappMessage(order: OrderStatus | null) {
+  if (!order) {
+    return 'Hello Front Office, I need assistance with my Guest Shop order.';
+  }
+
+  const status = String(order.status || 'PENDING_PAYMENT');
+  const items = orderItemSummary(order.items_json);
+
+  if (status === 'PAID' || status === 'FULFILLED') {
+    return [
+      'Hello Front Office, my Guest Shop payment is successful.',
+      `Room: ${order.room_number || '-'}`,
+      `Guest: ${order.guest_name || '-'}`,
+      `Items: ${items}`,
+      `Total: ${money(order.total_myr)}`,
+      `Payment Ref: ${order.payment_reference || '-'}`,
+      'Kindly assist to prepare my order. Thank you.',
+    ].join('\n');
+  }
+
+  if (status === 'FAILED' || status === 'CANCELLED') {
+    return [
+      'Hello Front Office, I would like to order from the Guest Shop but my payment has failed.',
+      `Room: ${order.room_number || '-'}`,
+      `Guest: ${order.guest_name || '-'}`,
+      `Items: ${items}`,
+      `Total: ${money(order.total_myr)}`,
+      `Payment Ref: ${order.payment_reference || '-'}`,
+      'Kindly assist me. Thank you.',
+    ].join('\n');
+  }
+
+  return [
+    'Hello Front Office, I need help checking my Guest Shop payment status.',
+    `Room: ${order.room_number || '-'}`,
+    `Guest: ${order.guest_name || '-'}`,
+    `Items: ${items}`,
+    `Total: ${money(order.total_myr)}`,
+    `Payment Ref: ${order.payment_reference || '-'}`,
+    'The page is still showing payment confirmation pending.',
+  ].join('\n');
+}
+
+function whatsappUrl(order: OrderStatus | null) {
+  return `https://wa.me/60126308316?text=${encodeURIComponent(whatsappMessage(order))}`;
+}
+
 export default function GuestShopPaymentStatusPage() {
   const [order, setOrder] = useState<OrderStatus | null>(null);
   const [error, setError] = useState('');
@@ -139,7 +198,7 @@ export default function GuestShopPaymentStatusPage() {
 
         <div className="actions">
           <a href="/guest-shop">Back to shop</a>
-          <a href="https://wa.me/60126308316" target="_blank" rel="noopener noreferrer">
+          <a href={whatsappUrl(order)} target="_blank" rel="noopener noreferrer">
             WhatsApp Front Office
           </a>
         </div>
