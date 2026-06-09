@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -108,6 +109,7 @@ async function refreshFromBillplz(order: any) {
     .single();
 
   if (error) throw error;
+  await createFoTaskForPaidGuestShopOrder(updated || order);
   return updated || order;
 }
 
