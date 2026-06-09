@@ -30,7 +30,8 @@ function orderItemsSummary(items: any[]) {
             )
             .join(', ')
         : '';
-      return `${quantity}x ${name}${optionText ? ` (${optionText})` : ''}`;
+      const instructions = String(item?.special_instructions || '').trim();
+      return `${quantity}x ${name}${optionText ? ` (${optionText})` : ''}${instructions ? ` - Note: ${instructions}` : ''}`;
     })
     .join(', ');
 }
