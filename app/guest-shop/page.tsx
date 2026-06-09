@@ -157,22 +157,31 @@ function money(value: number) {
 function normalizeOptionGroups(value: any): OptionGroup[] {
   if (!Array.isArray(value)) return [];
 
-  return value.map((group: any) => ({
-    id: String(group?.id || ''),
-    name: String(group?.name || ''),
-    selectionType: String(group?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single',
-    isRequired: group?.is_required === true,
-    minSelect: Math.max(0, Number(group?.min_select || 0)),
-    maxSelect: Math.max(0, Number(group?.max_select || 0)),
-    options: Array.isArray(group?.options)
-      ? group.options.map((option: any) => ({
-          id: String(option?.id || ''),
-          name: String(option?.name || ''),
-          priceDelta: Number(option?.price_delta_myr || 0),
-          isDefault: option?.is_default === true,
-        })).filter((option: OptionChoice) => option.id && option.name)
-      : [],
-  })).filter((group: OptionGroup) => group.id && group.name && group.options.length);
+  return value
+    .map((group: any): OptionGroup => {
+      const selectionType: OptionGroup['selectionType'] =
+        String(group?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single';
+
+      return {
+        id: String(group?.id || ''),
+        name: String(group?.name || ''),
+        selectionType,
+        isRequired: group?.is_required === true,
+        minSelect: Math.max(0, Number(group?.min_select || 0)),
+        maxSelect: Math.max(0, Number(group?.max_select || 0)),
+        options: Array.isArray(group?.options)
+          ? group.options
+              .map((option: any): OptionChoice => ({
+                id: String(option?.id || ''),
+                name: String(option?.name || ''),
+                priceDelta: Number(option?.price_delta_myr || 0),
+                isDefault: option?.is_default === true,
+              }))
+              .filter((option: OptionChoice) => option.id && option.name)
+          : [],
+      };
+    })
+    .filter((group: OptionGroup) => group.id && group.name && group.options.length);
 }
 
 function defaultSelection(item: ShopItem): SelectedOptionGroup[] {
