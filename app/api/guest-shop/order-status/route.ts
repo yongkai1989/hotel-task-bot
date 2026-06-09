@@ -62,6 +62,21 @@ async function decrementPaidStock(items: any[]) {
   }
 }
 
+function paidOrderUpdatePayload(order: any, paidAt: string) {
+  const isFnb = String(order?.order_type || '').trim().toUpperCase() === 'FNB';
+  return {
+    status: 'PAID',
+    paid_at: paidAt,
+    ...(isFnb
+      ? {
+          print_status: 'QUEUED',
+          print_requested_at: new Date().toISOString(),
+          print_error: null,
+        }
+      : {}),
+  };
+}
+
 async function refreshFromBillplz(order: any) {
   const apiKey = String(process.env.BILLPLZ_API_KEY || '').trim();
   const billId = String(order?.payment_reference || '').trim();
@@ -86,7 +101,7 @@ async function refreshFromBillplz(order: any) {
       .update({ status: 'FAILED' })
       .eq('id', order.id)
       .eq('status', 'PENDING_PAYMENT')
-      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status')
       .maybeSingle();
 
     if (error) throw error;
@@ -100,12 +115,9 @@ async function refreshFromBillplz(order: any) {
   const paidAt = bill?.paid_at || new Date().toISOString();
   const { data: updated, error } = await supabaseAdmin
     .from('guest_shop_orders')
-    .update({
-      status: 'PAID',
-      paid_at: paidAt,
-    })
+    .update(paidOrderUpdatePayload(order, paidAt))
     .eq('id', order.id)
-    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at')
+    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status')
     .single();
 
   if (error) throw error;
@@ -120,7 +132,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('guest_shop_orders')
-      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -149,6 +161,8 @@ export async function GET(req: NextRequest) {
         items_json: Array.isArray(refreshed.items_json) ? refreshed.items_json : [],
         paid_at: refreshed.paid_at || null,
         created_at: refreshed.created_at || null,
+        order_type: String(refreshed.order_type || 'GUEST_SHOP'),
+        print_status: String(refreshed.print_status || 'NOT_QUEUED'),
       },
     });
   } catch (error: any) {
