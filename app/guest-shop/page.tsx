@@ -8,17 +8,45 @@ type ShopItem = {
   id: string;
   name: string;
   category: string;
+  submenu: string;
   description: string;
   price: number;
   stock: number;
   imageUrl: string;
   accent: string;
   label?: string;
+  isFnb: boolean;
+  optionGroups: OptionGroup[];
+};
+
+type OptionChoice = {
+  id: string;
+  name: string;
+  priceDelta: number;
+  isDefault: boolean;
+};
+
+type OptionGroup = {
+  id: string;
+  name: string;
+  selectionType: 'single' | 'multiple';
+  isRequired: boolean;
+  minSelect: number;
+  maxSelect: number;
+  options: OptionChoice[];
+};
+
+type SelectedOptionGroup = {
+  groupId: string;
+  optionIds: string[];
 };
 
 type CartItem = {
+  cartKey: string;
   item: ShopItem;
   quantity: number;
+  selectedOptions: SelectedOptionGroup[];
+  unitPrice: number;
 };
 
 const DEFAULT_CATEGORIES: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
@@ -41,6 +69,9 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
     description: 'Extend your stay comfortably, subject to front office confirmation.',
     price: 60,
     stock: 8,
+    submenu: '',
+    isFnb: false,
+    optionGroups: [],
     accent: '#b6813a',
     label: 'Limited daily',
     imageUrl:
@@ -53,6 +84,9 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
     description: 'Priority laundry handling for garments that need a faster return.',
     price: 40,
     stock: 12,
+    submenu: '',
+    isFnb: false,
+    optionGroups: [],
     accent: '#28605f',
     imageUrl:
       'https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?auto=format&fit=crop&w=1100&q=82',
@@ -64,6 +98,9 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
     description: 'Additional bed setup for selected room categories and family stays.',
     price: 60,
     stock: 4,
+    submenu: '',
+    isFnb: false,
+    optionGroups: [],
     accent: '#7c463a',
     label: 'Upon request',
     imageUrl:
@@ -76,6 +113,9 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
     description: 'Fresh pillow delivered to your room for a more restful night.',
     price: 15,
     stock: 18,
+    submenu: '',
+    isFnb: false,
+    optionGroups: [],
     accent: '#725a92',
     imageUrl:
       'https://images.unsplash.com/photo-1585495336621-dcfb1aaf2a45?auto=format&fit=crop&w=1100&q=82',
@@ -87,6 +127,9 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
     description: 'Universal adapter prepared for guest convenience during your stay.',
     price: 25,
     stock: 6,
+    submenu: '',
+    isFnb: false,
+    optionGroups: [],
     accent: '#254f78',
     imageUrl:
       'https://images.unsplash.com/photo-1625834311143-7b6f5c9fdb40?auto=format&fit=crop&w=1100&q=82',
@@ -98,6 +141,9 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
     description: 'Chilled bottled mineral water delivered directly to your room.',
     price: 12,
     stock: 30,
+    submenu: '',
+    isFnb: false,
+    optionGroups: [],
     accent: '#3c704d',
     imageUrl:
       'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1100&q=82',
@@ -108,27 +154,101 @@ function money(value: number) {
   return `RM${value.toFixed(2)}`;
 }
 
+function normalizeOptionGroups(value: any): OptionGroup[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((group: any) => ({
+    id: String(group?.id || ''),
+    name: String(group?.name || ''),
+    selectionType: String(group?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single',
+    isRequired: group?.is_required === true,
+    minSelect: Math.max(0, Number(group?.min_select || 0)),
+    maxSelect: Math.max(0, Number(group?.max_select || 0)),
+    options: Array.isArray(group?.options)
+      ? group.options.map((option: any) => ({
+          id: String(option?.id || ''),
+          name: String(option?.name || ''),
+          priceDelta: Number(option?.price_delta_myr || 0),
+          isDefault: option?.is_default === true,
+        })).filter((option: OptionChoice) => option.id && option.name)
+      : [],
+  })).filter((group: OptionGroup) => group.id && group.name && group.options.length);
+}
+
+function defaultSelection(item: ShopItem): SelectedOptionGroup[] {
+  return item.optionGroups.map((group) => {
+    const defaults = group.options.filter((option) => option.isDefault).map((option) => option.id);
+    return {
+      groupId: group.id,
+      optionIds: group.selectionType === 'single' ? defaults.slice(0, 1) : defaults,
+    };
+  });
+}
+
+function cartKeyFor(item: ShopItem, selectedOptions: SelectedOptionGroup[]) {
+  const clean = selectedOptions
+    .map((group) => ({
+      groupId: group.groupId,
+      optionIds: [...group.optionIds].sort(),
+    }))
+    .sort((a, b) => a.groupId.localeCompare(b.groupId));
+  return `${item.id}:${JSON.stringify(clean)}`;
+}
+
+function unitPriceFor(item: ShopItem, selectedOptions: SelectedOptionGroup[]) {
+  const optionIds = new Set(selectedOptions.flatMap((group) => group.optionIds));
+  const addOns = item.optionGroups.flatMap((group) => group.options)
+    .filter((option) => optionIds.has(option.id))
+    .reduce((total, option) => total + option.priceDelta, 0);
+
+  return Number((item.price + addOns).toFixed(2));
+}
+
+function selectedOptionLabels(item: ShopItem, selectedOptions: SelectedOptionGroup[]) {
+  const optionIds = new Set(selectedOptions.flatMap((group) => group.optionIds));
+  return item.optionGroups.flatMap((group) =>
+    group.options
+      .filter((option) => optionIds.has(option.id))
+      .map((option) => `${group.name}: ${option.name}${option.priceDelta ? ` +${money(option.priceDelta)}` : ''}`)
+  );
+}
+
 export default function GuestShopPage() {
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [hero, setHero] = useState(DEFAULT_HERO);
   const [heroLoaded, setHeroLoaded] = useState(false);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
+  const [activeSubmenu, setActiveSubmenu] = useState('All');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
   const [roomNumber, setRoomNumber] = useState('');
   const [guestName, setGuestName] = useState('');
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
+  const [selectedOptionsByItem, setSelectedOptionsByItem] = useState<Record<string, SelectedOptionGroup[]>>({});
 
   const visibleItems = useMemo(() => {
-    if (activeCategory === 'All') return items;
-    return items.filter((item) => item.category === activeCategory);
+    const categoryItems = activeCategory === 'All'
+      ? items
+      : items.filter((item) => item.category === activeCategory);
+
+    if (activeSubmenu === 'All') return categoryItems;
+    return categoryItems.filter((item) => item.submenu === activeSubmenu);
+  }, [activeCategory, activeSubmenu, items]);
+
+  const submenuChoices = useMemo(() => {
+    if (activeCategory === 'All') return [];
+    const choices = items
+      .filter((item) => item.category === activeCategory)
+      .map((item) => item.submenu)
+      .filter(Boolean);
+    return ['All', ...Array.from(new Set(choices))];
   }, [activeCategory, items]);
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
-  const cartTotal = cartItems.reduce((total, row) => total + row.item.price * row.quantity, 0);
+  const cartTotal = cartItems.reduce((total, row) => total + row.unitPrice * row.quantity, 0);
   const heroStyle = {
     '--hero-image': heroLoaded ? `url("${hero.hero_image_url}")` : 'none',
   } as CSSProperties;
@@ -199,11 +319,21 @@ export default function GuestShopPage() {
             imageUrl: String(item.image_url || ''),
             accent: String(item.accent || '#b6813a'),
             label: String(item.label || ''),
+            submenu: String(item.submenu || ''),
+            isFnb: item.is_fnb === true,
+            optionGroups: normalizeOptionGroups(item.option_groups),
           }))
           .filter((item: ShopItem) => item.name);
 
         if (nextItems.length) {
           setItems(nextItems);
+          setSelectedOptionsByItem((current) => {
+            const next = { ...current };
+            for (const item of nextItems) {
+              if (!next[item.id]) next[item.id] = defaultSelection(item);
+            }
+            return next;
+          });
           setCategories((current) => {
             const itemCategories = nextItems.map((item) => item.category).filter(Boolean);
             return ['All', ...Array.from(new Set([...current.filter((item) => item !== 'All'), ...itemCategories]))];
@@ -222,35 +352,77 @@ export default function GuestShopPage() {
     };
   }, []);
 
+  function getSelection(item: ShopItem) {
+    return selectedOptionsByItem[item.id] || defaultSelection(item);
+  }
+
+  function setGroupSelection(item: ShopItem, group: OptionGroup, optionId: string, checked: boolean) {
+    setSelectedOptionsByItem((current) => {
+      const existing = current[item.id] || defaultSelection(item);
+      const next = existing.map((row) => ({ ...row, optionIds: [...row.optionIds] }));
+      let target = next.find((row) => row.groupId === group.id);
+
+      if (!target) {
+        target = { groupId: group.id, optionIds: [] };
+        next.push(target);
+      }
+
+      if (group.selectionType === 'single') {
+        target.optionIds = checked ? [optionId] : [];
+      } else {
+        const set = new Set(target.optionIds);
+        if (checked) set.add(optionId);
+        else set.delete(optionId);
+        target.optionIds = Array.from(set);
+      }
+
+      return { ...current, [item.id]: next };
+    });
+  }
+
   function addItem(item: ShopItem) {
     if (item.stock <= 0) return;
 
+    const selectedOptions = getSelection(item);
+    const missing = item.optionGroups.find((group) => {
+      const selected = selectedOptions.find((row) => row.groupId === group.id)?.optionIds || [];
+      return group.isRequired && selected.length < Math.max(1, group.minSelect);
+    });
+
+    if (missing) {
+      setNotice(`Please choose ${missing.name} before adding ${item.name}.`);
+      return;
+    }
+
+    const cartKey = cartKeyFor(item, selectedOptions);
+    const unitPrice = unitPriceFor(item, selectedOptions);
+
     setCart((current) => {
-      const existing = current[item.id];
+      const existing = current[cartKey];
       const quantity = Math.min((existing?.quantity ?? 0) + 1, item.stock);
 
       return {
         ...current,
-        [item.id]: { item, quantity },
+        [cartKey]: { cartKey, item, quantity, selectedOptions, unitPrice },
       };
     });
     setNotice('');
   }
 
-  function setQuantity(itemId: string, quantity: number) {
+  function setQuantity(cartKey: string, quantity: number) {
     setCart((current) => {
-      const existing = current[itemId];
+      const existing = current[cartKey];
       if (!existing) return current;
 
       if (quantity <= 0) {
         const next = { ...current };
-        delete next[itemId];
+        delete next[cartKey];
         return next;
       }
 
       return {
         ...current,
-        [itemId]: {
+        [cartKey]: {
           ...existing,
           quantity: Math.min(quantity, existing.item.stock),
         },
@@ -280,9 +452,15 @@ export default function GuestShopPage() {
           roomNumber,
           guestName,
           email,
-          items: cartItems.map(({ item, quantity }) => ({
+          items: cartItems.map(({ item, quantity, selectedOptions }) => ({
             id: item.id,
             quantity,
+            selected_options: item.optionGroups.length
+              ? selectedOptions.map((group) => ({
+                  group_id: group.groupId,
+                  option_ids: group.optionIds,
+                }))
+              : [],
           })),
         }),
       });
@@ -359,12 +537,30 @@ export default function GuestShopPage() {
               key={category}
               type="button"
               className={activeCategory === category ? 'active' : ''}
-              onClick={() => setActiveCategory(category)}
+              onClick={() => {
+                setActiveCategory(category);
+                setActiveSubmenu('All');
+              }}
             >
               {category}
             </button>
           ))}
         </div>
+
+        {submenuChoices.length > 1 ? (
+          <div className="submenus" role="tablist" aria-label={`${activeCategory} submenus`}>
+            {submenuChoices.map((submenu) => (
+              <button
+                key={submenu}
+                type="button"
+                className={activeSubmenu === submenu ? 'active' : ''}
+                onClick={() => setActiveSubmenu(submenu)}
+              >
+                {submenu}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <div className="collection-head">
           <div>
@@ -377,7 +573,10 @@ export default function GuestShopPage() {
           <div className="products">
             {visibleItems.map((item) => {
               const isUnavailable = item.stock <= 0;
-              const isAdded = Boolean(cart[item.id]);
+              const selectedOptions = getSelection(item);
+              const selectedCartKey = cartKeyFor(item, selectedOptions);
+              const isAdded = Boolean(cart[selectedCartKey]);
+              const displayPrice = unitPriceFor(item, selectedOptions);
 
               return (
                 <article className="product-card" key={item.id}>
@@ -393,6 +592,7 @@ export default function GuestShopPage() {
                       />
                     ) : null}
                     <span className="category-chip">{item.category}</span>
+                    {item.submenu ? <span className="submenu-chip">{item.submenu}</span> : null}
                     {item.label ? <span className="item-label">{item.label}</span> : null}
                   </div>
 
@@ -402,9 +602,42 @@ export default function GuestShopPage() {
                       <p>{item.description}</p>
                     </div>
 
+                    {item.optionGroups.length ? (
+                      <div className="option-panel">
+                        {item.optionGroups.map((group) => {
+                          const selected = new Set(
+                            selectedOptions.find((row) => row.groupId === group.id)?.optionIds || []
+                          );
+
+                          return (
+                            <div className="option-group" key={group.id}>
+                              <div className="option-title">
+                                <span>{group.name}</span>
+                                {group.isRequired ? <b>Required</b> : <b>Optional</b>}
+                              </div>
+                              <div className="option-list">
+                                {group.options.map((option) => (
+                                  <label className="option-pill" key={option.id}>
+                                    <input
+                                      type={group.selectionType === 'single' ? 'radio' : 'checkbox'}
+                                      name={`${item.id}-${group.id}`}
+                                      checked={selected.has(option.id)}
+                                      onChange={(event) => setGroupSelection(item, group, option.id, event.target.checked)}
+                                    />
+                                    <span>{option.name}</span>
+                                    {option.priceDelta ? <em>+{money(option.priceDelta)}</em> : null}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
                     <div className="product-footer">
                       <div>
-                        <strong>{money(item.price)}</strong>
+                        <strong>{money(displayPrice)}</strong>
                         <span>{isUnavailable ? 'Out of stock' : `${item.stock} available`}</span>
                       </div>
                       <button
@@ -430,18 +663,21 @@ export default function GuestShopPage() {
 
             <div className="order-lines">
               {cartItems.length ? (
-                cartItems.map(({ item, quantity }) => (
-                  <div className="order-line" key={item.id}>
+                cartItems.map(({ cartKey, item, quantity, selectedOptions, unitPrice }) => (
+                  <div className="order-line" key={cartKey}>
                     <div>
                       <strong>{item.name}</strong>
-                      <span>{money(item.price)} each</span>
+                      <span>{money(unitPrice)} each</span>
+                      {selectedOptionLabels(item, selectedOptions).length ? (
+                        <small>{selectedOptionLabels(item, selectedOptions).join(', ')}</small>
+                      ) : null}
                     </div>
                     <div className="stepper">
-                      <button type="button" onClick={() => setQuantity(item.id, quantity - 1)}>
+                      <button type="button" onClick={() => setQuantity(cartKey, quantity - 1)}>
                         -
                       </button>
                       <span>{quantity}</span>
-                      <button type="button" onClick={() => setQuantity(item.id, quantity + 1)}>
+                      <button type="button" onClick={() => setQuantity(cartKey, quantity + 1)}>
                         +
                       </button>
                     </div>
@@ -846,6 +1082,31 @@ export default function GuestShopPage() {
           background: #1b1713;
         }
 
+        .submenus {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin: -18px 0 24px;
+        }
+
+        .submenus button {
+          min-height: 38px;
+          padding: 0 15px;
+          border: 1px solid rgba(104, 82, 53, 0.16);
+          border-radius: 999px;
+          background: rgba(255, 252, 246, 0.72);
+          color: #493728;
+          font-size: 13px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .submenus button.active {
+          color: #1f160c;
+          background: linear-gradient(135deg, #f2d68c, #d7a24a);
+          box-shadow: 0 16px 32px rgba(177, 119, 36, 0.14);
+        }
+
         .shop-grid {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(330px, 420px);
@@ -914,6 +1175,7 @@ export default function GuestShopPage() {
         }
 
         .category-chip,
+        .submenu-chip,
         .item-label {
           position: absolute;
           z-index: 2;
@@ -930,6 +1192,15 @@ export default function GuestShopPage() {
           padding: 8px 11px;
           color: #fff8ed;
           background: rgba(18, 15, 12, 0.62);
+          backdrop-filter: blur(12px);
+        }
+
+        .submenu-chip {
+          right: 14px;
+          bottom: 14px;
+          padding: 8px 11px;
+          color: #2e1f0e;
+          background: rgba(255, 248, 233, 0.9);
           backdrop-filter: blur(12px);
         }
 
@@ -960,6 +1231,67 @@ export default function GuestShopPage() {
           margin: 0;
           color: #655b51;
           line-height: 1.56;
+        }
+
+        .option-panel {
+          display: grid;
+          gap: 12px;
+          padding: 12px;
+          border: 1px solid rgba(91, 74, 50, 0.1);
+          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.58);
+        }
+
+        .option-group {
+          display: grid;
+          gap: 8px;
+        }
+
+        .option-title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          color: #3e3329;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .option-title b {
+          color: #a56a1d;
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .option-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .option-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          min-height: 34px;
+          padding: 0 10px;
+          border: 1px solid rgba(91, 74, 50, 0.13);
+          border-radius: 999px;
+          background: rgba(255, 252, 246, 0.94);
+          color: #2d241b;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .option-pill input {
+          accent-color: #1b1713;
+        }
+
+        .option-pill em {
+          color: #a56a1d;
+          font-style: normal;
         }
 
         .product-footer {
@@ -1046,12 +1378,20 @@ export default function GuestShopPage() {
         }
 
         .order-line span,
+        .order-line small,
         .empty-order span {
           display: block;
           margin-top: 4px;
           color: #766b5f;
           font-size: 13px;
           font-weight: 800;
+        }
+
+        .order-line small {
+          max-width: 230px;
+          color: #a56a1d;
+          font-size: 11px;
+          line-height: 1.35;
         }
 
         .stepper {
