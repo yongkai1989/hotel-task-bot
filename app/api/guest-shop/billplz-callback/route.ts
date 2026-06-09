@@ -22,6 +22,11 @@ function truthy(value: unknown) {
   return text === 'true' || text === '1' || text === 'paid';
 }
 
+function failedState(value: unknown) {
+  const text = String(value || '').trim().toLowerCase();
+  return ['due', 'failed', 'cancelled', 'canceled', 'expired'].includes(text);
+}
+
 function readParam(params: Record<string, string>, key: string) {
   return params[key] || params[`billplz[${key}]`] || '';
 }
@@ -134,7 +139,7 @@ export async function POST(req: NextRequest) {
       return plainText('ok');
     }
 
-    if (order.status === 'PENDING_PAYMENT') {
+    if (order.status === 'PENDING_PAYMENT' && failedState(readParam(params, 'state'))) {
       const { error: updateError } = await supabaseAdmin
         .from('guest_shop_orders')
         .update({ status: 'FAILED' })
