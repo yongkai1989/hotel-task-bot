@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
-type Role = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
+type Role = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT' | 'FNB';
 
 type Profile = {
   email: string;
@@ -126,15 +126,35 @@ function normalizeEmail(value?: string | null) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canManageGuestShop(profile: Profile | null) {
+function canFullManageGuestShop(profile: Profile | null) {
+  if (!profile) return false;
+  const email = normalizeEmail(profile.email);
+  const role = String(profile.role || '').trim().toUpperCase();
+  return role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com';
+}
+
+function canManageFnbStock(profile: Profile | null) {
+  if (!profile) return false;
+  const email = normalizeEmail(profile.email);
+  const role = String(profile.role || '').trim().toUpperCase();
+  return role === 'FNB' || email === 'fnb@hotelhallmark.com';
+}
+
+function canViewGuestShopAdmin(profile: Profile | null) {
   if (!profile) return false;
   const email = normalizeEmail(profile.email);
   const role = String(profile.role || '').trim().toUpperCase();
   return (
-    role === 'SUPERUSER' ||
-    email === 'fenny@hotelhallmark.com' ||
+    canFullManageGuestShop(profile) ||
+    canManageFnbStock(profile) ||
+    role === 'FO' ||
+    role === 'MANAGER' ||
     email === 'walter@hotelhallmark.com'
   );
+}
+
+function itemIsFnb(item: ShopItem | null) {
+  return item?.is_fnb === true || String(item?.category || '').trim().toLowerCase() === 'f&b';
 }
 
 function todayInputValue() {
@@ -277,6 +297,8 @@ export default function GuestShopAdminPage() {
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(EMPTY_CATEGORY_DRAFT);
   const [selectedId, setSelectedId] = useState('');
   const [activeTab, setActiveTab] = useState<'items' | 'hero' | 'categories' | 'orders'>('items');
+  const [itemSearch, setItemSearch] = useState('');
+  const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   const [orderDate, setOrderDate] = useState(todayInputValue());
   const [orderStatus, setOrderStatus] = useState('ALL');
   const [busy, setBusy] = useState(false);
@@ -285,10 +307,28 @@ export default function GuestShopAdminPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const canManage = canManageGuestShop(profile);
+  const canAccessAdmin = canViewGuestShopAdmin(profile);
+  const canFullManage = canFullManageGuestShop(profile);
+  const canFnbStockManage = canManageFnbStock(profile);
+  const selectedItem = items.find((item) => item.id === selectedId) || null;
+  const canEditSelectedItem = canFullManage || (canFnbStockManage && itemIsFnb(selectedItem));
+  const canEditSelectedFully = canFullManage;
   const liveItems = items.filter((item) => item.is_active && !item.out_of_stock).length;
   const visibleCategories = categories.filter((category) => category.is_active);
   const categoryNames = visibleCategories.length ? visibleCategories.map((category) => category.name) : DEFAULT_CATEGORIES;
+  const itemFilterCategories = ['All', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean)))];
+  const filteredItems = items.filter((item) => {
+    const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+    const search = itemSearch.trim().toLowerCase();
+    const haystack = [
+      item.name,
+      item.category,
+      item.submenu,
+      item.description,
+      item.label,
+    ].join(' ').toLowerCase();
+    return matchesCategory && (!search || haystack.includes(search));
+  });
   const paidOrders = orders.filter((order) => order.status === 'PAID' || order.status === 'FULFILLED').length;
   const failedOrders = orders.filter((order) => order.status === 'FAILED' || order.status === 'CANCELLED').length;
 
@@ -361,9 +401,9 @@ export default function GuestShopAdminPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab !== 'orders' || !canManage) return;
+    if (activeTab !== 'orders' || !canAccessAdmin) return;
     loadOrders();
-  }, [activeTab, orderDate, orderStatus, canManage]);
+  }, [activeTab, orderDate, orderStatus, canAccessAdmin]);
 
   async function getToken() {
     const {
@@ -492,6 +532,7 @@ export default function GuestShopAdminPage() {
 
   async function uploadImage(file: File, target: 'item' | 'hero') {
     try {
+      if (!canFullManage) throw new Error('Only Superuser and Fenny can upload Guest Shop images.');
       setUploading(true);
       setError('');
 
@@ -527,6 +568,9 @@ export default function GuestShopAdminPage() {
 
   async function saveItem() {
     try {
+      if (!canFullManage && !(canFnbStockManage && itemIsFnb(selectedItem))) {
+        throw new Error('You can only view this item.');
+      }
       setBusy(true);
       setError('');
       setMessage('');
@@ -591,6 +635,10 @@ export default function GuestShopAdminPage() {
   }
 
   async function deleteItem(item: ShopItem) {
+    if (!canFullManage) {
+      setError('Only Superuser and Fenny can delete SKUs.');
+      return;
+    }
     const confirmed = window.confirm(`Delete "${item.name}" from Guest Shop?`);
     if (!confirmed) return;
 
@@ -622,6 +670,7 @@ export default function GuestShopAdminPage() {
 
   async function saveHero() {
     try {
+      if (!canFullManage) throw new Error('Only Superuser and Fenny can update the hero display.');
       setBusy(true);
       setError('');
       setMessage('');
@@ -658,6 +707,7 @@ export default function GuestShopAdminPage() {
 
   async function saveCategory() {
     try {
+      if (!canFullManage) throw new Error('Only Superuser and Fenny can update categories.');
       setBusy(true);
       setError('');
       setMessage('');
@@ -700,6 +750,10 @@ export default function GuestShopAdminPage() {
   }
 
   async function removeCategory(category: CategoryRow) {
+    if (!canFullManage) {
+      setError('Only Superuser and Fenny can remove categories.');
+      return;
+    }
     const confirmed = window.confirm(`Remove "${category.name}" from the guest shop filter? Existing SKUs will not be deleted.`);
     if (!confirmed) return;
 
@@ -753,12 +807,12 @@ export default function GuestShopAdminPage() {
     );
   }
 
-  if (!canManage) {
+  if (!canAccessAdmin) {
     return (
       <main style={styles.page}>
         <div style={styles.deniedCard}>
           <h1>Access denied</h1>
-          <p>Guest Shop Admin is available to Superuser, Walter, and Fenny only.</p>
+          <p>Guest Shop Admin is available to Superuser, Fenny, Walter, Manager, Front Office, and F&B.</p>
           <Link href="/dashboard" style={styles.darkButton}>Back to Dashboard</Link>
         </div>
       </main>
@@ -817,51 +871,51 @@ export default function GuestShopAdminPage() {
                 <div style={styles.kicker}>SKU Editor</div>
                 <h2 style={styles.cardTitle}>{draft.id ? 'Edit Item' : 'New Item'}</h2>
               </div>
-              <button type="button" onClick={resetDraft} style={styles.ghostButton}>New SKU</button>
+              {canFullManage ? <button type="button" onClick={resetDraft} style={styles.ghostButton}>New SKU</button> : null}
             </div>
 
             <div style={styles.formGrid}>
               <label style={styles.label}>
                 Item Name
-                <input value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} placeholder="Example: Late Check-Out" style={styles.input} />
+                <input disabled={!canFullManage} value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} placeholder="Example: Late Check-Out" style={styles.input} />
               </label>
 
               <label style={styles.label}>
                 Category
-                <select value={draft.category} onChange={(event) => updateDraft('category', event.target.value)} style={styles.input}>
+                <select disabled={!canFullManage} value={draft.category} onChange={(event) => updateDraft('category', event.target.value)} style={styles.input}>
                   {categoryNames.map((category) => <option key={category} value={category}>{category}</option>)}
                 </select>
               </label>
 
               <label style={styles.label}>
                 Submenu
-                <input value={draft.submenu} onChange={(event) => updateDraft('submenu', event.target.value)} placeholder="Example: Asian Cuisine" style={styles.input} />
+                <input disabled={!canFullManage} value={draft.submenu} onChange={(event) => updateDraft('submenu', event.target.value)} placeholder="Example: Asian Cuisine" style={styles.input} />
               </label>
 
               <label style={styles.label}>
                 Price (RM)
-                <input value={draft.price_myr} onChange={(event) => updateDraft('price_myr', event.target.value)} inputMode="decimal" placeholder="0.00" style={styles.input} />
+                <input disabled={!canFullManage} value={draft.price_myr} onChange={(event) => updateDraft('price_myr', event.target.value)} inputMode="decimal" placeholder="0.00" style={styles.input} />
               </label>
 
               <label style={styles.label}>
                 Stock
-                <input value={draft.stock} onChange={(event) => updateDraft('stock', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
+                <input disabled={!canFullManage && !(canFnbStockManage && (draft.is_fnb || draft.category.toLowerCase() === 'f&b'))} value={draft.stock} onChange={(event) => updateDraft('stock', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
               </label>
 
               <label style={styles.label}>
                 Sort Order
-                <input value={draft.sort_order} onChange={(event) => updateDraft('sort_order', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
+                <input disabled={!canFullManage} value={draft.sort_order} onChange={(event) => updateDraft('sort_order', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
               </label>
 
               <label style={styles.label}>
                 Label
-                <input value={draft.label} onChange={(event) => updateDraft('label', event.target.value)} placeholder="Example: Limited daily" style={styles.input} />
+                <input disabled={!canFullManage} value={draft.label} onChange={(event) => updateDraft('label', event.target.value)} placeholder="Example: Limited daily" style={styles.input} />
               </label>
             </div>
 
             <label style={styles.label}>
               Description
-              <textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Short guest-facing description" style={styles.textarea} />
+              <textarea disabled={!canFullManage} value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Short guest-facing description" style={styles.textarea} />
             </label>
 
             <div style={styles.optionBuilder}>
@@ -873,7 +927,7 @@ export default function GuestShopAdminPage() {
                     Use this for upsize, spicy level, add egg, no ice, or any paid/optional choice guests can select.
                   </p>
                 </div>
-                <button type="button" onClick={addOptionGroup} style={styles.ghostButton}>Add Option Group</button>
+                <button type="button" disabled={!canFullManage} onClick={addOptionGroup} style={styles.ghostButton}>Add Option Group</button>
               </div>
 
               {draftOptionGroups().length ? (
@@ -888,6 +942,7 @@ export default function GuestShopAdminPage() {
                           <label style={styles.label}>
                             Group Name
                             <input
+                              disabled={!canFullManage}
                               value={String(group.name || '')}
                               onChange={(event) => updateOptionGroup(groupIndex, { name: event.target.value })}
                               placeholder="Example: Size"
@@ -898,6 +953,7 @@ export default function GuestShopAdminPage() {
                           <label style={styles.label}>
                             Selection
                             <select
+                              disabled={!canFullManage}
                               value={isMultiple ? 'multiple' : 'single'}
                               onChange={(event) => updateOptionGroup(groupIndex, {
                                 selection_type: event.target.value,
@@ -914,7 +970,7 @@ export default function GuestShopAdminPage() {
                             Max Choice
                             <input
                               value={String(group.max_select ?? (isMultiple ? 3 : 1))}
-                              disabled={!isMultiple}
+                              disabled={!canFullManage || !isMultiple}
                               onChange={(event) => updateOptionGroup(groupIndex, { max_select: Number(event.target.value || 0) })}
                               inputMode="numeric"
                               style={styles.input}
@@ -926,6 +982,7 @@ export default function GuestShopAdminPage() {
                           <label style={styles.checkLabel}>
                             <input
                               type="checkbox"
+                              disabled={!canFullManage}
                               checked={group.is_required === true}
                               onChange={(event) => updateOptionGroup(groupIndex, {
                                 is_required: event.target.checked,
@@ -934,20 +991,22 @@ export default function GuestShopAdminPage() {
                             />
                             Required for guest
                           </label>
-                          <button type="button" onClick={() => addOptionChoice(groupIndex)} style={styles.ghostButton}>Add Choice</button>
-                          <button type="button" onClick={() => removeOptionGroup(groupIndex)} style={styles.dangerButton}>Remove Group</button>
+                          <button type="button" disabled={!canFullManage} onClick={() => addOptionChoice(groupIndex)} style={styles.ghostButton}>Add Choice</button>
+                          <button type="button" disabled={!canFullManage} onClick={() => removeOptionGroup(groupIndex)} style={styles.dangerButton}>Remove Group</button>
                         </div>
 
                         <div style={styles.optionChoices}>
                           {options.map((option: any, optionIndex: number) => (
                             <div style={styles.optionChoiceRow} key={option.id || optionIndex}>
                               <input
+                                disabled={!canFullManage}
                                 value={String(option.name || '')}
                                 onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { name: event.target.value })}
                                 placeholder="Example: Add egg"
                                 style={styles.input}
                               />
                               <input
+                                disabled={!canFullManage}
                                 value={String(option.price_delta_myr ?? 0)}
                                 onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { price_delta_myr: Number(event.target.value || 0) })}
                                 inputMode="decimal"
@@ -957,12 +1016,13 @@ export default function GuestShopAdminPage() {
                               <label style={styles.compactCheck}>
                                 <input
                                   type="checkbox"
+                                  disabled={!canFullManage}
                                   checked={option.is_default === true}
                                   onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { is_default: event.target.checked })}
                                 />
                                 Default
                               </label>
-                              <button type="button" onClick={() => removeOptionChoice(groupIndex, optionIndex)} style={styles.smallDangerButton}>
+                              <button type="button" disabled={!canFullManage} onClick={() => removeOptionChoice(groupIndex, optionIndex)} style={styles.smallDangerButton}>
                                 Remove
                               </button>
                             </div>
@@ -987,12 +1047,12 @@ export default function GuestShopAdminPage() {
               <div style={styles.imageControls}>
                 <label style={styles.label}>
                   Product Image URL
-                  <input value={draft.image_url} onChange={(event) => updateDraft('image_url', event.target.value)} placeholder="Paste image URL or upload below" style={styles.input} />
+                  <input disabled={!canFullManage} value={draft.image_url} onChange={(event) => updateDraft('image_url', event.target.value)} placeholder="Paste image URL or upload below" style={styles.input} />
                 </label>
 
                 <label style={styles.uploadButton}>
                   {uploading ? 'Uploading...' : 'Upload New Image'}
-                  <input type="file" accept="image/*" disabled={uploading} onChange={(event) => {
+                  <input type="file" accept="image/*" disabled={uploading || !canFullManage} onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.currentTarget.value = '';
                     if (file) uploadImage(file, 'item');
@@ -1003,22 +1063,26 @@ export default function GuestShopAdminPage() {
 
             <div style={styles.switchRow}>
               <label style={styles.checkLabel}>
-                <input type="checkbox" checked={draft.is_fnb} onChange={(event) => updateDraft('is_fnb', event.target.checked)} />
+                <input type="checkbox" disabled={!canFullManage} checked={draft.is_fnb} onChange={(event) => updateDraft('is_fnb', event.target.checked)} />
                 F&B menu item
               </label>
               <label style={styles.checkLabel}>
-                <input type="checkbox" checked={draft.is_active} onChange={(event) => updateDraft('is_active', event.target.checked)} />
+                <input type="checkbox" disabled={!canFullManage} checked={draft.is_active} onChange={(event) => updateDraft('is_active', event.target.checked)} />
                 Show on Guest Shop
               </label>
               <label style={styles.checkLabel}>
-                <input type="checkbox" checked={draft.out_of_stock} onChange={(event) => updateDraft('out_of_stock', event.target.checked)} />
+                <input type="checkbox" disabled={!canFullManage && !(canFnbStockManage && (draft.is_fnb || draft.category.toLowerCase() === 'f&b'))} checked={draft.out_of_stock} onChange={(event) => updateDraft('out_of_stock', event.target.checked)} />
                 Mark Out of Stock
               </label>
             </div>
 
-            <button type="button" disabled={busy || uploading} onClick={saveItem} style={styles.saveButton}>
-              {busy ? 'Saving...' : 'Save SKU'}
-            </button>
+            {canEditSelectedItem || (canFullManage && !draft.id) ? (
+              <button type="button" disabled={busy || uploading} onClick={saveItem} style={styles.saveButton}>
+                {busy ? 'Saving...' : canFullManage ? 'Save SKU' : 'Save Stock Status'}
+              </button>
+            ) : (
+              <div style={styles.readOnlyBox}>View only. You do not have permission to edit this SKU.</div>
+            )}
           </div>
 
           <div style={styles.listCard}>
@@ -1029,8 +1093,26 @@ export default function GuestShopAdminPage() {
               </div>
             </div>
 
+            <div style={styles.catalogFilters}>
+              <label style={styles.label}>
+                Category
+                <select value={itemCategoryFilter} onChange={(event) => setItemCategoryFilter(event.target.value)} style={styles.input}>
+                  {itemFilterCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </label>
+              <label style={styles.label}>
+                Search Product
+                <input
+                  value={itemSearch}
+                  onChange={(event) => setItemSearch(event.target.value)}
+                  placeholder="Search item name, submenu, label..."
+                  style={styles.input}
+                />
+              </label>
+            </div>
+
             <div style={styles.itemList}>
-              {items.length ? items.map((item) => (
+              {filteredItems.length ? filteredItems.map((item) => (
                 <article key={item.id} style={{ ...styles.itemRow, borderColor: selectedId === item.id ? '#1d4ed8' : '#d7e0eb' }}>
                   <div style={styles.itemThumb}>{item.image_url ? <img src={item.image_url} alt="" style={styles.itemThumbImage} /> : null}</div>
                   <div style={styles.itemMain}>
@@ -1052,10 +1134,10 @@ export default function GuestShopAdminPage() {
                       setMessage('');
                       setError('');
                     }} style={styles.smallButton}>Edit</button>
-                    <button type="button" onClick={() => deleteItem(item)} style={styles.deleteButton}>Delete</button>
+                    {canFullManage ? <button type="button" onClick={() => deleteItem(item)} style={styles.deleteButton}>Delete</button> : null}
                   </div>
                 </article>
-              )) : <div style={styles.emptyState}>No SKUs yet. Add your first guest shop item.</div>}
+              )) : <div style={styles.emptyState}>No SKUs found for this search or category.</div>}
             </div>
           </div>
         </section>
@@ -1077,12 +1159,12 @@ export default function GuestShopAdminPage() {
 
             <label style={styles.label}>
               Hero Image URL
-              <input value={settings.hero_image_url} onChange={(event) => setSettings((current) => ({ ...current, hero_image_url: event.target.value }))} style={styles.input} />
+              <input disabled={!canFullManage} value={settings.hero_image_url} onChange={(event) => setSettings((current) => ({ ...current, hero_image_url: event.target.value }))} style={styles.input} />
             </label>
 
             <label style={styles.uploadButton}>
               {uploading ? 'Uploading...' : 'Upload Hero Image'}
-              <input type="file" accept="image/*" disabled={uploading} onChange={(event) => {
+              <input type="file" accept="image/*" disabled={uploading || !canFullManage} onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.currentTarget.value = '';
                 if (file) uploadImage(file, 'hero');
@@ -1092,11 +1174,11 @@ export default function GuestShopAdminPage() {
             <div style={styles.formGrid}>
               <label style={styles.label}>
                 Small Text
-                <input value={settings.hero_kicker} onChange={(event) => setSettings((current) => ({ ...current, hero_kicker: event.target.value }))} style={styles.input} />
+                <input disabled={!canFullManage} value={settings.hero_kicker} onChange={(event) => setSettings((current) => ({ ...current, hero_kicker: event.target.value }))} style={styles.input} />
               </label>
               <label style={styles.label}>
                 Featured Item
-                <select value={settings.featured_item_id || ''} onChange={(event) => setSettings((current) => ({ ...current, featured_item_id: event.target.value || null }))} style={styles.input}>
+                <select disabled={!canFullManage} value={settings.featured_item_id || ''} onChange={(event) => setSettings((current) => ({ ...current, featured_item_id: event.target.value || null }))} style={styles.input}>
                   <option value="">Use first live item</option>
                   {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
@@ -1105,16 +1187,18 @@ export default function GuestShopAdminPage() {
 
             <label style={styles.label}>
               Big Headline
-              <input value={settings.hero_title} onChange={(event) => setSettings((current) => ({ ...current, hero_title: event.target.value }))} style={styles.input} />
+              <input disabled={!canFullManage} value={settings.hero_title} onChange={(event) => setSettings((current) => ({ ...current, hero_title: event.target.value }))} style={styles.input} />
             </label>
             <label style={styles.label}>
               Supporting Text
-              <textarea value={settings.hero_body} onChange={(event) => setSettings((current) => ({ ...current, hero_body: event.target.value }))} style={styles.textarea} />
+              <textarea disabled={!canFullManage} value={settings.hero_body} onChange={(event) => setSettings((current) => ({ ...current, hero_body: event.target.value }))} style={styles.textarea} />
             </label>
 
-            <button type="button" disabled={busy || uploading} onClick={saveHero} style={styles.saveButton}>
-              {busy ? 'Saving...' : 'Save Hero'}
-            </button>
+            {canFullManage ? (
+              <button type="button" disabled={busy || uploading} onClick={saveHero} style={styles.saveButton}>
+                {busy ? 'Saving...' : 'Save Hero'}
+              </button>
+            ) : <div style={styles.readOnlyBox}>View only. Only Superuser and Fenny can update the hero display.</div>}
           </div>
 
           <div style={styles.displayCard}>
@@ -1134,24 +1218,26 @@ export default function GuestShopAdminPage() {
                 <div style={styles.kicker}>Category Editor</div>
                 <h2 style={styles.cardTitle}>{categoryDraft.id ? 'Edit Category' : 'New Category'}</h2>
               </div>
-              <button type="button" onClick={resetCategoryDraft} style={styles.ghostButton}>New Category</button>
+              {canFullManage ? <button type="button" onClick={resetCategoryDraft} style={styles.ghostButton}>New Category</button> : null}
             </div>
 
             <div style={styles.formGrid}>
               <label style={styles.label}>
                 Category Name
-                <input value={categoryDraft.name} onChange={(event) => setCategoryDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Example: Snacks" style={styles.input} />
+                <input disabled={!canFullManage} value={categoryDraft.name} onChange={(event) => setCategoryDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Example: Snacks" style={styles.input} />
               </label>
               <label style={styles.label}>
                 Sort Order
-                <input value={categoryDraft.sort_order} onChange={(event) => setCategoryDraft((current) => ({ ...current, sort_order: event.target.value }))} inputMode="numeric" style={styles.input} />
+                <input disabled={!canFullManage} value={categoryDraft.sort_order} onChange={(event) => setCategoryDraft((current) => ({ ...current, sort_order: event.target.value }))} inputMode="numeric" style={styles.input} />
               </label>
             </div>
             <label style={styles.checkLabel}>
-              <input type="checkbox" checked={categoryDraft.is_active} onChange={(event) => setCategoryDraft((current) => ({ ...current, is_active: event.target.checked }))} />
+              <input type="checkbox" disabled={!canFullManage} checked={categoryDraft.is_active} onChange={(event) => setCategoryDraft((current) => ({ ...current, is_active: event.target.checked }))} />
               Show category on Guest Shop
             </label>
-            <button type="button" disabled={busy} onClick={saveCategory} style={styles.saveButton}>{busy ? 'Saving...' : 'Save Category'}</button>
+            {canFullManage ? (
+              <button type="button" disabled={busy} onClick={saveCategory} style={styles.saveButton}>{busy ? 'Saving...' : 'Save Category'}</button>
+            ) : <div style={styles.readOnlyBox}>View only. Only Superuser and Fenny can update categories.</div>}
           </div>
 
           <div style={styles.listCard}>
@@ -1173,7 +1259,7 @@ export default function GuestShopAdminPage() {
                   </div>
                   <div style={styles.rowActions}>
                     <button type="button" onClick={() => setCategoryDraft({ id: category.id, name: category.name, sort_order: String(category.sort_order), is_active: category.is_active })} style={styles.smallButton}>Edit</button>
-                    <button type="button" onClick={() => removeCategory(category)} style={styles.deleteButton}>Remove</button>
+                    {canFullManage ? <button type="button" onClick={() => removeCategory(category)} style={styles.deleteButton}>Remove</button> : null}
                   </div>
                 </article>
               ))}
@@ -1456,6 +1542,16 @@ const styles: Record<string, any> = {
     gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
     gap: 12,
   },
+  catalogFilters: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(min(100%, 180px), 0.45fr) minmax(min(100%, 240px), 1fr)',
+    gap: 12,
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 18,
+    background: '#f8fbff',
+    border: '1px solid #d7e0eb',
+  },
   label: {
     display: 'grid',
     gap: 7,
@@ -1655,6 +1751,16 @@ const styles: Record<string, any> = {
     fontWeight: 900,
     fontSize: 16,
     cursor: 'pointer',
+  },
+  readOnlyBox: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
+    background: '#f8fbff',
+    border: '1px solid #d7e0eb',
+    color: '#64748b',
+    fontWeight: 900,
+    lineHeight: 1.5,
   },
   heroPreview: {
     height: 300,
