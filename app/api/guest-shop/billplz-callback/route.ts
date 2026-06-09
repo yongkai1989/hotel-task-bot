@@ -48,7 +48,7 @@ async function parsePayload(req: NextRequest) {
 function buildSignatureSource(params: Record<string, string>) {
   return Object.entries(params)
     .filter(([key]) => key !== 'x_signature' && key !== 'billplz[x_signature]')
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
     .map(([key, value]) => `${key}${value}`)
     .join('|');
 }
