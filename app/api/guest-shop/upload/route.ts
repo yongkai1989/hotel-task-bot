@@ -24,14 +24,13 @@ function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canManageGuestShop(profile: any) {
+function canFullManageGuestShop(profile: any) {
   const role = String(profile?.role || '').trim().toUpperCase();
   const email = normalizeEmail(profile?.email);
 
   return (
     role === 'SUPERUSER' ||
-    email === 'fenny@hotelhallmark.com' ||
-    email === 'walter@hotelhallmark.com'
+    email === 'fenny@hotelhallmark.com'
   );
 }
 
@@ -76,7 +75,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (profileError) throw profileError;
-    if (!canManageGuestShop(profile)) {
+    if (!canFullManageGuestShop(profile)) {
       return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
     }
 
