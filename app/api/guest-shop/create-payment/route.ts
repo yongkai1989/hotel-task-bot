@@ -194,6 +194,56 @@ function resolveSelectedOptions(item: CheckoutItem, groups: any[]) {
   };
 }
 
+function singaporeNow() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
+}
+
+function dateInputValue(date: Date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+async function assertFnbIsOpen() {
+  try {
+    const now = singaporeNow();
+    const today = dateInputValue(now);
+
+    const { data: closed } = await supabaseAdmin
+      .from('guest_shop_fnb_closed_dates')
+      .select('closed_date, reason')
+      .eq('closed_date', today)
+      .maybeSingle();
+
+    if (closed) throw new Error(String(closed.reason || 'F&B is closed today.'));
+
+    const { data: hours, error } = await supabaseAdmin
+      .from('guest_shop_fnb_hours')
+      .select('*')
+      .eq('weekday', now.getDay())
+      .maybeSingle();
+
+    if (error || !hours) return;
+    if (hours.is_open === false) throw new Error('F&B is closed today.');
+
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const [openHour, openMinute] = String(hours.open_time || '08:00').slice(0, 5).split(':').map(Number);
+    const [closeHour, closeMinute] = String(hours.close_time || '22:00').slice(0, 5).split(':').map(Number);
+    const openMinutes = openHour * 60 + openMinute;
+    const closeMinutes = closeHour * 60 + closeMinute;
+
+    if (currentMinutes < openMinutes || currentMinutes > closeMinutes) {
+      throw new Error(`F&B is open from ${String(hours.open_time || '08:00').slice(0, 5)} to ${String(hours.close_time || '22:00').slice(0, 5)}.`);
+    }
+  } catch (error: any) {
+    if (/guest_shop_fnb_hours|guest_shop_fnb_closed_dates|schema cache|does not exist/i.test(String(error?.message || ''))) {
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = String(process.env.BILLPLZ_API_KEY || '').trim();
@@ -281,6 +331,8 @@ export async function POST(req: NextRequest) {
       const catalog = catalogById.get(item.id);
       return catalog?.is_fnb === true || String(item.category).trim().toLowerCase() === 'f&b';
     });
+
+    if (isFnbOrder) await assertFnbIsOpen();
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
