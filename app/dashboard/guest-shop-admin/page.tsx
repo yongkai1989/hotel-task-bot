@@ -122,6 +122,46 @@ const DEFAULT_SETTINGS: ShopSettings = {
   featured_item_id: null,
 };
 
+const DEFAULT_OPTION_PRESETS = [
+  {
+    id: 'preset-upsize',
+    name: 'Upsize',
+    selection_type: 'single',
+    is_required: false,
+    min_select: 0,
+    max_select: 1,
+    options: [
+      { id: 'preset-upsize-regular', name: 'Regular', price_delta_myr: 0, is_default: true },
+      { id: 'preset-upsize-large', name: 'Upsize', price_delta_myr: 3, is_default: false },
+    ],
+  },
+  {
+    id: 'preset-addons',
+    name: 'Add-ons',
+    selection_type: 'multiple',
+    is_required: false,
+    min_select: 0,
+    max_select: 5,
+    options: [
+      { id: 'preset-addon-egg', name: 'Add Egg', price_delta_myr: 1.5, is_default: false },
+      { id: 'preset-addon-rice', name: 'Extra Rice', price_delta_myr: 2, is_default: false },
+    ],
+  },
+  {
+    id: 'preset-spicy',
+    name: 'Spicy Level',
+    selection_type: 'single',
+    is_required: false,
+    min_select: 0,
+    max_select: 1,
+    options: [
+      { id: 'preset-spicy-normal', name: 'Normal', price_delta_myr: 0, is_default: true },
+      { id: 'preset-spicy-less', name: 'Less Spicy', price_delta_myr: 0, is_default: false },
+      { id: 'preset-spicy-extra', name: 'Extra Spicy', price_delta_myr: 0, is_default: false },
+    ],
+  },
+];
+
 function normalizeEmail(value?: string | null) {
   return String(value || '').trim().toLowerCase();
 }
@@ -277,6 +317,36 @@ function uniqueOptionId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function optionPresetSignature(group: any) {
+  const options = Array.isArray(group?.options) ? group.options : [];
+  return [
+    String(group?.name || '').trim().toLowerCase(),
+    String(group?.selection_type || 'single').trim().toLowerCase(),
+    options
+      .map((option: any) => `${String(option?.name || '').trim().toLowerCase()}:${Number(option?.price_delta_myr || 0)}`)
+      .join('|'),
+  ].join('::');
+}
+
+function cloneOptionPreset(group: any) {
+  const selectionType = String(group?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single';
+
+  return {
+    id: uniqueOptionId('group'),
+    name: String(group?.name || 'Add-ons'),
+    selection_type: selectionType,
+    is_required: group?.is_required === true,
+    min_select: Math.max(0, Number(group?.min_select || 0)),
+    max_select: selectionType === 'single' ? 1 : Math.max(1, Number(group?.max_select || 5)),
+    options: (Array.isArray(group?.options) ? group.options : []).map((option: any) => ({
+      id: uniqueOptionId('option'),
+      name: String(option?.name || 'Option'),
+      price_delta_myr: option?.price_delta_myr ?? 0,
+      is_default: option?.is_default === true,
+    })),
+  };
+}
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -317,6 +387,31 @@ export default function GuestShopAdminPage() {
   const visibleCategories = categories.filter((category) => category.is_active);
   const categoryNames = visibleCategories.length ? visibleCategories.map((category) => category.name) : DEFAULT_CATEGORIES;
   const itemFilterCategories = ['All', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean)))];
+  const submenuChoices = Array.from(
+    new Set(items.map((item) => String(item.submenu || '').trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
+  const reusableOptionGroups = useMemo(() => {
+    const seen = new Set<string>();
+    const presets: any[] = [];
+
+    for (const group of DEFAULT_OPTION_PRESETS) {
+      const signature = optionPresetSignature(group);
+      seen.add(signature);
+      presets.push(group);
+    }
+
+    for (const item of items) {
+      for (const group of item.option_groups || []) {
+        if (!group?.name || !Array.isArray(group.options) || !group.options.length) continue;
+        const signature = optionPresetSignature(group);
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        presets.push(group);
+      }
+    }
+
+    return presets;
+  }, [items]);
   const filteredItems = items.filter((item) => {
     const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
     const search = itemSearch.trim().toLowerCase();
@@ -473,6 +568,12 @@ export default function GuestShopAdminPage() {
         ],
       },
     ]);
+  }
+
+  function applyOptionPreset(group: any) {
+    const groups = draftOptionGroups();
+    setDraftOptionGroups([...groups, cloneOptionPreset(group)]);
+    setMessage(`Added "${String(group?.name || 'option group')}" to this SKU. Save SKU to publish it.`);
   }
 
   function updateOptionGroup(index: number, patch: Record<string, any>) {
@@ -889,7 +990,19 @@ export default function GuestShopAdminPage() {
 
               <label style={styles.label}>
                 Submenu
-                <input disabled={!canFullManage} value={draft.submenu} onChange={(event) => updateDraft('submenu', event.target.value)} placeholder="Example: Asian Cuisine" style={styles.input} />
+                <input
+                  disabled={!canFullManage}
+                  list="guest-shop-submenus"
+                  value={draft.submenu}
+                  onChange={(event) => updateDraft('submenu', event.target.value)}
+                  placeholder="Choose or type submenu"
+                  style={styles.input}
+                />
+                <datalist id="guest-shop-submenus">
+                  {submenuChoices.map((submenu) => (
+                    <option key={submenu} value={submenu} />
+                  ))}
+                </datalist>
               </label>
 
               <label style={styles.label}>
@@ -928,6 +1041,30 @@ export default function GuestShopAdminPage() {
                   </p>
                 </div>
                 <button type="button" disabled={!canFullManage} onClick={addOptionGroup} style={styles.ghostButton}>Add Option Group</button>
+              </div>
+
+              <div style={styles.optionPresetPanel}>
+                <div>
+                  <strong>Reusable add-on list</strong>
+                  <span>Select a saved add-on set and attach it to this SKU.</span>
+                </div>
+                <div style={styles.optionPresetList}>
+                  {reusableOptionGroups.map((group: any, index: number) => (
+                    <button
+                      key={`${optionPresetSignature(group)}-${index}`}
+                      type="button"
+                      disabled={!canFullManage}
+                      onClick={() => applyOptionPreset(group)}
+                      style={styles.optionPresetButton}
+                    >
+                      <span>{String(group.name || 'Add-ons')}</span>
+                      <small>
+                        {(Array.isArray(group.options) ? group.options : []).length} choice
+                        {(Array.isArray(group.options) ? group.options : []).length === 1 ? '' : 's'}
+                      </small>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {draftOptionGroups().length ? (
@@ -1611,6 +1748,37 @@ const styles: Record<string, any> = {
     fontSize: 13,
     fontWeight: 800,
     lineHeight: 1.5,
+  },
+  optionPresetPanel: {
+    display: 'grid',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    background: '#fff',
+    border: '1px solid #d7e0eb',
+  },
+  optionPresetList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))',
+    gap: 10,
+  },
+  optionPresetButton: {
+    display: 'grid',
+    gap: 4,
+    minHeight: 58,
+    padding: '10px 12px',
+    borderRadius: 14,
+    border: '1px solid #c8d7e8',
+    background: 'linear-gradient(135deg, #f8fbff, #eef6ff)',
+    color: '#0f172a',
+    fontWeight: 900,
+    textAlign: 'left' as const,
+    cursor: 'pointer',
+  },
+  optionPresetButtonSmall: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: 800,
   },
   optionGroups: {
     display: 'grid',
