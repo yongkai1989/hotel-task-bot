@@ -733,7 +733,7 @@ export default function GuestShopPage() {
                     <div className="product-footer">
                       <div>
                         <strong>{money(displayPrice)}</strong>
-                        <span>{isUnavailable ? 'Out of stock' : `${item.stock} available`}</span>
+                        <span>{isUnavailable ? 'Out of stock' : 'Available'}</span>
                       </div>
                       <button
                         type="button"
