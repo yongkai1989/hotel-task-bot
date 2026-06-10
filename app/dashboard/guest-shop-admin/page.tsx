@@ -57,6 +57,19 @@ type ShopSettings = {
   featured_item_id: string | null;
 };
 
+type FnbHour = {
+  weekday: number;
+  name: string;
+  is_open: boolean;
+  open_time: string;
+  close_time: string;
+};
+
+type FnbClosedDate = {
+  closed_date: string;
+  reason: string;
+};
+
 type ShopOrder = {
   id: string;
   room_number: string;
@@ -70,6 +83,8 @@ type ShopOrder = {
   paid_at: string | null;
   fulfilled_at: string | null;
   created_at: string | null;
+  kitchen_status?: string;
+  refund_required?: boolean;
 };
 
 type Draft = {
@@ -381,6 +396,8 @@ function normalizeOrder(row: any): ShopOrder {
     paid_at: row?.paid_at || null,
     fulfilled_at: row?.fulfilled_at || null,
     created_at: row?.created_at || null,
+    kitchen_status: String(row?.kitchen_status || 'NOT_REQUIRED'),
+    refund_required: row?.refund_required === true,
   };
 }
 
@@ -434,12 +451,14 @@ export default function GuestShopAdminPage() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [addonTemplates, setAddonTemplates] = useState<AddonTemplate[]>([]);
   const [settings, setSettings] = useState<ShopSettings>(DEFAULT_SETTINGS);
+  const [fnbHours, setFnbHours] = useState<FnbHour[]>([]);
+  const [fnbClosedDates, setFnbClosedDates] = useState<FnbClosedDate[]>([]);
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(EMPTY_CATEGORY_DRAFT);
   const [addonTemplateDraft, setAddonTemplateDraft] = useState<AddonTemplateDraft>(EMPTY_ADDON_TEMPLATE_DRAFT);
   const [selectedId, setSelectedId] = useState('');
-  const [activeTab, setActiveTab] = useState<'items' | 'addons' | 'hero' | 'categories' | 'orders'>('items');
+  const [activeTab, setActiveTab] = useState<'items' | 'addons' | 'hero' | 'categories' | 'fnbHours' | 'orders'>('items');
   const [itemSearch, setItemSearch] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   const [orderDate, setOrderDate] = useState(todayInputValue());
@@ -523,11 +542,12 @@ export default function GuestShopAdminPage() {
           });
         }
 
-        const [itemsJson, categoriesJson, settingsJson, addonTemplatesJson] = await Promise.all([
+        const [itemsJson, categoriesJson, settingsJson, addonTemplatesJson, fnbHoursJson] = await Promise.all([
           fetchJson('/api/guest-shop/items?include_inactive=1', token),
           fetchJson('/api/guest-shop/categories?include_inactive=1', token),
           fetchJson('/api/guest-shop/settings', token),
           fetchJson('/api/guest-shop/addon-templates', token).catch(() => ({ ok: false, templates: [] })),
+          fetchJson('/api/guest-shop/fnb-hours', token).catch(() => ({ ok: false, hours: [], closed_dates: [] })),
         ]);
 
         if (!alive) return;
@@ -542,6 +562,8 @@ export default function GuestShopAdminPage() {
             ? addonTemplatesJson.templates.map(normalizeAddonTemplate)
             : []
         );
+        setFnbHours(Array.isArray(fnbHoursJson.hours) ? fnbHoursJson.hours : []);
+        setFnbClosedDates(Array.isArray(fnbHoursJson.closed_dates) ? fnbHoursJson.closed_dates : []);
 
         if (settingsJson?.settings) {
           setSettings({
@@ -1108,6 +1130,62 @@ export default function GuestShopAdminPage() {
     }
   }
 
+  function updateFnbHour(weekday: number, patch: Partial<FnbHour>) {
+    setFnbHours((current) =>
+      current.map((row) => (row.weekday === weekday ? { ...row, ...patch } : row))
+    );
+  }
+
+  function addClosedDate() {
+    const today = todayInputValue();
+    setFnbClosedDates((current) => [
+      ...current,
+      { closed_date: today, reason: '' },
+    ]);
+  }
+
+  function updateClosedDate(index: number, patch: Partial<FnbClosedDate>) {
+    setFnbClosedDates((current) =>
+      current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row))
+    );
+  }
+
+  function removeClosedDate(index: number) {
+    setFnbClosedDates((current) => current.filter((_row, rowIndex) => rowIndex !== index));
+  }
+
+  async function saveFnbHours() {
+    try {
+      if (!canFullManage) throw new Error('Only Superuser and Fenny can update F&B operating hours.');
+      setBusy(true);
+      setError('');
+      setMessage('');
+
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const res = await fetch('/api/guest-shop/fnb-hours', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          hours: fnbHours,
+          closed_dates: fnbClosedDates,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save F&B hours');
+      setMessage('F&B operating hours saved.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save F&B hours');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <main style={styles.page}>
@@ -1160,6 +1238,7 @@ export default function GuestShopAdminPage() {
           ['addons', 'Reusable Add-ons'],
           ['hero', 'Hero Image'],
           ['categories', 'Categories'],
+          ['fnbHours', 'F&B Hours'],
           ['orders', 'Orders'],
         ] as Array<[typeof activeTab, string]>).map(([id, label]) => (
           <button
@@ -1775,6 +1854,114 @@ export default function GuestShopAdminPage() {
         </section>
       ) : null}
 
+      {activeTab === 'fnbHours' ? (
+        <section style={styles.layout}>
+          <div style={styles.formCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Kitchen Availability</div>
+                <h2 style={styles.cardTitle}>F&B Operating Hours</h2>
+              </div>
+            </div>
+
+            <div style={styles.itemList}>
+              {fnbHours.map((row) => (
+                <article key={row.weekday} style={styles.itemRow}>
+                  <div style={styles.itemMain}>
+                    <div style={styles.itemTop}>
+                      <strong>{row.name}</strong>
+                      <span style={row.is_open ? styles.activeBadge : styles.inactiveBadge}>
+                        {row.is_open ? 'Open' : 'Closed'}
+                      </span>
+                    </div>
+                    <div style={styles.formGrid}>
+                      <label style={styles.checkLabel}>
+                        <input
+                          type="checkbox"
+                          disabled={!canFullManage}
+                          checked={row.is_open}
+                          onChange={(event) => updateFnbHour(row.weekday, { is_open: event.target.checked })}
+                        />
+                        Serve F&B
+                      </label>
+                      <label style={styles.label}>
+                        Open
+                        <input
+                          type="time"
+                          disabled={!canFullManage || !row.is_open}
+                          value={row.open_time}
+                          onChange={(event) => updateFnbHour(row.weekday, { open_time: event.target.value })}
+                          style={styles.input}
+                        />
+                      </label>
+                      <label style={styles.label}>
+                        Close
+                        <input
+                          type="time"
+                          disabled={!canFullManage || !row.is_open}
+                          value={row.close_time}
+                          onChange={(event) => updateFnbHour(row.weekday, { close_time: event.target.value })}
+                          style={styles.input}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            {canFullManage ? (
+              <button type="button" disabled={busy} onClick={saveFnbHours} style={styles.saveButton}>
+                {busy ? 'Saving...' : 'Save Operating Hours'}
+              </button>
+            ) : <div style={styles.readOnlyBox}>View only. Only Superuser and Fenny can update F&B hours.</div>}
+          </div>
+
+          <div style={styles.listCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Closed Dates</div>
+                <h2 style={styles.cardTitle}>Annual Calendar</h2>
+              </div>
+              {canFullManage ? <button type="button" onClick={addClosedDate} style={styles.ghostButton}>Add Closed Date</button> : null}
+            </div>
+            <div style={styles.itemList}>
+              {fnbClosedDates.length ? fnbClosedDates.map((row, index) => (
+                <article key={`${row.closed_date}-${index}`} style={styles.itemRow}>
+                  <div style={styles.formGrid}>
+                    <label style={styles.label}>
+                      Date
+                      <input
+                        type="date"
+                        disabled={!canFullManage}
+                        value={row.closed_date}
+                        onChange={(event) => updateClosedDate(index, { closed_date: event.target.value })}
+                        style={styles.input}
+                      />
+                    </label>
+                    <label style={styles.label}>
+                      Reason
+                      <input
+                        disabled={!canFullManage}
+                        value={row.reason}
+                        onChange={(event) => updateClosedDate(index, { reason: event.target.value })}
+                        placeholder="Example: Kitchen maintenance"
+                        style={styles.input}
+                      />
+                    </label>
+                  </div>
+                  {canFullManage ? (
+                    <button type="button" onClick={() => removeClosedDate(index)} style={styles.deleteButton}>Remove</button>
+                  ) : null}
+                </article>
+              )) : (
+                <div style={styles.emptyState}>No F&B closed dates configured.</div>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {activeTab === 'orders' ? (
         <section style={styles.fullCard}>
           <div style={styles.cardHead}>
@@ -1829,6 +2016,10 @@ export default function GuestShopAdminPage() {
                         ? formatTime(order.paid_at)
                         : statusLabel(order.status)}
                     </strong>
+                  </div>
+                  <div>
+                    <span>Kitchen</span>
+                    <strong>{statusLabel(order.kitchen_status || 'NOT_REQUIRED')}{order.refund_required ? ' - Refund follow-up' : ''}</strong>
                   </div>
                   <div><span>Payment Ref</span><strong>{order.payment_reference || '-'}</strong></div>
                 </div>
