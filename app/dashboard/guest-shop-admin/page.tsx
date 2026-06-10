@@ -1008,7 +1008,7 @@ export default function GuestShopAdminPage() {
                               <input
                                 disabled={!canFullManage}
                                 value={String(option.price_delta_myr ?? 0)}
-                                onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { price_delta_myr: Number(event.target.value || 0) })}
+                                onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { price_delta_myr: event.target.value })}
                                 inputMode="decimal"
                                 placeholder="Add RM"
                                 style={styles.input}
