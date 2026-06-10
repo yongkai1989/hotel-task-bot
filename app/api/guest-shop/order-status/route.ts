@@ -77,6 +77,36 @@ function paidOrderUpdatePayload(order: any, paidAt: string) {
   };
 }
 
+async function markKitchenPendingIfNeeded(order: any) {
+  const isFnb = String(order?.order_type || '').trim().toUpperCase() === 'FNB';
+  if (!isFnb || !order?.id) return;
+
+  const requestedAt = new Date();
+  const deadlineAt = new Date(requestedAt.getTime() + 10 * 60 * 1000);
+
+  const { error } = await supabaseAdmin
+    .from('guest_shop_orders')
+    .update({
+      kitchen_status: 'PENDING_ACCEPTANCE',
+      kitchen_requested_at: requestedAt.toISOString(),
+      kitchen_accept_deadline_at: deadlineAt.toISOString(),
+      kitchen_accepted_at: null,
+      kitchen_rejected_at: null,
+      kitchen_delivered_at: null,
+      kitchen_ready_minutes: null,
+      kitchen_decision_by: null,
+      kitchen_decision_note: null,
+      refund_required: false,
+      refund_reason: null,
+    })
+    .eq('id', order.id)
+    .eq('order_type', 'FNB')
+    .in('kitchen_status', ['NOT_REQUIRED', 'REJECTED', 'AUTO_REJECTED']);
+
+  // Do not block payment confirmation if the kitchen migration has not been run yet.
+  if (error) return;
+}
+
 async function refreshFromBillplz(order: any) {
   const apiKey = String(process.env.BILLPLZ_API_KEY || '').trim();
   const billId = String(order?.payment_reference || '').trim();
@@ -121,6 +151,7 @@ async function refreshFromBillplz(order: any) {
     .single();
 
   if (error) throw error;
+  await markKitchenPendingIfNeeded(updated || order);
   await createFoTaskForPaidGuestShopOrder(updated || order);
   return updated || order;
 }
