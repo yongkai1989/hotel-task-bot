@@ -37,6 +37,18 @@ type CategoryRow = {
   is_active: boolean;
 };
 
+type AddonTemplate = {
+  id: string;
+  name: string;
+  selection_type: 'single' | 'multiple';
+  is_required: boolean;
+  min_select: number;
+  max_select: number;
+  sort_order: number;
+  is_active: boolean;
+  options: any[];
+};
+
 type ShopSettings = {
   hero_image_url: string;
   hero_kicker: string;
@@ -85,6 +97,18 @@ type CategoryDraft = {
   is_active: boolean;
 };
 
+type AddonTemplateDraft = {
+  id: string;
+  name: string;
+  selection_type: 'single' | 'multiple';
+  is_required: boolean;
+  min_select: string;
+  max_select: string;
+  sort_order: string;
+  is_active: boolean;
+  options: any[];
+};
+
 const DEFAULT_CATEGORIES = ['Comfort', 'Laundry', 'Room Service', 'Essentials'];
 
 const EMPTY_DRAFT: Draft = {
@@ -110,6 +134,25 @@ const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
   name: '',
   sort_order: '0',
   is_active: true,
+};
+
+const EMPTY_ADDON_TEMPLATE_DRAFT: AddonTemplateDraft = {
+  id: '',
+  name: '',
+  selection_type: 'single',
+  is_required: false,
+  min_select: '0',
+  max_select: '1',
+  sort_order: '0',
+  is_active: true,
+  options: [
+    {
+      id: 'option-1',
+      name: 'Regular',
+      price_delta_myr: 0,
+      is_default: true,
+    },
+  ],
 };
 
 const DEFAULT_SETTINGS: ShopSettings = {
@@ -296,6 +339,34 @@ function normalizeCategory(row: any): CategoryRow {
   };
 }
 
+function normalizeAddonTemplate(row: any): AddonTemplate {
+  return {
+    id: String(row?.id || ''),
+    name: String(row?.name || ''),
+    selection_type: String(row?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single',
+    is_required: row?.is_required === true,
+    min_select: Math.max(0, Number(row?.min_select || 0)),
+    max_select: Math.max(0, Number(row?.max_select || 1)),
+    sort_order: Number(row?.sort_order || 0),
+    is_active: row?.is_active !== false,
+    options: Array.isArray(row?.options) ? row.options : [],
+  };
+}
+
+function draftFromAddonTemplate(template: AddonTemplate): AddonTemplateDraft {
+  return {
+    id: template.id,
+    name: template.name,
+    selection_type: template.selection_type,
+    is_required: template.is_required,
+    min_select: String(template.min_select ?? 0),
+    max_select: String(template.max_select ?? 1),
+    sort_order: String(template.sort_order ?? 0),
+    is_active: template.is_active !== false,
+    options: Array.isArray(template.options) ? template.options : [],
+  };
+}
+
 function normalizeOrder(row: any): ShopOrder {
   return {
     id: String(row?.id || ''),
@@ -361,12 +432,14 @@ export default function GuestShopAdminPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [items, setItems] = useState<ShopItem[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [addonTemplates, setAddonTemplates] = useState<AddonTemplate[]>([]);
   const [settings, setSettings] = useState<ShopSettings>(DEFAULT_SETTINGS);
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(EMPTY_CATEGORY_DRAFT);
+  const [addonTemplateDraft, setAddonTemplateDraft] = useState<AddonTemplateDraft>(EMPTY_ADDON_TEMPLATE_DRAFT);
   const [selectedId, setSelectedId] = useState('');
-  const [activeTab, setActiveTab] = useState<'items' | 'hero' | 'categories' | 'orders'>('items');
+  const [activeTab, setActiveTab] = useState<'items' | 'addons' | 'hero' | 'categories' | 'orders'>('items');
   const [itemSearch, setItemSearch] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   const [orderDate, setOrderDate] = useState(todayInputValue());
@@ -394,24 +467,18 @@ export default function GuestShopAdminPage() {
     const seen = new Set<string>();
     const presets: any[] = [];
 
-    for (const group of DEFAULT_OPTION_PRESETS) {
+    const sourceTemplates = addonTemplates.filter((template) => template.is_active);
+    const templateGroups = addonTemplates.length ? sourceTemplates : DEFAULT_OPTION_PRESETS;
+
+    for (const group of templateGroups) {
       const signature = optionPresetSignature(group);
+      if (seen.has(signature)) continue;
       seen.add(signature);
       presets.push(group);
     }
 
-    for (const item of items) {
-      for (const group of item.option_groups || []) {
-        if (!group?.name || !Array.isArray(group.options) || !group.options.length) continue;
-        const signature = optionPresetSignature(group);
-        if (seen.has(signature)) continue;
-        seen.add(signature);
-        presets.push(group);
-      }
-    }
-
     return presets;
-  }, [items]);
+  }, [addonTemplates]);
   const filteredItems = items.filter((item) => {
     const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
     const search = itemSearch.trim().toLowerCase();
@@ -456,10 +523,11 @@ export default function GuestShopAdminPage() {
           });
         }
 
-        const [itemsJson, categoriesJson, settingsJson] = await Promise.all([
+        const [itemsJson, categoriesJson, settingsJson, addonTemplatesJson] = await Promise.all([
           fetchJson('/api/guest-shop/items?include_inactive=1', token),
           fetchJson('/api/guest-shop/categories?include_inactive=1', token),
           fetchJson('/api/guest-shop/settings', token),
+          fetchJson('/api/guest-shop/addon-templates', token).catch(() => ({ ok: false, templates: [] })),
         ]);
 
         if (!alive) return;
@@ -469,6 +537,11 @@ export default function GuestShopAdminPage() {
           ? categoriesJson.categories.map(normalizeCategory)
           : [];
         setCategories(nextCategories);
+        setAddonTemplates(
+          Array.isArray(addonTemplatesJson.templates)
+            ? addonTemplatesJson.templates.map(normalizeAddonTemplate)
+            : []
+        );
 
         if (settingsJson?.settings) {
           setSettings({
@@ -532,6 +605,56 @@ export default function GuestShopAdminPage() {
     setCategoryDraft(EMPTY_CATEGORY_DRAFT);
     setMessage('');
     setError('');
+  }
+
+  function resetAddonTemplateDraft() {
+    setAddonTemplateDraft({
+      ...EMPTY_ADDON_TEMPLATE_DRAFT,
+      options: EMPTY_ADDON_TEMPLATE_DRAFT.options.map((option) => ({ ...option })),
+    });
+    setMessage('');
+    setError('');
+  }
+
+  function updateAddonTemplateDraft<K extends keyof AddonTemplateDraft>(key: K, value: AddonTemplateDraft[K]) {
+    setAddonTemplateDraft((current) => {
+      const next = { ...current, [key]: value };
+      if (key === 'selection_type' && value === 'single') {
+        next.max_select = '1';
+      }
+      return next;
+    });
+  }
+
+  function addTemplateChoice() {
+    setAddonTemplateDraft((current) => ({
+      ...current,
+      options: [
+        ...current.options,
+        {
+          id: uniqueOptionId('option'),
+          name: 'New choice',
+          price_delta_myr: 0,
+          is_default: false,
+        },
+      ],
+    }));
+  }
+
+  function updateTemplateChoice(index: number, patch: Record<string, any>) {
+    setAddonTemplateDraft((current) => ({
+      ...current,
+      options: current.options.map((option, rowIndex) =>
+        rowIndex === index ? { ...option, ...patch } : option
+      ),
+    }));
+  }
+
+  function removeTemplateChoice(index: number) {
+    setAddonTemplateDraft((current) => ({
+      ...current,
+      options: current.options.filter((_option, rowIndex) => rowIndex !== index),
+    }));
   }
 
   function draftOptionGroups() {
@@ -884,6 +1007,91 @@ export default function GuestShopAdminPage() {
     }
   }
 
+  async function saveAddonTemplate() {
+    try {
+      if (!canFullManage) throw new Error('Only Superuser and Fenny can manage reusable add-ons.');
+      setBusy(true);
+      setError('');
+      setMessage('');
+
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const payload = {
+        id: addonTemplateDraft.id,
+        name: addonTemplateDraft.name,
+        selection_type: addonTemplateDraft.selection_type,
+        is_required: addonTemplateDraft.is_required,
+        min_select: Number(addonTemplateDraft.min_select || 0),
+        max_select: Number(addonTemplateDraft.max_select || 1),
+        sort_order: Number(addonTemplateDraft.sort_order || 0),
+        is_active: addonTemplateDraft.is_active,
+        options: addonTemplateDraft.options,
+      };
+
+      const res = await fetch('/api/guest-shop/addon-templates', {
+        method: addonTemplateDraft.id ? 'PUT' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save reusable add-on');
+
+      const saved = normalizeAddonTemplate(json.template);
+      setAddonTemplates((current) => {
+        const exists = current.some((template) => template.id === saved.id);
+        const next = exists
+          ? current.map((template) => (template.id === saved.id ? saved : template))
+          : [...current, saved];
+        return next.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+      });
+      setAddonTemplateDraft(draftFromAddonTemplate(saved));
+      setMessage('Reusable add-on saved.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save reusable add-on');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAddonTemplate(template: AddonTemplate) {
+    if (!canFullManage) {
+      setError('Only Superuser and Fenny can delete reusable add-ons.');
+      return;
+    }
+    const confirmed = window.confirm(`Delete reusable add-on "${template.name}"? Existing SKUs using it will not be changed.`);
+    if (!confirmed) return;
+
+    try {
+      setBusy(true);
+      setError('');
+      setMessage('');
+
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const res = await fetch(`/api/guest-shop/addon-templates?id=${encodeURIComponent(template.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to delete reusable add-on');
+
+      setAddonTemplates((current) => current.filter((row) => row.id !== template.id));
+      if (addonTemplateDraft.id === template.id) resetAddonTemplateDraft();
+      setMessage('Reusable add-on deleted.');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete reusable add-on');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function loadOrders() {
     try {
       setError('');
@@ -949,6 +1157,7 @@ export default function GuestShopAdminPage() {
       <nav style={styles.tabs}>
         {([
           ['items', 'SKUs'],
+          ['addons', 'Reusable Add-ons'],
           ['hero', 'Hero Image'],
           ['categories', 'Categories'],
           ['orders', 'Orders'],
@@ -1275,6 +1484,167 @@ export default function GuestShopAdminPage() {
                   </div>
                 </article>
               )) : <div style={styles.emptyState}>No SKUs found for this search or category.</div>}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === 'addons' ? (
+        <section style={styles.layout}>
+          <div style={styles.formCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Reusable Choices</div>
+                <h2 style={styles.cardTitle}>{addonTemplateDraft.id ? 'Edit Add-on' : 'New Add-on'}</h2>
+              </div>
+              {canFullManage ? <button type="button" onClick={resetAddonTemplateDraft} style={styles.ghostButton}>New Add-on</button> : null}
+            </div>
+
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Add-on Name
+                <input
+                  disabled={!canFullManage}
+                  value={addonTemplateDraft.name}
+                  onChange={(event) => updateAddonTemplateDraft('name', event.target.value)}
+                  placeholder="Example: Add-ons, Upsize, Spicy Level"
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.label}>
+                Selection
+                <select
+                  disabled={!canFullManage}
+                  value={addonTemplateDraft.selection_type}
+                  onChange={(event) => updateAddonTemplateDraft('selection_type', event.target.value as 'single' | 'multiple')}
+                  style={styles.input}
+                >
+                  <option value="single">Choose one</option>
+                  <option value="multiple">Can choose many</option>
+                </select>
+              </label>
+
+              <label style={styles.label}>
+                Max Choice
+                <input
+                  disabled={!canFullManage || addonTemplateDraft.selection_type === 'single'}
+                  value={addonTemplateDraft.max_select}
+                  onChange={(event) => updateAddonTemplateDraft('max_select', event.target.value)}
+                  inputMode="numeric"
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.label}>
+                Sort Order
+                <input
+                  disabled={!canFullManage}
+                  value={addonTemplateDraft.sort_order}
+                  onChange={(event) => updateAddonTemplateDraft('sort_order', event.target.value)}
+                  inputMode="numeric"
+                  style={styles.input}
+                />
+              </label>
+            </div>
+
+            <div style={styles.optionGroupActions}>
+              <label style={styles.checkLabel}>
+                <input
+                  type="checkbox"
+                  disabled={!canFullManage}
+                  checked={addonTemplateDraft.is_required}
+                  onChange={(event) => updateAddonTemplateDraft('is_required', event.target.checked)}
+                />
+                Required for guest
+              </label>
+              <label style={styles.checkLabel}>
+                <input
+                  type="checkbox"
+                  disabled={!canFullManage}
+                  checked={addonTemplateDraft.is_active}
+                  onChange={(event) => updateAddonTemplateDraft('is_active', event.target.checked)}
+                />
+                Active reusable add-on
+              </label>
+              <button type="button" disabled={!canFullManage} onClick={addTemplateChoice} style={styles.ghostButton}>Add Choice</button>
+            </div>
+
+            <div style={styles.optionChoices}>
+              {addonTemplateDraft.options.map((option: any, optionIndex: number) => (
+                <div style={styles.optionChoiceRow} key={option.id || optionIndex}>
+                  <input
+                    disabled={!canFullManage}
+                    value={String(option.name || '')}
+                    onChange={(event) => updateTemplateChoice(optionIndex, { name: event.target.value })}
+                    placeholder="Example: Add egg"
+                    style={styles.input}
+                  />
+                  <input
+                    disabled={!canFullManage}
+                    value={String(option.price_delta_myr ?? 0)}
+                    onChange={(event) => updateTemplateChoice(optionIndex, { price_delta_myr: event.target.value })}
+                    inputMode="decimal"
+                    placeholder="Add RM"
+                    style={styles.input}
+                  />
+                  <label style={styles.compactCheck}>
+                    <input
+                      type="checkbox"
+                      disabled={!canFullManage}
+                      checked={option.is_default === true}
+                      onChange={(event) => updateTemplateChoice(optionIndex, { is_default: event.target.checked })}
+                    />
+                    Default
+                  </label>
+                  <button type="button" disabled={!canFullManage} onClick={() => removeTemplateChoice(optionIndex)} style={styles.smallDangerButton}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {canFullManage ? (
+              <button type="button" disabled={busy} onClick={saveAddonTemplate} style={styles.saveButton}>
+                {busy ? 'Saving...' : 'Save Reusable Add-on'}
+              </button>
+            ) : (
+              <div style={styles.readOnlyBox}>View only. Only Superuser and Fenny can manage reusable add-ons.</div>
+            )}
+          </div>
+
+          <div style={styles.listCard}>
+            <div style={styles.cardHead}>
+              <div>
+                <div style={styles.kicker}>Saved List</div>
+                <h2 style={styles.cardTitle}>Reusable Add-ons</h2>
+              </div>
+            </div>
+
+            <div style={styles.itemList}>
+              {addonTemplates.length ? addonTemplates.map((template) => (
+                <article key={template.id} style={styles.itemRow}>
+                  <div style={styles.itemMain}>
+                    <div style={styles.itemTop}>
+                      <strong>{template.name}</strong>
+                      <span style={template.is_active ? styles.activeBadge : styles.inactiveBadge}>
+                        {template.is_active ? 'Active' : 'Hidden'}
+                      </span>
+                    </div>
+                    <div style={styles.itemMeta}>
+                      {template.selection_type === 'multiple' ? 'Can choose many' : 'Choose one'} | {template.options.length} choice{template.options.length === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <div style={styles.rowActions}>
+                    <button type="button" onClick={() => setAddonTemplateDraft(draftFromAddonTemplate(template))} style={styles.smallButton}>Edit</button>
+                    {canFullManage ? <button type="button" onClick={() => deleteAddonTemplate(template)} style={styles.deleteButton}>Delete</button> : null}
+                  </div>
+                </article>
+              )) : (
+                <div style={styles.emptyState}>
+                  No saved reusable add-ons yet. Create one here, then apply it inside the SKU editor.
+                </div>
+              )}
             </div>
           </div>
         </section>
