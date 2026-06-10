@@ -245,6 +245,8 @@ export default function GuestShopPage() {
   const [guestName, setGuestName] = useState('');
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
+  const [fnbOpenNow, setFnbOpenNow] = useState(true);
+  const [fnbClosedReason, setFnbClosedReason] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [selectedOptionsByItem, setSelectedOptionsByItem] = useState<Record<string, SelectedOptionGroup[]>>({});
 
@@ -283,6 +285,7 @@ export default function GuestShopPage() {
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
   const cartTotal = cartItems.reduce((total, row) => total + row.unitPrice * row.quantity, 0);
+  const cartHasFnb = cartItems.some((row) => isFnbItem(row.item));
   const heroStyle = {
     '--hero-image': heroLoaded ? `url("${hero.hero_image_url}")` : 'none',
   } as CSSProperties;
@@ -306,16 +309,23 @@ export default function GuestShopPage() {
 
     async function loadShop() {
       try {
-        const [itemsRes, categoriesRes, settingsRes] = await Promise.all([
+        const [itemsRes, categoriesRes, settingsRes, fnbHoursRes] = await Promise.all([
           fetch('/api/guest-shop/items', { cache: 'no-store' }),
           fetch('/api/guest-shop/categories', { cache: 'no-store' }),
           fetch('/api/guest-shop/settings', { cache: 'no-store' }),
+          fetch('/api/guest-shop/fnb-hours', { cache: 'no-store' }).catch(() => null),
         ]);
 
         const json = await itemsRes.json();
         const categoriesJson = await categoriesRes.json();
         const settingsJson = await settingsRes.json();
+        const fnbHoursJson = fnbHoursRes ? await fnbHoursRes.json().catch(() => ({})) : {};
         if (!alive) return;
+
+        if (fnbHoursJson?.ok && fnbHoursJson.current) {
+          setFnbOpenNow(fnbHoursJson.current.open !== false);
+          setFnbClosedReason(String(fnbHoursJson.current.reason || 'F&B is currently closed.'));
+        }
 
         if (categoriesJson?.ok && Array.isArray(categoriesJson.categories)) {
           const nextCategories = categoriesJson.categories
@@ -509,6 +519,11 @@ export default function GuestShopPage() {
       return;
     }
 
+    if (cartHasFnb && !fnbOpenNow) {
+      setNotice(fnbClosedReason || 'F&B is currently closed.');
+      return;
+    }
+
     try {
       setPaymentBusy(true);
       setNotice('Preparing secure payment...');
@@ -623,6 +638,7 @@ export default function GuestShopPage() {
           {fnbSubmenuChoices.length ? (
             <div className="filter-block fnb-filter-block">
               <span>Food & Beverage</span>
+              {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || 'F&B is currently closed.'}</strong> : null}
               <div className="submenus fnb-submenus" role="tablist" aria-label="Food and beverage menu">
                 {fnbSubmenuChoices.map((submenu) => (
                   <button
@@ -652,7 +668,8 @@ export default function GuestShopPage() {
         <div className="shop-grid">
           <div className="products">
             {visibleItems.map((item) => {
-              const isUnavailable = item.stock <= 0;
+              const fnbClosed = isFnbItem(item) && !fnbOpenNow;
+              const isUnavailable = item.stock <= 0 || fnbClosed;
               const selectedOptions = getSelection(item);
               const selectedCartKey = cartKeyFor(item, selectedOptions);
               const isAdded = Boolean(cart[selectedCartKey]);
@@ -733,7 +750,7 @@ export default function GuestShopPage() {
                     <div className="product-footer">
                       <div>
                         <strong>{money(displayPrice)}</strong>
-                        <span>{isUnavailable ? 'Out of stock' : 'Available'}</span>
+                        <span>{fnbClosed ? 'Currently closed' : isUnavailable ? 'Out of stock' : 'Available'}</span>
                       </div>
                       <button
                         type="button"
@@ -741,7 +758,7 @@ export default function GuestShopPage() {
                         disabled={isUnavailable}
                         onClick={() => addItem(item)}
                       >
-                        {isUnavailable ? 'Unavailable' : isAdded ? 'Added' : 'Add'}
+                        {fnbClosed ? 'Closed' : isUnavailable ? 'Unavailable' : isAdded ? 'Added' : 'Add'}
                       </button>
                     </div>
                   </div>
@@ -842,6 +859,7 @@ export default function GuestShopPage() {
 
             <p className="payment-note">
               Staff receives the order only after payment is verified by the payment provider.
+              {cartHasFnb ? ' F&B orders are then accepted by the kitchen.' : ''}
             </p>
           </aside>
         </div>
@@ -1194,6 +1212,18 @@ export default function GuestShopPage() {
           font-weight: 900;
           letter-spacing: 0.14em;
           text-transform: uppercase;
+        }
+
+        .closed-note {
+          width: fit-content;
+          max-width: 100%;
+          padding: 8px 12px;
+          border-radius: 999px;
+          border: 1px solid rgba(185, 28, 28, 0.18);
+          background: rgba(254, 226, 226, 0.75);
+          color: #991b1b;
+          font-size: 12px;
+          font-weight: 900;
         }
 
         .categories {
