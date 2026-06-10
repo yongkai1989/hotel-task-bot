@@ -748,6 +748,11 @@ export default function DashboardSidebar({
     effectiveEmail === 'fenny@hotelhallmark.com' ||
     effectiveEmail === 'fnb@hotelhallmark.com';
   const canSeeFnbChecklist = !!effectiveProfile?.can_access_fnb_checklist;
+  const canSeeFnbOrders =
+    effectiveRole === 'SUPERUSER' ||
+    effectiveRole === 'FNB' ||
+    effectiveEmail === 'fnb@hotelhallmark.com' ||
+    effectiveEmail === 'fenny@hotelhallmark.com';
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
     (
@@ -785,7 +790,7 @@ export default function DashboardSidebar({
     canSeePriceGuide ||
     canSeeGuestLaundry ||
     canSeeGuestShopAdmin;
-  const showFnbGroup = canSeeFnbChecklist || canSeeGuestShopAdmin;
+  const showFnbGroup = canSeeFnbChecklist || canSeeGuestShopAdmin || canSeeFnbOrders;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -1401,6 +1406,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeFnbOrders ? (
+                <Link
+                  href="/dashboard/fnb-orders"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="fnb" sub>F&B Orders</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeGuestShopAdmin ? (
                 <Link
                   href="/dashboard/guest-shop-admin"
@@ -2010,4 +2026,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
   },
 };
+
 
