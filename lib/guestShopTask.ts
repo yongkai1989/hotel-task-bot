@@ -66,7 +66,9 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
     `Items: ${items}`,
     `Total: RM${total}`,
     `Payment Ref: ${paymentRef}`,
-    'Please prepare and deliver to guest.',
+    orderType === 'FNB'
+      ? 'Kitchen acceptance required. Open F&B Orders to accept, reject, or mark delivered.'
+      : 'Please prepare and deliver to guest.',
   ].join('\n');
 
   const { data: task, error: insertError } = await supabaseAdmin
