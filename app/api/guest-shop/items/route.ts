@@ -47,6 +47,17 @@ function canViewGuestShopAdmin(user: any) {
   );
 }
 
+function rejectEmbeddedImageUrl(value: string, label: string) {
+  if (value.startsWith('data:') || value.length > 2000) {
+    throw new Error(`${label} must be uploaded first or saved as a normal hosted image URL`);
+  }
+}
+
+function safeImageUrl(value: unknown) {
+  const imageUrl = String(value || '').trim();
+  return imageUrl.startsWith('data:') || imageUrl.length > 2000 ? '' : imageUrl;
+}
+
 function normalizeItemPayload(body: any) {
   const name = String(body?.name || '').trim();
   const category = String(body?.category || '').trim();
@@ -65,6 +76,7 @@ function normalizeItemPayload(body: any) {
   if (!category) throw new Error('Category is required');
   if (!Number.isFinite(price) || price < 0) throw new Error('Price must be 0 or higher');
   if (!Number.isFinite(stock) || stock < 0) throw new Error('Stock must be 0 or higher');
+  if (imageUrl) rejectEmbeddedImageUrl(imageUrl, 'SKU image URL');
 
   return {
     name,
@@ -133,7 +145,7 @@ function normalizeItem(row: any, optionGroups: any[] = []) {
     description: String(row.description || ''),
     price_myr: Number(row.price_myr || 0),
     stock: Number(row.stock || 0),
-    image_url: row.image_url || '',
+    image_url: safeImageUrl(row.image_url),
     label: row.label || '',
     accent: row.accent || '#b6813a',
     sort_order: Number(row.sort_order || 0),
