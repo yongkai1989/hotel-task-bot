@@ -17,6 +17,7 @@ type KitchenOrder = {
   kitchen_status: string;
   kitchen_requested_at: string | null;
   kitchen_accept_deadline_at: string | null;
+  kitchen_accepted_at: string | null;
   kitchen_ready_minutes: number | null;
   kitchen_decision_by: string;
   kitchen_decision_note: string;
@@ -80,6 +81,18 @@ function itemSummary(items: any[]) {
 function secondsLeft(deadline?: string | null) {
   if (!deadline) return 0;
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
+}
+
+function readyDeadline(order: KitchenOrder) {
+  if (!order.kitchen_accepted_at || !order.kitchen_ready_minutes) return null;
+  return new Date(
+    new Date(order.kitchen_accepted_at).getTime() + Number(order.kitchen_ready_minutes || 0) * 60 * 1000
+  ).toISOString();
+}
+
+function countdownText(seconds: number) {
+  if (seconds <= 0) return 'Ready now';
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 const CUSTOM_ALARM_SRC = '/sounds/fnb-order-alert.mp3';
@@ -336,7 +349,17 @@ export default function FnbOrdersPage() {
 
       <section style={styles.orderList}>
         {orders.length ? orders.map((order) => {
-          const remaining = secondsLeft(order.kitchen_accept_deadline_at);
+          const acceptRemaining = secondsLeft(order.kitchen_accept_deadline_at);
+          const readyRemaining = secondsLeft(readyDeadline(order));
+          const deadlineLabel = order.kitchen_status === 'PENDING_ACCEPTANCE' ? 'Accept By' : 'Ready In';
+          const deadlineValue =
+            order.kitchen_status === 'PENDING_ACCEPTANCE'
+              ? countdownText(acceptRemaining)
+              : ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)
+                ? readyDeadline(order)
+                  ? countdownText(readyRemaining)
+                  : `${order.kitchen_ready_minutes || '-'}m`
+                : '-';
           return (
             <article key={order.id} style={styles.orderCard}>
               <div style={styles.cardHead}>
@@ -351,7 +374,7 @@ export default function FnbOrdersPage() {
                 <div><span>Total</span><strong>{money(order.total_myr)}</strong></div>
                 <div><span>Paid</span><strong>{formatTime(order.paid_at)}</strong></div>
                 <div><span>Payment Ref</span><strong>{order.payment_reference || '-'}</strong></div>
-                <div><span>Deadline</span><strong>{order.kitchen_status === 'PENDING_ACCEPTANCE' ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : '-'}</strong></div>
+                <div><span>{deadlineLabel}</span><strong>{deadlineValue}</strong></div>
               </div>
 
               <p style={styles.itemsText}>{itemSummary(order.items_json)}</p>
