@@ -41,6 +41,8 @@ function canViewGuestShopAdmin(user: any) {
   return (
     canFullManageGuestShop(user) ||
     canManageFnbStock(user) ||
+    user?.can_access_guest_shop_admin === true ||
+    user?.can_access_fnb_menu_admin === true ||
     role === 'FO' ||
     role === 'MANAGER' ||
     email === 'walter@hotelhallmark.com'
