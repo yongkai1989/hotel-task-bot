@@ -54,14 +54,15 @@ type CartItem = {
 const DEFAULT_CATEGORIES: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
 
 const DEFAULT_HERO = {
-  hero_image_url:
-    'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84',
+  hero_image_url: '',
   hero_kicker: 'Private in-room collection',
   hero_title: 'Quiet luxuries, ready on request.',
   hero_body:
     'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
   featured_item_id: null as string | null,
 };
+
+const OLD_DEFAULT_HERO_IMAGE = 'images.unsplash.com/photo-1551882547-ff40c63fe5fa';
 
 function cachedHeroSettings() {
   if (typeof window === 'undefined') return DEFAULT_HERO;
@@ -70,8 +71,9 @@ function cachedHeroSettings() {
     const cached = window.localStorage.getItem('guestShopHeroSettings');
     if (!cached) return DEFAULT_HERO;
     const parsed = JSON.parse(cached);
+    const cachedImage = String(parsed?.hero_image_url || '');
     return {
-      hero_image_url: String(parsed?.hero_image_url || DEFAULT_HERO.hero_image_url),
+      hero_image_url: cachedImage.includes(OLD_DEFAULT_HERO_IMAGE) ? '' : cachedImage,
       hero_kicker: String(parsed?.hero_kicker || DEFAULT_HERO.hero_kicker),
       hero_title: String(parsed?.hero_title || DEFAULT_HERO.hero_title),
       hero_body: String(parsed?.hero_body || DEFAULT_HERO.hero_body),
@@ -492,7 +494,7 @@ export default function GuestShopPage() {
   const cartTotal = cartItems.reduce((total, row) => total + row.unitPrice * row.quantity, 0);
   const cartHasFnb = cartItems.some((row) => isFnbItem(row.item));
   const heroStyle = {
-    '--hero-image': `url("${hero.hero_image_url}")`,
+    '--hero-image': hero.hero_image_url ? `url("${hero.hero_image_url}")` : 'none',
   } as CSSProperties;
 
   useEffect(() => {
@@ -512,18 +514,42 @@ export default function GuestShopPage() {
   useEffect(() => {
     let alive = true;
 
+    async function loadHeroSettings() {
+      try {
+        const settingsRes = await fetch('/api/guest-shop/settings', { cache: 'no-store' });
+        const settingsJson = await settingsRes.json();
+        if (!alive || !settingsJson?.ok || !settingsJson.settings) return;
+
+        const nextHero = {
+          hero_image_url: String(settingsJson.settings.hero_image_url || ''),
+          hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_HERO.hero_kicker),
+          hero_title: String(settingsJson.settings.hero_title || DEFAULT_HERO.hero_title),
+          hero_body: String(settingsJson.settings.hero_body || DEFAULT_HERO.hero_body),
+          featured_item_id: settingsJson.settings.featured_item_id
+            ? String(settingsJson.settings.featured_item_id)
+            : null,
+        };
+
+        setHero((current) => {
+          if (current.hero_image_url !== nextHero.hero_image_url) setHeroReady(false);
+          return nextHero;
+        });
+        window.localStorage.setItem('guestShopHeroSettings', JSON.stringify(nextHero));
+      } catch {
+        // Keep text-only hero if settings are unavailable.
+      }
+    }
+
     async function loadShop() {
       try {
-        const [itemsRes, categoriesRes, settingsRes, fnbHoursRes] = await Promise.all([
+        const [itemsRes, categoriesRes, fnbHoursRes] = await Promise.all([
           fetch('/api/guest-shop/items', { cache: 'no-store' }),
           fetch('/api/guest-shop/categories', { cache: 'no-store' }),
-          fetch('/api/guest-shop/settings', { cache: 'no-store' }),
           fetch('/api/guest-shop/fnb-hours', { cache: 'no-store' }).catch(() => null),
         ]);
 
         const json = await itemsRes.json();
         const categoriesJson = await categoriesRes.json();
-        const settingsJson = await settingsRes.json();
         const fnbHoursJson = fnbHoursRes ? await fnbHoursRes.json().catch(() => ({})) : {};
         if (!alive) return;
 
@@ -539,20 +565,6 @@ export default function GuestShopPage() {
             .filter(Boolean);
 
           if (nextCategories.length) setCategories(['All', ...nextCategories]);
-        }
-
-        if (settingsJson?.ok && settingsJson.settings) {
-          const nextHero = {
-            hero_image_url: String(settingsJson.settings.hero_image_url || DEFAULT_HERO.hero_image_url),
-            hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_HERO.hero_kicker),
-            hero_title: String(settingsJson.settings.hero_title || DEFAULT_HERO.hero_title),
-            hero_body: String(settingsJson.settings.hero_body || DEFAULT_HERO.hero_body),
-            featured_item_id: settingsJson.settings.featured_item_id
-              ? String(settingsJson.settings.featured_item_id)
-              : null,
-          };
-          setHero(nextHero);
-          window.localStorage.setItem('guestShopHeroSettings', JSON.stringify(nextHero));
         }
 
         if (!json?.ok || !Array.isArray(json.items) || !json.items.length) return;
@@ -594,6 +606,7 @@ export default function GuestShopPage() {
       }
     }
 
+    loadHeroSettings();
     loadShop();
 
     return () => {
@@ -768,18 +781,23 @@ export default function GuestShopPage() {
 
   return (
     <main className="guest-shop">
+      {hero.hero_image_url ? (
+        <link rel="preload" as="image" href={hero.hero_image_url} />
+      ) : null}
       <section
         className={heroReady ? 'hero hero-ready' : 'hero'}
         style={heroStyle}
       >
-        <img
-          className={heroReady ? 'hero-image hero-image-ready' : 'hero-image'}
-          src={hero.hero_image_url}
-          alt="Luxury hotel suite"
-          loading="eager"
-          decoding="async"
-          onLoad={() => setHeroReady(true)}
-        />
+        {hero.hero_image_url ? (
+          <img
+            className={heroReady ? 'hero-image hero-image-ready' : 'hero-image'}
+            src={hero.hero_image_url}
+            alt="Luxury hotel suite"
+            loading="eager"
+            decoding="async"
+            onLoad={() => setHeroReady(true)}
+          />
+        ) : null}
         <div className="hero-shade" />
 
         <header className="nav">
