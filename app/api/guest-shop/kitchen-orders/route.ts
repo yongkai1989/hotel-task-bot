@@ -26,6 +26,7 @@ function canAccessKitchen(user: any) {
   return (
     role === 'SUPERUSER' ||
     role === 'FNB' ||
+    user?.can_access_fnb_orders === true ||
     email === 'fenny@hotelhallmark.com' ||
     email === 'fnb@hotelhallmark.com'
   );
