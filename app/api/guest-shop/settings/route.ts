@@ -40,10 +40,21 @@ function canFullManageGuestShop(user: any) {
   );
 }
 
+function rejectEmbeddedImageUrl(value: string, label: string) {
+  if (value.startsWith('data:') || value.length > 2000) {
+    throw new Error(`${label} must be uploaded first or saved as a normal hosted image URL`);
+  }
+}
+
+function safeHeroImageUrl(value: unknown) {
+  const imageUrl = String(value || '').trim();
+  return imageUrl.startsWith('data:') || imageUrl.length > 2000 ? DEFAULT_SETTINGS.hero_image_url : imageUrl;
+}
+
 function normalizeSettings(row: any) {
   return {
     id: String(row?.id || 'main'),
-    hero_image_url: String(row?.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
+    hero_image_url: safeHeroImageUrl(row?.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
     hero_kicker: String(row?.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
     hero_title: String(row?.hero_title || DEFAULT_SETTINGS.hero_title),
     hero_body: String(row?.hero_body || DEFAULT_SETTINGS.hero_body),
@@ -61,6 +72,7 @@ function normalizeSettingsPayload(body: any) {
 
   if (!heroImageUrl) throw new Error('Hero image URL is required');
   if (!heroTitle) throw new Error('Hero title is required');
+  rejectEmbeddedImageUrl(heroImageUrl, 'Hero image URL');
 
   return {
     id: 'main',
