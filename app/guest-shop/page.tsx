@@ -63,6 +63,25 @@ const DEFAULT_HERO = {
   featured_item_id: null as string | null,
 };
 
+function cachedHeroSettings() {
+  if (typeof window === 'undefined') return DEFAULT_HERO;
+
+  try {
+    const cached = window.localStorage.getItem('guestShopHeroSettings');
+    if (!cached) return DEFAULT_HERO;
+    const parsed = JSON.parse(cached);
+    return {
+      hero_image_url: String(parsed?.hero_image_url || DEFAULT_HERO.hero_image_url),
+      hero_kicker: String(parsed?.hero_kicker || DEFAULT_HERO.hero_kicker),
+      hero_title: String(parsed?.hero_title || DEFAULT_HERO.hero_title),
+      hero_body: String(parsed?.hero_body || DEFAULT_HERO.hero_body),
+      featured_item_id: parsed?.featured_item_id ? String(parsed.featured_item_id) : null,
+    };
+  } catch {
+    return DEFAULT_HERO;
+  }
+}
+
 const DEFAULT_SHOP_ITEMS: ShopItem[] = [
   {
     id: 'late-checkout',
@@ -411,8 +430,8 @@ export default function GuestShopPage() {
   const [language, setLanguage] = useState<LanguageCode>('en');
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
-  const [hero, setHero] = useState(DEFAULT_HERO);
-  const [heroLoaded, setHeroLoaded] = useState(false);
+  const [hero, setHero] = useState(cachedHeroSettings);
+  const [heroReady, setHeroReady] = useState(false);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [activeSubmenu, setActiveSubmenu] = useState('All');
   const [cart, setCart] = useState<Record<string, CartItem>>({});
@@ -473,7 +492,7 @@ export default function GuestShopPage() {
   const cartTotal = cartItems.reduce((total, row) => total + row.unitPrice * row.quantity, 0);
   const cartHasFnb = cartItems.some((row) => isFnbItem(row.item));
   const heroStyle = {
-    '--hero-image': heroLoaded ? `url("${hero.hero_image_url}")` : 'none',
+    '--hero-image': `url("${hero.hero_image_url}")`,
   } as CSSProperties;
 
   useEffect(() => {
@@ -523,7 +542,7 @@ export default function GuestShopPage() {
         }
 
         if (settingsJson?.ok && settingsJson.settings) {
-          setHero({
+          const nextHero = {
             hero_image_url: String(settingsJson.settings.hero_image_url || DEFAULT_HERO.hero_image_url),
             hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_HERO.hero_kicker),
             hero_title: String(settingsJson.settings.hero_title || DEFAULT_HERO.hero_title),
@@ -531,9 +550,10 @@ export default function GuestShopPage() {
             featured_item_id: settingsJson.settings.featured_item_id
               ? String(settingsJson.settings.featured_item_id)
               : null,
-          });
+          };
+          setHero(nextHero);
+          window.localStorage.setItem('guestShopHeroSettings', JSON.stringify(nextHero));
         }
-        setHeroLoaded(true);
 
         if (!json?.ok || !Array.isArray(json.items) || !json.items.length) return;
 
@@ -570,7 +590,6 @@ export default function GuestShopPage() {
           });
         }
       } catch {
-        if (alive) setHeroLoaded(true);
         // Keep the curated fallback so the guest shop stays usable if the catalog table is not ready.
       }
     }
@@ -750,16 +769,17 @@ export default function GuestShopPage() {
   return (
     <main className="guest-shop">
       <section
-        className={heroLoaded ? 'hero hero-ready' : 'hero'}
+        className={heroReady ? 'hero hero-ready' : 'hero'}
         style={heroStyle}
       >
-        {heroLoaded ? (
-          <img
-            className="hero-image"
-            src={hero.hero_image_url}
-            alt="Luxury hotel suite"
-          />
-        ) : null}
+        <img
+          className={heroReady ? 'hero-image hero-image-ready' : 'hero-image'}
+          src={hero.hero_image_url}
+          alt="Luxury hotel suite"
+          loading="eager"
+          decoding="async"
+          onLoad={() => setHeroReady(true)}
+        />
         <div className="hero-shade" />
 
         <header className="nav">
@@ -1163,6 +1183,12 @@ export default function GuestShopPage() {
           padding: clamp(18px, 3vw, 42px);
           box-sizing: border-box;
           z-index: -2;
+          opacity: 0;
+          transition: opacity 260ms ease;
+        }
+
+        .hero-image-ready {
+          opacity: 1;
         }
 
         .hero-shade {
