@@ -23,6 +23,10 @@ type KitchenOrder = {
   kitchen_decision_note: string;
   refund_required: boolean;
   refund_reason: string;
+  print_status?: string;
+  print_requested_at?: string | null;
+  printed_at?: string | null;
+  print_error?: string;
 };
 
 type Profile = {
@@ -40,6 +44,13 @@ function canAccessKitchen(profile: Profile | null) {
   const role = String(profile.role || '').trim().toUpperCase();
   const email = normalizeEmail(profile.email);
   return role === 'SUPERUSER' || role === 'FNB' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+}
+
+function canDeleteKitchenHistory(profile: Profile | null) {
+  if (!profile) return false;
+  const role = String(profile.role || '').trim().toUpperCase();
+  const email = normalizeEmail(profile.email);
+  return role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com';
 }
 
 function money(value: number) {
@@ -78,6 +89,27 @@ function itemSummary(items: any[]) {
   }).join(' | ');
 }
 
+function itemLines(items: any[]) {
+  if (!Array.isArray(items) || !items.length) return [];
+  return items.map((item, index) => {
+    const qty = Number(item?.quantity || 1);
+    const name = String(item?.name || 'Item');
+    const options = Array.isArray(item?.selected_options)
+      ? item.selected_options
+          .flatMap((group: any) => Array.isArray(group?.options) ? group.options.map((option: any) => String(option?.name || '').trim()).filter(Boolean) : [])
+          .join(', ')
+      : '';
+    const note = String(item?.special_instructions || '').trim();
+    return {
+      id: `${name}-${index}`,
+      qty,
+      name,
+      options,
+      note,
+    };
+  });
+}
+
 function secondsLeft(deadline?: string | null) {
   if (!deadline) return 0;
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
@@ -114,6 +146,7 @@ export default function FnbOrdersPage() {
   const pendingCount = pendingOrders.length;
   const promptOrder = pendingOrders[0] || null;
   const access = canAccessKitchen(profile);
+  const canDeleteHistory = canDeleteKitchenHistory(profile);
 
   useEffect(() => {
     let alive = true;
@@ -259,7 +292,13 @@ export default function FnbOrdersPage() {
 
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update order');
-      setMessage(action === 'REJECT' ? 'Order rejected. Marked for refund follow-up.' : 'Order updated.');
+      setMessage(
+        action === 'REJECT'
+          ? 'Order rejected. Marked for refund follow-up.'
+          : action === 'REPRINT'
+            ? 'Order queued for reprint.'
+            : 'Order updated.'
+      );
 
       if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT'].includes(action)) {
         const pendingAfterAction = await loadOrders('PENDING', true);
@@ -272,6 +311,32 @@ export default function FnbOrdersPage() {
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to update order');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function deleteHistoryOrder(order: KitchenOrder) {
+    const confirmed = window.confirm(`Delete F&B history order for Room ${order.room_number || '-'}?`);
+    if (!confirmed) return;
+
+    try {
+      setBusyId(`${order.id}:DELETE`);
+      setError('');
+      setMessage('');
+      const token = await getToken();
+      if (!token) throw new Error('Please log in again');
+
+      const res = await fetch(`/api/guest-shop/kitchen-orders?id=${encodeURIComponent(order.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to delete order');
+      setMessage('History order deleted.');
+      await loadOrders(activeTab, true);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete order');
     } finally {
       setBusyId('');
     }
@@ -346,9 +411,9 @@ export default function FnbOrdersPage() {
       ) : null}
 
       <section style={styles.statsGrid}>
-        <div style={styles.statCard}><span>Pending acceptance</span><strong>{pendingCount}</strong></div>
-        <div style={styles.statCard}><span>Active kitchen orders</span><strong>{orders.filter((order) => ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)).length}</strong></div>
-        <div style={styles.statCard}><span>Refund follow-up</span><strong>{orders.filter((order) => order.refund_required).length}</strong></div>
+        <div style={styles.statCard}><span>Pending Acceptance</span><strong>{pendingCount}</strong><small style={styles.statSubtext}>Needs kitchen decision</small></div>
+        <div style={styles.statCard}><span>In Progress</span><strong>{orders.filter((order) => ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)).length}</strong><small style={styles.statSubtext}>Preparing now</small></div>
+        <div style={styles.statCard}><span>Refund Follow-up</span><strong>{orders.filter((order) => order.refund_required).length}</strong><small style={styles.statSubtext}>Rejected or timed out</small></div>
       </section>
 
       <nav style={styles.tabs}>
@@ -372,24 +437,35 @@ export default function FnbOrdersPage() {
                   ? countdownText(readyRemaining)
                   : `${order.kitchen_ready_minutes || '-'}m`
                 : '-';
+          const lines = itemLines(order.items_json);
+          const isHistory = ['DELIVERED', 'REJECTED', 'AUTO_REJECTED'].includes(order.kitchen_status);
           return (
             <article key={order.id} style={styles.orderCard}>
               <div style={styles.cardHead}>
-                <div>
+                <div style={styles.orderIdentity}>
                   <div style={styles.eyebrow}>Room {order.room_number || '-'}</div>
                   <h2 style={styles.cardTitle}>{order.guest_name || 'Guest'}</h2>
+                  <span style={styles.orderRef}>Payment {order.payment_reference || '-'}</span>
                 </div>
                 <span style={styles.statusBadge}>{statusLabel(order.kitchen_status)}</span>
               </div>
 
               <div style={styles.detailGrid}>
-                <div><span>Total</span><strong>{money(order.total_myr)}</strong></div>
-                <div><span>Paid</span><strong>{formatTime(order.paid_at)}</strong></div>
-                <div><span>Payment Ref</span><strong>{order.payment_reference || '-'}</strong></div>
-                <div><span>{deadlineLabel}</span><strong>{deadlineValue}</strong></div>
+                <div style={styles.detailTile}><span>Total</span><strong>{money(order.total_myr)}</strong></div>
+                <div style={styles.detailTile}><span>Paid</span><strong>{formatTime(order.paid_at)}</strong></div>
+                <div style={styles.detailTile}><span>{deadlineLabel}</span><strong>{deadlineValue}</strong></div>
+                <div style={styles.detailTile}><span>Print</span><strong>{statusLabel(order.print_status || 'NOT_QUEUED')}</strong></div>
               </div>
 
-              <p style={styles.itemsText}>{itemSummary(order.items_json)}</p>
+              <div style={styles.itemsPanel}>
+                {lines.length ? lines.map((line) => (
+                  <div key={line.id} style={styles.itemLine}>
+                    <strong>{line.qty}x {line.name}</strong>
+                    {line.options ? <span style={styles.itemOptions}>{line.options}</span> : null}
+                    {line.note ? <em style={styles.itemNote}>{line.note}</em> : null}
+                  </div>
+                )) : <div style={styles.itemLine}><strong>No items</strong></div>}
+              </div>
 
               {order.refund_required ? (
                 <div style={styles.refundBox}>
@@ -420,6 +496,14 @@ export default function FnbOrdersPage() {
                 {['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status) ? (
                   <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} style={styles.primaryButton}>
                     Delivered
+                  </button>
+                ) : null}
+                <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REPRINT')} style={styles.secondaryButton}>
+                  Reprint Order
+                </button>
+                {isHistory && canDeleteHistory ? (
+                  <button type="button" disabled={!!busyId} onClick={() => deleteHistoryOrder(order)} style={styles.deleteButton}>
+                    Delete History
                   </button>
                 ) : null}
               </div>
@@ -559,170 +643,4 @@ const styles: Record<string, any> = {
     borderRadius: 24,
     background: 'linear-gradient(135deg, #fff7ed 0%, #ffffff 56%, #eff6ff 100%)',
     border: '1px solid #fdba74',
-    boxShadow: '0 24px 70px rgba(234,88,12,0.16)',
-  },
-  promptPulse: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    display: 'grid',
-    placeItems: 'center',
-    background: '#fed7aa',
-    color: '#9a3412',
-    fontSize: 12,
-    fontWeight: 1000,
-    textTransform: 'uppercase',
-  },
-  promptMain: { minWidth: 240, flex: '1 1 340px' },
-  promptTitle: {
-    margin: '4px 0',
-    fontSize: 'clamp(22px, 3vw, 34px)',
-    letterSpacing: 0,
-  },
-  promptItems: {
-    margin: '8px 0',
-    color: '#334155',
-    fontWeight: 900,
-    lineHeight: 1.45,
-  },
-  promptMeta: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    color: '#64748b',
-    fontSize: 13,
-    fontWeight: 900,
-  },
-  promptActions: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-    flex: '1 1 320px',
-  },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
-    gap: 12,
-    marginBottom: 14,
-  },
-  statCard: {
-    padding: 18,
-    borderRadius: 18,
-    background: 'linear-gradient(135deg, #ffffff, #f8fbff)',
-    border: '1px solid #d6e2f1',
-    boxShadow: '0 18px 45px rgba(15,23,42,0.06)',
-  },
-  tabs: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    marginBottom: 14,
-    padding: 6,
-    borderRadius: 18,
-    background: '#eaf3ff',
-    width: 'fit-content',
-    maxWidth: '100%',
-  },
-  tabButton: {
-    minHeight: 42,
-    padding: '0 16px',
-    borderRadius: 13,
-    border: 0,
-    background: 'transparent',
-    color: '#334155',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  activeTab: {
-    minHeight: 42,
-    padding: '0 16px',
-    borderRadius: 13,
-    border: 0,
-    background: '#2563eb',
-    color: '#fff',
-    fontWeight: 900,
-    cursor: 'pointer',
-    boxShadow: '0 12px 26px rgba(37,99,235,0.22)',
-  },
-  orderList: { display: 'grid', gap: 12 },
-  orderCard: {
-    padding: 'clamp(14px, 2.2vw, 18px)',
-    borderRadius: 22,
-    background: 'linear-gradient(135deg, #ffffff, #fbfdff)',
-    border: '1px solid #d6e2f1',
-    boxShadow: '0 22px 58px rgba(15,23,42,0.07)',
-  },
-  cardHead: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-    flexWrap: 'wrap',
-    marginBottom: 12,
-  },
-  cardTitle: { margin: '4px 0', fontSize: 26 },
-  statusBadge: {
-    padding: '8px 12px',
-    borderRadius: 999,
-    background: '#eef6ff',
-    color: '#1d4ed8',
-    fontSize: 12,
-    fontWeight: 900,
-  },
-  detailGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))',
-    gap: 10,
-    marginBottom: 12,
-  },
-  itemsText: {
-    margin: '12px 0',
-    padding: 12,
-    borderRadius: 16,
-    background: '#f8fbff',
-    border: '1px solid #e2eaf4',
-    color: '#334155',
-    fontWeight: 800,
-    lineHeight: 1.5,
-  },
-  refundBox: {
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 16,
-    background: '#fff7ed',
-    border: '1px solid #fed7aa',
-    color: '#9a3412',
-    fontWeight: 900,
-  },
-  actions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  primaryButton: {
-    minHeight: 42,
-    padding: '0 14px',
-    borderRadius: 13,
-    border: 0,
-    background: '#2563eb',
-    color: '#fff',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  dangerButton: {
-    minHeight: 42,
-    padding: '0 14px',
-    borderRadius: 13,
-    border: '1px solid #fecaca',
-    background: '#fff1f2',
-    color: '#b91c1c',
-    fontWeight: 900,
-    cursor: 'pointer',
-  },
-  emptyState: {
-    padding: 28,
-    borderRadius: 22,
-    background: '#fff',
-    border: '1px dashed #bfd1e5',
-    color: '#64748b',
-    textAlign: 'center',
-    fontWeight: 900,
-  },
-};
+    boxShadow: 
