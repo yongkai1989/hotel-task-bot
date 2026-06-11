@@ -330,6 +330,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const requestedScope = String(req.nextUrl.searchParams.get('scope') || '').trim().toLowerCase();
     const { user, error: authError } = await getDashboardUserFromRequest(req);
     if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
     if (!canFullManageGuestShop(user)) {
@@ -338,6 +339,13 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const payload = normalizeItemPayload(body);
+    if (requestedScope === 'shop' && payload.is_fnb) {
+      return jsonNoCache({ ok: false, error: 'Use F&B Menu Admin to create F&B menu items' }, 400);
+    }
+    if (requestedScope === 'fnb') {
+      payload.category = 'F&B';
+      payload.is_fnb = true;
+    }
     const { data, error } = await supabaseAdmin
       .from('guest_shop_items')
       .insert(payload)
@@ -356,6 +364,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
+    const requestedScope = String(req.nextUrl.searchParams.get('scope') || '').trim().toLowerCase();
     const { user, error: authError } = await getDashboardUserFromRequest(req);
     if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
     const canFullManage = canFullManageGuestShop(user);
@@ -400,6 +409,13 @@ export async function PUT(req: NextRequest) {
     }
 
     const payload = normalizeItemPayload(body);
+    if (requestedScope === 'shop' && payload.is_fnb) {
+      return jsonNoCache({ ok: false, error: 'Use F&B Menu Admin to update F&B menu items' }, 400);
+    }
+    if (requestedScope === 'fnb') {
+      payload.category = 'F&B';
+      payload.is_fnb = true;
+    }
     const { data, error } = await supabaseAdmin
       .from('guest_shop_items')
       .update(payload)
