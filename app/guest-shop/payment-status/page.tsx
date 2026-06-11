@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+type LanguageCode = 'en' | 'ms' | 'zh';
+
 type OrderStatus = {
   id: string;
   room_number: string;
@@ -22,6 +24,95 @@ type OrderedItem = {
   lineTotal: number;
 };
 
+const COPY: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    hotel: 'Hallmark Crown Hotel',
+    paymentVerified: 'Payment verified',
+    paymentVerifiedBody: 'Your order has been received by Front Office.',
+    paymentFailed: 'Payment not completed',
+    paymentFailedBody: 'No confirmed order was released. Please try again or contact Front Office.',
+    confirmingPayment: 'Confirming payment',
+    confirmingPaymentBody: 'We are waiting for the payment confirmation from Billplz. This usually takes a moment.',
+    checkingPayment: 'Checking payment',
+    checkingPaymentBody: 'Please wait while we verify your order.',
+    nextStep: 'Next step',
+    nextStepBody: 'Press Send to Front Desk to send your order details to our team.',
+    room: 'Room',
+    guest: 'Guest',
+    total: 'Total',
+    paymentRef: 'Payment Ref',
+    itemsOrdered: 'Items ordered',
+    item: 'item',
+    items: 'items',
+    noItemDetails: 'No item details available',
+    note: 'Note',
+    sendDesk: 'Send to Front Desk',
+    backShop: 'Back to shop',
+    missingOrder: 'Missing order reference.',
+    unableLoadOrder: 'Unable to load order status',
+    unableLoadPayment: 'Unable to load payment status',
+  },
+  ms: {
+    hotel: 'Hallmark Crown Hotel',
+    paymentVerified: 'Bayaran disahkan',
+    paymentVerifiedBody: 'Pesanan anda telah diterima oleh Front Office.',
+    paymentFailed: 'Bayaran tidak lengkap',
+    paymentFailedBody: 'Tiada pesanan yang disahkan. Sila cuba lagi atau hubungi Front Office.',
+    confirmingPayment: 'Mengesahkan bayaran',
+    confirmingPaymentBody: 'Kami sedang menunggu pengesahan bayaran daripada Billplz. Ini biasanya mengambil sedikit masa.',
+    checkingPayment: 'Menyemak bayaran',
+    checkingPaymentBody: 'Sila tunggu sementara kami mengesahkan pesanan anda.',
+    nextStep: 'Langkah seterusnya',
+    nextStepBody: 'Tekan Hantar ke Front Desk untuk menghantar butiran pesanan kepada pasukan kami.',
+    room: 'Bilik',
+    guest: 'Tetamu',
+    total: 'Jumlah',
+    paymentRef: 'Rujukan Bayaran',
+    itemsOrdered: 'Item dipesan',
+    item: 'item',
+    items: 'item',
+    noItemDetails: 'Butiran item tidak tersedia',
+    note: 'Nota',
+    sendDesk: 'Hantar ke Front Desk',
+    backShop: 'Kembali ke kedai',
+    missingOrder: 'Rujukan pesanan tiada.',
+    unableLoadOrder: 'Tidak dapat memuat status pesanan',
+    unableLoadPayment: 'Tidak dapat memuat status bayaran',
+  },
+  zh: {
+    hotel: 'Hallmark Crown Hotel',
+    paymentVerified: '付款已确认',
+    paymentVerifiedBody: '您的订单已发送给前台。',
+    paymentFailed: '付款未完成',
+    paymentFailedBody: '订单尚未确认。请重试或联系前台。',
+    confirmingPayment: '正在确认付款',
+    confirmingPaymentBody: '我们正在等待 Billplz 的付款确认，通常只需片刻。',
+    checkingPayment: '正在检查付款',
+    checkingPaymentBody: '请稍候，我们正在确认您的订单。',
+    nextStep: '下一步',
+    nextStepBody: '请点击“发送至前台”，把订单资料发送给酒店团队。',
+    room: '房号',
+    guest: '住客',
+    total: '总额',
+    paymentRef: '付款编号',
+    itemsOrdered: '已订商品',
+    item: '件商品',
+    items: '件商品',
+    noItemDetails: '暂无商品详情',
+    note: '备注',
+    sendDesk: '发送至前台',
+    backShop: '返回商店',
+    missingOrder: '缺少订单编号。',
+    unableLoadOrder: '无法读取订单状态',
+    unableLoadPayment: '无法读取付款状态',
+  },
+};
+
+function itemWord(language: LanguageCode, count: number) {
+  if (language === 'zh') return COPY.zh.items;
+  return count === 1 ? COPY[language].item : COPY[language].items;
+}
+
 function money(value: number) {
   return `RM${Number(value || 0).toLocaleString('en-MY', {
     minimumFractionDigits: 2,
@@ -29,26 +120,27 @@ function money(value: number) {
   })}`;
 }
 
-function statusCopy(status: string) {
+function statusCopy(status: string, language: LanguageCode) {
+  const t = COPY[language];
   if (status === 'PAID' || status === 'FULFILLED') {
     return {
-      title: 'Payment verified',
-      body: 'Your order has been received by Front Office.',
+      title: t.paymentVerified,
+      body: t.paymentVerifiedBody,
       tone: 'success',
     };
   }
 
   if (status === 'FAILED' || status === 'CANCELLED') {
     return {
-      title: 'Payment not completed',
-      body: 'No confirmed order was released. Please try again or contact Front Office.',
+      title: t.paymentFailed,
+      body: t.paymentFailedBody,
       tone: 'danger',
     };
   }
 
   return {
-    title: 'Confirming payment',
-    body: 'We are waiting for the payment confirmation from Billplz. This usually takes a moment.',
+    title: t.confirmingPayment,
+    body: t.confirmingPaymentBody,
     tone: 'pending',
   };
 }
@@ -141,6 +233,7 @@ function whatsappUrl(order: OrderStatus | null) {
 }
 
 export default function GuestShopPaymentStatusPage() {
+  const [language, setLanguage] = useState<LanguageCode>('en');
   const [order, setOrder] = useState<OrderStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -148,6 +241,8 @@ export default function GuestShopPaymentStatusPage() {
 
   useEffect(() => {
     setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
+    const saved = window.localStorage.getItem('guestShopLanguage') as LanguageCode | null;
+    if (saved === 'en' || saved === 'ms' || saved === 'zh') setLanguage(saved);
   }, []);
 
   useEffect(() => {
@@ -159,7 +254,7 @@ export default function GuestShopPaymentStatusPage() {
       if (orderId === null) return;
 
       if (!orderId) {
-        setError('Missing order reference.');
+        setError(COPY[language].missingOrder);
         setLoading(false);
         return;
       }
@@ -171,7 +266,7 @@ export default function GuestShopPaymentStatusPage() {
         const json = await res.json().catch(() => ({}));
         if (!alive) return;
 
-        if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load order status');
+        if (!res.ok || !json?.ok) throw new Error(json?.error || COPY[language].unableLoadOrder);
 
         setOrder(json.order);
         setError('');
@@ -184,7 +279,7 @@ export default function GuestShopPaymentStatusPage() {
         }
       } catch (err: any) {
         if (!alive) return;
-        setError(err?.message || 'Unable to load payment status');
+        setError(err?.message || COPY[language].unableLoadPayment);
         setLoading(false);
       }
     }
@@ -195,9 +290,10 @@ export default function GuestShopPaymentStatusPage() {
       alive = false;
       if (timer) clearTimeout(timer);
     };
-  }, [orderId]);
+  }, [orderId, language]);
 
-  const copy = statusCopy(order?.status || 'PENDING_PAYMENT');
+  const t = COPY[language];
+  const copy = statusCopy(order?.status || 'PENDING_PAYMENT', language);
   const orderedItems = orderItems(order?.items_json || []);
   const shouldSendToDesk =
     order?.status === 'PAID' || order?.status === 'FULFILLED' || order?.status === 'PENDING_PAYMENT';
@@ -209,14 +305,14 @@ export default function GuestShopPaymentStatusPage() {
           {copy.tone === 'success' ? 'OK' : copy.tone === 'danger' ? '!' : '...'}
         </div>
 
-        <p className="eyebrow">Hallmark Crown Hotel</p>
-        <h1>{loading ? 'Checking payment' : copy.title}</h1>
-        <p>{loading ? 'Please wait while we verify your order.' : copy.body}</p>
+        <p className="eyebrow">{t.hotel}</p>
+        <h1>{loading ? t.checkingPayment : copy.title}</h1>
+        <p>{loading ? t.checkingPaymentBody : copy.body}</p>
 
         {!loading && shouldSendToDesk ? (
           <div className="next-step">
-            <strong>Next step</strong>
-            <span>Press Send to Front Desk to send your order details to our team.</span>
+            <strong>{t.nextStep}</strong>
+            <span>{t.nextStepBody}</span>
           </div>
         ) : null}
 
@@ -226,27 +322,27 @@ export default function GuestShopPaymentStatusPage() {
           <>
             <div className="receipt">
               <div>
-                <span>Room</span>
+                <span>{t.room}</span>
                 <strong>{order.room_number || '-'}</strong>
               </div>
               <div>
-                <span>Guest</span>
+                <span>{t.guest}</span>
                 <strong>{order.guest_name || '-'}</strong>
               </div>
               <div>
-                <span>Total</span>
+                <span>{t.total}</span>
                 <strong>{money(order.total_myr)}</strong>
               </div>
               <div>
-                <span>Payment Ref</span>
+                <span>{t.paymentRef}</span>
                 <strong>{order.payment_reference || '-'}</strong>
               </div>
             </div>
 
             <div className="ordered-items">
               <div className="ordered-items-head">
-                <span>Items ordered</span>
-                <strong>{orderedItems.length} item{orderedItems.length === 1 ? '' : 's'}</strong>
+                <span>{t.itemsOrdered}</span>
+                <strong>{orderedItems.length} {itemWord(language, orderedItems.length)}</strong>
               </div>
               {orderedItems.length ? (
                 orderedItems.map((item) => (
@@ -254,14 +350,14 @@ export default function GuestShopPaymentStatusPage() {
                     <span>
                       {item.quantity}x {item.name}
                       {item.options ? <small>{item.options}</small> : null}
-                      {item.instructions ? <small>Note: {item.instructions}</small> : null}
+                      {item.instructions ? <small>{t.note}: {item.instructions}</small> : null}
                     </span>
                     <strong>{item.lineTotal > 0 ? money(item.lineTotal) : '-'}</strong>
                   </div>
                 ))
               ) : (
                 <div className="ordered-item">
-                  <span>No item details available</span>
+                  <span>{t.noItemDetails}</span>
                   <strong>-</strong>
                 </div>
               )}
@@ -271,9 +367,9 @@ export default function GuestShopPaymentStatusPage() {
 
         <div className="actions">
           <a href={whatsappUrl(order)} target="_blank" rel="noopener noreferrer">
-            Send to Front Desk
+            {t.sendDesk}
           </a>
-          <a href="/guest-shop">Back to shop</a>
+          <a href="/guest-shop">{t.backShop}</a>
         </div>
       </section>
 
