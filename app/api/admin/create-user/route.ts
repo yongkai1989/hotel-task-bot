@@ -26,13 +26,17 @@ type CreateBody = {
   can_access_linen_history?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_commission_checker?: boolean;
   can_access_admin_settings?: boolean;
+  can_access_guest_shop_admin?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_supervisor_checklist?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
   can_access_fnb_checklist?: boolean;
+  can_access_fnb_menu_admin?: boolean;
+  can_access_fnb_orders?: boolean;
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
@@ -85,7 +89,9 @@ function withPermissions(row: any) {
     can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
     can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
+    can_access_commission_checker: toPermissionBoolean(row.can_access_commission_checker),
     can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
+    can_access_guest_shop_admin: toPermissionBoolean(row.can_access_guest_shop_admin),
     can_access_lost_found: toPermissionBoolean(row.can_access_lost_found),
     can_access_supervisor_checklist: toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_checklist:
@@ -107,6 +113,16 @@ function withPermissions(row: any) {
       toPermissionBoolean(row.can_access_guest_laundry),
     can_access_fnb_checklist:
       role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com',
+    can_access_fnb_menu_admin:
+      role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_fnb_menu_admin),
+    can_access_fnb_orders:
+      role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_fnb_orders),
     can_access_pa_checklist:
       role === 'SUPERUSER' ||
       email === 'pa@hotelhallmark.com' ||
@@ -208,8 +224,12 @@ export async function POST(req: NextRequest) {
       can_access_linen_history: toPermissionBoolean(body.can_access_linen_history),
       can_access_daily_forms: toPermissionBoolean(body.can_access_daily_forms),
       can_access_management_tasks: toPermissionBoolean(body.can_access_management_tasks),
+      can_access_commission_checker:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_commission_checker),
       can_access_admin_settings:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_admin_settings),
+      can_access_guest_shop_admin:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_guest_shop_admin),
       can_access_lost_found:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_lost_found),
       can_access_supervisor_checklist:
@@ -222,6 +242,10 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_guest_laundry),
       can_access_fnb_checklist:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fnb_checklist),
+      can_access_fnb_menu_admin:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fnb_menu_admin),
+      can_access_fnb_orders:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fnb_orders),
       can_access_pa_checklist:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_pa_checklist),
       can_access_pa_linen_entry:
@@ -249,13 +273,17 @@ export async function POST(req: NextRequest) {
       payload.can_access_linen_history = true;
       payload.can_access_daily_forms = true;
       payload.can_access_management_tasks = true;
+      payload.can_access_commission_checker = true;
       payload.can_access_admin_settings = true;
+      payload.can_access_guest_shop_admin = true;
       payload.can_access_lost_found = true;
       payload.can_access_supervisor_checklist = true;
       payload.can_access_fo_checklist = true;
       payload.can_access_price_guide = true;
       payload.can_access_guest_laundry = true;
       payload.can_access_fnb_checklist = true;
+      payload.can_access_fnb_menu_admin = true;
+      payload.can_access_fnb_orders = true;
       payload.can_access_pa_checklist = true;
       payload.can_access_pa_linen_entry = true;
       payload.can_create_task = true;
@@ -288,13 +316,17 @@ export async function POST(req: NextRequest) {
         can_access_linen_history,
         can_access_daily_forms,
         can_access_management_tasks,
+        can_access_commission_checker,
         can_access_admin_settings,
+        can_access_guest_shop_admin,
         can_access_lost_found,
         can_access_supervisor_checklist,
         can_access_fo_checklist,
         can_access_price_guide,
         can_access_guest_laundry,
         can_access_fnb_checklist,
+        can_access_fnb_menu_admin,
+        can_access_fnb_orders,
         can_access_pa_checklist,
         can_access_pa_linen_entry,
         can_create_task,
