@@ -33,6 +33,7 @@ type Profile = {
   email: string;
   name: string;
   role: string;
+  can_access_fnb_orders?: boolean;
 };
 
 function normalizeEmail(value: unknown) {
@@ -43,7 +44,13 @@ function canAccessKitchen(profile: Profile | null) {
   if (!profile) return false;
   const role = String(profile.role || '').trim().toUpperCase();
   const email = normalizeEmail(profile.email);
-  return role === 'SUPERUSER' || role === 'FNB' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+  return (
+    role === 'SUPERUSER' ||
+    role === 'FNB' ||
+    profile.can_access_fnb_orders === true ||
+    email === 'fnb@hotelhallmark.com' ||
+    email === 'fenny@hotelhallmark.com'
+  );
 }
 
 function canDeleteKitchenHistory(profile: Profile | null) {
@@ -168,6 +175,7 @@ export default function FnbOrdersPage() {
           email: normalizeEmail(json.user?.email),
           name: String(json.user?.name || json.user?.email || 'User'),
           role: String(json.user?.role || '').toUpperCase(),
+          can_access_fnb_orders: json.user?.can_access_fnb_orders === true,
         });
       } catch (err: any) {
         if (alive) setError(err?.message || 'Failed to load F&B kitchen page');
