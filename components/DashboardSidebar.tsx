@@ -739,12 +739,15 @@ export default function DashboardSidebar({
     !!effectiveProfile?.can_access_lost_found;
   const canSeePriceGuide = !!effectiveProfile?.can_access_price_guide;
   const canSeeGuestLaundry = !!effectiveProfile?.can_access_guest_laundry;
-  const canSeeGuestShopAdmin =
+  const canSeeFoGuestShopAdmin =
     effectiveRole === 'SUPERUSER' ||
     effectiveRole === 'FO' ||
     effectiveRole === 'MANAGER' ||
-    effectiveRole === 'FNB' ||
     effectiveEmail === 'walter@hotelhallmark.com' ||
+    effectiveEmail === 'fenny@hotelhallmark.com';
+  const canSeeFnbMenuAdmin =
+    effectiveRole === 'SUPERUSER' ||
+    effectiveRole === 'FNB' ||
     effectiveEmail === 'fenny@hotelhallmark.com' ||
     effectiveEmail === 'fnb@hotelhallmark.com';
   const canSeeFnbChecklist = !!effectiveProfile?.can_access_fnb_checklist;
@@ -789,8 +792,8 @@ export default function DashboardSidebar({
     canSeeFoChecklist ||
     canSeePriceGuide ||
     canSeeGuestLaundry ||
-    canSeeGuestShopAdmin;
-  const showFnbGroup = canSeeFnbChecklist || canSeeGuestShopAdmin || canSeeFnbOrders;
+    canSeeFoGuestShopAdmin;
+  const showFnbGroup = canSeeFnbChecklist || canSeeFnbMenuAdmin || canSeeFnbOrders;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -1333,9 +1336,9 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeGuestShopAdmin ? (
+              {canSeeFoGuestShopAdmin ? (
                 <Link
-                  href="/dashboard/guest-shop-admin"
+                  href="/dashboard/guest-shop-admin?scope=shop"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
@@ -1417,9 +1420,9 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeGuestShopAdmin ? (
+              {canSeeFnbMenuAdmin ? (
                 <Link
-                  href="/dashboard/guest-shop-admin"
+                  href="/dashboard/guest-shop-admin?scope=fnb"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
