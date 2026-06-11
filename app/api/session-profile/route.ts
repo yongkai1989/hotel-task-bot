@@ -32,7 +32,9 @@ const PROFILE_SELECT = `
   can_access_linen_history,
   can_access_daily_forms,
   can_access_management_tasks,
+  can_access_commission_checker,
   can_access_admin_settings,
+  can_access_guest_shop_admin,
   can_access_linen_admin,
   can_access_lost_found,
   can_access_fo_checklist,
@@ -40,6 +42,8 @@ const PROFILE_SELECT = `
   can_access_price_guide,
   can_access_guest_laundry,
   can_access_fnb_checklist,
+  can_access_fnb_menu_admin,
+  can_access_fnb_orders,
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   updated_at
@@ -107,13 +111,17 @@ const permissionKeys = [
   'can_access_linen_history',
   'can_access_daily_forms',
   'can_access_management_tasks',
+  'can_access_commission_checker',
   'can_access_admin_settings',
+  'can_access_guest_shop_admin',
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_supervisor_checklist',
   'can_access_price_guide',
   'can_access_guest_laundry',
   'can_access_fnb_checklist',
+  'can_access_fnb_menu_admin',
+  'can_access_fnb_orders',
   'can_access_pa_checklist',
   'can_access_pa_linen_entry',
 ];
@@ -183,8 +191,12 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_daily_forms),
     can_access_management_tasks:
       effectiveBoolean(role, profile.can_access_management_tasks),
+    can_access_commission_checker:
+      effectiveBoolean(role, profile.can_access_commission_checker),
     can_access_admin_settings:
       effectiveBoolean(role, profile.can_access_admin_settings),
+    can_access_guest_shop_admin:
+      effectiveBoolean(role, profile.can_access_guest_shop_admin),
     can_access_linen_admin:
       effectiveBoolean(role, profile.can_access_linen_admin),
     can_access_lost_found:
@@ -208,6 +220,26 @@ function buildUser(profile: any, authEmail: string) {
       (() => {
         const email = String(profile.email || authEmail || '').trim().toLowerCase();
         return role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+      })(),
+    can_access_fnb_menu_admin:
+      (() => {
+        const email = String(profile.email || authEmail || '').trim().toLowerCase();
+        return (
+          role === 'SUPERUSER' ||
+          email === 'fnb@hotelhallmark.com' ||
+          email === 'fenny@hotelhallmark.com' ||
+          toPermissionBoolean(profile.can_access_fnb_menu_admin)
+        );
+      })(),
+    can_access_fnb_orders:
+      (() => {
+        const email = String(profile.email || authEmail || '').trim().toLowerCase();
+        return (
+          role === 'SUPERUSER' ||
+          email === 'fnb@hotelhallmark.com' ||
+          email === 'fenny@hotelhallmark.com' ||
+          toPermissionBoolean(profile.can_access_fnb_orders)
+        );
       })(),
     can_access_pa_checklist: (() => {
       const email = String(profile.email || authEmail || '').trim().toLowerCase();
