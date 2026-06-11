@@ -271,7 +271,8 @@ function canManageFnbStock(profile: Profile | null) {
 }
 
 function itemIsFnb(item: ShopItem | null) {
-  return item?.is_fnb === true || String(item?.category || '').trim().toLowerCase() === 'f&b';
+  const category = String(item?.category || '').trim().toLowerCase();
+  return item?.is_fnb === true || category === 'f&b' || category.includes('f&b') || category.includes('food');
 }
 
 function itemMatchesScope(item: ShopItem, scope: AdminScope) {
@@ -1297,12 +1298,6 @@ export default function GuestShopAdminPage() {
           </p>
         </div>
         <div style={styles.heroActions}>
-          {isFnbScope && canViewShopSkuAdmin ? (
-            <Link href="/dashboard/guest-shop-admin?scope=shop" style={styles.lightButton}>Open Guest Shop Admin</Link>
-          ) : null}
-          {!isFnbScope && canViewFnbMenuAdmin ? (
-            <Link href="/dashboard/guest-shop-admin?scope=fnb" style={styles.lightButton}>Open F&B Menu Admin</Link>
-          ) : null}
           <Link href="/guest-shop" target="_blank" style={styles.lightButton}>Preview Shop</Link>
           <Link href="/dashboard" style={styles.lightButton}>Back</Link>
         </div>
