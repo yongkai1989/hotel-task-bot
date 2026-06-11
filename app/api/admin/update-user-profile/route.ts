@@ -27,13 +27,17 @@ type UpdateBody = {
   can_access_linen_history?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_commission_checker?: boolean;
   can_access_admin_settings?: boolean;
+  can_access_guest_shop_admin?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_supervisor_checklist?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
   can_access_fnb_checklist?: boolean;
+  can_access_fnb_menu_admin?: boolean;
+  can_access_fnb_orders?: boolean;
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
@@ -58,13 +62,17 @@ const permissionKeys = [
   'can_access_linen_history',
   'can_access_daily_forms',
   'can_access_management_tasks',
+  'can_access_commission_checker',
   'can_access_admin_settings',
+  'can_access_guest_shop_admin',
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_supervisor_checklist',
   'can_access_price_guide',
   'can_access_guest_laundry',
   'can_access_fnb_checklist',
+  'can_access_fnb_menu_admin',
+  'can_access_fnb_orders',
   'can_access_pa_checklist',
   'can_access_pa_linen_entry',
   'can_create_task',
@@ -96,13 +104,17 @@ const profileSelect = `
   can_access_linen_history,
   can_access_daily_forms,
   can_access_management_tasks,
+  can_access_commission_checker,
   can_access_admin_settings,
+  can_access_guest_shop_admin,
   can_access_lost_found,
   can_access_fo_checklist,
   can_access_supervisor_checklist,
   can_access_price_guide,
   can_access_guest_laundry,
   can_access_fnb_checklist,
+  can_access_fnb_menu_admin,
+  can_access_fnb_orders,
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   can_create_task,
@@ -180,8 +192,12 @@ function withPermissions(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_daily_forms),
     can_access_management_tasks:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_management_tasks),
+    can_access_commission_checker:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_commission_checker),
     can_access_admin_settings:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_admin_settings),
+    can_access_guest_shop_admin:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_guest_shop_admin),
     can_access_lost_found:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_lost_found),
     can_access_supervisor_checklist:
@@ -205,6 +221,16 @@ function withPermissions(row: any) {
       toPermissionBoolean(row.can_access_guest_laundry),
     can_access_fnb_checklist:
       role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com',
+    can_access_fnb_menu_admin:
+      role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_fnb_menu_admin),
+    can_access_fnb_orders:
+      role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_fnb_orders),
     can_access_pa_checklist:
       role === 'SUPERUSER' ||
       email === 'pa@hotelhallmark.com' ||
