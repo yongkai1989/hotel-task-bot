@@ -47,6 +47,10 @@ function canViewGuestShopAdmin(user: any) {
   );
 }
 
+function isFnbItem(row: any) {
+  return row?.is_fnb === true || String(row?.category || '').trim().toLowerCase() === 'f&b';
+}
+
 function rejectEmbeddedImageUrl(value: string, label: string) {
   if (value.startsWith('data:') || value.length > 2000) {
     throw new Error(`${label} must be uploaded first or saved as a normal hosted image URL`);
@@ -270,6 +274,9 @@ async function replaceOptionGroups(itemId: string, value: any) {
 export async function GET(req: NextRequest) {
   try {
     const includeInactive = req.nextUrl.searchParams.get('include_inactive') === '1';
+    const requestedScope = String(req.nextUrl.searchParams.get('scope') || '').trim().toLowerCase();
+    let scope: 'all' | 'shop' | 'fnb' =
+      requestedScope === 'fnb' ? 'fnb' : requestedScope === 'shop' ? 'shop' : 'all';
 
     if (includeInactive) {
       const { user, error: authError } = await getDashboardUserFromRequest(req);
@@ -278,6 +285,12 @@ export async function GET(req: NextRequest) {
       }
       if (!canViewGuestShopAdmin(user)) {
         return jsonNoCache({ ok: false, error: 'Guest Shop Admin access denied' }, 403);
+      }
+      if (scope === 'fnb' && !canFullManageGuestShop(user) && !canManageFnbStock(user)) {
+        return jsonNoCache({ ok: false, error: 'F&B Menu Admin access denied' }, 403);
+      }
+      if (!canFullManageGuestShop(user) && canManageFnbStock(user)) {
+        scope = 'fnb';
       }
     }
 
@@ -294,11 +307,18 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query;
     if (error) throw error;
 
-    const groupsByItemId = await loadOptionGroups((data || []).map((row: any) => String(row.id)));
+    const scopedData = (data || []).filter((row: any) => {
+      if (scope === 'fnb') return isFnbItem(row);
+      if (scope === 'shop') return !isFnbItem(row);
+      return true;
+    });
+
+    const groupsByItemId = await loadOptionGroups(scopedData.map((row: any) => String(row.id)));
 
     return jsonNoCache({
       ok: true,
-      items: (data || []).map((row: any) => normalizeItem(row, groupsByItemId.get(String(row.id)) || [])),
+      scope,
+      items: scopedData.map((row: any) => normalizeItem(row, groupsByItemId.get(String(row.id)) || [])),
     });
   } catch (error: any) {
     return jsonNoCache(
