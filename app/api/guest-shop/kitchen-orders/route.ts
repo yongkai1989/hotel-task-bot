@@ -1,646 +1,254 @@
-'use client';
+import { NextRequest, NextResponse } from 'next/server';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
-import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+export const runtime = 'nodejs';
 
-type KitchenOrder = {
-  id: string;
-  room_number: string;
-  guest_name: string;
-  status: string;
-  payment_reference: string;
-  total_myr: number;
-  items_json: any[];
-  paid_at: string | null;
-  created_at: string | null;
-  kitchen_status: string;
-  kitchen_requested_at: string | null;
-  kitchen_accept_deadline_at: string | null;
-  kitchen_accepted_at: string | null;
-  kitchen_ready_minutes: number | null;
-  kitchen_decision_by: string;
-  kitchen_decision_note: string;
-  refund_required: boolean;
-  refund_reason: string;
-  print_status?: string;
-  print_requested_at?: string | null;
-  printed_at?: string | null;
-  print_error?: string;
-};
-
-type Profile = {
-  email: string;
-  name: string;
-  role: string;
-};
+function jsonNoCache(body: any, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    },
+  });
+}
 
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canAccessKitchen(profile: Profile | null) {
-  if (!profile) return false;
-  const role = String(profile.role || '').trim().toUpperCase();
-  const email = normalizeEmail(profile.email);
-  return role === 'SUPERUSER' || role === 'FNB' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
-}
-
-function canDeleteKitchenHistory(profile: Profile | null) {
-  if (!profile) return false;
-  const role = String(profile.role || '').trim().toUpperCase();
-  const email = normalizeEmail(profile.email);
-  return role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com';
-}
-
-function money(value: number) {
-  return `RM${Number(value || 0).toLocaleString('en-MY', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function formatTime(value?: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function statusLabel(value: string) {
-  return String(value || '').replace(/_/g, ' ');
-}
-
-function itemSummary(items: any[]) {
-  if (!Array.isArray(items) || !items.length) return 'No items';
-  return items.map((item) => {
-    const qty = Number(item?.quantity || 1);
-    const name = String(item?.name || 'Item');
-    const options = Array.isArray(item?.selected_options)
-      ? item.selected_options
-          .flatMap((group: any) => Array.isArray(group?.options) ? group.options.map((option: any) => String(option?.name || '').trim()).filter(Boolean) : [])
-          .join(', ')
-      : '';
-    const note = String(item?.special_instructions || '').trim();
-    return `${qty}x ${name}${options ? ` (${options})` : ''}${note ? ` - ${note}` : ''}`;
-  }).join(' | ');
-}
-
-function itemLines(items: any[]) {
-  if (!Array.isArray(items) || !items.length) return [];
-  return items.map((item, index) => {
-    const qty = Number(item?.quantity || 1);
-    const name = String(item?.name || 'Item');
-    const options = Array.isArray(item?.selected_options)
-      ? item.selected_options
-          .flatMap((group: any) => Array.isArray(group?.options) ? group.options.map((option: any) => String(option?.name || '').trim()).filter(Boolean) : [])
-          .join(', ')
-      : '';
-    const note = String(item?.special_instructions || '').trim();
-    return {
-      id: `${name}-${index}`,
-      qty,
-      name,
-      options,
-      note,
-    };
-  });
-}
-
-function secondsLeft(deadline?: string | null) {
-  if (!deadline) return 0;
-  return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
-}
-
-function readyDeadline(order: KitchenOrder) {
-  if (!order.kitchen_accepted_at || !order.kitchen_ready_minutes) return null;
-  return new Date(
-    new Date(order.kitchen_accepted_at).getTime() + Number(order.kitchen_ready_minutes || 0) * 60 * 1000
-  ).toISOString();
-}
-
-function countdownText(seconds: number) {
-  if (seconds <= 0) return 'Ready now';
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-}
-
-const CUSTOM_ALARM_SRC = '/sounds/fnb-order-alert.mp3';
-
-export default function FnbOrdersPage() {
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const alarmRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [orders, setOrders] = useState<KitchenOrder[]>([]);
-  const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PENDING' | 'HISTORY'>('PENDING');
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [alarmEnabled, setAlarmEnabled] = useState(true);
-  const [tick, setTick] = useState(0);
-
-  const pendingOrders = orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE');
-  const pendingCount = pendingOrders.length;
-  const promptOrder = pendingOrders[0] || null;
-  const access = canAccessKitchen(profile);
-  const canDeleteHistory = canDeleteKitchenHistory(profile);
-
-  useEffect(() => {
-    let alive = true;
-
-    async function init() {
-      try {
-        const token = await getToken();
-        if (!token) throw new Error('Please log in again');
-
-        const res = await fetch('/api/session-profile', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json();
-        if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load profile');
-
-        if (!alive) return;
-        setProfile({
-          email: normalizeEmail(json.user?.email),
-          name: String(json.user?.name || json.user?.email || 'User'),
-          role: String(json.user?.role || '').toUpperCase(),
-        });
-      } catch (err: any) {
-        if (alive) setError(err?.message || 'Failed to load F&B kitchen page');
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }
-
-    init();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!access) return;
-    loadOrders();
-    const interval = setInterval(loadOrders, 5000);
-    return () => clearInterval(interval);
-  }, [access, activeTab]);
-
-  useEffect(() => {
-    const interval = setInterval(() => setTick((current) => current + 1), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!alarmEnabled || pendingCount <= 0) {
-      if (alarmRef.current) clearInterval(alarmRef.current);
-      alarmRef.current = null;
-      return;
-    }
-
-    if (alarmRef.current) return;
-
-    async function playAlarmOnce() {
-      try {
-        const audio = new Audio(CUSTOM_ALARM_SRC);
-        audio.volume = 0.85;
-        await audio.play();
-        return;
-      } catch {
-        try {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (!AudioContextClass) return;
-          const context = new AudioContextClass();
-          const oscillator = context.createOscillator();
-          const gain = context.createGain();
-          oscillator.type = 'sine';
-          oscillator.frequency.value = 880;
-          gain.gain.value = 0.08;
-          oscillator.connect(gain);
-          gain.connect(context.destination);
-          oscillator.start();
-          setTimeout(() => {
-            oscillator.stop();
-            context.close();
-          }, 220);
-        } catch {
-          // Browser audio can be blocked without user interaction.
-        }
-      }
-    }
-
-    playAlarmOnce();
-    alarmRef.current = setInterval(playAlarmOnce, 4500);
-
-    return () => {
-      if (alarmRef.current) clearInterval(alarmRef.current);
-      alarmRef.current = null;
-    };
-  }, [alarmEnabled, pendingCount]);
-
-  async function getToken() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    return session?.access_token || '';
-  }
-
-  async function loadOrders(view: 'ACTIVE' | 'PENDING' | 'HISTORY' = activeTab, forceSet = true): Promise<KitchenOrder[]> {
-    try {
-      setError('');
-      const token = await getToken();
-      if (!token) throw new Error('Please log in again');
-
-      const res = await fetch(`/api/guest-shop/kitchen-orders?status=${encodeURIComponent(view)}`, {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load orders');
-      const nextOrders = Array.isArray(json.orders) ? json.orders : [];
-      if (forceSet) setOrders(nextOrders);
-      return nextOrders;
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load F&B orders');
-      return [];
-    }
-  }
-
-  async function updateOrder(order: KitchenOrder, action: string, readyMinutes?: number) {
-    try {
-      setBusyId(`${order.id}:${action}:${readyMinutes || ''}`);
-      setError('');
-      setMessage('');
-      const token = await getToken();
-      if (!token) throw new Error('Please log in again');
-
-      const res = await fetch('/api/guest-shop/kitchen-orders', {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          id: order.id,
-          action,
-          ready_minutes: readyMinutes || 0,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update order');
-      setMessage(
-        action === 'REJECT'
-          ? 'Order rejected. Marked for refund follow-up.'
-          : action === 'REPRINT'
-            ? 'Order queued for reprint.'
-            : 'Order updated.'
-      );
-
-      if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT'].includes(action)) {
-        const pendingAfterAction = await loadOrders('PENDING', true);
-        if (!pendingAfterAction.length) {
-          setActiveTab('ACTIVE');
-          await loadOrders('ACTIVE', true);
-        }
-      } else {
-        await loadOrders(activeTab, true);
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update order');
-    } finally {
-      setBusyId('');
-    }
-  }
-
-  async function deleteHistoryOrder(order: KitchenOrder) {
-    const confirmed = window.confirm(`Delete F&B history order for Room ${order.room_number || '-'}?`);
-    if (!confirmed) return;
-
-    try {
-      setBusyId(`${order.id}:DELETE`);
-      setError('');
-      setMessage('');
-      const token = await getToken();
-      if (!token) throw new Error('Please log in again');
-
-      const res = await fetch(`/api/guest-shop/kitchen-orders?id=${encodeURIComponent(order.id)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to delete order');
-      setMessage('History order deleted.');
-      await loadOrders(activeTab, true);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to delete order');
-    } finally {
-      setBusyId('');
-    }
-  }
-
-  if (loading) {
-    return <main style={styles.page}><div style={styles.centerCard}>Loading F&B Orders...</div></main>;
-  }
-
-  if (!access) {
-    return (
-      <main style={styles.page}>
-        <div style={styles.centerCard}>
-          <h1>Access denied</h1>
-          <p>F&B Orders is available to F&B, Superuser, and Fenny.</p>
-          <Link href="/dashboard" style={styles.darkButton}>Back to Dashboard</Link>
-        </div>
-      </main>
-    );
-  }
-
+function canAccessKitchen(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = normalizeEmail(user?.email);
   return (
-    <main style={styles.page}>
-      <section style={styles.hero}>
-        <div>
-          <div style={styles.eyebrow}>Kitchen Workspace</div>
-          <h1 style={styles.title}>F&B Orders</h1>
-          <p style={styles.subtitle}>Paid F&B orders requiring kitchen acceptance and delivery updates.</p>
-        </div>
-        <div style={styles.heroActions}>
-          <button type="button" onClick={() => setAlarmEnabled((value) => !value)} style={alarmEnabled ? styles.alarmOnButton : styles.lightButton}>
-            {alarmEnabled ? 'Alarm On' : 'Alarm Off'}
-          </button>
-          <button type="button" onClick={() => loadOrders()} style={styles.lightButton}>Refresh</button>
-          <Link href="/dashboard" style={styles.lightButton}>Dashboard</Link>
-        </div>
-      </section>
-
-      {error ? <div style={styles.errorBox}>{error}</div> : null}
-      {message ? <div style={styles.successBox}>{message}</div> : null}
-
-      {promptOrder ? (
-        <section style={styles.acceptancePrompt}>
-          <div style={styles.promptPulse}>New</div>
-          <div style={styles.promptMain}>
-            <div style={styles.eyebrow}>Pending Kitchen Acceptance</div>
-            <h2 style={styles.promptTitle}>Room {promptOrder.room_number || '-'} - {promptOrder.guest_name || 'Guest'}</h2>
-            <p style={styles.promptItems}>{itemSummary(promptOrder.items_json)}</p>
-            <div style={styles.promptMeta}>
-              <span>{money(promptOrder.total_myr)}</span>
-              <span>{formatTime(promptOrder.paid_at)}</span>
-              <span>{promptOrder.payment_reference || '-'}</span>
-            </div>
-          </div>
-          <div style={styles.promptActions}>
-            {[15, 30, 45].map((minutes) => (
-              <button
-                key={minutes}
-                type="button"
-                disabled={!!busyId}
-                onClick={() => updateOrder(promptOrder, 'ACCEPT', minutes)}
-                style={styles.primaryButton}
-              >
-                Accept {minutes}m
-              </button>
-            ))}
-            <button type="button" disabled={!!busyId} onClick={() => updateOrder(promptOrder, 'REJECT')} style={styles.dangerButton}>
-              Reject
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      <section style={styles.statsGrid}>
-        <div style={styles.statCard}><span>Pending Acceptance</span><strong>{pendingCount}</strong><small style={styles.statSubtext}>Needs kitchen decision</small></div>
-        <div style={styles.statCard}><span>In Progress</span><strong>{orders.filter((order) => ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)).length}</strong><small style={styles.statSubtext}>Preparing now</small></div>
-        <div style={styles.statCard}><span>Refund Follow-up</span><strong>{orders.filter((order) => order.refund_required).length}</strong><small style={styles.statSubtext}>Rejected or timed out</small></div>
-      </section>
-
-      <nav style={styles.tabs}>
-        {(['ACTIVE', 'PENDING', 'HISTORY'] as const).map((tab) => (
-          <button key={tab} type="button" onClick={() => setActiveTab(tab)} style={activeTab === tab ? styles.activeTab : styles.tabButton}>
-            {tab === 'ACTIVE' ? 'Active' : tab === 'PENDING' ? 'Pending' : 'History'}
-          </button>
-        ))}
-      </nav>
-
-      <section style={styles.orderList}>
-        {orders.length ? orders.map((order) => {
-          const acceptRemaining = secondsLeft(order.kitchen_accept_deadline_at);
-          const readyRemaining = secondsLeft(readyDeadline(order));
-          const deadlineLabel = order.kitchen_status === 'PENDING_ACCEPTANCE' ? 'Accept By' : 'Ready In';
-          const deadlineValue =
-            order.kitchen_status === 'PENDING_ACCEPTANCE'
-              ? countdownText(acceptRemaining)
-              : ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)
-                ? readyDeadline(order)
-                  ? countdownText(readyRemaining)
-                  : `${order.kitchen_ready_minutes || '-'}m`
-                : '-';
-          const lines = itemLines(order.items_json);
-          const isHistory = ['DELIVERED', 'REJECTED', 'AUTO_REJECTED'].includes(order.kitchen_status);
-          return (
-            <article key={order.id} style={styles.orderCard}>
-              <div style={styles.cardHead}>
-                <div style={styles.orderIdentity}>
-                  <div style={styles.eyebrow}>Room {order.room_number || '-'}</div>
-                  <h2 style={styles.cardTitle}>{order.guest_name || 'Guest'}</h2>
-                  <span style={styles.orderRef}>Payment {order.payment_reference || '-'}</span>
-                </div>
-                <span style={styles.statusBadge}>{statusLabel(order.kitchen_status)}</span>
-              </div>
-
-              <div style={styles.detailGrid}>
-                <div style={styles.detailTile}><span>Total</span><strong>{money(order.total_myr)}</strong></div>
-                <div style={styles.detailTile}><span>Paid</span><strong>{formatTime(order.paid_at)}</strong></div>
-                <div style={styles.detailTile}><span>{deadlineLabel}</span><strong>{deadlineValue}</strong></div>
-                <div style={styles.detailTile}><span>Print</span><strong>{statusLabel(order.print_status || 'NOT_QUEUED')}</strong></div>
-              </div>
-
-              <div style={styles.itemsPanel}>
-                {lines.length ? lines.map((line) => (
-                  <div key={line.id} style={styles.itemLine}>
-                    <strong>{line.qty}x {line.name}</strong>
-                    {line.options ? <span style={styles.itemOptions}>{line.options}</span> : null}
-                    {line.note ? <em style={styles.itemNote}>{line.note}</em> : null}
-                  </div>
-                )) : <div style={styles.itemLine}><strong>No items</strong></div>}
-              </div>
-
-              {order.refund_required ? (
-                <div style={styles.refundBox}>
-                  Refund follow-up required: {order.refund_reason || 'Kitchen rejected or timed out after payment.'}
-                </div>
-              ) : null}
-
-              <div style={styles.actions}>
-                {order.kitchen_status === 'PENDING_ACCEPTANCE' ? (
-                  <>
-                    {[15, 30, 45].map((minutes) => (
-                      <button
-                        key={minutes}
-                        type="button"
-                        disabled={!!busyId}
-                        onClick={() => updateOrder(order, 'ACCEPT', minutes)}
-                        style={styles.primaryButton}
-                      >
-                        Accept {minutes}m
-                      </button>
-                    ))}
-                    <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REJECT')} style={styles.dangerButton}>
-                      Reject
-                    </button>
-                  </>
-                ) : null}
-
-                {['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status) ? (
-                  <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} style={styles.primaryButton}>
-                    Delivered
-                  </button>
-                ) : null}
-                <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REPRINT')} style={styles.secondaryButton}>
-                  Reprint Order
-                </button>
-                {isHistory && canDeleteHistory ? (
-                  <button type="button" disabled={!!busyId} onClick={() => deleteHistoryOrder(order)} style={styles.deleteButton}>
-                    Delete History
-                  </button>
-                ) : null}
-              </div>
-            </article>
-          );
-        }) : (
-          <div style={styles.emptyState}>No F&B orders in this view.</div>
-        )}
-      </section>
-    </main>
+    role === 'SUPERUSER' ||
+    role === 'FNB' ||
+    email === 'fenny@hotelhallmark.com' ||
+    email === 'fnb@hotelhallmark.com'
   );
 }
 
-const styles: Record<string, any> = {
-  page: {
-    minHeight: '100vh',
-    padding: 'clamp(16px, 3vw, 34px)',
-    background: 'linear-gradient(180deg, #f4f8ff 0%, #edf4fb 100%)',
-    color: '#0f172a',
-  },
-  centerCard: {
-    maxWidth: 560,
-    margin: '80px auto',
-    padding: 28,
-    borderRadius: 24,
-    background: '#fff',
-    border: '1px solid #d6e2f1',
-    boxShadow: '0 24px 70px rgba(15,23,42,0.10)',
-    textAlign: 'center',
-    fontWeight: 900,
-  },
-  hero: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 14,
-    padding: 'clamp(16px, 2.5vw, 22px)',
-    borderRadius: 24,
-    background: 'linear-gradient(135deg, #ffffff 0%, #f7fbff 54%, #edf6ff 100%)',
-    border: '1px solid #d6e2f1',
-    boxShadow: '0 22px 60px rgba(15,23,42,0.08)',
-    flexWrap: 'wrap',
-    marginBottom: 16,
-  },
-  eyebrow: {
-    color: '#2563eb',
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: '0.12em',
-    textTransform: 'uppercase',
-  },
-  title: { margin: '4px 0', fontSize: 'clamp(34px, 5vw, 54px)', letterSpacing: 0 },
-  subtitle: { margin: 0, color: '#526173', fontWeight: 700 },
-  heroActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-    padding: 6,
-    borderRadius: 18,
-    background: '#eef6ff',
-    border: '1px solid #d8e7f7',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)',
-  },
-  lightButton: {
-    minHeight: 40,
-    padding: '0 14px',
-    borderRadius: 12,
-    border: '1px solid #c8d7e8',
-    background: '#fff',
-    color: '#0f172a',
-    fontWeight: 900,
-    textDecoration: 'none',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    whiteSpace: 'nowrap',
-    boxShadow: '0 10px 22px rgba(15,23,42,0.05)',
-  },
-  alarmOnButton: {
-    minHeight: 40,
-    padding: '0 14px',
-    borderRadius: 12,
-    border: '1px solid #bbf7d0',
-    background: 'linear-gradient(135deg, #dcfce7, #f0fdf4)',
-    color: '#047857',
-    fontWeight: 900,
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    whiteSpace: 'nowrap',
-    boxShadow: '0 10px 22px rgba(4,120,87,0.08)',
-  },
-  darkButton: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
-    padding: '0 16px',
-    borderRadius: 14,
-    background: '#0f172a',
-    color: '#fff',
-    fontWeight: 900,
-    textDecoration: 'none',
-  },
-  errorBox: {
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 16,
-    border: '1px solid #fecaca',
-    background: '#fff1f2',
-    color: '#be123c',
-    fontWeight: 900,
-  },
-  successBox: {
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 16,
-    border: '1px solid #bbf7d0',
-    background: '#f0fdf4',
-    color: '#047857',
-    fontWeight: 900,
-  },
-  acceptancePrompt: {
-    position: 'sticky',
-    top: 12,
-    zIndex: 20,
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 14,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-    padding: 18,
-    borderRadius: 24,
-    background: 'linear-gradient(135deg, #fff7ed 0%, #ffffff 56%, #eff6ff 100%)',
-    border: '1px solid #fdba74',
-    boxShadow: 
+function canDeleteKitchenHistory(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = normalizeEmail(user?.email);
+  return role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com';
+}
+
+function orderSelect() {
+  return `
+    id,
+    room_number,
+    guest_name,
+    guest_email,
+    status,
+    order_type,
+    payment_reference,
+    total_myr,
+    items_json,
+    paid_at,
+    created_at,
+    updated_at,
+    kitchen_status,
+    kitchen_requested_at,
+    kitchen_accept_deadline_at,
+    kitchen_accepted_at,
+    kitchen_rejected_at,
+    kitchen_delivered_at,
+    kitchen_ready_minutes,
+    kitchen_decision_by,
+    kitchen_decision_note,
+    refund_required,
+    refund_reason,
+    print_status,
+    print_requested_at,
+    printed_at,
+    print_error
+  `;
+}
+
+function normalizeOrder(row: any) {
+  return {
+    id: String(row?.id || ''),
+    room_number: String(row?.room_number || ''),
+    guest_name: String(row?.guest_name || ''),
+    guest_email: String(row?.guest_email || ''),
+    status: String(row?.status || 'PENDING_PAYMENT'),
+    order_type: String(row?.order_type || 'GUEST_SHOP'),
+    payment_reference: String(row?.payment_reference || ''),
+    total_myr: Number(row?.total_myr || 0),
+    items_json: Array.isArray(row?.items_json) ? row.items_json : [],
+    paid_at: row?.paid_at || null,
+    created_at: row?.created_at || null,
+    updated_at: row?.updated_at || null,
+    kitchen_status: String(row?.kitchen_status || 'NOT_REQUIRED'),
+    kitchen_requested_at: row?.kitchen_requested_at || null,
+    kitchen_accept_deadline_at: row?.kitchen_accept_deadline_at || null,
+    kitchen_accepted_at: row?.kitchen_accepted_at || null,
+    kitchen_rejected_at: row?.kitchen_rejected_at || null,
+    kitchen_delivered_at: row?.kitchen_delivered_at || null,
+    kitchen_ready_minutes: row?.kitchen_ready_minutes === null ? null : Number(row?.kitchen_ready_minutes || 0),
+    kitchen_decision_by: String(row?.kitchen_decision_by || ''),
+    kitchen_decision_note: String(row?.kitchen_decision_note || ''),
+    refund_required: row?.refund_required === true,
+    refund_reason: String(row?.refund_reason || ''),
+    print_status: String(row?.print_status || 'NOT_QUEUED'),
+    print_requested_at: row?.print_requested_at || null,
+    printed_at: row?.printed_at || null,
+    print_error: String(row?.print_error || ''),
+  };
+}
+
+async function expireOldPendingOrders() {
+  const nowIso = new Date().toISOString();
+  await supabaseAdmin
+    .from('guest_shop_orders')
+    .update({
+      kitchen_status: 'AUTO_REJECTED',
+      kitchen_rejected_at: nowIso,
+      kitchen_decision_by: 'Kitchen timeout',
+      kitchen_decision_note: 'F&B order was not accepted within 10 minutes.',
+      refund_required: true,
+      refund_reason: 'Kitchen did not accept this paid F&B order within 10 minutes.',
+    })
+    .eq('order_type', 'FNB')
+    .eq('status', 'PAID')
+    .eq('kitchen_status', 'PENDING_ACCEPTANCE')
+    .lt('kitchen_accept_deadline_at', nowIso);
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+    if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
+    if (!canAccessKitchen(user)) return jsonNoCache({ ok: false, error: 'F&B Kitchen access denied' }, 403);
+
+    await expireOldPendingOrders();
+
+    const status = String(req.nextUrl.searchParams.get('status') || 'ACTIVE').trim().toUpperCase();
+
+    let query = supabaseAdmin
+      .from('guest_shop_orders')
+      .select(orderSelect())
+      .eq('order_type', 'FNB')
+      .in('status', ['PAID', 'FULFILLED'])
+      .order('created_at', { ascending: false });
+
+    if (status === 'PENDING') query = query.eq('kitchen_status', 'PENDING_ACCEPTANCE');
+    else if (status === 'HISTORY') query = query.in('kitchen_status', ['DELIVERED', 'REJECTED', 'AUTO_REJECTED']);
+    else query = query.in('kitchen_status', ['PENDING_ACCEPTANCE', 'ACCEPTED', 'IN_PROGRESS']);
+
+    const { data, error } = await query.limit(100);
+    if (error) throw error;
+
+    return jsonNoCache({ ok: true, orders: (data || []).map(normalizeOrder) });
+  } catch (error: any) {
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to load F&B kitchen orders', orders: [] }, 500);
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+    if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
+    if (!canAccessKitchen(user)) return jsonNoCache({ ok: false, error: 'F&B Kitchen access denied' }, 403);
+
+    await expireOldPendingOrders();
+
+    const body = await req.json().catch(() => ({}));
+    const id = String(body?.id || '').trim();
+    const action = String(body?.action || '').trim().toUpperCase();
+    const readyMinutes = Number(body?.ready_minutes || 0);
+    const note = String(body?.note || '').trim().slice(0, 240);
+
+    if (!id) return jsonNoCache({ ok: false, error: 'Missing order id' }, 400);
+
+    const actor = String(user?.name || user?.email || 'F&B').trim();
+    const nowIso = new Date().toISOString();
+    let update: Record<string, any> = {};
+
+    if (action === 'ACCEPT') {
+      if (![15, 30, 45].includes(readyMinutes)) {
+        return jsonNoCache({ ok: false, error: 'Choose estimated ready time: 15, 30, or 45 minutes' }, 400);
+      }
+      update = {
+        kitchen_status: 'IN_PROGRESS',
+        kitchen_accepted_at: nowIso,
+        kitchen_ready_minutes: readyMinutes,
+        kitchen_decision_by: actor,
+        kitchen_decision_note: note,
+        refund_required: false,
+        refund_reason: null,
+      };
+    } else if (action === 'REJECT') {
+      update = {
+        kitchen_status: 'REJECTED',
+        kitchen_rejected_at: nowIso,
+        kitchen_decision_by: actor,
+        kitchen_decision_note: note,
+        refund_required: true,
+        refund_reason: note || 'Kitchen rejected this paid F&B order.',
+      };
+    } else if (action === 'IN_PROGRESS') {
+      update = {
+        kitchen_status: 'IN_PROGRESS',
+        kitchen_decision_by: actor,
+        kitchen_decision_note: note,
+      };
+    } else if (action === 'DELIVERED') {
+      update = {
+        kitchen_status: 'DELIVERED',
+        kitchen_delivered_at: nowIso,
+        kitchen_decision_by: actor,
+        kitchen_decision_note: note,
+        status: 'FULFILLED',
+      };
+    } else if (action === 'REPRINT') {
+      update = {
+        print_status: 'QUEUED',
+        print_requested_at: nowIso,
+        print_error: null,
+      };
+    } else {
+      return jsonNoCache({ ok: false, error: 'Invalid kitchen action' }, 400);
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .update(update)
+      .eq('id', id)
+      .eq('order_type', 'FNB')
+      .select(orderSelect())
+      .single();
+
+    if (error) throw error;
+    return jsonNoCache({ ok: true, order: normalizeOrder(data) });
+  } catch (error: any) {
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to update F&B order' }, 500);
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+    if (authError || !user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
+    if (!canDeleteKitchenHistory(user)) return jsonNoCache({ ok: false, error: 'Only Superuser or Fenny can delete F&B order history' }, 403);
+
+    const id = String(req.nextUrl.searchParams.get('id') || '').trim();
+    if (!id) return jsonNoCache({ ok: false, error: 'Missing order id' }, 400);
+
+    const { error } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .delete()
+      .eq('id', id)
+      .eq('order_type', 'FNB')
+      .in('kitchen_status', ['DELIVERED', 'REJECTED', 'AUTO_REJECTED']);
+
+    if (error) throw error;
+    return jsonNoCache({ ok: true });
+  } catch (error: any) {
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to delete F&B order history' }, 500);
+  }
+}
