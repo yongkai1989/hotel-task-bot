@@ -82,6 +82,8 @@ function secondsLeft(deadline?: string | null) {
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
 }
 
+const CUSTOM_ALARM_SRC = '/sounds/fnb-order-alert.mp3';
+
 export default function FnbOrdersPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const alarmRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -154,27 +156,38 @@ export default function FnbOrdersPage() {
     }
 
     if (alarmRef.current) return;
-    alarmRef.current = setInterval(() => {
+
+    async function playAlarmOnce() {
       try {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContextClass) return;
-        const context = new AudioContextClass();
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.value = 880;
-        gain.gain.value = 0.08;
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start();
-        setTimeout(() => {
-          oscillator.stop();
-          context.close();
-        }, 220);
+        const audio = new Audio(CUSTOM_ALARM_SRC);
+        audio.volume = 0.85;
+        await audio.play();
+        return;
       } catch {
-        // Browser audio can be blocked without user interaction.
+        try {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (!AudioContextClass) return;
+          const context = new AudioContextClass();
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.type = 'sine';
+          oscillator.frequency.value = 880;
+          gain.gain.value = 0.08;
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          oscillator.start();
+          setTimeout(() => {
+            oscillator.stop();
+            context.close();
+          }, 220);
+        } catch {
+          // Browser audio can be blocked without user interaction.
+        }
       }
-    }, 2500);
+    }
+
+    playAlarmOnce();
+    alarmRef.current = setInterval(playAlarmOnce, 4500);
 
     return () => {
       if (alarmRef.current) clearInterval(alarmRef.current);
