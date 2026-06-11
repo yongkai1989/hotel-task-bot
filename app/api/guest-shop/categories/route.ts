@@ -34,6 +34,8 @@ function canViewGuestShopAdmin(user: any) {
   const email = normalizeEmail(user?.email);
   return (
     canFullManageGuestShop(user) ||
+    user?.can_access_guest_shop_admin === true ||
+    user?.can_access_fnb_menu_admin === true ||
     role === 'FO' ||
     role === 'MANAGER' ||
     role === 'FNB' ||
