@@ -29,12 +29,16 @@ type UserProfile = {
   can_access_supervisor_checklist: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
+  can_access_commission_checker: boolean;
   can_access_admin_settings: boolean;
+  can_access_guest_shop_admin: boolean;
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
   can_access_fnb_checklist: boolean;
+  can_access_fnb_menu_admin: boolean;
+  can_access_fnb_orders: boolean;
   can_access_pa_checklist: boolean;
   can_access_pa_linen_entry: boolean;
   can_create_task: boolean;
@@ -73,12 +77,16 @@ const accessFieldDefs: Array<{
   { key: 'can_access_pa_linen_entry', label: 'PA Linen Entry', group: 'Public Area' },
   { key: 'can_access_daily_forms', label: 'Daily Forms', group: 'Management' },
   { key: 'can_access_management_tasks', label: 'Management Tasks', group: 'Management' },
+  { key: 'can_access_commission_checker', label: 'Commission Checker', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
+  { key: 'can_access_guest_shop_admin', label: 'Guest Shop Admin', group: 'Front Office' },
   { key: 'can_access_lost_found', label: 'Lost & Found', group: 'Front Office' },
   { key: 'can_access_fo_checklist', label: 'FO Checklist', group: 'Front Office' },
   { key: 'can_access_price_guide', label: 'Price Guide', group: 'Front Office' },
   { key: 'can_access_guest_laundry', label: 'Guest Laundry', group: 'Front Office' },
   { key: 'can_access_fnb_checklist', label: 'F&B Check List', group: 'F&B' },
+  { key: 'can_access_fnb_menu_admin', label: 'F&B Menu Admin', group: 'F&B' },
+  { key: 'can_access_fnb_orders', label: 'F&B Orders', group: 'F&B' },
   { key: 'can_create_task', label: 'Can Create', group: 'Actions' },
   { key: 'can_edit_task', label: 'Can Edit', group: 'Actions' },
   { key: 'can_delete_task', label: 'Can Delete', group: 'Actions' },
@@ -104,12 +112,16 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_supervisor_checklist: false,
     can_access_daily_forms: false,
     can_access_management_tasks: false,
+    can_access_commission_checker: false,
     can_access_admin_settings: false,
+    can_access_guest_shop_admin: false,
     can_access_lost_found: false,
     can_access_fo_checklist: false,
     can_access_price_guide: false,
     can_access_guest_laundry: false,
     can_access_fnb_checklist: false,
+    can_access_fnb_menu_admin: false,
+    can_access_fnb_orders: false,
     can_access_pa_checklist: false,
     can_access_pa_linen_entry: false,
     can_create_task: false,
@@ -189,8 +201,12 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
       toPermissionBoolean(permissionValue('can_access_management_tasks')),
+    can_access_commission_checker:
+      toPermissionBoolean(permissionValue('can_access_commission_checker')),
     can_access_admin_settings:
       toPermissionBoolean(permissionValue('can_access_admin_settings')),
+    can_access_guest_shop_admin:
+      toPermissionBoolean(permissionValue('can_access_guest_shop_admin')),
     can_access_lost_found:
       toPermissionBoolean(permissionValue('can_access_lost_found')),
     can_access_fo_checklist:
@@ -201,6 +217,10 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_guest_laundry')),
     can_access_fnb_checklist:
       toPermissionBoolean(permissionValue('can_access_fnb_checklist')),
+    can_access_fnb_menu_admin:
+      toPermissionBoolean(permissionValue('can_access_fnb_menu_admin')),
+    can_access_fnb_orders:
+      toPermissionBoolean(permissionValue('can_access_fnb_orders')),
     can_access_pa_checklist:
       toPermissionBoolean(permissionValue('can_access_pa_checklist')),
     can_access_pa_linen_entry:
@@ -235,12 +255,16 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_supervisor_checklist: toPermissionBoolean(draft.can_access_supervisor_checklist),
     can_access_daily_forms: toPermissionBoolean(draft.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(draft.can_access_management_tasks),
+    can_access_commission_checker: toPermissionBoolean(draft.can_access_commission_checker),
     can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
+    can_access_guest_shop_admin: toPermissionBoolean(draft.can_access_guest_shop_admin),
     can_access_lost_found: toPermissionBoolean(draft.can_access_lost_found),
     can_access_fo_checklist: toPermissionBoolean(draft.can_access_fo_checklist),
     can_access_price_guide: toPermissionBoolean(draft.can_access_price_guide),
     can_access_guest_laundry: toPermissionBoolean(draft.can_access_guest_laundry),
     can_access_fnb_checklist: toPermissionBoolean(draft.can_access_fnb_checklist),
+    can_access_fnb_menu_admin: toPermissionBoolean(draft.can_access_fnb_menu_admin),
+    can_access_fnb_orders: toPermissionBoolean(draft.can_access_fnb_orders),
     can_access_pa_checklist: toPermissionBoolean(draft.can_access_pa_checklist),
     can_access_pa_linen_entry: toPermissionBoolean(draft.can_access_pa_linen_entry),
     can_create_task: toPermissionBoolean(draft.can_create_task),
@@ -283,6 +307,36 @@ function getActualAccessValue(user: UserProfile, key: AccessKey) {
       user.role === 'FO' ||
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(user.can_access_price_guide)
+    );
+  }
+
+  if (key === 'can_access_commission_checker') {
+    const email = String(user.email || '').toLowerCase();
+    return (
+      user.role === 'SUPERUSER' ||
+      email === 'walter@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(user.can_access_commission_checker)
+    );
+  }
+
+  if (key === 'can_access_guest_shop_admin') {
+    const email = String(user.email || '').toLowerCase();
+    return (
+      user.role === 'SUPERUSER' ||
+      email === 'walter@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(user.can_access_guest_shop_admin)
+    );
+  }
+
+  if (key === 'can_access_fnb_menu_admin' || key === 'can_access_fnb_orders') {
+    const email = String(user.email || '').toLowerCase();
+    return (
+      user.role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(user[key])
     );
   }
 
