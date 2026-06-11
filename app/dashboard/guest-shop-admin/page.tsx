@@ -10,6 +10,8 @@ type Profile = {
   email: string;
   name: string;
   role: Role;
+  can_access_guest_shop_admin?: boolean;
+  can_access_fnb_menu_admin?: boolean;
 };
 
 type ShopItem = {
@@ -509,14 +511,15 @@ export default function GuestShopAdminPage() {
     if (!profile) return false;
     const email = normalizeEmail(profile.email);
     const role = String(profile.role || '').trim().toUpperCase();
-    return (
-      canFullManage ||
-      role === 'FO' ||
-      role === 'MANAGER' ||
-      email === 'walter@hotelhallmark.com'
+  return (
+    canFullManage ||
+    profile.can_access_guest_shop_admin === true ||
+    role === 'FO' ||
+    role === 'MANAGER' ||
+    email === 'walter@hotelhallmark.com'
     );
   })();
-  const canViewFnbMenuAdmin = canFullManage || canFnbStockManage;
+  const canViewFnbMenuAdmin = canFullManage || canFnbStockManage || profile?.can_access_fnb_menu_admin === true;
   const canAccessAdmin = isFnbScope ? canViewFnbMenuAdmin : canViewShopSkuAdmin;
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const canEditSelectedItem = canFullManage || (canFnbStockManage && itemIsFnb(selectedItem));
@@ -616,6 +619,8 @@ export default function GuestShopAdminPage() {
               email: normalizeEmail(user.email),
               name: String(user.name || user.email || 'User'),
               role: String(user.role || 'FO').toUpperCase() as Role,
+              can_access_guest_shop_admin: user.can_access_guest_shop_admin === true,
+              can_access_fnb_menu_admin: user.can_access_fnb_menu_admin === true,
             }
           : null;
         const nextScope: AdminScope =
