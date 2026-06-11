@@ -33,7 +33,9 @@ export type DashboardUser = {
   can_access_linen_history: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
+  can_access_commission_checker: boolean;
   can_access_admin_settings: boolean;
+  can_access_guest_shop_admin: boolean;
   can_access_linen_admin: boolean;
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
@@ -41,6 +43,8 @@ export type DashboardUser = {
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
   can_access_fnb_checklist: boolean;
+  can_access_fnb_menu_admin: boolean;
+  can_access_fnb_orders: boolean;
   can_access_pa_checklist: boolean;
   can_access_pa_linen_entry: boolean;
   permissions: {
@@ -63,7 +67,9 @@ export type DashboardUser = {
     can_access_linen_history: boolean;
     can_access_daily_forms: boolean;
     can_access_management_tasks: boolean;
+    can_access_commission_checker: boolean;
     can_access_admin_settings: boolean;
+    can_access_guest_shop_admin: boolean;
     can_access_linen_admin: boolean;
     can_access_lost_found: boolean;
     can_access_fo_checklist: boolean;
@@ -71,6 +77,8 @@ export type DashboardUser = {
     can_access_price_guide: boolean;
     can_access_guest_laundry: boolean;
     can_access_fnb_checklist: boolean;
+    can_access_fnb_menu_admin: boolean;
+    can_access_fnb_orders: boolean;
     can_access_pa_checklist: boolean;
     can_access_pa_linen_entry: boolean;
   };
@@ -168,7 +176,9 @@ export async function getDashboardUserFromRequest(
         can_access_linen_history,
         can_access_daily_forms,
         can_access_management_tasks,
+        can_access_commission_checker,
         can_access_admin_settings,
+        can_access_guest_shop_admin,
         can_access_linen_admin,
         can_access_lost_found,
         can_access_fo_checklist,
@@ -176,6 +186,8 @@ export async function getDashboardUserFromRequest(
         can_access_price_guide,
         can_access_guest_laundry,
         can_access_fnb_checklist,
+        can_access_fnb_menu_admin,
+        can_access_fnb_orders,
         can_access_pa_checklist,
         can_access_pa_linen_entry
         `
@@ -228,8 +240,12 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_daily_forms),
       can_access_management_tasks:
         effectiveBoolean(role, profile.can_access_management_tasks),
+      can_access_commission_checker:
+        effectiveBoolean(role, profile.can_access_commission_checker),
       can_access_admin_settings:
         effectiveBoolean(role, profile.can_access_admin_settings),
+      can_access_guest_shop_admin:
+        effectiveBoolean(role, profile.can_access_guest_shop_admin),
       can_access_linen_admin:
         effectiveBoolean(role, profile.can_access_linen_admin),
       can_access_lost_found:
@@ -253,6 +269,26 @@ export async function getDashboardUserFromRequest(
         (() => {
           const email = String(profile.email || authUser.email || '').trim().toLowerCase();
           return role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+        })(),
+      can_access_fnb_menu_admin:
+        (() => {
+          const email = String(profile.email || authUser.email || '').trim().toLowerCase();
+          return (
+            role === 'SUPERUSER' ||
+            email === 'fnb@hotelhallmark.com' ||
+            email === 'fenny@hotelhallmark.com' ||
+            savedBoolean(profile.can_access_fnb_menu_admin)
+          );
+        })(),
+      can_access_fnb_orders:
+        (() => {
+          const email = String(profile.email || authUser.email || '').trim().toLowerCase();
+          return (
+            role === 'SUPERUSER' ||
+            email === 'fnb@hotelhallmark.com' ||
+            email === 'fenny@hotelhallmark.com' ||
+            savedBoolean(profile.can_access_fnb_orders)
+          );
         })(),
       can_access_pa_checklist: (() => {
         const email = String(profile.email || authUser.email || '').trim().toLowerCase();
