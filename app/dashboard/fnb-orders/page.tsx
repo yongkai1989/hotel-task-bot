@@ -87,15 +87,17 @@ export default function FnbOrdersPage() {
   const alarmRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
-  const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PENDING' | 'HISTORY'>('ACTIVE');
+  const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PENDING' | 'HISTORY'>('PENDING');
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [alarmEnabled, setAlarmEnabled] = useState(false);
+  const [alarmEnabled, setAlarmEnabled] = useState(true);
   const [tick, setTick] = useState(0);
 
-  const pendingCount = orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE').length;
+  const pendingOrders = orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE');
+  const pendingCount = pendingOrders.length;
+  const promptOrder = pendingOrders[0] || null;
   const access = canAccessKitchen(profile);
 
   useEffect(() => {
@@ -135,7 +137,7 @@ export default function FnbOrdersPage() {
   useEffect(() => {
     if (!access) return;
     loadOrders();
-    const interval = setInterval(loadOrders, 15000);
+    const interval = setInterval(loadOrders, 5000);
     return () => clearInterval(interval);
   }, [access, activeTab]);
 
@@ -272,6 +274,38 @@ export default function FnbOrdersPage() {
 
       {error ? <div style={styles.errorBox}>{error}</div> : null}
       {message ? <div style={styles.successBox}>{message}</div> : null}
+
+      {promptOrder ? (
+        <section style={styles.acceptancePrompt}>
+          <div style={styles.promptPulse}>New</div>
+          <div style={styles.promptMain}>
+            <div style={styles.eyebrow}>Pending Kitchen Acceptance</div>
+            <h2 style={styles.promptTitle}>Room {promptOrder.room_number || '-'} - {promptOrder.guest_name || 'Guest'}</h2>
+            <p style={styles.promptItems}>{itemSummary(promptOrder.items_json)}</p>
+            <div style={styles.promptMeta}>
+              <span>{money(promptOrder.total_myr)}</span>
+              <span>{formatTime(promptOrder.paid_at)}</span>
+              <span>{promptOrder.payment_reference || '-'}</span>
+            </div>
+          </div>
+          <div style={styles.promptActions}>
+            {[15, 30, 45].map((minutes) => (
+              <button
+                key={minutes}
+                type="button"
+                disabled={!!busyId}
+                onClick={() => updateOrder(promptOrder, 'ACCEPT', minutes)}
+                style={styles.primaryButton}
+              >
+                Accept {minutes}m
+              </button>
+            ))}
+            <button type="button" disabled={!!busyId} onClick={() => updateOrder(promptOrder, 'REJECT')} style={styles.dangerButton}>
+              Reject
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section style={styles.statsGrid}>
         <div style={styles.statCard}><span>Pending acceptance</span><strong>{pendingCount}</strong></div>
@@ -442,6 +476,61 @@ const styles: Record<string, any> = {
     background: '#f0fdf4',
     color: '#047857',
     fontWeight: 900,
+  },
+  acceptancePrompt: {
+    position: 'sticky',
+    top: 12,
+    zIndex: 20,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 14,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    padding: 18,
+    borderRadius: 24,
+    background: 'linear-gradient(135deg, #fff7ed, #ffffff 56%, #eff6ff)',
+    border: '1px solid #fdba74',
+    boxShadow: '0 24px 70px rgba(234,88,12,0.16)',
+  },
+  promptPulse: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    display: 'grid',
+    placeItems: 'center',
+    background: '#fed7aa',
+    color: '#9a3412',
+    fontSize: 12,
+    fontWeight: 1000,
+    textTransform: 'uppercase',
+  },
+  promptMain: { minWidth: 240, flex: '1 1 340px' },
+  promptTitle: {
+    margin: '4px 0',
+    fontSize: 'clamp(22px, 3vw, 34px)',
+    letterSpacing: 0,
+  },
+  promptItems: {
+    margin: '8px 0',
+    color: '#334155',
+    fontWeight: 900,
+    lineHeight: 1.45,
+  },
+  promptMeta: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: 900,
+  },
+  promptActions: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    flex: '1 1 320px',
   },
   statsGrid: {
     display: 'grid',
