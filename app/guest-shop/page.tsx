@@ -3,6 +3,7 @@
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 
 type Category = string;
+type LanguageCode = 'en' | 'ms' | 'zh';
 
 type ShopItem = {
   id: string;
@@ -151,6 +152,179 @@ const DEFAULT_SHOP_ITEMS: ShopItem[] = [
   },
 ];
 
+const LANGUAGE_OPTIONS: Array<{ code: LanguageCode; label: string; shortLabel: string }> = [
+  { code: 'en', label: 'English', shortLabel: 'EN' },
+  { code: 'ms', label: 'Bahasa Melayu', shortLabel: 'BM' },
+  { code: 'zh', label: '简体中文', shortLabel: '中文' },
+];
+
+const COPY: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    guestShop: 'Guest Shop',
+    cart: 'Cart',
+    exploreCollection: 'Explore collection',
+    viewOrder: 'View order',
+    guestShopFilter: 'Guest Shop',
+    fnbFilter: 'Food & Beverage',
+    fnbClosed: 'F&B is currently closed.',
+    guestMenu: 'Guest menu',
+    curated: 'Curated for your stay',
+    customize: 'Customize',
+    customizeHint: 'Choose any add-ons or preparation options',
+    required: 'Required',
+    optional: 'Optional',
+    remove: 'Remove',
+    currentlyClosed: 'Currently closed',
+    outOfStock: 'Out of stock',
+    available: 'Available',
+    closed: 'Closed',
+    unavailable: 'Unavailable',
+    added: 'Added',
+    add: 'Add',
+    yourOrder: 'Your order',
+    item: 'item',
+    items: 'items',
+    each: 'each',
+    specialInstructions: 'Special instructions',
+    specialInstructionsPlaceholder: 'Example: less spicy, no onion, extra chilli',
+    noItemsSelected: 'No items selected',
+    addItemToBegin: 'Add an item to begin your order.',
+    roomNumber: 'Room number',
+    roomPlaceholder: 'Example: 1205',
+    guestName: 'Guest name',
+    guestNamePlaceholder: 'Name on room',
+    emailOptional: 'Email (optional)',
+    emailPlaceholder: 'For receipt, optional',
+    total: 'Total',
+    openingPayment: 'Opening secure payment...',
+    proceedPayment: 'Proceed to payment',
+    paymentNote: 'Staff receives the order only after payment is verified by the payment provider.',
+    fnbPaymentNote: ' F&B orders are then accepted by the kitchen.',
+    needAssistance: 'Need assistance?',
+    speakFrontOffice: 'Speak with Front Office',
+    assistanceBody: 'Questions about your order or a special request can be sent directly to our team.',
+    whatsappFrontOffice: 'WhatsApp Front Office',
+    selectItemNotice: 'Please select at least one item before payment.',
+    enterDetailsNotice: 'Please enter room number and guest name before payment.',
+    preparingPaymentNotice: 'Preparing secure payment...',
+    unableStartPayment: 'Unable to start payment',
+    unableStartPaymentFrontOffice: 'Unable to start payment. Please contact Front Office.',
+    cartAria: 'Cart with',
+    jumpCartAria: 'Jump to cart with',
+  },
+  ms: {
+    guestShop: 'Kedai Tetamu',
+    cart: 'Troli',
+    exploreCollection: 'Lihat pilihan',
+    viewOrder: 'Lihat pesanan',
+    guestShopFilter: 'Kedai Tetamu',
+    fnbFilter: 'Makanan & Minuman',
+    fnbClosed: 'Makanan & Minuman sedang ditutup.',
+    guestMenu: 'Menu tetamu',
+    curated: 'Pilihan untuk penginapan anda',
+    customize: 'Pilihan tambahan',
+    customizeHint: 'Pilih tambahan atau cara penyediaan',
+    required: 'Wajib',
+    optional: 'Pilihan',
+    remove: 'Buang',
+    currentlyClosed: 'Sedang tutup',
+    outOfStock: 'Stok habis',
+    available: 'Tersedia',
+    closed: 'Tutup',
+    unavailable: 'Tiada',
+    added: 'Ditambah',
+    add: 'Tambah',
+    yourOrder: 'Pesanan anda',
+    item: 'item',
+    items: 'item',
+    each: 'setiap satu',
+    specialInstructions: 'Arahan khas',
+    specialInstructionsPlaceholder: 'Contoh: kurang pedas, tanpa bawang, cili lebih',
+    noItemsSelected: 'Tiada item dipilih',
+    addItemToBegin: 'Tambah item untuk mula membuat pesanan.',
+    roomNumber: 'Nombor bilik',
+    roomPlaceholder: 'Contoh: 1205',
+    guestName: 'Nama tetamu',
+    guestNamePlaceholder: 'Nama bilik',
+    emailOptional: 'Emel (pilihan)',
+    emailPlaceholder: 'Untuk resit, pilihan',
+    total: 'Jumlah',
+    openingPayment: 'Membuka bayaran selamat...',
+    proceedPayment: 'Teruskan ke bayaran',
+    paymentNote: 'Staf hanya menerima pesanan selepas bayaran disahkan oleh penyedia bayaran.',
+    fnbPaymentNote: ' Pesanan makanan & minuman akan diterima oleh dapur selepas itu.',
+    needAssistance: 'Perlu bantuan?',
+    speakFrontOffice: 'Hubungi Front Office',
+    assistanceBody: 'Soalan tentang pesanan atau permintaan khas boleh dihantar terus kepada pasukan kami.',
+    whatsappFrontOffice: 'WhatsApp Front Office',
+    selectItemNotice: 'Sila pilih sekurang-kurangnya satu item sebelum bayaran.',
+    enterDetailsNotice: 'Sila masukkan nombor bilik dan nama tetamu sebelum bayaran.',
+    preparingPaymentNotice: 'Menyediakan bayaran selamat...',
+    unableStartPayment: 'Tidak dapat memulakan bayaran',
+    unableStartPaymentFrontOffice: 'Tidak dapat memulakan bayaran. Sila hubungi Front Office.',
+    cartAria: 'Troli dengan',
+    jumpCartAria: 'Pergi ke troli dengan',
+  },
+  zh: {
+    guestShop: '住客商店',
+    cart: '购物车',
+    exploreCollection: '浏览商品',
+    viewOrder: '查看订单',
+    guestShopFilter: '住客商店',
+    fnbFilter: '餐饮',
+    fnbClosed: '餐饮目前暂停服务。',
+    guestMenu: '住客菜单',
+    curated: '为您的住宿精选',
+    customize: '自选项目',
+    customizeHint: '选择加购或制作选项',
+    required: '必选',
+    optional: '可选',
+    remove: '移除',
+    currentlyClosed: '暂停服务',
+    outOfStock: '缺货',
+    available: '可订购',
+    closed: '关闭',
+    unavailable: '不可订购',
+    added: '已加入',
+    add: '加入',
+    yourOrder: '您的订单',
+    item: '件商品',
+    items: '件商品',
+    each: '每份',
+    specialInstructions: '特别要求',
+    specialInstructionsPlaceholder: '例如：少辣、不要洋葱、多辣椒',
+    noItemsSelected: '尚未选择商品',
+    addItemToBegin: '请先加入商品开始下单。',
+    roomNumber: '房号',
+    roomPlaceholder: '例如：1205',
+    guestName: '住客姓名',
+    guestNamePlaceholder: '入住姓名',
+    emailOptional: '电邮（可选）',
+    emailPlaceholder: '用于收据，可选',
+    total: '总额',
+    openingPayment: '正在开启安全付款...',
+    proceedPayment: '前往付款',
+    paymentNote: '订单会在付款供应商确认后才发送给酒店团队。',
+    fnbPaymentNote: ' 餐饮订单随后会由厨房接单。',
+    needAssistance: '需要协助？',
+    speakFrontOffice: '联系前台',
+    assistanceBody: '如有订单问题或特别要求，可直接发送给我们的团队。',
+    whatsappFrontOffice: 'WhatsApp 前台',
+    selectItemNotice: '付款前请至少选择一件商品。',
+    enterDetailsNotice: '付款前请输入房号和住客姓名。',
+    preparingPaymentNotice: '正在准备安全付款...',
+    unableStartPayment: '无法开始付款',
+    unableStartPaymentFrontOffice: '无法开始付款。请联系前台。',
+    cartAria: '购物车内有',
+    jumpCartAria: '跳到购物车，内有',
+  },
+};
+
+function itemWord(language: LanguageCode, count: number) {
+  if (language === 'zh') return COPY.zh.items;
+  return count === 1 ? COPY[language].item : COPY[language].items;
+}
+
 function money(value: number) {
   return `RM${value.toFixed(2)}`;
 }
@@ -234,6 +408,7 @@ function isFnbCategory(category: string) {
 }
 
 export default function GuestShopPage() {
+  const [language, setLanguage] = useState<LanguageCode>('en');
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
   const [hero, setHero] = useState(DEFAULT_HERO);
@@ -249,6 +424,17 @@ export default function GuestShopPage() {
   const [fnbClosedReason, setFnbClosedReason] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [selectedOptionsByItem, setSelectedOptionsByItem] = useState<Record<string, SelectedOptionGroup[]>>({});
+  const t = COPY[language];
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('guestShopLanguage') as LanguageCode | null;
+    if (saved === 'en' || saved === 'ms' || saved === 'zh') setLanguage(saved);
+  }, []);
+
+  function chooseLanguage(nextLanguage: LanguageCode) {
+    setLanguage(nextLanguage);
+    window.localStorage.setItem('guestShopLanguage', nextLanguage);
+  }
 
   const visibleItems = useMemo(() => {
     if (activeCategory === 'FNB') {
@@ -510,23 +696,23 @@ export default function GuestShopPage() {
 
   async function proceedToPayment() {
     if (!cartItems.length) {
-      setNotice('Please select at least one item before payment.');
+      setNotice(t.selectItemNotice);
       return;
     }
 
     if (!roomNumber.trim() || !guestName.trim()) {
-      setNotice('Please enter room number and guest name before payment.');
+      setNotice(t.enterDetailsNotice);
       return;
     }
 
     if (cartHasFnb && !fnbOpenNow) {
-      setNotice(fnbClosedReason || 'F&B is currently closed.');
+      setNotice(fnbClosedReason || t.fnbClosed);
       return;
     }
 
     try {
       setPaymentBusy(true);
-      setNotice('Preparing secure payment...');
+      setNotice(t.preparingPaymentNotice);
 
       const res = await fetch('/api/guest-shop/create-payment', {
         method: 'POST',
@@ -551,12 +737,12 @@ export default function GuestShopPage() {
 
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok || !json?.payment_url) {
-        throw new Error(json?.error || 'Unable to start payment');
+        throw new Error(json?.error || t.unableStartPayment);
       }
 
       window.location.href = String(json.payment_url);
     } catch (error: any) {
-      setNotice(error?.message || 'Unable to start payment. Please contact Front Office.');
+      setNotice(error?.message || t.unableStartPaymentFrontOffice);
       setPaymentBusy(false);
     }
   }
@@ -583,18 +769,37 @@ export default function GuestShopPage() {
             </span>
             <span>
               <small>Hallmark Crown Hotel</small>
-              <strong>Guest Shop</strong>
+              <strong>{t.guestShop}</strong>
             </span>
           </a>
 
-          <a className="cart-button" href="#order" aria-label={`Cart with ${cartCount} item${cartCount === 1 ? '' : 's'}`}>
-            <svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7.2 7.8h13.1l-1.4 7.1a2 2 0 0 1-2 1.6H9.1a2 2 0 0 1-2-1.7L5.8 4.9H3.4" />
-              <path d="M9.4 20.1h.1M17 20.1h.1" />
-            </svg>
-            <span>Cart</span>
-            <b>{cartCount}</b>
-          </a>
+          <div className="nav-actions">
+            <div className="language-switch" aria-label="Language selection">
+              {LANGUAGE_OPTIONS.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  className={language === option.code ? 'active' : ''}
+                  onClick={() => chooseLanguage(option.code)}
+                  aria-label={option.label}
+                >
+                  {option.shortLabel}
+                </button>
+              ))}
+            </div>
+            <a
+              className="cart-button"
+              href="#order"
+              aria-label={`${t.cartAria} ${cartCount} ${itemWord(language, cartCount)}`}
+            >
+              <svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7.2 7.8h13.1l-1.4 7.1a2 2 0 0 1-2 1.6H9.1a2 2 0 0 1-2-1.7L5.8 4.9H3.4" />
+                <path d="M9.4 20.1h.1M17 20.1h.1" />
+              </svg>
+              <span>{t.cart}</span>
+              <b>{cartCount}</b>
+            </a>
+          </div>
         </header>
 
         <div className="hero-content">
@@ -604,10 +809,10 @@ export default function GuestShopPage() {
 
           <div className="hero-actions">
             <a href="#shop" className="primary-action">
-              Explore collection
+              {t.exploreCollection}
             </a>
             <a href="#order" className="secondary-action">
-              View order
+              {t.viewOrder}
             </a>
           </div>
         </div>
@@ -617,7 +822,7 @@ export default function GuestShopPage() {
       <section id="shop" className="collection">
         <div className="menu-toolbar">
           <div className="filter-block">
-            <span>Guest Shop</span>
+            <span>{t.guestShopFilter}</span>
             <div className="categories" role="tablist" aria-label="Product categories">
               {guestCategories.map((category) => (
                 <button
@@ -637,8 +842,8 @@ export default function GuestShopPage() {
 
           {fnbSubmenuChoices.length ? (
             <div className="filter-block fnb-filter-block">
-              <span>Food & Beverage</span>
-              {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || 'F&B is currently closed.'}</strong> : null}
+              <span>{t.fnbFilter}</span>
+              {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || t.fnbClosed}</strong> : null}
               <div className="submenus fnb-submenus" role="tablist" aria-label="Food and beverage menu">
                 {fnbSubmenuChoices.map((submenu) => (
                   <button
@@ -660,8 +865,8 @@ export default function GuestShopPage() {
 
         <div className="collection-head">
           <div>
-            <p className="eyebrow">Guest menu</p>
-            <h2>Curated for your stay</h2>
+            <p className="eyebrow">{t.guestMenu}</p>
+            <h2>{t.curated}</h2>
           </div>
         </div>
 
@@ -702,8 +907,8 @@ export default function GuestShopPage() {
                     {item.optionGroups.length ? (
                       <div className="option-panel">
                         <div className="customize-head">
-                          <strong>Customize</strong>
-                          <span>Choose any add-ons or preparation options</span>
+                          <strong>{t.customize}</strong>
+                          <span>{t.customizeHint}</span>
                         </div>
                         {item.optionGroups.map((group) => {
                           const selected = new Set(
@@ -715,14 +920,14 @@ export default function GuestShopPage() {
                               <div className="option-title">
                                 <span>{group.name}</span>
                                 <div className="option-title-actions">
-                                  {group.isRequired ? <b>Required</b> : <b>Optional</b>}
+                                  {group.isRequired ? <b>{t.required}</b> : <b>{t.optional}</b>}
                                   {!group.isRequired && selected.size ? (
                                     <button
                                       type="button"
                                       className="clear-options"
                                       onClick={() => clearGroupSelection(item, group)}
                                     >
-                                      Remove
+                                      {t.remove}
                                     </button>
                                   ) : null}
                                 </div>
@@ -750,7 +955,7 @@ export default function GuestShopPage() {
                     <div className="product-footer">
                       <div>
                         <strong>{money(displayPrice)}</strong>
-                        <span>{fnbClosed ? 'Currently closed' : isUnavailable ? 'Out of stock' : 'Available'}</span>
+                        <span>{fnbClosed ? t.currentlyClosed : isUnavailable ? t.outOfStock : t.available}</span>
                       </div>
                       <button
                         type="button"
@@ -758,7 +963,7 @@ export default function GuestShopPage() {
                         disabled={isUnavailable}
                         onClick={() => addItem(item)}
                       >
-                        {fnbClosed ? 'Closed' : isUnavailable ? 'Unavailable' : isAdded ? 'Added' : 'Add'}
+                        {fnbClosed ? t.closed : isUnavailable ? t.unavailable : isAdded ? t.added : t.add}
                       </button>
                     </div>
                   </div>
@@ -769,8 +974,8 @@ export default function GuestShopPage() {
 
           <aside id="order" className="order-panel">
             <div className="order-header">
-              <p className="eyebrow">Your order</p>
-              <strong>{cartCount} item{cartCount === 1 ? '' : 's'}</strong>
+              <p className="eyebrow">{t.yourOrder}</p>
+              <strong>{cartCount} {itemWord(language, cartCount)}</strong>
             </div>
 
             <div className="order-lines">
@@ -780,7 +985,7 @@ export default function GuestShopPage() {
                     <div className="order-line-top">
                       <div>
                         <strong>{item.name}</strong>
-                        <span>{money(unitPrice)} each</span>
+                        <span>{money(unitPrice)} {t.each}</span>
                         {selectedOptionLabels(item, selectedOptions).length ? (
                           <small>{selectedOptionLabels(item, selectedOptions).join(', ')}</small>
                         ) : null}
@@ -796,11 +1001,11 @@ export default function GuestShopPage() {
                       </div>
                     </div>
                     <label className="line-remark">
-                      Special instructions
+                      {t.specialInstructions}
                       <textarea
                         value={specialInstructions}
                         onChange={(event) => setCartInstruction(cartKey, event.target.value)}
-                        placeholder="Example: less spicy, no onion, extra chilli"
+                        placeholder={t.specialInstructionsPlaceholder}
                         rows={2}
                       />
                     </label>
@@ -808,41 +1013,41 @@ export default function GuestShopPage() {
                 ))
               ) : (
                 <div className="empty-order">
-                  <strong>No items selected</strong>
-                  <span>Add an item to begin your order.</span>
+                  <strong>{t.noItemsSelected}</strong>
+                  <span>{t.addItemToBegin}</span>
                 </div>
               )}
             </div>
 
             <div className="guest-details">
               <label>
-                Room number
+                {t.roomNumber}
                 <input
                   value={roomNumber}
                   onChange={(event) => setRoomNumber(event.target.value)}
-                  placeholder="Example: 1205"
+                  placeholder={t.roomPlaceholder}
                 />
               </label>
               <label>
-                Guest name
+                {t.guestName}
                 <input
                   value={guestName}
                   onChange={(event) => setGuestName(event.target.value)}
-                  placeholder="Name on room"
+                  placeholder={t.guestNamePlaceholder}
                 />
               </label>
               <label>
-                Email (optional)
+                {t.emailOptional}
                 <input
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="For receipt, optional"
+                  placeholder={t.emailPlaceholder}
                 />
               </label>
             </div>
 
             <div className="total-row">
-              <span>Total</span>
+              <span>{t.total}</span>
               <strong>{money(cartTotal)}</strong>
             </div>
 
@@ -852,14 +1057,14 @@ export default function GuestShopPage() {
               onClick={proceedToPayment}
               disabled={paymentBusy}
             >
-              {paymentBusy ? 'Opening secure payment...' : 'Proceed to payment'}
+              {paymentBusy ? t.openingPayment : t.proceedPayment}
             </button>
 
             {notice ? <p className="notice">{notice}</p> : null}
 
             <p className="payment-note">
-              Staff receives the order only after payment is verified by the payment provider.
-              {cartHasFnb ? ' F&B orders are then accepted by the kitchen.' : ''}
+              {t.paymentNote}
+              {cartHasFnb ? t.fnbPaymentNote : ''}
             </p>
           </aside>
         </div>
@@ -867,9 +1072,9 @@ export default function GuestShopPage() {
 
       <section className="front-office-contact" aria-label="Contact Front Office">
         <div>
-          <p className="eyebrow">Need assistance?</p>
-          <h2>Speak with Front Office</h2>
-          <p>Questions about your order or a special request can be sent directly to our team.</p>
+          <p className="eyebrow">{t.needAssistance}</p>
+          <h2>{t.speakFrontOffice}</h2>
+          <p>{t.assistanceBody}</p>
         </div>
         <a
           className="whatsapp-button"
@@ -882,20 +1087,20 @@ export default function GuestShopPage() {
             <path d="M12 3.2a8.8 8.8 0 0 0-7.6 13.2L3.5 21l4.7-1.2A8.8 8.8 0 1 0 12 3.2Z" />
             <path d="M8.8 8.5c.2-.5.4-.6.7-.6h.5c.2 0 .4.1.5.4l.8 1.8c.1.3 0 .5-.2.7l-.5.6c.8 1.4 1.8 2.3 3.2 3.1l.7-.7c.2-.2.4-.2.7-.1l1.7.8c.3.1.4.3.4.6v.5c0 .3-.1.6-.6.8-.5.2-1.2.4-2 .2-2.5-.5-5.5-3.1-6.5-5.5-.3-.8-.2-1.6 0-2.1Z" />
           </svg>
-          <span>WhatsApp Front Office</span>
+          <span>{t.whatsappFrontOffice}</span>
         </a>
       </section>
 
       <a
         className={cartCount > 0 ? 'floating-cart has-items' : 'floating-cart'}
         href="#order"
-        aria-label={`Jump to cart with ${cartCount} item${cartCount === 1 ? '' : 's'}`}
+        aria-label={`${t.jumpCartAria} ${cartCount} ${itemWord(language, cartCount)}`}
       >
         <svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M7.2 7.8h13.1l-1.4 7.1a2 2 0 0 1-2 1.6H9.1a2 2 0 0 1-2-1.7L5.8 4.9H3.4" />
           <path d="M9.4 20.1h.1M17 20.1h.1" />
         </svg>
-        <span>Cart</span>
+        <span>{t.cart}</span>
         <b>{cartCount}</b>
       </a>
 
@@ -981,6 +1186,42 @@ export default function GuestShopPage() {
         .hero-actions a {
           color: inherit;
           text-decoration: none;
+        }
+
+        .nav-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .language-switch {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 5px;
+          border: 1px solid rgba(255, 248, 235, 0.24);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(18px);
+        }
+
+        .language-switch button {
+          min-width: 42px;
+          min-height: 34px;
+          padding: 0 10px;
+          border: 0;
+          border-radius: 999px;
+          color: rgba(255, 248, 237, 0.78);
+          background: transparent;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .language-switch button.active {
+          color: #17110c;
+          background: #dfbf77;
+          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16);
         }
 
         .brand {
@@ -1827,6 +2068,19 @@ export default function GuestShopPage() {
             padding: 16px;
           }
 
+          .nav-actions {
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+          }
+
+          .language-switch button {
+            min-width: 36px;
+            min-height: 32px;
+            padding: 0 8px;
+            font-size: 11px;
+          }
+
           .brand strong {
             font-size: 16px;
           }
@@ -1890,6 +2144,14 @@ export default function GuestShopPage() {
 
           .hero-content h1 {
             font-size: 46px;
+          }
+
+          .nav {
+            align-items: flex-start;
+          }
+
+          .cart-button span {
+            display: none;
           }
 
           .hero-actions a {
