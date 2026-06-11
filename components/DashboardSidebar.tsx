@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode, type SVGProps } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode, type SVGProps } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
@@ -836,6 +836,20 @@ export default function DashboardSidebar({
     setSidebarOpen(false);
   }
 
+  function navigateGuestShopAdminScope(
+    event: MouseEvent<HTMLAnchorElement>,
+    targetHref: string
+  ) {
+    if (pathname === '/dashboard/guest-shop-admin' && typeof window !== 'undefined') {
+      event.preventDefault();
+      closeSidebar();
+      window.location.assign(targetHref);
+      return;
+    }
+
+    closeSidebar();
+  }
+
   async function getAccessToken() {
     const {
       data: { session },
@@ -1340,7 +1354,7 @@ export default function DashboardSidebar({
                 <Link
                   href="/dashboard/guest-shop-admin?scope=shop"
                   prefetch={false}
-                  onClick={closeSidebar}
+                  onClick={(event) => navigateGuestShopAdminScope(event, '/dashboard/guest-shop-admin?scope=shop')}
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="package" sub>Guest Shop Admin</SidebarNavContent>
@@ -1424,7 +1438,7 @@ export default function DashboardSidebar({
                 <Link
                   href="/dashboard/guest-shop-admin?scope=fnb"
                   prefetch={false}
-                  onClick={closeSidebar}
+                  onClick={(event) => navigateGuestShopAdminScope(event, '/dashboard/guest-shop-admin?scope=fnb')}
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="fnb" sub>F&B Menu Admin</SidebarNavContent>
