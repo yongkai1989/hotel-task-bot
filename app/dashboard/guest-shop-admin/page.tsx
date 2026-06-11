@@ -514,7 +514,8 @@ export default function GuestShopAdminPage() {
       email === 'walter@hotelhallmark.com'
     );
   })();
-  const canAccessAdmin = isFnbScope ? (canFullManage || canFnbStockManage) : canViewShopSkuAdmin;
+  const canViewFnbMenuAdmin = canFullManage || canFnbStockManage;
+  const canAccessAdmin = isFnbScope ? canViewFnbMenuAdmin : canViewShopSkuAdmin;
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const canEditSelectedItem = canFullManage || (canFnbStockManage && itemIsFnb(selectedItem));
   const canEditSelectedFully = canFullManage;
@@ -935,7 +936,7 @@ export default function GuestShopAdminPage() {
         option_groups: Array.isArray(optionGroups) ? optionGroups : [],
       };
 
-      const res = await fetch('/api/guest-shop/items', {
+      const res = await fetch(`/api/guest-shop/items?scope=${adminScope}`, {
         method: draft.id ? 'PUT' : 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -1296,6 +1297,12 @@ export default function GuestShopAdminPage() {
           </p>
         </div>
         <div style={styles.heroActions}>
+          {isFnbScope && canViewShopSkuAdmin ? (
+            <Link href="/dashboard/guest-shop-admin?scope=shop" style={styles.lightButton}>Open Guest Shop Admin</Link>
+          ) : null}
+          {!isFnbScope && canViewFnbMenuAdmin ? (
+            <Link href="/dashboard/guest-shop-admin?scope=fnb" style={styles.lightButton}>Open F&B Menu Admin</Link>
+          ) : null}
           <Link href="/guest-shop" target="_blank" style={styles.lightButton}>Preview Shop</Link>
           <Link href="/dashboard" style={styles.lightButton}>Back</Link>
         </div>
@@ -1332,7 +1339,7 @@ export default function GuestShopAdminPage() {
                 <div style={styles.kicker}>SKU Editor</div>
                 <h2 style={styles.cardTitle}>{draft.id ? 'Edit Item' : 'New Item'}</h2>
               </div>
-              {canFullManage ? <button type="button" onClick={resetDraft} style={styles.ghostButton}>New SKU</button> : null}
+              {canFullManage ? <button type="button" onClick={resetDraft} style={styles.ghostButton}>{isFnbScope ? 'New F&B SKU' : 'New Guest Shop SKU'}</button> : null}
             </div>
 
             <div style={styles.formGrid}>
@@ -1372,7 +1379,7 @@ export default function GuestShopAdminPage() {
 
               <label style={styles.label}>
                 Stock
-                <input disabled={!canFullManage && !(canFnbStockManage && (draft.is_fnb || draft.category.toLowerCase() === 'f&b'))} value={draft.stock} onChange={(event) => updateDraft('stock', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
+                <input disabled={!canFullManage && !(canFnbStockManage && isFnbScope)} value={draft.stock} onChange={(event) => updateDraft('stock', event.target.value)} inputMode="numeric" placeholder="0" style={styles.input} />
               </label>
 
               <label style={styles.label}>
@@ -1559,16 +1566,15 @@ export default function GuestShopAdminPage() {
             </div>
 
             <div style={styles.switchRow}>
-              <label style={styles.checkLabel}>
-                <input type="checkbox" disabled={!canFullManage} checked={draft.is_fnb} onChange={(event) => updateDraft('is_fnb', event.target.checked)} />
-                F&B menu item
-              </label>
+              <div style={styles.scopeLock}>
+                {isFnbScope ? 'F&B menu item' : 'Guest Shop item'}
+              </div>
               <label style={styles.checkLabel}>
                 <input type="checkbox" disabled={!canFullManage} checked={draft.is_active} onChange={(event) => updateDraft('is_active', event.target.checked)} />
                 Show on Guest Shop
               </label>
               <label style={styles.checkLabel}>
-                <input type="checkbox" disabled={!canFullManage && !(canFnbStockManage && (draft.is_fnb || draft.category.toLowerCase() === 'f&b'))} checked={draft.out_of_stock} onChange={(event) => updateDraft('out_of_stock', event.target.checked)} />
+                <input type="checkbox" disabled={!canFullManage && !(canFnbStockManage && isFnbScope)} checked={draft.out_of_stock} onChange={(event) => updateDraft('out_of_stock', event.target.checked)} />
                 Mark Out of Stock
               </label>
             </div>
@@ -2539,6 +2545,18 @@ const styles: Record<string, any> = {
     borderRadius: 12,
     background: '#f8fbff',
     border: '1px solid #d7e0eb',
+    fontWeight: 900,
+  },
+  scopeLock: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    minHeight: 42,
+    padding: '0 13px',
+    marginTop: 12,
+    borderRadius: 12,
+    background: '#eef6ff',
+    border: '1px solid #bfdbfe',
+    color: '#1d4ed8',
     fontWeight: 900,
   },
   saveButton: {
