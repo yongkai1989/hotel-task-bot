@@ -87,6 +87,9 @@ type ShopOrder = {
   refund_required?: boolean;
 };
 
+type AdminScope = 'shop' | 'fnb';
+type ActiveTab = 'items' | 'addons' | 'hero' | 'categories' | 'fnbHours' | 'orders';
+
 type Draft = {
   id: string;
   name: string;
@@ -267,21 +270,19 @@ function canManageFnbStock(profile: Profile | null) {
   return role === 'FNB' || email === 'fnb@hotelhallmark.com';
 }
 
-function canViewGuestShopAdmin(profile: Profile | null) {
-  if (!profile) return false;
-  const email = normalizeEmail(profile.email);
-  const role = String(profile.role || '').trim().toUpperCase();
-  return (
-    canFullManageGuestShop(profile) ||
-    canManageFnbStock(profile) ||
-    role === 'FO' ||
-    role === 'MANAGER' ||
-    email === 'walter@hotelhallmark.com'
-  );
-}
-
 function itemIsFnb(item: ShopItem | null) {
   return item?.is_fnb === true || String(item?.category || '').trim().toLowerCase() === 'f&b';
+}
+
+function itemMatchesScope(item: ShopItem, scope: AdminScope) {
+  const fnb = itemIsFnb(item);
+  return scope === 'fnb' ? fnb : !fnb;
+}
+
+function requestedAdminScope(): AdminScope {
+  if (typeof window === 'undefined') return 'shop';
+  const params = new URLSearchParams(window.location.search);
+  return params.get('scope') === 'fnb' ? 'fnb' : 'shop';
 }
 
 function todayInputValue() {
@@ -476,6 +477,7 @@ function fileToDataUrl(file: File) {
 export default function GuestShopAdminPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [adminScope, setAdminScope] = useState<AdminScope>('shop');
   const [items, setItems] = useState<ShopItem[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [addonTemplates, setAddonTemplates] = useState<AddonTemplate[]>([]);
@@ -487,7 +489,7 @@ export default function GuestShopAdminPage() {
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(EMPTY_CATEGORY_DRAFT);
   const [addonTemplateDraft, setAddonTemplateDraft] = useState<AddonTemplateDraft>(EMPTY_ADDON_TEMPLATE_DRAFT);
   const [selectedId, setSelectedId] = useState('');
-  const [activeTab, setActiveTab] = useState<'items' | 'addons' | 'hero' | 'categories' | 'fnbHours' | 'orders'>('items');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('items');
   const [itemSearch, setItemSearch] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
   const [orderDate, setOrderDate] = useState(todayInputValue());
@@ -498,18 +500,57 @@ export default function GuestShopAdminPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const canAccessAdmin = canViewGuestShopAdmin(profile);
   const canFullManage = canFullManageGuestShop(profile);
   const canFnbStockManage = canManageFnbStock(profile);
+  const isFnbScope = adminScope === 'fnb';
+  const canViewShopSkuAdmin = (() => {
+    if (!profile) return false;
+    const email = normalizeEmail(profile.email);
+    const role = String(profile.role || '').trim().toUpperCase();
+    return (
+      canFullManage ||
+      role === 'FO' ||
+      role === 'MANAGER' ||
+      email === 'walter@hotelhallmark.com'
+    );
+  })();
+  const canAccessAdmin = isFnbScope ? (canFullManage || canFnbStockManage) : canViewShopSkuAdmin;
   const selectedItem = items.find((item) => item.id === selectedId) || null;
   const canEditSelectedItem = canFullManage || (canFnbStockManage && itemIsFnb(selectedItem));
   const canEditSelectedFully = canFullManage;
-  const liveItems = items.filter((item) => item.is_active && !item.out_of_stock).length;
+  const scopedItems = items.filter((item) => itemMatchesScope(item, adminScope));
+  const visibleTabs = useMemo(() => {
+    if (isFnbScope) {
+      return canFullManage
+        ? ([
+            ['items', 'F&B SKUs'],
+            ['addons', 'Reusable Add-ons'],
+            ['fnbHours', 'F&B Hours'],
+          ] as Array<[ActiveTab, string]>)
+        : ([['items', 'F&B SKUs']] as Array<[ActiveTab, string]>);
+    }
+
+    return canFullManage
+      ? ([
+          ['items', 'Guest Shop SKUs'],
+          ['hero', 'Hero Image'],
+          ['categories', 'Categories'],
+          ['orders', 'Orders'],
+        ] as Array<[ActiveTab, string]>)
+      : ([['items', 'Guest Shop SKUs'], ['orders', 'Orders']] as Array<[ActiveTab, string]>);
+  }, [canFullManage, isFnbScope]);
+  const liveItems = scopedItems.filter((item) => item.is_active && !item.out_of_stock).length;
   const visibleCategories = categories.filter((category) => category.is_active);
-  const categoryNames = visibleCategories.length ? visibleCategories.map((category) => category.name) : DEFAULT_CATEGORIES;
-  const itemFilterCategories = ['All', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean)))];
+  const categoryNames = useMemo(() => {
+    if (isFnbScope) return ['F&B'];
+    const names = visibleCategories
+      .map((category) => category.name)
+      .filter((category) => category && category.toLowerCase() !== 'f&b');
+    return names.length ? names : DEFAULT_CATEGORIES;
+  }, [isFnbScope, visibleCategories]);
+  const itemFilterCategories = ['All', ...Array.from(new Set(scopedItems.map((item) => item.category).filter(Boolean)))];
   const submenuChoices = Array.from(
-    new Set(items.map((item) => String(item.submenu || '').trim()).filter(Boolean))
+    new Set(scopedItems.map((item) => String(item.submenu || '').trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
   const reusableOptionGroups = useMemo(() => {
     const seen = new Set<string>();
@@ -527,7 +568,7 @@ export default function GuestShopAdminPage() {
 
     return presets;
   }, [addonTemplates]);
-  const filteredItems = items.filter((item) => {
+  const filteredItems = scopedItems.filter((item) => {
     const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
     const search = itemSearch.trim().toLowerCase();
     const haystack = [
@@ -549,6 +590,7 @@ export default function GuestShopAdminPage() {
       try {
         setLoading(true);
         setError('');
+        const urlScope = requestedAdminScope();
 
         const token = await getToken();
         if (!token) throw new Error('Please log in again');
@@ -562,17 +604,25 @@ export default function GuestShopAdminPage() {
           throw new Error(profileJson?.error || 'Failed to read session profile');
         }
         const user = profileJson?.user;
+        const nextProfile: Profile | null = user
+          ? {
+              email: normalizeEmail(user.email),
+              name: String(user.name || user.email || 'User'),
+              role: String(user.role || 'FO').toUpperCase() as Role,
+            }
+          : null;
+        const nextScope: AdminScope =
+          urlScope === 'fnb' || (!canFullManageGuestShop(nextProfile) && canManageFnbStock(nextProfile))
+            ? 'fnb'
+            : 'shop';
 
-        if (alive && user) {
-          setProfile({
-            email: normalizeEmail(user.email),
-            name: String(user.name || user.email || 'User'),
-            role: String(user.role || 'FO').toUpperCase() as Role,
-          });
+        if (alive && nextProfile) {
+          setProfile(nextProfile);
+          setAdminScope(nextScope);
         }
 
         const [itemsJson, categoriesJson, settingsJson, addonTemplatesJson, fnbHoursJson] = await Promise.all([
-          fetchJson('/api/guest-shop/items?include_inactive=1', token),
+          fetchJson(`/api/guest-shop/items?include_inactive=1&scope=${nextScope}`, token),
           fetchJson('/api/guest-shop/categories?include_inactive=1', token),
           fetchJson('/api/guest-shop/settings', token),
           fetchJson('/api/guest-shop/addon-templates', token).catch(() => ({ ok: false, templates: [] })),
@@ -624,6 +674,12 @@ export default function GuestShopAdminPage() {
     loadOrders();
   }, [activeTab, orderDate, orderStatus, canAccessAdmin]);
 
+  useEffect(() => {
+    if (!visibleTabs.some(([id]) => id === activeTab)) {
+      setActiveTab('items');
+    }
+  }, [activeTab, visibleTabs]);
+
   async function getToken() {
     const {
       data: { session },
@@ -644,8 +700,9 @@ export default function GuestShopAdminPage() {
   }
 
   function resetDraft() {
+    const firstCategory = adminScope === 'fnb' ? 'F&B' : categoryNames[0] || 'Comfort';
     setSelectedId('');
-    setDraft({ ...EMPTY_DRAFT, category: categoryNames[0] || 'Comfort' });
+    setDraft({ ...EMPTY_DRAFT, category: firstCategory, is_fnb: adminScope === 'fnb' });
     setMessage('');
     setError('');
   }
@@ -863,7 +920,7 @@ export default function GuestShopAdminPage() {
       const payload = {
         id: draft.id,
         name: draft.name,
-        category: draft.category || categoryNames[0] || 'Comfort',
+        category: adminScope === 'fnb' ? 'F&B' : draft.category || categoryNames[0] || 'Comfort',
         submenu: draft.submenu,
         description: draft.description,
         price_myr: Number(draft.price_myr || 0),
@@ -874,7 +931,7 @@ export default function GuestShopAdminPage() {
         sort_order: Number(draft.sort_order || 0),
         is_active: draft.is_active,
         out_of_stock: draft.out_of_stock,
-        is_fnb: draft.is_fnb,
+        is_fnb: adminScope === 'fnb' ? true : false,
         option_groups: Array.isArray(optionGroups) ? optionGroups : [],
       };
 
@@ -1219,7 +1276,7 @@ export default function GuestShopAdminPage() {
       <main style={styles.page}>
         <div style={styles.deniedCard}>
           <h1>Access denied</h1>
-          <p>Guest Shop Admin is available to Superuser, Fenny, Walter, Manager, Front Office, and F&B.</p>
+          <p>Guest Shop Admin is available to authorised Front Office, F&B, Superuser, Fenny, Walter, and Manager accounts.</p>
           <Link href="/dashboard" style={styles.darkButton}>Back to Dashboard</Link>
         </div>
       </main>
@@ -1230,10 +1287,12 @@ export default function GuestShopAdminPage() {
     <main style={styles.page}>
       <section style={styles.hero}>
         <div>
-          <div style={styles.kicker}>Front Office Commerce</div>
-          <h1 style={styles.title}>Guest Shop Admin</h1>
+          <div style={styles.kicker}>{isFnbScope ? 'F&B Commerce' : 'Front Office Commerce'}</div>
+          <h1 style={styles.title}>{isFnbScope ? 'F&B Menu Admin' : 'Guest Shop Admin'}</h1>
           <p style={styles.subtitle}>
-            Manage guest-facing products, hero display, categories, and purchase history.
+            {isFnbScope
+              ? 'Manage F&B menu availability and kitchen-facing menu controls.'
+              : 'Manage guest-facing non-F&B products, hero display, categories, and purchase history.'}
           </p>
         </div>
         <div style={styles.heroActions}>
@@ -1246,21 +1305,14 @@ export default function GuestShopAdminPage() {
       {message ? <div style={styles.successBox}>{message}</div> : null}
 
       <section style={styles.statsGrid}>
-        <div style={styles.statCard}><span>SKUs</span><strong>{items.length}</strong></div>
+        <div style={styles.statCard}><span>{isFnbScope ? 'F&B SKUs' : 'Guest Shop SKUs'}</span><strong>{scopedItems.length}</strong></div>
         <div style={styles.statCard}><span>Live Items</span><strong>{liveItems}</strong></div>
-        <div style={styles.statCard}><span>Categories</span><strong>{visibleCategories.length}</strong></div>
+        <div style={styles.statCard}><span>{isFnbScope ? 'Submenus' : 'Categories'}</span><strong>{isFnbScope ? submenuChoices.length : visibleCategories.length}</strong></div>
         <div style={styles.statCard}><span>Orders Today</span><strong>{orders.length}</strong></div>
       </section>
 
       <nav style={styles.tabs}>
-        {([
-          ['items', 'SKUs'],
-          ['addons', 'Reusable Add-ons'],
-          ['hero', 'Hero Image'],
-          ['categories', 'Categories'],
-          ['fnbHours', 'F&B Hours'],
-          ['orders', 'Orders'],
-        ] as Array<[typeof activeTab, string]>).map(([id, label]) => (
+        {visibleTabs.map(([id, label]) => (
           <button
             key={id}
             type="button"
