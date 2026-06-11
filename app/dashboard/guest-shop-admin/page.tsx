@@ -493,6 +493,7 @@ export default function GuestShopAdminPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('items');
   const [itemSearch, setItemSearch] = useState('');
   const [itemCategoryFilter, setItemCategoryFilter] = useState('All');
+  const [itemSubmenuFilter, setItemSubmenuFilter] = useState('All');
   const [orderDate, setOrderDate] = useState(todayInputValue());
   const [orderStatus, setOrderStatus] = useState('ALL');
   const [busy, setBusy] = useState(false);
@@ -572,6 +573,10 @@ export default function GuestShopAdminPage() {
   }, [addonTemplates]);
   const filteredItems = scopedItems.filter((item) => {
     const matchesCategory = itemCategoryFilter === 'All' || item.category === itemCategoryFilter;
+    const matchesSubmenu =
+      !isFnbScope ||
+      itemSubmenuFilter === 'All' ||
+      String(item.submenu || '').trim() === itemSubmenuFilter;
     const search = itemSearch.trim().toLowerCase();
     const haystack = [
       item.name,
@@ -580,7 +585,7 @@ export default function GuestShopAdminPage() {
       item.description,
       item.label,
     ].join(' ').toLowerCase();
-    return matchesCategory && (!search || haystack.includes(search));
+    return matchesCategory && matchesSubmenu && (!search || haystack.includes(search));
   });
   const paidOrders = orders.filter((order) => order.status === 'PAID' || order.status === 'FULFILLED').length;
   const failedOrders = orders.filter((order) => order.status === 'FAILED' || order.status === 'CANCELLED').length;
@@ -681,6 +686,17 @@ export default function GuestShopAdminPage() {
       setActiveTab('items');
     }
   }, [activeTab, visibleTabs]);
+
+  useEffect(() => {
+    if (!isFnbScope) {
+      if (itemSubmenuFilter !== 'All') setItemSubmenuFilter('All');
+      return;
+    }
+
+    if (itemSubmenuFilter !== 'All' && !submenuChoices.includes(itemSubmenuFilter)) {
+      setItemSubmenuFilter('All');
+    }
+  }, [isFnbScope, itemSubmenuFilter, submenuChoices]);
 
   async function getToken() {
     const {
@@ -1591,13 +1607,24 @@ export default function GuestShopAdminPage() {
               </div>
             </div>
 
-            <div style={styles.catalogFilters}>
+            <div style={isFnbScope ? styles.catalogFiltersFnb : styles.catalogFilters}>
               <label style={styles.label}>
                 Category
                 <select value={itemCategoryFilter} onChange={(event) => setItemCategoryFilter(event.target.value)} style={styles.input}>
                   {itemFilterCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                 </select>
               </label>
+              {isFnbScope ? (
+                <label style={styles.label}>
+                  Submenu
+                  <select value={itemSubmenuFilter} onChange={(event) => setItemSubmenuFilter(event.target.value)} style={styles.input}>
+                    <option value="All">All submenus</option>
+                    {submenuChoices.map((submenu) => (
+                      <option key={submenu} value={submenu}>{submenu}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label style={styles.label}>
                 Search Product
                 <input
@@ -2316,6 +2343,16 @@ const styles: Record<string, any> = {
   catalogFilters: {
     display: 'grid',
     gridTemplateColumns: 'minmax(min(100%, 180px), 0.45fr) minmax(min(100%, 240px), 1fr)',
+    gap: 12,
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 18,
+    background: '#f8fbff',
+    border: '1px solid #d7e0eb',
+  },
+  catalogFiltersFnb: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(min(100%, 160px), 0.4fr) minmax(min(100%, 190px), 0.55fr) minmax(min(100%, 240px), 1fr)',
     gap: 12,
     marginBottom: 14,
     padding: 12,
