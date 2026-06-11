@@ -180,6 +180,35 @@ const DEFAULT_SETTINGS: ShopSettings = {
   featured_item_id: null,
 };
 
+function imageFieldLooksUnsafe(value: string) {
+  const trimmed = String(value || '').trim();
+  return trimmed.startsWith('data:') || trimmed.length > 2000;
+}
+
+function assertSafeImageUrl(value: string, label: string) {
+  if (imageFieldLooksUnsafe(value)) {
+    throw new Error(`${label} is too large. Please use the upload button or paste a normal hosted image URL, not a base64 image.`);
+  }
+}
+
+async function parseApiResponse(res: Response, fallbackMessage: string) {
+  const raw = await res.text();
+  let json: any = null;
+
+  try {
+    json = raw ? JSON.parse(raw) : {};
+  } catch {
+    const preview = raw.replace(/\s+/g, ' ').trim().slice(0, 180);
+    throw new Error(preview ? `${fallbackMessage}: ${preview}` : fallbackMessage);
+  }
+
+  if (!res.ok || !json?.ok) {
+    throw new Error(json?.error || fallbackMessage);
+  }
+
+  return json;
+}
+
 const DEFAULT_OPTION_PRESETS = [
   {
     id: 'preset-upsize',
@@ -607,9 +636,7 @@ export default function GuestShopAdminPage() {
       cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) throw new Error(json?.error || 'Request failed');
-    return json;
+    return parseApiResponse(res, `Request failed (${url})`);
   }
 
   function updateDraft<K extends keyof Draft>(key: K, value: Draft[K]) {
@@ -795,8 +822,7 @@ export default function GuestShopAdminPage() {
         body: JSON.stringify({ image: dataUrl }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to upload image');
+      const json = await parseApiResponse(res, 'Failed to upload image');
 
       if (target === 'hero') {
         setSettings((current) => ({ ...current, hero_image_url: String(json.url || '') }));
@@ -823,6 +849,7 @@ export default function GuestShopAdminPage() {
 
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
+      assertSafeImageUrl(draft.image_url, 'SKU image URL');
 
       let optionGroups: any[] = [];
       try {
@@ -860,8 +887,7 @@ export default function GuestShopAdminPage() {
         body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save SKU');
+      const json = await parseApiResponse(res, 'Failed to save SKU');
 
       const saved = normalizeItem(json.item);
       setItems((current) => {
@@ -901,8 +927,7 @@ export default function GuestShopAdminPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to delete SKU');
+      const json = await parseApiResponse(res, 'Failed to delete SKU');
 
       setItems((current) => current.filter((row) => row.id !== item.id));
       if (selectedId === item.id) resetDraft();
@@ -923,6 +948,7 @@ export default function GuestShopAdminPage() {
 
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
+      assertSafeImageUrl(settings.hero_image_url, 'Hero image URL');
 
       const res = await fetch('/api/guest-shop/settings', {
         method: 'PUT',
@@ -933,8 +959,7 @@ export default function GuestShopAdminPage() {
         body: JSON.stringify(settings),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save hero');
+      const json = await parseApiResponse(res, 'Failed to save hero');
 
       setSettings({
         hero_image_url: String(json.settings.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
@@ -975,8 +1000,7 @@ export default function GuestShopAdminPage() {
         }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save category');
+      const json = await parseApiResponse(res, 'Failed to save category');
 
       const saved = normalizeCategory(json.category);
       setCategories((current) => {
@@ -1016,8 +1040,7 @@ export default function GuestShopAdminPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to remove category');
+      const json = await parseApiResponse(res, 'Failed to remove category');
 
       const saved = normalizeCategory(json.category);
       setCategories((current) => current.map((row) => (row.id === saved.id ? saved : row)));
@@ -1060,8 +1083,7 @@ export default function GuestShopAdminPage() {
         body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save reusable add-on');
+      const json = await parseApiResponse(res, 'Failed to save reusable add-on');
 
       const saved = normalizeAddonTemplate(json.template);
       setAddonTemplates((current) => {
@@ -1101,8 +1123,7 @@ export default function GuestShopAdminPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to delete reusable add-on');
+      const json = await parseApiResponse(res, 'Failed to delete reusable add-on');
 
       setAddonTemplates((current) => current.filter((row) => row.id !== template.id));
       if (addonTemplateDraft.id === template.id) resetAddonTemplateDraft();
@@ -1176,8 +1197,7 @@ export default function GuestShopAdminPage() {
         }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to save F&B hours');
+      const json = await parseApiResponse(res, 'Failed to save F&B hours');
       setMessage('F&B operating hours saved.');
     } catch (err: any) {
       setError(err?.message || 'Failed to save F&B hours');
