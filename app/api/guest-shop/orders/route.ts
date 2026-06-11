@@ -25,6 +25,8 @@ function canViewGuestShopAdmin(user: any) {
 
   return (
     role === 'SUPERUSER' ||
+    user?.can_access_guest_shop_admin === true ||
+    user?.can_access_fnb_menu_admin === true ||
     email === 'fenny@hotelhallmark.com' ||
     email === 'walter@hotelhallmark.com' ||
     role === 'FO' ||
