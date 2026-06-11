@@ -215,21 +215,24 @@ export default function FnbOrdersPage() {
     return session?.access_token || '';
   }
 
-  async function loadOrders() {
+  async function loadOrders(view: 'ACTIVE' | 'PENDING' | 'HISTORY' = activeTab, forceSet = true): Promise<KitchenOrder[]> {
     try {
       setError('');
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
 
-      const res = await fetch(`/api/guest-shop/kitchen-orders?status=${encodeURIComponent(activeTab)}`, {
+      const res = await fetch(`/api/guest-shop/kitchen-orders?status=${encodeURIComponent(view)}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load orders');
-      setOrders(Array.isArray(json.orders) ? json.orders : []);
+      const nextOrders = Array.isArray(json.orders) ? json.orders : [];
+      if (forceSet) setOrders(nextOrders);
+      return nextOrders;
     } catch (err: any) {
       setError(err?.message || 'Failed to load F&B orders');
+      return [];
     }
   }
 
@@ -257,7 +260,16 @@ export default function FnbOrdersPage() {
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to update order');
       setMessage(action === 'REJECT' ? 'Order rejected. Marked for refund follow-up.' : 'Order updated.');
-      await loadOrders();
+
+      if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT'].includes(action)) {
+        const pendingAfterAction = await loadOrders('PENDING', true);
+        if (!pendingAfterAction.length) {
+          setActiveTab('ACTIVE');
+          await loadOrders('ACTIVE', true);
+        }
+      } else {
+        await loadOrders(activeTab, true);
+      }
     } catch (err: any) {
       setError(err?.message || 'Failed to update order');
     } finally {
@@ -291,10 +303,10 @@ export default function FnbOrdersPage() {
         </div>
         <div style={styles.heroActions}>
           <button type="button" onClick={() => setAlarmEnabled((value) => !value)} style={alarmEnabled ? styles.alarmOnButton : styles.lightButton}>
-            {alarmEnabled ? 'Alarm On' : 'Enable Alarm'}
+            {alarmEnabled ? 'Alarm On' : 'Alarm Off'}
           </button>
-          <button type="button" onClick={loadOrders} style={styles.lightButton}>Refresh</button>
-          <Link href="/dashboard" style={styles.lightButton}>Back</Link>
+          <button type="button" onClick={() => loadOrders()} style={styles.lightButton}>Refresh</button>
+          <Link href="/dashboard" style={styles.lightButton}>Dashboard</Link>
         </div>
       </section>
 
@@ -443,12 +455,12 @@ const styles: Record<string, any> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 16,
-    padding: 22,
+    gap: 14,
+    padding: 'clamp(16px, 2.5vw, 22px)',
     borderRadius: 24,
-    background: 'linear-gradient(135deg, #ffffff, #eef6ff)',
+    background: 'linear-gradient(135deg, #ffffff 0%, #f7fbff 54%, #edf6ff 100%)',
     border: '1px solid #d6e2f1',
-    boxShadow: '0 24px 70px rgba(15,23,42,0.08)',
+    boxShadow: '0 22px 60px rgba(15,23,42,0.08)',
     flexWrap: 'wrap',
     marginBottom: 16,
   },
@@ -461,27 +473,47 @@ const styles: Record<string, any> = {
   },
   title: { margin: '4px 0', fontSize: 'clamp(34px, 5vw, 54px)', letterSpacing: 0 },
   subtitle: { margin: 0, color: '#526173', fontWeight: 700 },
-  heroActions: { display: 'flex', gap: 10, flexWrap: 'wrap' },
+  heroActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    padding: 6,
+    borderRadius: 18,
+    background: '#eef6ff',
+    border: '1px solid #d8e7f7',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)',
+  },
   lightButton: {
-    minHeight: 44,
-    padding: '0 16px',
-    borderRadius: 14,
+    minHeight: 40,
+    padding: '0 14px',
+    borderRadius: 12,
     border: '1px solid #c8d7e8',
     background: '#fff',
     color: '#0f172a',
     fontWeight: 900,
     textDecoration: 'none',
     cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    whiteSpace: 'nowrap',
+    boxShadow: '0 10px 22px rgba(15,23,42,0.05)',
   },
   alarmOnButton: {
-    minHeight: 44,
-    padding: '0 16px',
-    borderRadius: 14,
+    minHeight: 40,
+    padding: '0 14px',
+    borderRadius: 12,
     border: '1px solid #bbf7d0',
-    background: '#dcfce7',
+    background: 'linear-gradient(135deg, #dcfce7, #f0fdf4)',
     color: '#047857',
     fontWeight: 900,
     cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    whiteSpace: 'nowrap',
+    boxShadow: '0 10px 22px rgba(4,120,87,0.08)',
   },
   darkButton: {
     display: 'inline-flex',
@@ -525,7 +557,7 @@ const styles: Record<string, any> = {
     marginBottom: 14,
     padding: 18,
     borderRadius: 24,
-    background: 'linear-gradient(135deg, #fff7ed, #ffffff 56%, #eff6ff)',
+    background: 'linear-gradient(135deg, #fff7ed 0%, #ffffff 56%, #eff6ff 100%)',
     border: '1px solid #fdba74',
     boxShadow: '0 24px 70px rgba(234,88,12,0.16)',
   },
@@ -575,9 +607,9 @@ const styles: Record<string, any> = {
     marginBottom: 14,
   },
   statCard: {
-    padding: 16,
+    padding: 18,
     borderRadius: 18,
-    background: '#fff',
+    background: 'linear-gradient(135deg, #ffffff, #f8fbff)',
     border: '1px solid #d6e2f1',
     boxShadow: '0 18px 45px rgba(15,23,42,0.06)',
   },
@@ -615,9 +647,9 @@ const styles: Record<string, any> = {
   },
   orderList: { display: 'grid', gap: 12 },
   orderCard: {
-    padding: 18,
+    padding: 'clamp(14px, 2.2vw, 18px)',
     borderRadius: 22,
-    background: '#fff',
+    background: 'linear-gradient(135deg, #ffffff, #fbfdff)',
     border: '1px solid #d6e2f1',
     boxShadow: '0 22px 58px rgba(15,23,42,0.07)',
   },
