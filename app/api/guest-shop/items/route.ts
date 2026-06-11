@@ -48,7 +48,8 @@ function canViewGuestShopAdmin(user: any) {
 }
 
 function isFnbItem(row: any) {
-  return row?.is_fnb === true || String(row?.category || '').trim().toLowerCase() === 'f&b';
+  const category = String(row?.category || '').trim().toLowerCase();
+  return row?.is_fnb === true || category === 'f&b' || category.includes('f&b') || category.includes('food');
 }
 
 function rejectEmbeddedImageUrl(value: string, label: string) {
