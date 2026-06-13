@@ -8,14 +8,22 @@ type LanguageCode = 'en' | 'ms' | 'zh';
 type ShopItem = {
   id: string;
   name: string;
+  nameMs?: string;
+  nameZh?: string;
   category: string;
   submenu: string;
+  submenuMs?: string;
+  submenuZh?: string;
   description: string;
+  descriptionMs?: string;
+  descriptionZh?: string;
   price: number;
   stock: number;
   imageUrl: string;
   accent: string;
   label?: string;
+  labelMs?: string;
+  labelZh?: string;
   isFnb: boolean;
   optionGroups: OptionGroup[];
 };
@@ -23,6 +31,8 @@ type ShopItem = {
 type OptionChoice = {
   id: string;
   name: string;
+  nameMs?: string;
+  nameZh?: string;
   priceDelta: number;
   isDefault: boolean;
 };
@@ -30,6 +40,8 @@ type OptionChoice = {
 type OptionGroup = {
   id: string;
   name: string;
+  nameMs?: string;
+  nameZh?: string;
   selectionType: 'single' | 'multiple';
   isRequired: boolean;
   minSelect: number;
@@ -56,9 +68,15 @@ const DEFAULT_CATEGORIES: Category[] = ['All', 'Comfort', 'Laundry', 'Room Servi
 const DEFAULT_HERO = {
   hero_image_url: '',
   hero_kicker: 'Private in-room collection',
+  hero_kicker_ms: '',
+  hero_kicker_zh: '',
   hero_title: 'Quiet luxuries, ready on request.',
+  hero_title_ms: '',
+  hero_title_zh: '',
   hero_body:
     'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
+  hero_body_ms: '',
+  hero_body_zh: '',
   featured_item_id: null as string | null,
 };
 
@@ -75,8 +93,14 @@ function cachedHeroSettings() {
     return {
       hero_image_url: cachedImage.includes(OLD_DEFAULT_HERO_IMAGE) ? '' : cachedImage,
       hero_kicker: String(parsed?.hero_kicker || DEFAULT_HERO.hero_kicker),
+      hero_kicker_ms: String(parsed?.hero_kicker_ms || ''),
+      hero_kicker_zh: String(parsed?.hero_kicker_zh || ''),
       hero_title: String(parsed?.hero_title || DEFAULT_HERO.hero_title),
+      hero_title_ms: String(parsed?.hero_title_ms || ''),
+      hero_title_zh: String(parsed?.hero_title_zh || ''),
       hero_body: String(parsed?.hero_body || DEFAULT_HERO.hero_body),
+      hero_body_ms: String(parsed?.hero_body_ms || ''),
+      hero_body_zh: String(parsed?.hero_body_zh || ''),
       featured_item_id: parsed?.featured_item_id ? String(parsed.featured_item_id) : null,
     };
   } catch {
@@ -185,6 +209,7 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     cart: 'Cart',
     exploreCollection: 'Explore collection',
     viewOrder: 'View order',
+    all: 'All',
     guestShopFilter: 'Guest Shop',
     fnbFilter: 'Food & Beverage',
     fnbClosed: 'F&B is currently closed.',
@@ -238,6 +263,7 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     cart: 'Troli',
     exploreCollection: 'Lihat pilihan',
     viewOrder: 'Lihat pesanan',
+    all: 'Semua',
     guestShopFilter: 'Kedai Tetamu',
     fnbFilter: 'Makanan & Minuman',
     fnbClosed: 'Makanan & Minuman sedang ditutup.',
@@ -341,6 +367,62 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
   },
 };
 
+LANGUAGE_OPTIONS[2] = { code: 'zh', label: '简体中文', shortLabel: '中文' };
+COPY.zh = {
+  guestShop: '住客商店',
+  cart: '购物车',
+  exploreCollection: '浏览商品',
+  viewOrder: '查看订单',
+  all: '全部',
+  guestShopFilter: '住客商店',
+  fnbFilter: '餐饮',
+  fnbClosed: '餐饮目前暂停服务。',
+  guestMenu: '住客菜单',
+  curated: '为您的住宿精选',
+  customize: '自选项目',
+  customizeHint: '选择加购或制作选项',
+  required: '必选',
+  optional: '可选',
+  remove: '移除',
+  currentlyClosed: '暂停服务',
+  outOfStock: '缺货',
+  available: '可订购',
+  closed: '关闭',
+  unavailable: '不可订购',
+  added: '已加入',
+  add: '加入',
+  yourOrder: '您的订单',
+  item: '件商品',
+  items: '件商品',
+  each: '每份',
+  specialInstructions: '特别要求',
+  specialInstructionsPlaceholder: '例如：少辣、不要洋葱、多辣椒',
+  noItemsSelected: '尚未选择商品',
+  addItemToBegin: '请先加入商品开始下单。',
+  roomNumber: '房号',
+  roomPlaceholder: '例如：1205',
+  guestName: '住客姓名',
+  guestNamePlaceholder: '入住姓名',
+  emailOptional: '电邮（可选）',
+  emailPlaceholder: '用于收据，可选',
+  total: '总额',
+  openingPayment: '正在开启安全付款...',
+  proceedPayment: '前往付款',
+  paymentNote: '订单会在付款供应商确认后才发送给酒店团队。',
+  fnbPaymentNote: ' 餐饮订单随后会由厨房接单。',
+  needAssistance: '需要协助？',
+  speakFrontOffice: '联系前台',
+  assistanceBody: '如有订单问题或特别要求，可直接发送给我们的团队。',
+  whatsappFrontOffice: 'WhatsApp 前台',
+  selectItemNotice: '付款前请至少选择一件商品。',
+  enterDetailsNotice: '付款前请输入房号和住客姓名。',
+  preparingPaymentNotice: '正在准备安全付款...',
+  unableStartPayment: '无法开始付款',
+  unableStartPaymentFrontOffice: '无法开始付款。请联系前台。',
+  cartAria: '购物车内有',
+  jumpCartAria: '跳到购物车，内有',
+};
+
 function itemWord(language: LanguageCode, count: number) {
   if (language === 'zh') return COPY.zh.items;
   return count === 1 ? COPY[language].item : COPY[language].items;
@@ -348,6 +430,12 @@ function itemWord(language: LanguageCode, count: number) {
 
 function money(value: number) {
   return `RM${value.toFixed(2)}`;
+}
+
+function localizedText(defaultText: string, bmText: string | undefined, zhText: string | undefined, language: LanguageCode) {
+  if (language === 'ms') return bmText || defaultText;
+  if (language === 'zh') return zhText || defaultText;
+  return defaultText;
 }
 
 function normalizeOptionGroups(value: any): OptionGroup[] {
@@ -361,6 +449,8 @@ function normalizeOptionGroups(value: any): OptionGroup[] {
       return {
         id: String(group?.id || ''),
         name: String(group?.name || ''),
+        nameMs: String(group?.name_ms || ''),
+        nameZh: String(group?.name_zh || ''),
         selectionType,
         isRequired: group?.is_required === true,
         minSelect: Math.max(0, Number(group?.min_select || 0)),
@@ -370,6 +460,8 @@ function normalizeOptionGroups(value: any): OptionGroup[] {
               .map((option: any): OptionChoice => ({
                 id: String(option?.id || ''),
                 name: String(option?.name || ''),
+                nameMs: String(option?.name_ms || ''),
+                nameZh: String(option?.name_zh || ''),
                 priceDelta: Number(option?.price_delta_myr || 0),
                 isDefault: option?.is_default === true,
               }))
@@ -409,12 +501,16 @@ function unitPriceFor(item: ShopItem, selectedOptions: SelectedOptionGroup[]) {
   return Number((item.price + addOns).toFixed(2));
 }
 
-function selectedOptionLabels(item: ShopItem, selectedOptions: SelectedOptionGroup[]) {
+function selectedOptionLabels(item: ShopItem, selectedOptions: SelectedOptionGroup[], language: LanguageCode) {
   const optionIds = new Set(selectedOptions.flatMap((group) => group.optionIds));
   return item.optionGroups.flatMap((group) =>
     group.options
       .filter((option) => optionIds.has(option.id))
-      .map((option) => `${group.name}: ${option.name}${option.priceDelta ? ` +${money(option.priceDelta)}` : ''}`)
+      .map((option) => {
+        const groupName = localizedText(group.name, group.nameMs, group.nameZh, language);
+        const optionName = localizedText(option.name, option.nameMs, option.nameZh, language);
+        return `${groupName}: ${optionName}${option.priceDelta ? ` +${money(option.priceDelta)}` : ''}`;
+      })
   );
 }
 
@@ -432,6 +528,7 @@ export default function GuestShopPage() {
   const [language, setLanguage] = useState<LanguageCode>('en');
   const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
   const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [categoryTranslations, setCategoryTranslations] = useState<Record<string, { ms: string; zh: string }>>({});
   const [hero, setHero] = useState(cachedHeroSettings);
   const [heroReady, setHeroReady] = useState(false);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
@@ -455,6 +552,36 @@ export default function GuestShopPage() {
   function chooseLanguage(nextLanguage: LanguageCode) {
     setLanguage(nextLanguage);
     window.localStorage.setItem('guestShopLanguage', nextLanguage);
+  }
+
+  function displayCategory(category: string) {
+    if (category === 'All') return t.all || 'All';
+    if (category === 'FNB') return t.fnbFilter;
+    const translated = categoryTranslations[category];
+    return localizedText(category, translated?.ms, translated?.zh, language);
+  }
+
+  function displaySubmenu(itemOrSubmenu: ShopItem | string) {
+    if (typeof itemOrSubmenu === 'string') return itemOrSubmenu === 'All' ? t.all || 'All' : itemOrSubmenu;
+    return localizedText(itemOrSubmenu.submenu, itemOrSubmenu.submenuMs, itemOrSubmenu.submenuZh, language);
+  }
+
+  function displaySubmenuChoice(submenu: string) {
+    if (submenu === 'All') return t.all || 'All';
+    const matchingItem = items.find((item) => item.submenu === submenu);
+    return matchingItem ? displaySubmenu(matchingItem) : submenu;
+  }
+
+  function displayItemName(item: ShopItem) {
+    return localizedText(item.name, item.nameMs, item.nameZh, language);
+  }
+
+  function displayItemDescription(item: ShopItem) {
+    return localizedText(item.description, item.descriptionMs, item.descriptionZh, language);
+  }
+
+  function displayItemLabel(item: ShopItem) {
+    return localizedText(item.label || '', item.labelMs, item.labelZh, language);
   }
 
   const visibleItems = useMemo(() => {
@@ -523,8 +650,14 @@ export default function GuestShopPage() {
         const nextHero = {
           hero_image_url: String(settingsJson.settings.hero_image_url || ''),
           hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_HERO.hero_kicker),
+          hero_kicker_ms: String(settingsJson.settings.hero_kicker_ms || ''),
+          hero_kicker_zh: String(settingsJson.settings.hero_kicker_zh || ''),
           hero_title: String(settingsJson.settings.hero_title || DEFAULT_HERO.hero_title),
+          hero_title_ms: String(settingsJson.settings.hero_title_ms || ''),
+          hero_title_zh: String(settingsJson.settings.hero_title_zh || ''),
           hero_body: String(settingsJson.settings.hero_body || DEFAULT_HERO.hero_body),
+          hero_body_ms: String(settingsJson.settings.hero_body_ms || ''),
+          hero_body_zh: String(settingsJson.settings.hero_body_zh || ''),
           featured_item_id: settingsJson.settings.featured_item_id
             ? String(settingsJson.settings.featured_item_id)
             : null,
@@ -565,6 +698,16 @@ export default function GuestShopPage() {
             .filter(Boolean);
 
           if (nextCategories.length) setCategories(['All', ...nextCategories]);
+          setCategoryTranslations(
+            Object.fromEntries(
+              categoriesJson.categories
+                .map((category: any) => [
+                  String(category?.name || '').trim(),
+                  { ms: String(category?.name_ms || ''), zh: String(category?.name_zh || '') },
+                ])
+                .filter(([name]: [string, any]) => Boolean(name))
+            )
+          );
         }
 
         if (!json?.ok || !Array.isArray(json.items) || !json.items.length) return;
@@ -574,14 +717,22 @@ export default function GuestShopPage() {
           .map((item: any): ShopItem => ({
             id: String(item.id),
             name: String(item.name || ''),
+            nameMs: String(item.name_ms || ''),
+            nameZh: String(item.name_zh || ''),
             category: String(item.category || 'Essentials'),
             description: String(item.description || ''),
+            descriptionMs: String(item.description_ms || ''),
+            descriptionZh: String(item.description_zh || ''),
             price: Number(item.price_myr || 0),
             stock: item.out_of_stock ? 0 : Math.max(0, Number(item.stock || 0)),
             imageUrl: String(item.image_url || ''),
             accent: String(item.accent || '#b6813a'),
             label: String(item.label || ''),
+            labelMs: String(item.label_ms || ''),
+            labelZh: String(item.label_zh || ''),
             submenu: String(item.submenu || ''),
+            submenuMs: String(item.submenu_ms || ''),
+            submenuZh: String(item.submenu_zh || ''),
             isFnb: item.is_fnb === true,
             optionGroups: normalizeOptionGroups(item.option_groups),
           }))
@@ -665,7 +816,7 @@ export default function GuestShopPage() {
     });
 
     if (missing) {
-      setNotice(`Please choose ${missing.name} before adding ${item.name}.`);
+      setNotice(`Please choose ${localizedText(missing.name, missing.nameMs, missing.nameZh, language)} before adding ${displayItemName(item)}.`);
       return;
     }
 
@@ -753,6 +904,7 @@ export default function GuestShopPage() {
           roomNumber,
           guestName,
           email,
+          language,
           items: cartItems.map(({ item, quantity, selectedOptions, specialInstructions }) => ({
             id: item.id,
             quantity,
@@ -841,9 +993,9 @@ export default function GuestShopPage() {
         </header>
 
         <div className="hero-content">
-          <p className="eyebrow">{hero.hero_kicker}</p>
-          <h1>{hero.hero_title}</h1>
-          <p className="hero-copy">{hero.hero_body}</p>
+          <p className="eyebrow">{localizedText(hero.hero_kicker, hero.hero_kicker_ms, hero.hero_kicker_zh, language)}</p>
+          <h1>{localizedText(hero.hero_title, hero.hero_title_ms, hero.hero_title_zh, language)}</h1>
+          <p className="hero-copy">{localizedText(hero.hero_body, hero.hero_body_ms, hero.hero_body_zh, language)}</p>
 
           <div className="hero-actions">
             <a href="#shop" className="primary-action">
@@ -872,7 +1024,7 @@ export default function GuestShopPage() {
                     setActiveSubmenu('All');
                   }}
                 >
-                  {category}
+                  {displayCategory(category)}
                 </button>
               ))}
             </div>
@@ -893,7 +1045,7 @@ export default function GuestShopPage() {
                       setActiveSubmenu(submenu);
                     }}
                   >
-                    {submenu}
+                    {displaySubmenuChoice(submenu)}
                   </button>
                 ))}
               </div>
@@ -917,29 +1069,31 @@ export default function GuestShopPage() {
               const selectedCartKey = cartKeyFor(item, selectedOptions);
               const isAdded = Boolean(cart[selectedCartKey]);
               const displayPrice = unitPriceFor(item, selectedOptions);
+              const displayName = displayItemName(item);
+              const displayLabel = displayItemLabel(item);
 
               return (
                 <article className="product-card" key={item.id}>
                   <div className="product-image" style={{ '--accent': item.accent } as CSSProperties}>
-                    <span className="image-fallback">{item.name.slice(0, 2).toUpperCase()}</span>
+                    <span className="image-fallback">{displayName.slice(0, 2).toUpperCase()}</span>
                     {item.imageUrl ? (
                       <img
                         src={item.imageUrl}
-                        alt={item.name}
+                        alt={displayName}
                         onError={(event) => {
                           event.currentTarget.style.display = 'none';
                         }}
                       />
                     ) : null}
-                    <span className="category-chip">{item.category}</span>
-                    {item.submenu ? <span className="submenu-chip">{item.submenu}</span> : null}
-                    {item.label ? <span className="item-label">{item.label}</span> : null}
+                    <span className="category-chip">{displayCategory(item.category)}</span>
+                    {item.submenu ? <span className="submenu-chip">{displaySubmenu(item)}</span> : null}
+                    {displayLabel ? <span className="item-label">{displayLabel}</span> : null}
                   </div>
 
                   <div className="product-info">
                     <div>
-                      <h3>{item.name}</h3>
-                      <p>{item.description}</p>
+                      <h3>{displayName}</h3>
+                      <p>{displayItemDescription(item)}</p>
                     </div>
 
                     {item.optionGroups.length ? (
@@ -956,7 +1110,7 @@ export default function GuestShopPage() {
                           return (
                             <div className="option-group" key={group.id}>
                               <div className="option-title">
-                                <span>{group.name}</span>
+                                <span>{localizedText(group.name, group.nameMs, group.nameZh, language)}</span>
                                 <div className="option-title-actions">
                                   {group.isRequired ? <b>{t.required}</b> : <b>{t.optional}</b>}
                                   {!group.isRequired && selected.size ? (
@@ -979,7 +1133,7 @@ export default function GuestShopPage() {
                                       checked={selected.has(option.id)}
                                       onChange={(event) => setGroupSelection(item, group, option.id, event.target.checked)}
                                     />
-                                    <span>{option.name}</span>
+                                    <span>{localizedText(option.name, option.nameMs, option.nameZh, language)}</span>
                                     {option.priceDelta ? <em>+{money(option.priceDelta)}</em> : null}
                                   </label>
                                 ))}
@@ -1022,10 +1176,10 @@ export default function GuestShopPage() {
                   <div className="order-line" key={cartKey}>
                     <div className="order-line-top">
                       <div>
-                        <strong>{item.name}</strong>
+                        <strong>{displayItemName(item)}</strong>
                         <span>{money(unitPrice)} {t.each}</span>
-                        {selectedOptionLabels(item, selectedOptions).length ? (
-                          <small>{selectedOptionLabels(item, selectedOptions).join(', ')}</small>
+                        {selectedOptionLabels(item, selectedOptions, language).length ? (
+                          <small>{selectedOptionLabels(item, selectedOptions, language).join(', ')}</small>
                         ) : null}
                       </div>
                       <div className="stepper">
