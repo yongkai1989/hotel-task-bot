@@ -48,6 +48,8 @@ function normalizeCategory(row: any) {
   return {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
+    name_ms: String(row?.name_ms || ''),
+    name_zh: String(row?.name_zh || ''),
     sort_order: Number(row?.sort_order || 0),
     is_active: row?.is_active !== false,
     created_at: row?.created_at || null,
@@ -57,6 +59,8 @@ function normalizeCategory(row: any) {
 
 function normalizeCategoryPayload(body: any) {
   const name = String(body?.name || '').trim();
+  const nameMs = String(body?.name_ms ?? body?.nameMs ?? '').trim();
+  const nameZh = String(body?.name_zh ?? body?.nameZh ?? '').trim();
   const sortOrder = Number(body?.sort_order ?? body?.sortOrder ?? 0);
   const isActive = body?.is_active ?? body?.isActive;
 
@@ -65,6 +69,8 @@ function normalizeCategoryPayload(body: any) {
 
   return {
     name,
+    name_ms: nameMs || null,
+    name_zh: nameZh || null,
     sort_order: Number.isFinite(sortOrder) ? Math.floor(sortOrder) : 0,
     is_active: isActive === undefined ? true : isActive === true,
   };
