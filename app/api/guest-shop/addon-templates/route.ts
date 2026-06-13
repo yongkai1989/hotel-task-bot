@@ -29,6 +29,8 @@ function normalizeTemplate(row: any) {
   return {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
+    name_ms: String(row?.name_ms || ''),
+    name_zh: String(row?.name_zh || ''),
     selection_type: String(row?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single',
     is_required: row?.is_required === true,
     min_select: Math.max(0, Number(row?.min_select || 0)),
@@ -41,6 +43,8 @@ function normalizeTemplate(row: any) {
 
 function normalizePayload(body: any) {
   const name = String(body?.name || '').trim();
+  const nameMs = String(body?.name_ms ?? body?.nameMs ?? '').trim();
+  const nameZh = String(body?.name_zh ?? body?.nameZh ?? '').trim();
   const selectionType = String(body?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single';
   const options = Array.isArray(body?.options) ? body.options : [];
   const sortOrder = Number(body?.sort_order ?? 0);
@@ -49,6 +53,8 @@ function normalizePayload(body: any) {
 
   return {
     name,
+    name_ms: nameMs || null,
+    name_zh: nameZh || null,
     selection_type: selectionType,
     is_required: body?.is_required === true,
     min_select: Math.max(0, Math.floor(Number(body?.min_select || 0))),
@@ -64,6 +70,8 @@ function normalizePayload(body: any) {
         return {
           id: option?.id ? String(option.id) : `option-${index + 1}`,
           name: optionName,
+          name_ms: String(option?.name_ms ?? option?.nameMs ?? '').trim() || null,
+          name_zh: String(option?.name_zh ?? option?.nameZh ?? '').trim() || null,
           price_delta_myr: Number.isFinite(priceDelta) ? Math.round(priceDelta * 100) / 100 : 0,
           is_default: option?.is_default === true,
         };
