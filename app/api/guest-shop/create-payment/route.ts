@@ -16,6 +16,8 @@ type CheckoutItem = {
   }>;
 };
 
+type LanguageCode = 'en' | 'ms' | 'zh';
+
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -27,6 +29,17 @@ function jsonNoCache(body: any, status = 200) {
 
 function sanitizeText(value: unknown, maxLength = 120) {
   return String(value || '').trim().slice(0, maxLength);
+}
+
+function normalizeLanguage(value: unknown): LanguageCode {
+  const language = String(value || 'en').trim().toLowerCase();
+  return language === 'ms' || language === 'zh' ? language : 'en';
+}
+
+function localized(row: any, key: string, language: LanguageCode) {
+  if (language === 'ms') return String(row?.[`${key}_ms`] || row?.[key] || '');
+  if (language === 'zh') return String(row?.[`${key}_zh`] || row?.[key] || '');
+  return String(row?.[key] || '');
 }
 
 function billplzBaseUrl() {
@@ -140,7 +153,7 @@ async function loadOptionsForItems(itemIds: string[]) {
   return groupsByItemId;
 }
 
-function resolveSelectedOptions(item: CheckoutItem, groups: any[]) {
+function resolveSelectedOptions(item: CheckoutItem, groups: any[], language: LanguageCode) {
   const selectedByGroupId = new Map(
     (item.selected_options || []).map((group) => [
       String(group.group_id),
@@ -174,14 +187,14 @@ function resolveSelectedOptions(item: CheckoutItem, groups: any[]) {
 
     selected.push({
       group_id: groupId,
-      group_name: String(group.name || ''),
+      group_name: localized(group, 'name', language),
       selection_type: String(group.selection_type || 'single'),
       options: picked.map((option: any) => {
         const priceDelta = Number(option.price_delta_myr || 0);
         addOnTotal += priceDelta;
         return {
           id: String(option.id),
-          name: String(option.name || ''),
+          name: localized(option, 'name', language),
           price_delta_myr: priceDelta,
         };
       }),
@@ -257,6 +270,7 @@ export async function POST(req: NextRequest) {
     const roomNumber = sanitizeText(body?.roomNumber, 40);
     const guestName = sanitizeText(body?.guestName, 120);
     const guestEmail = sanitizeText(body?.email, 180).toLowerCase();
+    const language = normalizeLanguage(body?.language);
     const billplzEmail =
       guestEmail || String(process.env.BILLPLZ_FALLBACK_EMAIL || 'frontoffice@hotelhallmark.com').trim();
     const checkoutItems = normalizeCheckoutItems(body?.items);
@@ -272,7 +286,7 @@ export async function POST(req: NextRequest) {
     const ids = checkoutItems.map((item) => item.id);
     const { data: catalogRows, error: catalogError } = await supabaseAdmin
       .from('guest_shop_items')
-      .select('id, name, category, submenu, price_myr, stock, is_active, out_of_stock, is_fnb')
+      .select('id, name, name_ms, name_zh, category, submenu, submenu_ms, submenu_zh, price_myr, stock, is_active, out_of_stock, is_fnb')
       .in('id', ids);
 
     if (catalogError) throw catalogError;
@@ -302,13 +316,13 @@ export async function POST(req: NextRequest) {
       }
 
       const price = Number(catalog.price_myr || 0);
-      const selected = resolveSelectedOptions(item, groupsByItemId.get(item.id) || []);
+      const selected = resolveSelectedOptions(item, groupsByItemId.get(item.id) || [], language);
       const unitPrice = Number((price + selected.add_on_total_myr).toFixed(2));
       return {
         id: String(catalog.id),
-        name: String(catalog.name || ''),
+        name: localized(catalog, 'name', language),
         category: String(catalog.category || ''),
-        submenu: String(catalog.submenu || ''),
+        submenu: localized(catalog, 'submenu', language),
         quantity: item.quantity,
         base_price_myr: price,
         add_on_total_myr: selected.add_on_total_myr,
