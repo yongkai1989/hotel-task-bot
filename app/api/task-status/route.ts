@@ -12,11 +12,17 @@ type TaskStatus = 'OPEN' | 'DONE';
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
 async function telegram(method: string, body: any) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: controller.signal,
   });
+
+  clearTimeout(timeout);
   return res.json();
 }
 
@@ -102,7 +108,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existingTask, error: existingTaskError } = await supabaseAdmin
       .from('tasks')
-      .select('id')
+      .select('id, status')
       .eq('id', taskId)
       .single();
 
@@ -115,6 +121,10 @@ export async function POST(req: NextRequest) {
         { ok: false, error: 'You do not have permission to update this task' },
         403
       );
+    }
+
+    if (existingTask.status === requestedStatus) {
+      return jsonNoCache({ ok: true, task: existingTask, unchanged: true });
     }
 
     const now = new Date().toISOString();
