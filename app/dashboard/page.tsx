@@ -729,6 +729,10 @@ export default function DashboardPage() {
     message: string;
   } | null>(null);
   const dashboardCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const createCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const createLibraryInputRef = useRef<HTMLInputElement | null>(null);
+  const editCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const editLibraryInputRef = useRef<HTMLInputElement | null>(null);
   const markupCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const markupDrawingRef = useRef(false);
   const markupLastPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -1937,6 +1941,26 @@ function canDeleteTask() {
     setCreateDepts((prev) =>
       prev.includes(dept) ? prev.filter((value) => value !== dept) : [...prev, dept]
     );
+  }
+
+  function openCreateCameraPicker() {
+    if (createSubmitting) return;
+    createCameraInputRef.current?.click();
+  }
+
+  function openCreateLibraryPicker() {
+    if (createSubmitting) return;
+    createLibraryInputRef.current?.click();
+  }
+
+  function openEditCameraPicker() {
+    if (editSubmitting) return;
+    editCameraInputRef.current?.click();
+  }
+
+  function openEditLibraryPicker() {
+    if (editSubmitting) return;
+    editLibraryInputRef.current?.click();
   }
 
   function openEditModal(task: Task) {
@@ -3522,12 +3546,60 @@ async function handleDeleteTask(taskId: string) {
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Photos / Videos</label>
               <input
+                ref={createCameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleCreatePhotoChange}
+                disabled={createSubmitting}
+                style={styles.hiddenFileInput}
+                aria-hidden="true"
+                tabIndex={-1}
+              />
+              <input
+                ref={createLibraryInputRef}
                 type="file"
                 accept="image/*,video/*"
                 multiple
                 onChange={handleCreatePhotoChange}
                 disabled={createSubmitting}
+                style={styles.hiddenFileInput}
+                aria-hidden="true"
+                tabIndex={-1}
               />
+              <div style={styles.createMediaPickerPanel}>
+                <button
+                  type="button"
+                  onClick={openCreateCameraPicker}
+                  disabled={createSubmitting}
+                  style={styles.createMediaPickerPrimary}
+                >
+                  <span style={styles.createMediaPickerIcon}>
+                    <DashboardIcon name="camera" size={18} />
+                  </span>
+                  <span>
+                    <span style={styles.createMediaPickerTitle}>Take Photo</span>
+                    <span style={styles.createMediaPickerText}>Snap another room photo</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openCreateLibraryPicker}
+                  disabled={createSubmitting}
+                  style={styles.createMediaPickerSecondary}
+                >
+                  <span style={styles.createMediaPickerIcon}>
+                    <DashboardIcon name="upload" size={18} />
+                  </span>
+                  <span>
+                    <span style={styles.createMediaPickerTitle}>Choose Library</span>
+                    <span style={styles.createMediaPickerText}>Photos or short videos</span>
+                  </span>
+                </button>
+              </div>
+              <div style={styles.createMediaCount}>
+                {createPhotos.length}/30 media selected
+              </div>
               <div style={modalResponsive.photoPreviewGrid}>
                 {createPhotos.map((photo) => (
                   <div key={photo.id} style={styles.photoPreviewItem}>
@@ -3730,12 +3802,60 @@ async function handleDeleteTask(taskId: string) {
             <div style={styles.formBlock}>
               <label style={styles.formLabel}>Add New Photos / Videos</label>
               <input
+                ref={editCameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleEditPhotoChange}
+                disabled={editSubmitting}
+                style={styles.hiddenFileInput}
+                aria-hidden="true"
+                tabIndex={-1}
+              />
+              <input
+                ref={editLibraryInputRef}
                 type="file"
                 accept="image/*,video/*"
                 multiple
                 onChange={handleEditPhotoChange}
                 disabled={editSubmitting}
+                style={styles.hiddenFileInput}
+                aria-hidden="true"
+                tabIndex={-1}
               />
+              <div style={styles.createMediaPickerPanel}>
+                <button
+                  type="button"
+                  onClick={openEditCameraPicker}
+                  disabled={editSubmitting}
+                  style={styles.createMediaPickerPrimary}
+                >
+                  <span style={styles.createMediaPickerIcon}>
+                    <DashboardIcon name="camera" size={18} />
+                  </span>
+                  <span>
+                    <span style={styles.createMediaPickerTitle}>Take Photo</span>
+                    <span style={styles.createMediaPickerText}>Add another photo</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openEditLibraryPicker}
+                  disabled={editSubmitting}
+                  style={styles.createMediaPickerSecondary}
+                >
+                  <span style={styles.createMediaPickerIcon}>
+                    <DashboardIcon name="upload" size={18} />
+                  </span>
+                  <span>
+                    <span style={styles.createMediaPickerTitle}>Choose Library</span>
+                    <span style={styles.createMediaPickerText}>Photos or short videos</span>
+                  </span>
+                </button>
+              </div>
+              <div style={styles.createMediaCount}>
+                {editNewPhotos.length} new media selected
+              </div>
 
               <div style={styles.photoPreviewGrid}>
                 {editNewPhotos.map((photo) => (
@@ -5450,6 +5570,78 @@ deleteTaskBtn: {
     boxSizing: 'border-box',
     background: '#ffffff',
 
+  },
+  createMediaPickerPanel: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+    marginTop: 8,
+  },
+  createMediaPickerPrimary: {
+    border: '1px solid #bfdbfe',
+    background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)',
+    color: '#1d4ed8',
+    borderRadius: 16,
+    padding: '12px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    textAlign: 'left',
+    cursor: 'pointer',
+    boxShadow: '0 10px 24px rgba(37,99,235,0.08)',
+    minWidth: 0,
+  },
+  createMediaPickerSecondary: {
+    border: '1px solid #dbe3ee',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: 16,
+    padding: '12px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    textAlign: 'left',
+    cursor: 'pointer',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+    minWidth: 0,
+  },
+  createMediaPickerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#dbeafe',
+    color: '#2563eb',
+    flexShrink: 0,
+  },
+  createMediaPickerTitle: {
+    display: 'block',
+    fontSize: 13,
+    fontWeight: 900,
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+  },
+  createMediaPickerText: {
+    display: 'block',
+    marginTop: 3,
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#64748b',
+    lineHeight: 1.25,
+  },
+  createMediaCount: {
+    marginTop: 8,
+    display: 'inline-flex',
+    alignItems: 'center',
+    borderRadius: 999,
+    padding: '5px 9px',
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: 900,
   },
   photoPreviewGrid: {
     display: 'grid',
