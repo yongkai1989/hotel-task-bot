@@ -113,6 +113,7 @@ type DashboardIconName =
   | 'refresh'
   | 'plus'
   | 'camera'
+  | 'upload'
   | 'pen'
   | 'activity';
 
@@ -593,6 +594,16 @@ function DashboardIcon({
     );
   }
 
+  if (name === 'upload') {
+    return (
+      <svg {...common}>
+        <path d="M12 16V4" />
+        <path d="m7 9 5-5 5 5" />
+        <path d="M5 16v2.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V16" />
+      </svg>
+    );
+  }
+
   if (name === 'pen') {
     return (
       <svg {...common}>
@@ -712,6 +723,11 @@ export default function DashboardPage() {
   const [createCustomerWaiting, setCreateCustomerWaiting] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [mediaUploadNotice, setMediaUploadNotice] = useState<{
+    status: 'uploading' | 'done' | 'error';
+    count: number;
+    message: string;
+  } | null>(null);
   const dashboardCameraInputRef = useRef<HTMLInputElement | null>(null);
   const markupCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const markupDrawingRef = useRef(false);
@@ -780,6 +796,19 @@ export default function DashboardPage() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (mediaUploadNotice?.status !== 'uploading') return;
+
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [mediaUploadNotice?.status]);
 
   const isMobile = viewportWidth < 768;
   const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
@@ -2145,6 +2174,12 @@ function canDeleteTask() {
       const token = await getAccessToken();
 
       if (params.mediaItems.length > 0) {
+        setMediaUploadNotice({
+          status: 'uploading',
+          count: params.mediaItems.length,
+          message: `Uploading ${params.mediaItems.length} media item${params.mediaItems.length === 1 ? '' : 's'}... keep this page open.`,
+        });
+
         const form = new FormData();
         form.set('room', params.room);
         form.set('department', params.departments[0]);
@@ -2168,6 +2203,18 @@ function canDeleteTask() {
           },
           120000
         );
+
+        setMediaUploadNotice({
+          status: 'done',
+          count: params.mediaItems.length,
+          message: `Upload completed. ${params.mediaItems.length} media item${params.mediaItems.length === 1 ? '' : 's'} saved.`,
+        });
+
+        setTimeout(() => {
+          setMediaUploadNotice((current) =>
+            current?.status === 'done' ? null : current
+          );
+        }, 1800);
       } else {
         await fetchJson(
           '/api/tasks',
@@ -2194,6 +2241,13 @@ function canDeleteTask() {
 
       await loadTasks(false, { force: true });
     } catch (err: any) {
+      if (params.mediaItems.length > 0) {
+        setMediaUploadNotice({
+          status: 'error',
+          count: params.mediaItems.length,
+          message: err?.message || 'Media upload failed. Please keep the page open and try again.',
+        });
+      }
       setErrorMsg(err?.message || 'Task creation or media upload failed');
     }
   }
@@ -2354,9 +2408,27 @@ async function handleDeleteTask(taskId: string) {
       let uploadedCaptions: (string | null)[] = [];
 
       if (editNewPhotos.length > 0) {
+        setMediaUploadNotice({
+          status: 'uploading',
+          count: editNewPhotos.length,
+          message: `Uploading ${editNewPhotos.length} new media item${editNewPhotos.length === 1 ? '' : 's'}... keep this page open.`,
+        });
+
         const uploaded = await uploadMediaItems(editNewPhotos);
         uploadedUrls = uploaded.urls;
         uploadedCaptions = uploaded.captions;
+
+        setMediaUploadNotice({
+          status: 'done',
+          count: editNewPhotos.length,
+          message: `Upload completed. ${editNewPhotos.length} new media item${editNewPhotos.length === 1 ? '' : 's'} saved.`,
+        });
+
+        setTimeout(() => {
+          setMediaUploadNotice((current) =>
+            current?.status === 'done' ? null : current
+          );
+        }, 1800);
       }
 
       const token = await getAccessToken();
@@ -2380,12 +2452,19 @@ async function handleDeleteTask(taskId: string) {
             new_image_captions: uploadedCaptions,
           }),
         },
-        30000
+        45000
       );
 
       closeEditModal();
       await loadTasks(false, { force: true });
     } catch (err: any) {
+      if (editNewPhotos.length > 0) {
+        setMediaUploadNotice({
+          status: 'error',
+          count: editNewPhotos.length,
+          message: err?.message || 'Media upload failed. Please keep the page open and try again.',
+        });
+      }
       setEditError(err?.message || 'Failed to edit task');
     } finally {
       setEditSubmitting(false);
@@ -2658,6 +2737,45 @@ async function handleDeleteTask(taskId: string) {
 
           {envError ? <div style={styles.errorBox}>{envError}</div> : null}
           {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+
+          {mediaUploadNotice ? (
+            <div
+              style={{
+                ...styles.mediaUploadNotice,
+                ...(mediaUploadNotice.status === 'done' ? styles.mediaUploadNoticeDone : {}),
+                ...(mediaUploadNotice.status === 'error' ? styles.mediaUploadNoticeError : {}),
+              }}
+              role={mediaUploadNotice.status === 'error' ? 'alert' : 'status'}
+            >
+              <div
+                style={{
+                  ...styles.mediaUploadPulse,
+                  ...(mediaUploadNotice.status === 'done' ? styles.mediaUploadPulseDone : {}),
+                  ...(mediaUploadNotice.status === 'error' ? styles.mediaUploadPulseError : {}),
+                }}
+              >
+                {mediaUploadNotice.status === 'done' ? (
+                  <DashboardIcon name="check" size={17} />
+                ) : mediaUploadNotice.status === 'error' ? (
+                  <DashboardIcon name="alert" size={17} />
+                ) : (
+                  <DashboardIcon name="upload" size={17} />
+                )}
+              </div>
+              <div style={styles.mediaUploadNoticeText}>
+                <div style={styles.mediaUploadNoticeTitle}>
+                  {mediaUploadNotice.status === 'uploading'
+                    ? 'Media upload in progress'
+                    : mediaUploadNotice.status === 'done'
+                      ? 'Media upload complete'
+                      : 'Media upload failed'}
+                </div>
+                <div style={styles.mediaUploadNoticeMessage}>
+                  {mediaUploadNotice.message}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {authLoading && !profile ? (
             <div style={styles.emptyState}>Checking login...</div>
@@ -5526,6 +5644,68 @@ deleteTaskBtn: {
   uploadHint: {
     color: '#667085',
     fontSize: 13,
+  },
+  mediaUploadNotice: {
+    position: 'fixed',
+    left: '50%',
+    bottom: 'calc(18px + env(safe-area-inset-bottom))',
+    transform: 'translateX(-50%)',
+    zIndex: 1400,
+    width: 'min(92vw, 520px)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 18,
+    border: '1px solid #bfdbfe',
+    background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)',
+    color: '#0f172a',
+    padding: '12px 14px',
+    boxShadow: '0 22px 50px rgba(15,23,42,0.22)',
+    boxSizing: 'border-box',
+  },
+  mediaUploadNoticeDone: {
+    borderColor: '#bbf7d0',
+    background: 'linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%)',
+  },
+  mediaUploadNoticeError: {
+    borderColor: '#fecaca',
+    background: 'linear-gradient(135deg, #fef2f2 0%, #ffffff 100%)',
+  },
+  mediaUploadPulse: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    background: '#dbeafe',
+    color: '#2563eb',
+    boxShadow: 'inset 0 0 0 1px rgba(37,99,235,0.12)',
+  },
+  mediaUploadPulseDone: {
+    background: '#dcfce7',
+    color: '#16a34a',
+  },
+  mediaUploadPulseError: {
+    background: '#fee2e2',
+    color: '#dc2626',
+  },
+  mediaUploadNoticeText: {
+    minWidth: 0,
+  },
+  mediaUploadNoticeTitle: {
+    fontSize: 13,
+    fontWeight: 900,
+    color: '#0f172a',
+    lineHeight: 1.25,
+  },
+  mediaUploadNoticeMessage: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#475569',
+    lineHeight: 1.35,
   },
   errorBox: {
     borderRadius: 14,
