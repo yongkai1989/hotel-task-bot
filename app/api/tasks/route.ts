@@ -10,6 +10,9 @@ export const fetchCache = 'force-no-store';
 const GET_TASK_LIMIT = 300;
 const CUSTOMER_WAITING_REMINDER_BUDGET_MS = 1200;
 const TELEGRAM_SEND_TIMEOUT_MS = 5000;
+const MAX_MEDIA = 30;
+const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 // Department-specific Telegram group chat IDs
 const MT_CHAT_ID = -1003860980789;
@@ -292,6 +295,114 @@ function normalizeImageCaptions(
   return Array.from({ length: imageCount }, () => null);
 }
 
+function extensionForMedia(type: string) {
+  if (type.includes('png')) return 'png';
+  if (type.includes('webp')) return 'webp';
+  if (type.includes('quicktime')) return 'mov';
+  if (type.includes('webm')) return 'webm';
+  if (type.includes('mp4')) return 'mp4';
+  return type.startsWith('video/') ? 'mp4' : 'jpg';
+}
+
+async function uploadTaskMediaFiles(files: File[]) {
+  if (!files.length) return [];
+
+  if (files.length > MAX_MEDIA) {
+    throw new Error(`Maximum ${MAX_MEDIA} photos or videos per task`);
+  }
+
+  const uploaded: Array<{ url: string; caption: string | null }> = [];
+
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    const type = file.type || 'application/octet-stream';
+    const isVideo = type.startsWith('video/');
+    const isImage = type.startsWith('image/');
+
+    if (!isVideo && !isImage) {
+      throw new Error('Only image and video files are allowed');
+    }
+
+    if (isVideo && file.size > MAX_VIDEO_BYTES) {
+      throw new Error('Each video must be 80MB or smaller');
+    }
+
+    if (isImage && file.size > MAX_IMAGE_BYTES) {
+      throw new Error('Each image must be 8MB or smaller after compression');
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const ext = extensionForMedia(type);
+    const fileName = `task-media/${Date.now()}-${index}-${Math.random()
+      .toString(36)
+      .slice(2)}.${ext}`;
+
+    const { error } = await supabaseAdmin.storage
+      .from('task-images')
+      .upload(fileName, buffer, {
+        contentType: type,
+        upsert: false,
+      });
+
+    if (error) throw error;
+
+    const { data } = supabaseAdmin.storage
+      .from('task-images')
+      .getPublicUrl(fileName);
+
+    uploaded.push({
+      url: data.publicUrl,
+      caption: null,
+    });
+  }
+
+  return uploaded;
+}
+
+async function parseCreateTaskRequest(req: NextRequest) {
+  const contentType = req.headers.get('content-type') || '';
+
+  if (!contentType.includes('multipart/form-data')) {
+    return {
+      body: await req.json(),
+      files: [] as File[],
+    };
+  }
+
+  const form = await req.formData();
+  const departmentsRaw = String(form.get('departments_json') || '').trim();
+  let departments: any[] = [];
+
+  try {
+    departments = departmentsRaw ? JSON.parse(departmentsRaw) : [];
+  } catch {
+    departments = [];
+  }
+
+  const files = form
+    .getAll('media')
+    .filter((item): item is File => {
+      const candidate = item as any;
+      return (
+        candidate &&
+        typeof candidate.arrayBuffer === 'function' &&
+        typeof candidate.size === 'number'
+      );
+    });
+
+  return {
+    body: {
+      room: form.get('room'),
+      department: form.get('department'),
+      departments,
+      task_text: form.get('task_text'),
+      source_message: form.get('source_message'),
+      customer_waiting: String(form.get('customer_waiting') || '') === 'true',
+    },
+    files,
+  };
+}
+
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -539,7 +650,7 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Not allowed to create tasks' }, 403);
     }
 
-    const body = await req.json();
+    const { body, files } = await parseCreateTaskRequest(req);
 
     const sourceMessage = String(body.source_message || body.sourceMessage || '').trim();
     const rawTaskText = String(body.task_text || body.taskText || '').trim();
@@ -555,8 +666,8 @@ export async function POST(req: NextRequest) {
           : inferredDept
             ? [inferredDept]
             : [];
-    const imageUrls = normalizeImageUrls(body);
-    const imageCaptions = normalizeImageCaptions(body, imageUrls.length);
+    let imageUrls = normalizeImageUrls(body);
+    let imageCaptions = normalizeImageCaptions(body, imageUrls.length);
     const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
 
     if (!room) {
@@ -591,6 +702,12 @@ export async function POST(req: NextRequest) {
         },
         500
       );
+    }
+
+    if (files.length > 0) {
+      const uploadedMedia = await uploadTaskMediaFiles(files);
+      imageUrls = uploadedMedia.map((item) => item.url);
+      imageCaptions = uploadedMedia.map((item) => item.caption);
     }
 
     const firstImageUrl = imageUrls.length > 0 ? imageUrls[0] : null;
