@@ -17,13 +17,21 @@ type Profile = {
 type ShopItem = {
   id: string;
   name: string;
+  name_ms: string;
+  name_zh: string;
   category: string;
   submenu: string;
+  submenu_ms: string;
+  submenu_zh: string;
   description: string;
+  description_ms: string;
+  description_zh: string;
   price_myr: number;
   stock: number;
   image_url: string;
   label: string;
+  label_ms: string;
+  label_zh: string;
   accent: string;
   sort_order: number;
   is_active: boolean;
@@ -35,6 +43,8 @@ type ShopItem = {
 type CategoryRow = {
   id: string;
   name: string;
+  name_ms: string;
+  name_zh: string;
   sort_order: number;
   is_active: boolean;
 };
@@ -42,6 +52,8 @@ type CategoryRow = {
 type AddonTemplate = {
   id: string;
   name: string;
+  name_ms: string;
+  name_zh: string;
   selection_type: 'single' | 'multiple';
   is_required: boolean;
   min_select: number;
@@ -54,8 +66,14 @@ type AddonTemplate = {
 type ShopSettings = {
   hero_image_url: string;
   hero_kicker: string;
+  hero_kicker_ms: string;
+  hero_kicker_zh: string;
   hero_title: string;
+  hero_title_ms: string;
+  hero_title_zh: string;
   hero_body: string;
+  hero_body_ms: string;
+  hero_body_zh: string;
   featured_item_id: string | null;
 };
 
@@ -95,13 +113,21 @@ type ActiveTab = 'items' | 'addons' | 'hero' | 'categories' | 'fnbHours' | 'orde
 type Draft = {
   id: string;
   name: string;
+  name_ms: string;
+  name_zh: string;
   category: string;
   submenu: string;
+  submenu_ms: string;
+  submenu_zh: string;
   description: string;
+  description_ms: string;
+  description_zh: string;
   price_myr: string;
   stock: string;
   image_url: string;
   label: string;
+  label_ms: string;
+  label_zh: string;
   accent: string;
   sort_order: string;
   is_active: boolean;
@@ -113,6 +139,8 @@ type Draft = {
 type CategoryDraft = {
   id: string;
   name: string;
+  name_ms: string;
+  name_zh: string;
   sort_order: string;
   is_active: boolean;
 };
@@ -120,6 +148,8 @@ type CategoryDraft = {
 type AddonTemplateDraft = {
   id: string;
   name: string;
+  name_ms: string;
+  name_zh: string;
   selection_type: 'single' | 'multiple';
   is_required: boolean;
   min_select: string;
@@ -134,13 +164,21 @@ const DEFAULT_CATEGORIES = ['Comfort', 'Laundry', 'Room Service', 'Essentials'];
 const EMPTY_DRAFT: Draft = {
   id: '',
   name: '',
+  name_ms: '',
+  name_zh: '',
   category: 'Comfort',
   submenu: '',
+  submenu_ms: '',
+  submenu_zh: '',
   description: '',
+  description_ms: '',
+  description_zh: '',
   price_myr: '',
   stock: '0',
   image_url: '',
   label: '',
+  label_ms: '',
+  label_zh: '',
   accent: '#b6813a',
   sort_order: '0',
   is_active: true,
@@ -152,6 +190,8 @@ const EMPTY_DRAFT: Draft = {
 const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
   id: '',
   name: '',
+  name_ms: '',
+  name_zh: '',
   sort_order: '0',
   is_active: true,
 };
@@ -159,6 +199,8 @@ const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
 const EMPTY_ADDON_TEMPLATE_DRAFT: AddonTemplateDraft = {
   id: '',
   name: '',
+  name_ms: '',
+  name_zh: '',
   selection_type: 'single',
   is_required: false,
   min_select: '0',
@@ -169,6 +211,8 @@ const EMPTY_ADDON_TEMPLATE_DRAFT: AddonTemplateDraft = {
     {
       id: 'option-1',
       name: 'Regular',
+      name_ms: '',
+      name_zh: '',
       price_delta_myr: 0,
       is_default: true,
     },
@@ -176,12 +220,17 @@ const EMPTY_ADDON_TEMPLATE_DRAFT: AddonTemplateDraft = {
 };
 
 const DEFAULT_SETTINGS: ShopSettings = {
-  hero_image_url:
-    'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84',
+  hero_image_url: '',
   hero_kicker: 'Private in-room collection',
+  hero_kicker_ms: '',
+  hero_kicker_zh: '',
   hero_title: 'Quiet luxuries, ready on request.',
+  hero_title_ms: '',
+  hero_title_zh: '',
   hero_body:
     'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
+  hero_body_ms: '',
+  hero_body_zh: '',
   featured_item_id: null,
 };
 
@@ -342,13 +391,21 @@ function draftFromItem(item: ShopItem): Draft {
   return {
     id: item.id,
     name: item.name,
+    name_ms: item.name_ms || '',
+    name_zh: item.name_zh || '',
     category: item.category,
     submenu: item.submenu || '',
+    submenu_ms: item.submenu_ms || '',
+    submenu_zh: item.submenu_zh || '',
     description: item.description,
+    description_ms: item.description_ms || '',
+    description_zh: item.description_zh || '',
     price_myr: String(item.price_myr ?? ''),
     stock: String(item.stock ?? '0'),
     image_url: item.image_url || '',
     label: item.label || '',
+    label_ms: item.label_ms || '',
+    label_zh: item.label_zh || '',
     accent: item.accent || '#b6813a',
     sort_order: String(item.sort_order ?? '0'),
     is_active: item.is_active !== false,
@@ -362,13 +419,21 @@ function normalizeItem(row: any): ShopItem {
   return {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
+    name_ms: String(row?.name_ms || ''),
+    name_zh: String(row?.name_zh || ''),
     category: String(row?.category || 'Essentials'),
     submenu: String(row?.submenu || ''),
+    submenu_ms: String(row?.submenu_ms || ''),
+    submenu_zh: String(row?.submenu_zh || ''),
     description: String(row?.description || ''),
+    description_ms: String(row?.description_ms || ''),
+    description_zh: String(row?.description_zh || ''),
     price_myr: Number(row?.price_myr || 0),
     stock: Number(row?.stock || 0),
     image_url: String(row?.image_url || ''),
     label: String(row?.label || ''),
+    label_ms: String(row?.label_ms || ''),
+    label_zh: String(row?.label_zh || ''),
     accent: String(row?.accent || '#b6813a'),
     sort_order: Number(row?.sort_order || 0),
     is_active: row?.is_active !== false,
@@ -382,6 +447,8 @@ function normalizeCategory(row: any): CategoryRow {
   return {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
+    name_ms: String(row?.name_ms || ''),
+    name_zh: String(row?.name_zh || ''),
     sort_order: Number(row?.sort_order || 0),
     is_active: row?.is_active !== false,
   };
@@ -391,6 +458,8 @@ function normalizeAddonTemplate(row: any): AddonTemplate {
   return {
     id: String(row?.id || ''),
     name: String(row?.name || ''),
+    name_ms: String(row?.name_ms || ''),
+    name_zh: String(row?.name_zh || ''),
     selection_type: String(row?.selection_type || 'single') === 'multiple' ? 'multiple' : 'single',
     is_required: row?.is_required === true,
     min_select: Math.max(0, Number(row?.min_select || 0)),
@@ -405,6 +474,8 @@ function draftFromAddonTemplate(template: AddonTemplate): AddonTemplateDraft {
   return {
     id: template.id,
     name: template.name,
+    name_ms: template.name_ms || '',
+    name_zh: template.name_zh || '',
     selection_type: template.selection_type,
     is_required: template.is_required,
     min_select: String(template.min_select ?? 0),
@@ -455,6 +526,8 @@ function cloneOptionPreset(group: any) {
   return {
     id: uniqueOptionId('group'),
     name: String(group?.name || 'Add-ons'),
+    name_ms: String(group?.name_ms || ''),
+    name_zh: String(group?.name_zh || ''),
     selection_type: selectionType,
     is_required: group?.is_required === true,
     min_select: Math.max(0, Number(group?.min_select || 0)),
@@ -462,6 +535,8 @@ function cloneOptionPreset(group: any) {
     options: (Array.isArray(group?.options) ? group.options : []).map((option: any) => ({
       id: uniqueOptionId('option'),
       name: String(option?.name || 'Option'),
+      name_ms: String(option?.name_ms || ''),
+      name_zh: String(option?.name_zh || ''),
       price_delta_myr: option?.price_delta_myr ?? 0,
       is_default: option?.is_default === true,
     })),
@@ -660,8 +735,14 @@ export default function GuestShopAdminPage() {
           setSettings({
             hero_image_url: String(settingsJson.settings.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
             hero_kicker: String(settingsJson.settings.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
+            hero_kicker_ms: String(settingsJson.settings.hero_kicker_ms || ''),
+            hero_kicker_zh: String(settingsJson.settings.hero_kicker_zh || ''),
             hero_title: String(settingsJson.settings.hero_title || DEFAULT_SETTINGS.hero_title),
+            hero_title_ms: String(settingsJson.settings.hero_title_ms || ''),
+            hero_title_zh: String(settingsJson.settings.hero_title_zh || ''),
             hero_body: String(settingsJson.settings.hero_body || DEFAULT_SETTINGS.hero_body),
+            hero_body_ms: String(settingsJson.settings.hero_body_ms || ''),
+            hero_body_zh: String(settingsJson.settings.hero_body_zh || ''),
             featured_item_id: settingsJson.settings.featured_item_id
               ? String(settingsJson.settings.featured_item_id)
               : null,
@@ -763,6 +844,8 @@ export default function GuestShopAdminPage() {
         {
           id: uniqueOptionId('option'),
           name: 'New choice',
+          name_ms: '',
+          name_zh: '',
           price_delta_myr: 0,
           is_default: false,
         },
@@ -814,6 +897,8 @@ export default function GuestShopAdminPage() {
           {
             id: uniqueOptionId('option'),
             name: 'Regular',
+            name_ms: '',
+            name_zh: '',
             price_delta_myr: 0,
             is_default: true,
           },
@@ -853,6 +938,8 @@ export default function GuestShopAdminPage() {
         {
           id: uniqueOptionId('option'),
           name: 'New choice',
+          name_ms: '',
+          name_zh: '',
           price_delta_myr: 0,
           is_default: false,
         },
@@ -943,13 +1030,21 @@ export default function GuestShopAdminPage() {
       const payload = {
         id: draft.id,
         name: draft.name,
+        name_ms: draft.name_ms,
+        name_zh: draft.name_zh,
         category: adminScope === 'fnb' ? 'F&B' : draft.category || categoryNames[0] || 'Comfort',
         submenu: draft.submenu,
+        submenu_ms: draft.submenu_ms,
+        submenu_zh: draft.submenu_zh,
         description: draft.description,
+        description_ms: draft.description_ms,
+        description_zh: draft.description_zh,
         price_myr: Number(draft.price_myr || 0),
         stock: Number(draft.stock || 0),
         image_url: draft.image_url,
         label: draft.label,
+        label_ms: draft.label_ms,
+        label_zh: draft.label_zh,
         accent: draft.accent,
         sort_order: Number(draft.sort_order || 0),
         is_active: draft.is_active,
@@ -1044,8 +1139,14 @@ export default function GuestShopAdminPage() {
       setSettings({
         hero_image_url: String(json.settings.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
         hero_kicker: String(json.settings.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
+        hero_kicker_ms: String(json.settings.hero_kicker_ms || ''),
+        hero_kicker_zh: String(json.settings.hero_kicker_zh || ''),
         hero_title: String(json.settings.hero_title || DEFAULT_SETTINGS.hero_title),
+        hero_title_ms: String(json.settings.hero_title_ms || ''),
+        hero_title_zh: String(json.settings.hero_title_zh || ''),
         hero_body: String(json.settings.hero_body || DEFAULT_SETTINGS.hero_body),
+        hero_body_ms: String(json.settings.hero_body_ms || ''),
+        hero_body_zh: String(json.settings.hero_body_zh || ''),
         featured_item_id: json.settings.featured_item_id ? String(json.settings.featured_item_id) : null,
       });
       setMessage('Hero saved. The guest shop display will refresh with this image/text.');
@@ -1075,6 +1176,8 @@ export default function GuestShopAdminPage() {
         body: JSON.stringify({
           id: categoryDraft.id,
           name: categoryDraft.name,
+          name_ms: categoryDraft.name_ms,
+          name_zh: categoryDraft.name_zh,
           sort_order: Number(categoryDraft.sort_order || 0),
           is_active: categoryDraft.is_active,
         }),
@@ -1090,7 +1193,14 @@ export default function GuestShopAdminPage() {
           : [...current, saved];
         return next.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
       });
-      setCategoryDraft({ id: saved.id, name: saved.name, sort_order: String(saved.sort_order), is_active: saved.is_active });
+      setCategoryDraft({
+        id: saved.id,
+        name: saved.name,
+        name_ms: saved.name_ms || '',
+        name_zh: saved.name_zh || '',
+        sort_order: String(saved.sort_order),
+        is_active: saved.is_active,
+      });
       setMessage('Category saved.');
     } catch (err: any) {
       setError(err?.message || 'Failed to save category');
@@ -1145,6 +1255,8 @@ export default function GuestShopAdminPage() {
       const payload = {
         id: addonTemplateDraft.id,
         name: addonTemplateDraft.name,
+        name_ms: addonTemplateDraft.name_ms,
+        name_zh: addonTemplateDraft.name_zh,
         selection_type: addonTemplateDraft.selection_type,
         is_required: addonTemplateDraft.is_required,
         min_select: Number(addonTemplateDraft.min_select || 0),
@@ -1365,6 +1477,16 @@ export default function GuestShopAdminPage() {
               </label>
 
               <label style={styles.label}>
+                Item Name (BM)
+                <input disabled={!canFullManage} value={draft.name_ms} onChange={(event) => updateDraft('name_ms', event.target.value)} placeholder="Nama Bahasa Melayu" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
+                Item Name (Chinese)
+                <input disabled={!canFullManage} value={draft.name_zh} onChange={(event) => updateDraft('name_zh', event.target.value)} placeholder="Chinese item name" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
                 Category
                 <select disabled={!canFullManage} value={draft.category} onChange={(event) => updateDraft('category', event.target.value)} style={styles.input}>
                   {categoryNames.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -1389,6 +1511,16 @@ export default function GuestShopAdminPage() {
               </label>
 
               <label style={styles.label}>
+                Submenu (BM)
+                <input disabled={!canFullManage} value={draft.submenu_ms} onChange={(event) => updateDraft('submenu_ms', event.target.value)} placeholder="Nama submenu BM" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
+                Submenu (Chinese)
+                <input disabled={!canFullManage} value={draft.submenu_zh} onChange={(event) => updateDraft('submenu_zh', event.target.value)} placeholder="Chinese submenu" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
                 Price (RM)
                 <input disabled={!canFullManage} value={draft.price_myr} onChange={(event) => updateDraft('price_myr', event.target.value)} inputMode="decimal" placeholder="0.00" style={styles.input} />
               </label>
@@ -1407,12 +1539,33 @@ export default function GuestShopAdminPage() {
                 Label
                 <input disabled={!canFullManage} value={draft.label} onChange={(event) => updateDraft('label', event.target.value)} placeholder="Example: Limited daily" style={styles.input} />
               </label>
+
+              <label style={styles.label}>
+                Label (BM)
+                <input disabled={!canFullManage} value={draft.label_ms} onChange={(event) => updateDraft('label_ms', event.target.value)} placeholder="Label BM" style={styles.input} />
+              </label>
+
+              <label style={styles.label}>
+                Label (Chinese)
+                <input disabled={!canFullManage} value={draft.label_zh} onChange={(event) => updateDraft('label_zh', event.target.value)} placeholder="Chinese label" style={styles.input} />
+              </label>
             </div>
 
             <label style={styles.label}>
               Description
               <textarea disabled={!canFullManage} value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} placeholder="Short guest-facing description" style={styles.textarea} />
             </label>
+
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Description (BM)
+                <textarea disabled={!canFullManage} value={draft.description_ms} onChange={(event) => updateDraft('description_ms', event.target.value)} placeholder="Penerangan Bahasa Melayu" style={styles.textarea} />
+              </label>
+              <label style={styles.label}>
+                Description (Chinese)
+                <textarea disabled={!canFullManage} value={draft.description_zh} onChange={(event) => updateDraft('description_zh', event.target.value)} placeholder="Chinese description" style={styles.textarea} />
+              </label>
+            </div>
 
             <div style={styles.optionBuilder}>
               <div style={styles.optionBuilderHead}>
@@ -1471,6 +1624,28 @@ export default function GuestShopAdminPage() {
                           </label>
 
                           <label style={styles.label}>
+                            Group Name (BM)
+                            <input
+                              disabled={!canFullManage}
+                              value={String(group.name_ms || '')}
+                              onChange={(event) => updateOptionGroup(groupIndex, { name_ms: event.target.value })}
+                              placeholder="Nama kumpulan BM"
+                              style={styles.input}
+                            />
+                          </label>
+
+                          <label style={styles.label}>
+                            Group Name (Chinese)
+                            <input
+                              disabled={!canFullManage}
+                              value={String(group.name_zh || '')}
+                              onChange={(event) => updateOptionGroup(groupIndex, { name_zh: event.target.value })}
+                              placeholder="Chinese group name"
+                              style={styles.input}
+                            />
+                          </label>
+
+                          <label style={styles.label}>
                             Selection
                             <select
                               disabled={!canFullManage}
@@ -1523,6 +1698,20 @@ export default function GuestShopAdminPage() {
                                 value={String(option.name || '')}
                                 onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { name: event.target.value })}
                                 placeholder="Example: Add egg"
+                                style={styles.input}
+                              />
+                              <input
+                                disabled={!canFullManage}
+                                value={String(option.name_ms || '')}
+                                onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { name_ms: event.target.value })}
+                                placeholder="BM choice"
+                                style={styles.input}
+                              />
+                              <input
+                                disabled={!canFullManage}
+                                value={String(option.name_zh || '')}
+                                onChange={(event) => updateOptionChoice(groupIndex, optionIndex, { name_zh: event.target.value })}
+                                placeholder="Chinese choice"
                                 style={styles.input}
                               />
                               <input
@@ -1697,6 +1886,28 @@ export default function GuestShopAdminPage() {
               </label>
 
               <label style={styles.label}>
+                Add-on Name (BM)
+                <input
+                  disabled={!canFullManage}
+                  value={addonTemplateDraft.name_ms}
+                  onChange={(event) => updateAddonTemplateDraft('name_ms', event.target.value)}
+                  placeholder="Nama add-on BM"
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.label}>
+                Add-on Name (Chinese)
+                <input
+                  disabled={!canFullManage}
+                  value={addonTemplateDraft.name_zh}
+                  onChange={(event) => updateAddonTemplateDraft('name_zh', event.target.value)}
+                  placeholder="Chinese add-on name"
+                  style={styles.input}
+                />
+              </label>
+
+              <label style={styles.label}>
                 Selection
                 <select
                   disabled={!canFullManage}
@@ -1762,6 +1973,20 @@ export default function GuestShopAdminPage() {
                     value={String(option.name || '')}
                     onChange={(event) => updateTemplateChoice(optionIndex, { name: event.target.value })}
                     placeholder="Example: Add egg"
+                    style={styles.input}
+                  />
+                  <input
+                    disabled={!canFullManage}
+                    value={String(option.name_ms || '')}
+                    onChange={(event) => updateTemplateChoice(optionIndex, { name_ms: event.target.value })}
+                    placeholder="BM choice"
+                    style={styles.input}
+                  />
+                  <input
+                    disabled={!canFullManage}
+                    value={String(option.name_zh || '')}
+                    onChange={(event) => updateTemplateChoice(optionIndex, { name_zh: event.target.value })}
+                    placeholder="Chinese choice"
                     style={styles.input}
                   />
                   <input
@@ -1845,7 +2070,11 @@ export default function GuestShopAdminPage() {
             </div>
 
             <div style={styles.heroPreview}>
-              <img src={settings.hero_image_url} alt="Guest shop hero preview" style={styles.heroPreviewImage} />
+              {settings.hero_image_url ? (
+                <img src={settings.hero_image_url} alt="Guest shop hero preview" style={styles.heroPreviewImage} />
+              ) : (
+                <span style={styles.previewFallback}>Hero image</span>
+              )}
             </div>
 
             <label style={styles.label}>
@@ -1868,6 +2097,14 @@ export default function GuestShopAdminPage() {
                 <input disabled={!canFullManage} value={settings.hero_kicker} onChange={(event) => setSettings((current) => ({ ...current, hero_kicker: event.target.value }))} style={styles.input} />
               </label>
               <label style={styles.label}>
+                Small Text (BM)
+                <input disabled={!canFullManage} value={settings.hero_kicker_ms} onChange={(event) => setSettings((current) => ({ ...current, hero_kicker_ms: event.target.value }))} style={styles.input} />
+              </label>
+              <label style={styles.label}>
+                Small Text (Chinese)
+                <input disabled={!canFullManage} value={settings.hero_kicker_zh} onChange={(event) => setSettings((current) => ({ ...current, hero_kicker_zh: event.target.value }))} style={styles.input} />
+              </label>
+              <label style={styles.label}>
                 Featured Item
                 <select disabled={!canFullManage} value={settings.featured_item_id || ''} onChange={(event) => setSettings((current) => ({ ...current, featured_item_id: event.target.value || null }))} style={styles.input}>
                   <option value="">Use first live item</option>
@@ -1880,10 +2117,30 @@ export default function GuestShopAdminPage() {
               Big Headline
               <input disabled={!canFullManage} value={settings.hero_title} onChange={(event) => setSettings((current) => ({ ...current, hero_title: event.target.value }))} style={styles.input} />
             </label>
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Big Headline (BM)
+                <input disabled={!canFullManage} value={settings.hero_title_ms} onChange={(event) => setSettings((current) => ({ ...current, hero_title_ms: event.target.value }))} style={styles.input} />
+              </label>
+              <label style={styles.label}>
+                Big Headline (Chinese)
+                <input disabled={!canFullManage} value={settings.hero_title_zh} onChange={(event) => setSettings((current) => ({ ...current, hero_title_zh: event.target.value }))} style={styles.input} />
+              </label>
+            </div>
             <label style={styles.label}>
               Supporting Text
               <textarea disabled={!canFullManage} value={settings.hero_body} onChange={(event) => setSettings((current) => ({ ...current, hero_body: event.target.value }))} style={styles.textarea} />
             </label>
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Supporting Text (BM)
+                <textarea disabled={!canFullManage} value={settings.hero_body_ms} onChange={(event) => setSettings((current) => ({ ...current, hero_body_ms: event.target.value }))} style={styles.textarea} />
+              </label>
+              <label style={styles.label}>
+                Supporting Text (Chinese)
+                <textarea disabled={!canFullManage} value={settings.hero_body_zh} onChange={(event) => setSettings((current) => ({ ...current, hero_body_zh: event.target.value }))} style={styles.textarea} />
+              </label>
+            </div>
 
             {canFullManage ? (
               <button type="button" disabled={busy || uploading} onClick={saveHero} style={styles.saveButton}>
@@ -1918,6 +2175,14 @@ export default function GuestShopAdminPage() {
                 <input disabled={!canFullManage} value={categoryDraft.name} onChange={(event) => setCategoryDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Example: Snacks" style={styles.input} />
               </label>
               <label style={styles.label}>
+                Category Name (BM)
+                <input disabled={!canFullManage} value={categoryDraft.name_ms} onChange={(event) => setCategoryDraft((current) => ({ ...current, name_ms: event.target.value }))} placeholder="Nama kategori BM" style={styles.input} />
+              </label>
+              <label style={styles.label}>
+                Category Name (Chinese)
+                <input disabled={!canFullManage} value={categoryDraft.name_zh} onChange={(event) => setCategoryDraft((current) => ({ ...current, name_zh: event.target.value }))} placeholder="Chinese category" style={styles.input} />
+              </label>
+              <label style={styles.label}>
                 Sort Order
                 <input disabled={!canFullManage} value={categoryDraft.sort_order} onChange={(event) => setCategoryDraft((current) => ({ ...current, sort_order: event.target.value }))} inputMode="numeric" style={styles.input} />
               </label>
@@ -1949,7 +2214,7 @@ export default function GuestShopAdminPage() {
                     <div style={styles.itemMeta}>Sort {category.sort_order}</div>
                   </div>
                   <div style={styles.rowActions}>
-                    <button type="button" onClick={() => setCategoryDraft({ id: category.id, name: category.name, sort_order: String(category.sort_order), is_active: category.is_active })} style={styles.smallButton}>Edit</button>
+                    <button type="button" onClick={() => setCategoryDraft({ id: category.id, name: category.name, name_ms: category.name_ms || '', name_zh: category.name_zh || '', sort_order: String(category.sort_order), is_active: category.is_active })} style={styles.smallButton}>Edit</button>
                     {canFullManage ? <button type="button" onClick={() => removeCategory(category)} style={styles.deleteButton}>Remove</button> : null}
                   </div>
                 </article>
