@@ -8,12 +8,17 @@ export const fetchCache = 'force-no-store';
 
 const DEFAULT_SETTINGS = {
   id: 'main',
-  hero_image_url:
-    'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=1800&q=84',
+  hero_image_url: '',
   hero_kicker: 'Private in-room collection',
+  hero_kicker_ms: '',
+  hero_kicker_zh: '',
   hero_title: 'Quiet luxuries, ready on request.',
+  hero_title_ms: '',
+  hero_title_zh: '',
   hero_body:
     'Order selected comforts, guest essentials, and hotel services from your room. Prepared by the team after verified payment.',
+  hero_body_ms: '',
+  hero_body_zh: '',
   featured_item_id: null,
 };
 
@@ -48,7 +53,7 @@ function rejectEmbeddedImageUrl(value: string, label: string) {
 
 function safeHeroImageUrl(value: unknown) {
   const imageUrl = String(value || '').trim();
-  return imageUrl.startsWith('data:') || imageUrl.length > 2000 ? DEFAULT_SETTINGS.hero_image_url : imageUrl;
+  return imageUrl.startsWith('data:') || imageUrl.length > 2000 ? '' : imageUrl;
 }
 
 function normalizeSettings(row: any) {
@@ -56,8 +61,14 @@ function normalizeSettings(row: any) {
     id: String(row?.id || 'main'),
     hero_image_url: safeHeroImageUrl(row?.hero_image_url || DEFAULT_SETTINGS.hero_image_url),
     hero_kicker: String(row?.hero_kicker || DEFAULT_SETTINGS.hero_kicker),
+    hero_kicker_ms: String(row?.hero_kicker_ms || ''),
+    hero_kicker_zh: String(row?.hero_kicker_zh || ''),
     hero_title: String(row?.hero_title || DEFAULT_SETTINGS.hero_title),
+    hero_title_ms: String(row?.hero_title_ms || ''),
+    hero_title_zh: String(row?.hero_title_zh || ''),
     hero_body: String(row?.hero_body || DEFAULT_SETTINGS.hero_body),
+    hero_body_ms: String(row?.hero_body_ms || ''),
+    hero_body_zh: String(row?.hero_body_zh || ''),
     featured_item_id: row?.featured_item_id ? String(row.featured_item_id) : null,
     updated_at: row?.updated_at || null,
   };
@@ -66,20 +77,31 @@ function normalizeSettings(row: any) {
 function normalizeSettingsPayload(body: any) {
   const heroImageUrl = String(body?.hero_image_url ?? body?.heroImageUrl ?? '').trim();
   const heroKicker = String(body?.hero_kicker ?? body?.heroKicker ?? '').trim();
+  const heroKickerMs = String(body?.hero_kicker_ms ?? body?.heroKickerMs ?? '').trim();
+  const heroKickerZh = String(body?.hero_kicker_zh ?? body?.heroKickerZh ?? '').trim();
   const heroTitle = String(body?.hero_title ?? body?.heroTitle ?? '').trim();
+  const heroTitleMs = String(body?.hero_title_ms ?? body?.heroTitleMs ?? '').trim();
+  const heroTitleZh = String(body?.hero_title_zh ?? body?.heroTitleZh ?? '').trim();
   const heroBody = String(body?.hero_body ?? body?.heroBody ?? '').trim();
+  const heroBodyMs = String(body?.hero_body_ms ?? body?.heroBodyMs ?? '').trim();
+  const heroBodyZh = String(body?.hero_body_zh ?? body?.heroBodyZh ?? '').trim();
   const featuredItemId = String(body?.featured_item_id ?? body?.featuredItemId ?? '').trim();
 
-  if (!heroImageUrl) throw new Error('Hero image URL is required');
   if (!heroTitle) throw new Error('Hero title is required');
-  rejectEmbeddedImageUrl(heroImageUrl, 'Hero image URL');
+  if (heroImageUrl) rejectEmbeddedImageUrl(heroImageUrl, 'Hero image URL');
 
   return {
     id: 'main',
     hero_image_url: heroImageUrl,
     hero_kicker: heroKicker || DEFAULT_SETTINGS.hero_kicker,
+    hero_kicker_ms: heroKickerMs || null,
+    hero_kicker_zh: heroKickerZh || null,
     hero_title: heroTitle,
+    hero_title_ms: heroTitleMs || null,
+    hero_title_zh: heroTitleZh || null,
     hero_body: heroBody || DEFAULT_SETTINGS.hero_body,
+    hero_body_ms: heroBodyMs || null,
+    hero_body_zh: heroBodyZh || null,
     featured_item_id: featuredItemId || null,
   };
 }
