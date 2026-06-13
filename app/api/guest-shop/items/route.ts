@@ -67,11 +67,19 @@ function safeImageUrl(value: unknown) {
 
 function normalizeItemPayload(body: any) {
   const name = String(body?.name || '').trim();
+  const nameMs = String(body?.name_ms ?? body?.nameMs ?? '').trim();
+  const nameZh = String(body?.name_zh ?? body?.nameZh ?? '').trim();
   const category = String(body?.category || '').trim();
   const submenu = String(body?.submenu || '').trim();
+  const submenuMs = String(body?.submenu_ms ?? body?.submenuMs ?? '').trim();
+  const submenuZh = String(body?.submenu_zh ?? body?.submenuZh ?? '').trim();
   const description = String(body?.description || '').trim();
+  const descriptionMs = String(body?.description_ms ?? body?.descriptionMs ?? '').trim();
+  const descriptionZh = String(body?.description_zh ?? body?.descriptionZh ?? '').trim();
   const imageUrl = String(body?.image_url ?? body?.imageUrl ?? '').trim();
   const label = String(body?.label || '').trim();
+  const labelMs = String(body?.label_ms ?? body?.labelMs ?? '').trim();
+  const labelZh = String(body?.label_zh ?? body?.labelZh ?? '').trim();
   const accent = String(body?.accent || '#b6813a').trim();
   const price = Number(body?.price_myr ?? body?.price ?? 0);
   const stock = Number(body?.stock ?? 0);
@@ -87,13 +95,21 @@ function normalizeItemPayload(body: any) {
 
   return {
     name,
+    name_ms: nameMs || null,
+    name_zh: nameZh || null,
     category,
     submenu,
+    submenu_ms: submenuMs || null,
+    submenu_zh: submenuZh || null,
     description,
+    description_ms: descriptionMs || null,
+    description_zh: descriptionZh || null,
     price_myr: Math.round(price * 100) / 100,
     stock: Math.floor(stock),
     image_url: imageUrl || null,
     label: label || null,
+    label_ms: labelMs || null,
+    label_zh: labelZh || null,
     accent: accent || '#b6813a',
     sort_order: Number.isFinite(sortOrder) ? Math.floor(sortOrder) : 0,
     is_active: isActive === undefined ? true : isActive === true,
@@ -108,12 +124,16 @@ function normalizeOptionGroups(value: any) {
   return value
     .map((group, groupIndex) => {
       const name = String(group?.name || '').trim();
+      const nameMs = String(group?.name_ms ?? group?.nameMs ?? '').trim();
+      const nameZh = String(group?.name_zh ?? group?.nameZh ?? '').trim();
       const selectionType = String(group?.selection_type || group?.selectionType || 'single').toLowerCase();
       const options = Array.isArray(group?.options) ? group.options : [];
 
       return {
         id: group?.id ? String(group.id) : '',
         name,
+        name_ms: nameMs || null,
+        name_zh: nameZh || null,
         selection_type: selectionType === 'multiple' ? 'multiple' : 'single',
         is_required: group?.is_required === true || group?.isRequired === true,
         min_select: Math.max(0, Math.floor(Number(group?.min_select ?? group?.minSelect ?? 0))),
@@ -125,10 +145,14 @@ function normalizeOptionGroups(value: any) {
         options: options
           .map((option: any, optionIndex: number) => {
             const optionName = String(option?.name || '').trim();
+            const optionNameMs = String(option?.name_ms ?? option?.nameMs ?? '').trim();
+            const optionNameZh = String(option?.name_zh ?? option?.nameZh ?? '').trim();
             const priceDelta = Number(option?.price_delta_myr ?? option?.priceDeltaMyr ?? option?.price ?? 0);
             return {
               id: option?.id ? String(option.id) : '',
               name: optionName,
+              name_ms: optionNameMs || null,
+              name_zh: optionNameZh || null,
               price_delta_myr: Number.isFinite(priceDelta) ? Math.round(priceDelta * 100) / 100 : 0,
               is_default: option?.is_default === true || option?.isDefault === true,
               sort_order: Number.isFinite(Number(option?.sort_order ?? option?.sortOrder))
@@ -147,13 +171,21 @@ function normalizeItem(row: any, optionGroups: any[] = []) {
   return {
     id: String(row.id),
     name: String(row.name || ''),
+    name_ms: String(row.name_ms || ''),
+    name_zh: String(row.name_zh || ''),
     category: String(row.category || 'Essentials'),
     submenu: String(row.submenu || ''),
+    submenu_ms: String(row.submenu_ms || ''),
+    submenu_zh: String(row.submenu_zh || ''),
     description: String(row.description || ''),
+    description_ms: String(row.description_ms || ''),
+    description_zh: String(row.description_zh || ''),
     price_myr: Number(row.price_myr || 0),
     stock: Number(row.stock || 0),
     image_url: safeImageUrl(row.image_url),
     label: row.label || '',
+    label_ms: row.label_ms || '',
+    label_zh: row.label_zh || '',
     accent: row.accent || '#b6813a',
     sort_order: Number(row.sort_order || 0),
     is_active: row.is_active !== false,
@@ -196,6 +228,8 @@ async function loadOptionGroups(itemIds: string[]) {
     next.push({
       id: String((option as any).id),
       name: String((option as any).name || ''),
+      name_ms: String((option as any).name_ms || ''),
+      name_zh: String((option as any).name_zh || ''),
       price_delta_myr: Number((option as any).price_delta_myr || 0),
       is_default: (option as any).is_default === true,
       sort_order: Number((option as any).sort_order || 0),
@@ -211,6 +245,8 @@ async function loadOptionGroups(itemIds: string[]) {
     next.push({
       id: String((group as any).id),
       name: String((group as any).name || ''),
+      name_ms: String((group as any).name_ms || ''),
+      name_zh: String((group as any).name_zh || ''),
       selection_type: String((group as any).selection_type || 'single'),
       is_required: (group as any).is_required === true,
       min_select: Number((group as any).min_select || 0),
@@ -243,6 +279,8 @@ async function replaceOptionGroups(itemId: string, value: any) {
       .insert({
         item_id: itemId,
         name: group.name,
+        name_ms: group.name_ms,
+        name_zh: group.name_zh,
         selection_type: group.selection_type,
         is_required: group.is_required,
         min_select: group.min_select,
@@ -258,6 +296,8 @@ async function replaceOptionGroups(itemId: string, value: any) {
     const optionRows = group.options.map((option: any) => ({
       group_id: String(savedGroup.id),
       name: option.name,
+      name_ms: option.name_ms,
+      name_zh: option.name_zh,
       price_delta_myr: option.price_delta_myr,
       is_default: option.is_default,
       sort_order: option.sort_order,
