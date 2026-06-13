@@ -1766,6 +1766,11 @@ function canDeleteTask() {
       return;
     }
 
+    const currentTask = tasks.find((task) => task.id === taskId);
+    if (currentTask?.status === nextStatus) {
+      return;
+    }
+
     const oldTasks = tasks;
 
     try {
@@ -2139,70 +2144,57 @@ function canDeleteTask() {
       setErrorMsg('');
       const token = await getAccessToken();
 
-      const createJson = await fetchJson(
-        '/api/tasks',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+      if (params.mediaItems.length > 0) {
+        const form = new FormData();
+        form.set('room', params.room);
+        form.set('department', params.departments[0]);
+        form.set('departments_json', JSON.stringify(params.departments));
+        form.set('task_text', params.taskText);
+        form.set('source_message', '');
+        form.set('customer_waiting', params.customerWaiting ? 'true' : 'false');
+
+        params.mediaItems.forEach((item) => {
+          form.append('media', item.file, item.name || 'task-media');
+        });
+
+        await fetchJson(
+          '/api/tasks',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: form,
           },
-          body: JSON.stringify({
-            room: params.room,
-            department: params.departments[0],
-            departments: params.departments,
-            task_text: params.taskText,
-            source_message: null,
-            image_urls: [],
-            image_captions: [],
-            customer_waiting: params.customerWaiting,
-          }),
-        },
-        30000
-      );
+          120000
+        );
+      } else {
+        await fetchJson(
+          '/api/tasks',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              room: params.room,
+              department: params.departments[0],
+              departments: params.departments,
+              task_text: params.taskText,
+              source_message: null,
+              image_urls: [],
+              image_captions: [],
+              customer_waiting: params.customerWaiting,
+            }),
+          },
+          30000
+        );
+      }
 
       await loadTasks(false, { force: true });
-
-      if (params.mediaItems.length > 0) {
-        const uploaded = await uploadMediaItems(params.mediaItems);
-        const uploadedUrls = uploaded.urls;
-
-        if (uploadedUrls.length > 0) {
-          const createdTasks = Array.isArray(createJson.tasks)
-            ? createJson.tasks
-            : createJson.task
-            ? [createJson.task]
-            : [];
-
-          await Promise.all(
-            createdTasks
-              .filter((task: any) => task?.id)
-              .map((task: any) =>
-                fetchJson(
-                  `/api/tasks/${task.id}`,
-                  {
-                    method: 'PATCH',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      new_image_urls: uploadedUrls,
-                      new_image_captions: uploadedUrls.map(() => null),
-                    }),
-                  },
-                  30000
-                )
-              )
-          );
-        }
-      }
-
-      if (params.shouldRefreshAfterMedia) {
-        await loadTasks(false, { force: true });
-      }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Task was created, but background media upload may have failed');
+      setErrorMsg(err?.message || 'Task creation or media upload failed');
     }
   }
 async function handleDeleteTask(taskId: string) {
@@ -3100,7 +3092,7 @@ async function handleDeleteTask(taskId: string) {
                                 <div style={styles.buttonRow}>
                                   <button
                                     style={actionBtn(task.status === 'OPEN', 'open')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    disabled={busyTaskId === task.id || !canEditTask(task) || task.status === 'OPEN'}
                                     onClick={() => setTaskStatus(task.id, 'OPEN')}
                                   >
                                     Open
@@ -3108,7 +3100,7 @@ async function handleDeleteTask(taskId: string) {
 
                                   <button
                                     style={actionBtn(task.status === 'DONE', 'done')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task)}
+                                    disabled={busyTaskId === task.id || !canEditTask(task) || task.status === 'DONE'}
                                     onClick={() => setTaskStatus(task.id, 'DONE')}
                                   >
                                     Done
