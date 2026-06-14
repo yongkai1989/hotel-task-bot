@@ -150,9 +150,15 @@ export default function BreakfastVouchersPage() {
   async function load() {
     setLoading(true);
     try {
+      const token = await getToken();
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
+
       const params = new URLSearchParams({ date });
       if (room.trim()) params.set('room', room.trim());
-      const res = await fetch(`/api/restaurant-kiosk/vouchers?${params.toString()}`, { cache: 'no-store' });
+      const res = await fetch(`/api/restaurant-kiosk/vouchers?${params.toString()}`, {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load vouchers');
       setVouchers(json.vouchers || []);
@@ -350,9 +356,15 @@ export default function BreakfastVouchersPage() {
     }
 
     try {
+      const token = await getToken();
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
+
       const res = await fetch('/api/restaurant-kiosk/vouchers', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ code: voucherCode, order_id: orderId }),
       });
       const json = await res.json().catch(() => ({}));
