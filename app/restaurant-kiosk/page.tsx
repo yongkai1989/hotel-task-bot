@@ -216,7 +216,7 @@ export default function RestaurantKioskPage() {
           </div>
 
           <button className="payBtn" type="button" onClick={pay} disabled={loading || !cartLines.length}>
-            {loading ? 'Opening payment...' : 'Pay with TNG / Alipay / Card'}
+            {loading ? 'Opening payment...' : 'Pay with TNG'}
           </button>
           <button className="assistBtn" type="button" onClick={() => setShowAssist((value) => !value)}>
             I need staff assistance
@@ -224,8 +224,8 @@ export default function RestaurantKioskPage() {
 
           {showAssist ? (
             <div className="assistBox">
-              <strong>Please call Front Office staff.</strong>
-              <span>For foreign guests without TNG or Alipay, staff may assist with manual payment at the counter.</span>
+              <strong>Please approach our friendly F&amp;B staff.</strong>
+              <span>For guests who would like to use a credit card, our staff can assist with manual payment. We do not accept cash payments.</span>
             </div>
           ) : null}
           {message ? <div className="errorBox">{message}</div> : null}
@@ -243,6 +243,8 @@ export default function RestaurantKioskPage() {
           min-height: 100vh;
           padding: 28px;
           background:
+            radial-gradient(circle at 86% 16%, rgba(47, 88, 62, 0.08), transparent 18%),
+            radial-gradient(circle at 11% 88%, rgba(170, 93, 34, 0.07), transparent 22%),
             radial-gradient(circle at 20% 10%, rgba(218, 178, 93, 0.2), transparent 30%),
             linear-gradient(135deg, #fffaf0 0%, #f6efe5 42%, #eef4f2 100%);
         }
@@ -328,6 +330,8 @@ export default function RestaurantKioskPage() {
           border-radius: 22px;
           padding: 28px;
           background:
+            radial-gradient(circle at 22% 18%, rgba(238, 199, 106, 0.18), transparent 16%),
+            radial-gradient(circle at 82% 84%, rgba(43, 106, 64, 0.16), transparent 18%),
             linear-gradient(135deg, rgba(11, 19, 42, 0.95), rgba(39, 46, 79, 0.84)),
             radial-gradient(circle at 72% 20%, rgba(234, 195, 108, 0.32), transparent 30%);
           color: #fff8ea;
@@ -566,28 +570,51 @@ export default function RestaurantKioskPage() {
         }
         @media (max-width: 760px) {
           .kiosk {
-            padding: 12px;
+            padding: 10px;
           }
           .hero {
-            min-height: 48vh;
-            border-radius: 22px;
+            min-height: 30vh;
+            border-radius: 20px;
+            padding: 24px;
             align-items: flex-start;
             flex-direction: column;
             justify-content: flex-end;
           }
+          h1 {
+            font-size: clamp(42px, 14vw, 64px);
+          }
+          .workspace {
+            gap: 12px;
+            margin-top: 12px;
+          }
+          .panel {
+            border-radius: 20px;
+          }
           .priceCard {
             width: 100%;
             box-sizing: border-box;
+            padding: 16px;
           }
           .product {
             grid-template-columns: 1fr;
-            padding: 14px;
+            padding: 12px;
+            gap: 12px;
           }
           .voucherArt {
-            min-height: 210px;
+            min-height: 170px;
+            padding: 20px;
+            border-radius: 18px;
+          }
+          .voucherArt strong {
+            font-size: clamp(32px, 11vw, 48px);
+          }
+          .checkout {
+            padding: 18px;
           }
           .typeCard {
             grid-template-columns: 46px minmax(0, 1fr);
+            padding: 12px;
+            gap: 10px;
           }
           .typeBadge {
             width: 46px;
@@ -597,13 +624,14 @@ export default function RestaurantKioskPage() {
           .qtyRow {
             grid-column: 1 / -1;
             justify-content: space-between;
+            padding: 6px;
           }
           .qtyRow button {
-            width: 52px;
-            height: 48px;
+            width: 48px;
+            height: 44px;
           }
           .qtyRow span {
-            font-size: 26px;
+            font-size: 24px;
           }
           .cartLine {
             align-items: flex-start;
