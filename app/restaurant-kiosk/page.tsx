@@ -140,12 +140,18 @@ export default function RestaurantKioskPage() {
           <h1>Buffet Breakfast Ticket</h1>
         </div>
         <div className="breakfastVisual" aria-hidden="true">
-          <span className="steam steamOne" />
-          <span className="steam steamTwo" />
-          <span className="steam steamThree" />
-          <span className="plate" />
-          <span className="cutlery fork" />
-          <span className="cutlery knife" />
+          <svg viewBox="0 0 220 150" role="img">
+            <path className="foodLine soft" d="M58 50c-15-16 8-25-2-42" />
+            <path className="foodLine soft" d="M100 52c-16-18 12-27 0-46" />
+            <path className="foodLine soft" d="M140 50c16-17-9-25 2-42" />
+            <path className="foodLine gold" d="M43 88c19-23 43-33 72-31 27 2 49 16 64 38" />
+            <path className="foodLine gold" d="M55 91c13 13 31 21 54 22 25 1 46-6 62-20" />
+            <path className="foodLine thin" d="M37 111h146" />
+            <path className="foodLine thin" d="M50 122c28 15 102 15 120 0" />
+            <path className="foodLine soft" d="M24 57v72" />
+            <path className="foodLine soft" d="M18 58h12M18 70h12M18 82h12" />
+            <path className="foodLine soft" d="M194 57c10 18 7 37-4 56v16" />
+          </svg>
         </div>
         <div className="priceCard">
           <span>Available from</span>
@@ -254,7 +260,7 @@ export default function RestaurantKioskPage() {
         .hero {
           position: relative;
           overflow: hidden;
-          min-height: 34vh;
+          min-height: 30vh;
           border: 1px solid rgba(142, 104, 50, 0.22);
           border-radius: 28px;
           padding: clamp(28px, 5vw, 64px);
@@ -295,66 +301,36 @@ export default function RestaurantKioskPage() {
         }
         .breakfastVisual {
           position: absolute;
-          right: clamp(235px, 25vw, 390px);
-          bottom: clamp(34px, 5vw, 70px);
-          width: clamp(150px, 18vw, 220px);
-          height: clamp(120px, 14vw, 170px);
-          opacity: 0.82;
+          right: clamp(230px, 24vw, 390px);
+          bottom: clamp(26px, 4vw, 58px);
+          width: clamp(170px, 20vw, 250px);
+          height: clamp(116px, 14vw, 172px);
+          opacity: 0.95;
           pointer-events: none;
-          z-index: 0;
+          z-index: 1;
         }
-        .plate {
-          position: absolute;
-          left: 22px;
-          right: 22px;
-          bottom: 22px;
-          height: 34px;
-          border: 1px solid rgba(238, 199, 106, 0.58);
-          border-top: 0;
-          border-radius: 0 0 999px 999px;
-          box-shadow: inset 0 -10px 24px rgba(238, 199, 106, 0.08);
+        .breakfastVisual svg {
+          width: 100%;
+          height: 100%;
+          overflow: visible;
+          filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.18));
         }
-        .steam {
-          position: absolute;
-          top: 18px;
-          width: 24px;
-          height: 56px;
-          border-left: 2px solid rgba(255, 248, 234, 0.28);
-          border-radius: 999px;
-          transform: rotate(18deg);
+        .foodLine {
+          fill: none;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+          stroke-width: 6;
         }
-        .steamOne {
-          left: 48px;
+        .foodLine.gold {
+          stroke: rgba(238, 199, 106, 0.86);
         }
-        .steamTwo {
-          left: 86px;
-          top: 6px;
-          height: 66px;
-          border-color: rgba(238, 199, 106, 0.44);
+        .foodLine.soft {
+          stroke: rgba(255, 248, 234, 0.5);
+          stroke-width: 5;
         }
-        .steamThree {
-          left: 126px;
-          transform: rotate(-14deg);
-        }
-        .cutlery {
-          position: absolute;
-          bottom: 18px;
-          width: 2px;
-          height: 88px;
-          background: rgba(255, 248, 234, 0.22);
-          border-radius: 999px;
-        }
-        .fork {
-          left: 0;
-          box-shadow:
-            5px -31px 0 -1px rgba(255, 248, 234, 0.22),
-            10px -31px 0 -1px rgba(255, 248, 234, 0.22);
-        }
-        .knife {
-          right: 0;
-          width: 5px;
-          border-radius: 999px 999px 18px 18px;
-          background: linear-gradient(180deg, rgba(238, 199, 106, 0.44), rgba(255, 248, 234, 0.18));
+        .foodLine.thin {
+          stroke: rgba(255, 248, 234, 0.34);
+          stroke-width: 3;
         }
         .eyebrow {
           margin: 0 0 10px;
@@ -380,9 +356,9 @@ export default function RestaurantKioskPage() {
           color: rgba(255, 248, 234, 0.84);
         }
         .priceCard {
-          min-width: 220px;
-          padding: 22px;
-          border-radius: 22px;
+          min-width: 170px;
+          padding: 16px 18px;
+          border-radius: 18px;
           background: rgba(255, 255, 255, 0.12);
           border: 1px solid rgba(255, 255, 255, 0.22);
           backdrop-filter: blur(18px);
@@ -394,7 +370,7 @@ export default function RestaurantKioskPage() {
           margin-bottom: 8px;
         }
         .priceCard strong {
-          font-size: 42px;
+          font-size: 34px;
           line-height: 1;
         }
         .workspace {
@@ -637,20 +613,12 @@ export default function RestaurantKioskPage() {
             justify-content: flex-end;
           }
           .breakfastVisual {
-            right: 20px;
-            bottom: 82px;
-            width: 132px;
-            height: 104px;
-            opacity: 0.34;
-          }
-          .steam {
-            height: 42px;
-          }
-          .steamTwo {
-            height: 50px;
-          }
-          .cutlery {
-            height: 62px;
+            right: 18px;
+            top: 18px;
+            bottom: auto;
+            width: 118px;
+            height: 84px;
+            opacity: 0.72;
           }
           h1 {
             font-size: clamp(42px, 14vw, 64px);
@@ -663,9 +631,14 @@ export default function RestaurantKioskPage() {
             border-radius: 20px;
           }
           .priceCard {
-            width: 100%;
+            width: auto;
+            min-width: 138px;
+            align-self: flex-start;
             box-sizing: border-box;
-            padding: 16px;
+            padding: 12px 14px;
+          }
+          .priceCard strong {
+            font-size: 28px;
           }
           .product {
             padding: 12px;
