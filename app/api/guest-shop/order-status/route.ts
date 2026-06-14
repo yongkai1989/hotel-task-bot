@@ -171,7 +171,7 @@ async function refreshFromBillplz(order: any) {
       .maybeSingle();
 
     if (error) throw error;
-    return updated || order;
+    return (updated as any) || order;
   }
 
   if (!billPaid(bill)) return order;
@@ -187,12 +187,12 @@ async function refreshFromBillplz(order: any) {
     .single();
 
   if (error) throw error;
-  const settledOrder = await ensureBreakfastVoucher(updated || order);
+  const settledOrder = await ensureBreakfastVoucher((updated as any) || order);
   await markKitchenPendingIfNeeded(settledOrder);
   if (!isBreakfastOrder(settledOrder)) {
     await createFoTaskForPaidGuestShopOrder(settledOrder);
   }
-  return settledOrder || order;
+  return (settledOrder as any) || order;
 }
 
 export async function GET(req: NextRequest) {
@@ -209,11 +209,12 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
     if (!data) return jsonNoCache({ ok: false, error: 'Order not found' }, 404);
 
-    let refreshed = data;
+    const currentOrder = data as any;
+    let refreshed: any = currentOrder;
     let paymentCheckError = '';
 
     try {
-      refreshed = await refreshFromBillplz(data);
+      refreshed = await refreshFromBillplz(currentOrder);
     } catch (billplzError: any) {
       paymentCheckError = billplzError?.message || 'Billplz status check failed';
     }
@@ -242,6 +243,4 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    return jsonNoCache({ ok: false, error: error?.message || 'Failed to load order status' }, 500);
-  }
-}
+    return jsonNoCac
