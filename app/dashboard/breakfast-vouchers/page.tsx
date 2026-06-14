@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
 type Voucher = {
   id: string;
@@ -65,6 +66,7 @@ function isRedeemed(voucher: Voucher) {
 }
 
 export default function BreakfastVouchersPage() {
+  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [activeTab, setActiveTab] = useState<'redeem' | 'types'>('redeem');
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [date, setDate] = useState(todayIso());
@@ -81,6 +83,13 @@ export default function BreakfastVouchersPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanStopRef = useRef(false);
+
+  async function getToken() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session?.access_token || '';
+  }
 
   async function load() {
     setLoading(true);
@@ -111,7 +120,13 @@ export default function BreakfastVouchersPage() {
 
   async function loadProfile() {
     try {
-      const res = await fetch('/api/session-profile', { cache: 'no-store' });
+      const token = await getToken();
+      if (!token) throw new Error('Missing login session');
+
+      const res = await fetch('/api/session-profile', {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const json = await res.json().catch(() => ({}));
       const role = String(json?.user?.role || '').trim().toUpperCase();
       setIsSuperuser(role === 'SUPERUSER');
@@ -123,7 +138,13 @@ export default function BreakfastVouchersPage() {
   async function loadTypes() {
     setTypesLoading(true);
     try {
-      const res = await fetch('/api/restaurant-kiosk/voucher-types?admin=1', { cache: 'no-store' });
+      const token = await getToken();
+      if (!token) throw new Error('Missing login session');
+
+      const res = await fetch('/api/restaurant-kiosk/voucher-types?admin=1', {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load voucher types');
       setVoucherTypes(Array.isArray(json.types) ? json.types : []);
@@ -153,10 +174,16 @@ export default function BreakfastVouchersPage() {
 
   async function saveType() {
     try {
+      const token = await getToken();
+      if (!token) throw new Error('Missing login session');
+
       const method = typeForm.id ? 'PUT' : 'POST';
       const res = await fetch('/api/restaurant-kiosk/voucher-types', {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           id: typeForm.id,
           name: typeForm.name,
@@ -181,8 +208,12 @@ export default function BreakfastVouchersPage() {
   async function deleteType(id: string) {
     if (!window.confirm('Delete this breakfast voucher type?')) return;
     try {
+      const token = await getToken();
+      if (!token) throw new Error('Missing login session');
+
       const res = await fetch(`/api/restaurant-kiosk/voucher-types?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to delete voucher type');
