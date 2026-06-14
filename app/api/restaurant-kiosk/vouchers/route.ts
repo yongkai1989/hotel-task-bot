@@ -183,3 +183,33 @@ export async function PUT(req: NextRequest) {
     return jsonNoCache({ ok: false, error: err?.message || 'Failed to redeem voucher' }, 500);
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { user, error } = await getDashboardUserFromRequest(req);
+    if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
+
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role !== 'SUPERUSER') {
+      return jsonNoCache({ ok: false, error: 'Only superuser can delete breakfast voucher orders' }, 403);
+    }
+
+    const id = String(req.nextUrl.searchParams.get('id') || '').trim();
+    if (!id) return jsonNoCache({ ok: false, error: 'Missing voucher order id' }, 400);
+
+    const { data, error: deleteError } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .delete()
+      .eq('id', id)
+      .eq('order_type', 'BREAKFAST')
+      .select('id')
+      .maybeSingle();
+
+    if (deleteError) throw deleteError;
+    if (!data) return jsonNoCache({ ok: false, error: 'Breakfast voucher order not found' }, 404);
+
+    return jsonNoCache({ ok: true });
+  } catch (err: any) {
+    return jsonNoCache({ ok: false, error: err?.message || 'Failed to delete voucher order' }, 500);
+  }
+}
