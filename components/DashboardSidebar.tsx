@@ -1462,6 +1462,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeFnbOrders ? (
+                <Link
+                  href="/dashboard/breakfast-vouchers"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Breakfast Vouchers</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeFnbMenuAdmin ? (
                 <Link
                   href="/dashboard/guest-shop-admin?scope=fnb"
