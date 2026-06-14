@@ -10,6 +10,8 @@ type VoucherType = {
   is_active: boolean;
 };
 
+type CartMap = Record<string, number>;
+
 function money(value: number) {
   return `RM${Number(value || 0).toLocaleString('en-MY', {
     minimumFractionDigits: 2,
@@ -17,10 +19,18 @@ function money(value: number) {
   })}`;
 }
 
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'BV';
+}
+
 export default function RestaurantKioskPage() {
   const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
-  const [selectedTypeId, setSelectedTypeId] = useState('');
-  const [quantity, setQuantity] = useState(1);
+  const [cart, setCart] = useState<CartMap>({});
   const [guestName, setGuestName] = useState('');
   const [roomNumber, setRoomNumber] = useState('');
   const [email, setEmail] = useState('');
@@ -28,11 +38,26 @@ export default function RestaurantKioskPage() {
   const [loading, setLoading] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
 
-  const selectedType = useMemo(
-    () => voucherTypes.find((type) => type.id === selectedTypeId) || voucherTypes[0] || null,
-    [voucherTypes, selectedTypeId]
+  const cartLines = useMemo(
+    () =>
+      voucherTypes
+        .map((type) => ({
+          type,
+          quantity: Math.max(0, Math.floor(Number(cart[type.id] || 0))),
+        }))
+        .filter((line) => line.quantity > 0),
+    [cart, voucherTypes]
   );
-  const total = useMemo(() => quantity * Number(selectedType?.price_myr || 0), [quantity, selectedType]);
+  const totalQuantity = cartLines.reduce((sum, line) => sum + line.quantity, 0);
+  const total = cartLines.reduce(
+    (sum, line) => sum + line.quantity * Number(line.type.price_myr || 0),
+    0
+  );
+  const lowestPrice = voucherTypes.reduce((lowest, type) => {
+    const price = Number(type.price_myr || 0);
+    if (!price) return lowest;
+    return lowest === 0 ? price : Math.min(lowest, price);
+  }, 0);
 
   useEffect(() => {
     let alive = true;
@@ -43,17 +68,17 @@ export default function RestaurantKioskPage() {
         if (!alive) return;
         const types = Array.isArray(json?.types) ? json.types : [];
         setVoucherTypes(types);
-        setSelectedTypeId(String(types[0]?.id || ''));
       } catch {
-        const fallback = [{
-          id: 'default-breakfast',
-          name: 'Breakfast Voucher',
-          description: 'Breakfast pass redeemable at the restaurant counter.',
-          price_myr: 20,
-          is_active: true,
-        }];
-        setVoucherTypes(fallback);
-        setSelectedTypeId(fallback[0].id);
+        if (!alive) return;
+        setVoucherTypes([
+          {
+            id: 'default-breakfast',
+            name: 'Breakfast Voucher',
+            description: 'Breakfast pass redeemable at the restaurant counter.',
+            price_myr: 20,
+            is_active: true,
+          },
+        ]);
       }
     }
     loadTypes();
@@ -62,16 +87,34 @@ export default function RestaurantKioskPage() {
     };
   }, []);
 
+  function setTypeQuantity(typeId: string, nextQuantity: number) {
+    setCart((current) => {
+      const quantity = Math.max(0, Math.min(20, Math.floor(nextQuantity)));
+      const next = { ...current };
+      if (quantity <= 0) delete next[typeId];
+      else next[typeId] = quantity;
+      return next;
+    });
+  }
+
   async function pay() {
     setMessage('');
+
+    if (!cartLines.length) {
+      setMessage('Please add at least one breakfast voucher.');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch('/api/restaurant-kiosk/create-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          quantity,
-          voucherTypeId: selectedType?.id || '',
+          items: cartLines.map((line) => ({
+            voucherTypeId: line.type.id,
+            quantity: line.quantity,
+          })),
           guestName: guestName.trim() || 'Restaurant Guest',
           roomNumber: roomNumber.trim() || 'Kiosk',
           email: email.trim(),
@@ -93,14 +136,14 @@ export default function RestaurantKioskPage() {
       <section className="hero">
         <div>
           <p className="eyebrow">Hallmark Crown Hotel</p>
-          <h1>Breakfast Voucher</h1>
+          <h1>Breakfast Vouchers</h1>
           <p className="subcopy">
-            Choose your breakfast voucher. A QR ticket will be shown after payment is verified.
+            Select adult and child breakfast vouchers in one order. Your QR ticket will appear after payment is verified.
           </p>
         </div>
         <div className="priceCard">
-          <span>{selectedType?.name || 'Per voucher'}</span>
-          <strong>{money(selectedType?.price_myr || 0)}</strong>
+          <span>Available from</span>
+          <strong>{lowestPrice ? money(lowestPrice) : 'Select'}</strong>
         </div>
       </section>
 
@@ -108,33 +151,62 @@ export default function RestaurantKioskPage() {
         <div className="panel product">
           <div className="voucherArt">
             <span>Breakfast</span>
-            <strong>{selectedType?.name || 'Hallmark Morning Pass'}</strong>
-            <small>{selectedType?.description || 'Redeem once at the restaurant counter'}</small>
+            <strong>Morning dining pass</strong>
+            <small>Build one cart with any mix of voucher types.</small>
           </div>
-          <div className="typeGrid">
-            {voucherTypes.map((type) => (
-              <button
-                className={type.id === selectedType?.id ? 'typeCard active' : 'typeCard'}
-                key={type.id}
-                type="button"
-                onClick={() => setSelectedTypeId(type.id)}
-              >
-                <span>{type.name}</span>
-                <strong>{money(type.price_myr)}</strong>
-                {type.description ? <small>{type.description}</small> : null}
-              </button>
-            ))}
-          </div>
-          <div className="qtyRow">
-            <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))}>-</button>
-            <strong>{quantity}</strong>
-            <button type="button" onClick={() => setQuantity((value) => Math.min(20, value + 1))}>+</button>
+
+          <div className="menuArea">
+            <div className="sectionHead">
+              <p className="eyebrow">Voucher Menu</p>
+              <h2>Choose quantity</h2>
+            </div>
+
+            <div className="typeGrid">
+              {voucherTypes.map((type) => {
+                const quantity = Math.max(0, Number(cart[type.id] || 0));
+                return (
+                  <article className={quantity > 0 ? 'typeCard active' : 'typeCard'} key={type.id}>
+                    <div className="typeBadge">{initials(type.name)}</div>
+                    <div className="typeInfo">
+                      <h3>{type.name}</h3>
+                      {type.description ? <p>{type.description}</p> : null}
+                      <strong>{money(type.price_myr)}</strong>
+                    </div>
+                    <div className="qtyRow" aria-label={`${type.name} quantity`}>
+                      <button type="button" onClick={() => setTypeQuantity(type.id, quantity - 1)} disabled={quantity <= 0}>
+                        -
+                      </button>
+                      <span>{quantity}</span>
+                      <button type="button" onClick={() => setTypeQuantity(type.id, quantity + 1)}>
+                        +
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         <div className="panel checkout">
           <p className="eyebrow">Your cart</p>
-          <h2>{quantity}x {selectedType?.name || 'Breakfast Voucher'}</h2>
+          <h2>{totalQuantity ? `${totalQuantity} voucher${totalQuantity === 1 ? '' : 's'}` : 'No voucher selected'}</h2>
+
+          <div className="cartList">
+            {cartLines.length ? (
+              cartLines.map((line) => (
+                <div className="cartLine" key={line.type.id}>
+                  <div>
+                    <strong>{line.quantity}x {line.type.name}</strong>
+                    <span>{money(line.type.price_myr)} each</span>
+                  </div>
+                  <b>{money(line.quantity * Number(line.type.price_myr || 0))}</b>
+                </div>
+              ))
+            ) : (
+              <div className="emptyCart">Tap + beside a voucher type to add it here.</div>
+            )}
+          </div>
 
           <label>
             Guest name
@@ -154,7 +226,7 @@ export default function RestaurantKioskPage() {
             <strong>{money(total)}</strong>
           </div>
 
-          <button className="payBtn" type="button" onClick={pay} disabled={loading}>
+          <button className="payBtn" type="button" onClick={pay} disabled={loading || !cartLines.length}>
             {loading ? 'Opening payment...' : 'Pay with TNG / Alipay / Card'}
           </button>
           <button className="assistBtn" type="button" onClick={() => setShowAssist((value) => !value)}>
@@ -186,7 +258,7 @@ export default function RestaurantKioskPage() {
             linear-gradient(135deg, #fffaf0 0%, #f6efe5 42%, #eef4f2 100%);
         }
         .hero {
-          min-height: 42vh;
+          min-height: 34vh;
           border: 1px solid rgba(142, 104, 50, 0.22);
           border-radius: 28px;
           padding: clamp(28px, 5vw, 64px);
@@ -211,16 +283,16 @@ export default function RestaurantKioskPage() {
         }
         h1 {
           margin: 0;
-          max-width: 720px;
+          max-width: 760px;
           font-family: Georgia, "Times New Roman", serif;
-          font-size: clamp(54px, 9vw, 116px);
-          line-height: 0.88;
+          font-size: clamp(50px, 8vw, 106px);
+          line-height: 0.9;
           letter-spacing: 0;
         }
         .subcopy {
-          max-width: 560px;
+          max-width: 640px;
           margin: 22px 0 0;
-          font-size: clamp(17px, 2vw, 24px);
+          font-size: clamp(17px, 2vw, 23px);
           line-height: 1.45;
           color: rgba(255, 248, 234, 0.84);
         }
@@ -239,7 +311,7 @@ export default function RestaurantKioskPage() {
           margin-bottom: 8px;
         }
         .priceCard strong {
-          font-size: 44px;
+          font-size: 42px;
           line-height: 1;
         }
         .workspace {
@@ -247,6 +319,7 @@ export default function RestaurantKioskPage() {
           grid-template-columns: minmax(0, 1fr) 420px;
           gap: 22px;
           margin-top: 22px;
+          align-items: start;
         }
         .panel {
           border: 1px solid rgba(142, 104, 50, 0.2);
@@ -257,12 +330,12 @@ export default function RestaurantKioskPage() {
         .product {
           padding: 20px;
           display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto;
-          align-items: center;
+          grid-template-columns: minmax(280px, 0.55fr) minmax(0, 1fr);
           gap: 18px;
+          align-items: stretch;
         }
         .voucherArt {
-          min-height: 230px;
+          min-height: 330px;
           border-radius: 22px;
           padding: 28px;
           background:
@@ -292,76 +365,130 @@ export default function RestaurantKioskPage() {
           font-size: 16px;
           font-weight: 700;
         }
+        .menuArea {
+          min-width: 0;
+          display: grid;
+          gap: 14px;
+        }
+        .sectionHead h2 {
+          margin: 0;
+          font-size: 30px;
+        }
         .typeGrid {
           display: grid;
-          gap: 10px;
-          align-self: stretch;
-          align-content: center;
+          gap: 12px;
         }
         .typeCard {
-          width: 100%;
-          min-height: 86px;
-          border-radius: 18px;
+          display: grid;
+          grid-template-columns: 54px minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 14px;
+          border-radius: 20px;
           border: 1px solid #e6d4b8;
           background: #fffaf1;
           padding: 14px;
-          text-align: left;
           color: #15120e;
-          font: inherit;
-          cursor: pointer;
         }
         .typeCard.active {
           border-color: #c9972b;
           box-shadow: 0 12px 28px rgba(181, 132, 37, 0.18);
         }
-        .typeCard span,
-        .typeCard strong,
-        .typeCard small {
-          display: block;
-        }
-        .typeCard span {
+        .typeBadge {
+          width: 54px;
+          height: 54px;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(135deg, #fff4d9, #ead0a0);
+          color: #9c641b;
           font-weight: 950;
+          letter-spacing: 0;
         }
-        .typeCard strong {
-          margin-top: 5px;
-          font-size: 24px;
+        .typeInfo {
+          min-width: 0;
         }
-        .typeCard small {
-          margin-top: 4px;
+        .typeInfo h3 {
+          margin: 0;
+          font-size: 18px;
+          line-height: 1.2;
+        }
+        .typeInfo p {
+          margin: 4px 0 6px;
           color: #6a5b48;
           font-weight: 750;
           line-height: 1.35;
         }
+        .typeInfo strong {
+          display: block;
+          font-size: 24px;
+        }
         .qtyRow {
           display: flex;
           align-items: center;
-          gap: 14px;
-          padding: 14px;
+          gap: 10px;
+          padding: 8px;
           border-radius: 999px;
-          background: #fffaf1;
+          background: #fffdf8;
           border: 1px solid #e6d4b8;
         }
         .qtyRow button {
-          width: 52px;
-          height: 52px;
+          width: 44px;
+          height: 44px;
           border: 0;
           border-radius: 999px;
           background: #15120e;
           color: #fff;
-          font-size: 24px;
+          font-size: 22px;
           font-weight: 900;
         }
-        .qtyRow strong {
-          min-width: 44px;
+        .qtyRow button:disabled {
+          opacity: 0.32;
+        }
+        .qtyRow span {
+          min-width: 32px;
           text-align: center;
-          font-size: 28px;
+          font-size: 24px;
+          font-weight: 950;
         }
         .checkout {
           padding: 24px;
+          position: sticky;
+          top: 18px;
         }
         h2 {
-          margin: 0 0 20px;
+          margin: 0 0 18px;
           font-size: 30px;
+          line-height: 1.15;
+        }
+        .cartList {
+          display: grid;
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+        .cartLine,
+        .emptyCart {
+          border: 1px solid #e6d4b8;
+          border-radius: 16px;
+          background: #fffdf8;
+          padding: 13px;
+        }
+        .cartLine {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: center;
+        }
+        .cartLine strong,
+        .cartLine span {
+          display: block;
+        }
+        .cartLine span,
+        .emptyCart {
+          color: #6a5b48;
+          font-weight: 800;
+        }
+        .cartLine b {
+          white-space: nowrap;
         }
         label {
           display: grid;
@@ -413,7 +540,8 @@ export default function RestaurantKioskPage() {
           box-shadow: 0 16px 32px rgba(181, 132, 37, 0.28);
         }
         .payBtn:disabled {
-          opacity: 0.65;
+          opacity: 0.55;
+          box-shadow: none;
         }
         .assistBtn {
           background: #fffaf1;
@@ -439,14 +567,22 @@ export default function RestaurantKioskPage() {
           border: 1px solid #ffc5c5;
           color: #b20d17;
         }
-        @media (max-width: 860px) {
+        @media (max-width: 980px) {
+          .workspace {
+            grid-template-columns: 1fr;
+          }
+          .checkout {
+            position: static;
+          }
+        }
+        @media (max-width: 760px) {
           .kiosk {
-            padding: 14px;
+            padding: 12px;
           }
           .hero {
-            min-height: 58vh;
+            min-height: 48vh;
             border-radius: 22px;
-            align-items: flex-end;
+            align-items: flex-start;
             flex-direction: column;
             justify-content: flex-end;
           }
@@ -454,15 +590,34 @@ export default function RestaurantKioskPage() {
             width: 100%;
             box-sizing: border-box;
           }
-          .workspace,
           .product {
             grid-template-columns: 1fr;
+            padding: 14px;
           }
-          .typeGrid {
-            grid-template-columns: 1fr;
+          .voucherArt {
+            min-height: 210px;
+          }
+          .typeCard {
+            grid-template-columns: 46px minmax(0, 1fr);
+          }
+          .typeBadge {
+            width: 46px;
+            height: 46px;
+            border-radius: 15px;
           }
           .qtyRow {
-            justify-content: center;
+            grid-column: 1 / -1;
+            justify-content: space-between;
+          }
+          .qtyRow button {
+            width: 52px;
+            height: 48px;
+          }
+          .qtyRow span {
+            font-size: 26px;
+          }
+          .cartLine {
+            align-items: flex-start;
           }
           .totalLine strong {
             font-size: 34px;
