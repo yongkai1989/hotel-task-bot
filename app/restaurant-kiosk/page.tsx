@@ -135,26 +135,13 @@ export default function RestaurantKioskPage() {
   return (
     <main className="kiosk">
       <section className="hero">
-        <div>
+        <div className="heroCopy">
           <p className="eyebrow">Hallmark Crown Hotel</p>
           <h1>Buffet Breakfast Ticket</h1>
-        </div>
-        <div className="breakfastVisual" aria-hidden="true">
-          <svg viewBox="0 0 220 150" role="img">
-            <path className="foodLine soft" d="M58 50c-15-16 8-25-2-42" />
-            <path className="foodLine soft" d="M100 52c-16-18 12-27 0-46" />
-            <path className="foodLine soft" d="M140 50c16-17-9-25 2-42" />
-            <path className="foodLine gold" d="M43 88c19-23 43-33 72-31 27 2 49 16 64 38" />
-            <path className="foodLine gold" d="M55 91c13 13 31 21 54 22 25 1 46-6 62-20" />
-            <path className="foodLine thin" d="M37 111h146" />
-            <path className="foodLine thin" d="M50 122c28 15 102 15 120 0" />
-            <path className="foodLine soft" d="M24 57v72" />
-            <path className="foodLine soft" d="M18 58h12M18 70h12M18 82h12" />
-            <path className="foodLine soft" d="M194 57c10 18 7 37-4 56v16" />
-          </svg>
+          <span>Purchase your breakfast ticket securely before entering the restaurant.</span>
         </div>
         <div className="priceCard">
-          <span>Available from</span>
+          <span>From</span>
           <strong>{lowestPrice ? money(lowestPrice) : 'Select'}</strong>
         </div>
       </section>
@@ -260,77 +247,55 @@ export default function RestaurantKioskPage() {
         .hero {
           position: relative;
           overflow: hidden;
-          min-height: 30vh;
-          border: 1px solid rgba(142, 104, 50, 0.22);
+          min-height: 280px;
+          border: 1px solid rgba(213, 185, 125, 0.34);
           border-radius: 28px;
           padding: clamp(28px, 5vw, 64px);
           display: flex;
-          align-items: flex-end;
+          align-items: center;
           justify-content: space-between;
           gap: 28px;
           background:
-            radial-gradient(circle at 78% 24%, rgba(238, 199, 106, 0.26), transparent 24%),
-            radial-gradient(circle at 18% 82%, rgba(255, 255, 255, 0.12), transparent 22%),
-            linear-gradient(90deg, rgba(20, 16, 12, 0.98), rgba(44, 35, 25, 0.9));
+            linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 46%),
+            linear-gradient(135deg, #17120d 0%, #241c15 48%, #101820 100%);
           color: #fff8ea;
-          box-shadow: 0 28px 70px rgba(35, 28, 19, 0.18);
+          box-shadow: 0 30px 80px rgba(35, 28, 19, 0.22);
         }
         .hero::before {
           content: "";
           position: absolute;
-          inset: 0;
+          inset: 18px;
+          border: 1px solid rgba(255, 248, 234, 0.08);
+          border-radius: 22px;
           background:
-            repeating-linear-gradient(92deg, rgba(255, 248, 234, 0.055) 0 1px, transparent 1px 54px),
-            linear-gradient(122deg, transparent 0 70%, rgba(234, 195, 108, 0.1) 70% 71%, transparent 71%);
+            linear-gradient(90deg, rgba(238, 199, 106, 0.16), transparent 34%, transparent 66%, rgba(255, 248, 234, 0.08));
           pointer-events: none;
         }
         .hero::after {
           content: "";
           position: absolute;
-          right: clamp(36px, 12vw, 230px);
-          bottom: clamp(26px, 6vw, 86px);
-          width: clamp(150px, 18vw, 250px);
-          height: clamp(150px, 18vw, 250px);
-          border: 1px solid rgba(238, 199, 106, 0.13);
-          border-radius: 999px;
+          left: clamp(28px, 5vw, 64px);
+          bottom: clamp(24px, 4vw, 44px);
+          width: min(260px, 34vw);
+          height: 1px;
+          background: linear-gradient(90deg, rgba(238, 199, 106, 0.85), transparent);
           pointer-events: none;
         }
         .hero > * {
           position: relative;
           z-index: 1;
         }
-        .breakfastVisual {
-          position: absolute;
-          right: clamp(230px, 24vw, 390px);
-          bottom: clamp(26px, 4vw, 58px);
-          width: clamp(170px, 20vw, 250px);
-          height: clamp(116px, 14vw, 172px);
-          opacity: 0.95;
-          pointer-events: none;
-          z-index: 1;
+        .heroCopy {
+          max-width: 760px;
         }
-        .breakfastVisual svg {
-          width: 100%;
-          height: 100%;
-          overflow: visible;
-          filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.18));
-        }
-        .foodLine {
-          fill: none;
-          stroke-linecap: round;
-          stroke-linejoin: round;
-          stroke-width: 6;
-        }
-        .foodLine.gold {
-          stroke: rgba(238, 199, 106, 0.86);
-        }
-        .foodLine.soft {
-          stroke: rgba(255, 248, 234, 0.5);
-          stroke-width: 5;
-        }
-        .foodLine.thin {
-          stroke: rgba(255, 248, 234, 0.34);
-          stroke-width: 3;
+        .heroCopy span {
+          display: block;
+          max-width: 560px;
+          margin-top: 18px;
+          color: rgba(255, 248, 234, 0.74);
+          font-size: clamp(16px, 2vw, 21px);
+          font-weight: 650;
+          line-height: 1.45;
         }
         .eyebrow {
           margin: 0 0 10px;
@@ -356,21 +321,25 @@ export default function RestaurantKioskPage() {
           color: rgba(255, 248, 234, 0.84);
         }
         .priceCard {
-          min-width: 170px;
-          padding: 16px 18px;
-          border-radius: 18px;
-          background: rgba(255, 255, 255, 0.12);
-          border: 1px solid rgba(255, 255, 255, 0.22);
-          backdrop-filter: blur(18px);
+          min-width: 148px;
+          padding: 14px 16px;
+          border-radius: 16px;
+          background: rgba(255, 248, 234, 0.1);
+          border: 1px solid rgba(238, 199, 106, 0.38);
+          backdrop-filter: blur(16px);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
         .priceCard span {
           display: block;
-          color: rgba(255, 248, 234, 0.72);
+          color: rgba(238, 199, 106, 0.88);
           font-weight: 800;
           margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 11px;
         }
         .priceCard strong {
-          font-size: 34px;
+          font-size: 30px;
           line-height: 1;
         }
         .workspace {
@@ -605,23 +574,19 @@ export default function RestaurantKioskPage() {
             padding: 10px;
           }
           .hero {
-            min-height: 30vh;
+            min-height: 250px;
             border-radius: 20px;
-            padding: 24px;
+            padding: 24px 22px;
             align-items: flex-start;
             flex-direction: column;
-            justify-content: flex-end;
-          }
-          .breakfastVisual {
-            right: 18px;
-            top: 18px;
-            bottom: auto;
-            width: 118px;
-            height: 84px;
-            opacity: 0.72;
+            justify-content: space-between;
           }
           h1 {
-            font-size: clamp(42px, 14vw, 64px);
+            font-size: clamp(40px, 13vw, 58px);
+          }
+          .heroCopy span {
+            margin-top: 12px;
+            font-size: 15px;
           }
           .workspace {
             gap: 12px;
