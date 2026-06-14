@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
 
@@ -77,6 +78,41 @@ function paidOrderUpdatePayload(order: any, paidAt: string) {
   };
 }
 
+function isBreakfastOrder(order: any) {
+  return String(order?.order_type || '').trim().toUpperCase() === 'BREAKFAST';
+}
+
+function breakfastVoucherQuantity(order: any) {
+  const items = Array.isArray(order?.items_json) ? order.items_json : [];
+  const count = items.reduce((total, item) => total + Math.max(0, Math.floor(Number(item?.quantity || 0))), 0);
+  return Math.max(1, count || Math.max(1, Math.floor(Number(order?.voucher_quantity || 1))));
+}
+
+function breakfastVoucherCode() {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `BF-${day}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+async function ensureBreakfastVoucher(order: any) {
+  if (!isBreakfastOrder(order) || !order?.id || order?.voucher_code) return order;
+
+  const quantity = breakfastVoucherQuantity(order);
+  const { data } = await supabaseAdmin
+    .from('guest_shop_orders')
+    .update({
+      voucher_code: breakfastVoucherCode(),
+      voucher_quantity: quantity,
+      voucher_redeemed_quantity: 0,
+      voucher_status: 'ACTIVE',
+    })
+    .eq('id', order.id)
+    .is('voucher_code', null)
+    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status, voucher_code, voucher_quantity, voucher_redeemed_quantity, voucher_status, voucher_redeemed_at, voucher_redeemed_by')
+    .maybeSingle();
+
+  return data || order;
+}
+
 async function markKitchenPendingIfNeeded(order: any) {
   const isFnb = String(order?.order_type || '').trim().toUpperCase() === 'FNB';
   if (!isFnb || !order?.id) return;
@@ -131,7 +167,7 @@ async function refreshFromBillplz(order: any) {
       .update({ status: 'FAILED' })
       .eq('id', order.id)
       .eq('status', 'PENDING_PAYMENT')
-      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status, voucher_code, voucher_quantity, voucher_redeemed_quantity, voucher_status, voucher_redeemed_at, voucher_redeemed_by')
       .maybeSingle();
 
     if (error) throw error;
@@ -147,13 +183,16 @@ async function refreshFromBillplz(order: any) {
     .from('guest_shop_orders')
     .update(paidOrderUpdatePayload(order, paidAt))
     .eq('id', order.id)
-    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status')
+    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status, voucher_code, voucher_quantity, voucher_redeemed_quantity, voucher_status, voucher_redeemed_at, voucher_redeemed_by')
     .single();
 
   if (error) throw error;
-  await markKitchenPendingIfNeeded(updated || order);
-  await createFoTaskForPaidGuestShopOrder(updated || order);
-  return updated || order;
+  const settledOrder = await ensureBreakfastVoucher(updated || order);
+  await markKitchenPendingIfNeeded(settledOrder);
+  if (!isBreakfastOrder(settledOrder)) {
+    await createFoTaskForPaidGuestShopOrder(settledOrder);
+  }
+  return settledOrder || order;
 }
 
 export async function GET(req: NextRequest) {
@@ -163,7 +202,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('guest_shop_orders')
-      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status')
+      .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status, voucher_code, voucher_quantity, voucher_redeemed_quantity, voucher_status, voucher_redeemed_at, voucher_redeemed_by')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -194,6 +233,12 @@ export async function GET(req: NextRequest) {
         created_at: refreshed.created_at || null,
         order_type: String(refreshed.order_type || 'GUEST_SHOP'),
         print_status: String(refreshed.print_status || 'NOT_QUEUED'),
+        voucher_code: String(refreshed.voucher_code || ''),
+        voucher_quantity: Number(refreshed.voucher_quantity || 0),
+        voucher_redeemed_quantity: Number(refreshed.voucher_redeemed_quantity || 0),
+        voucher_status: String(refreshed.voucher_status || 'NOT_REQUIRED'),
+        voucher_redeemed_at: refreshed.voucher_redeemed_at || null,
+        voucher_redeemed_by: String(refreshed.voucher_redeemed_by || ''),
       },
     });
   } catch (error: any) {
