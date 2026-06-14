@@ -382,9 +382,8 @@ export default function RestaurantKioskPaymentStatusPage() {
           </div>
           <div className="emailBox">
             <div>
-              <small>Optional image copy</small>
-              <strong>Share or email the QR ticket image</strong>
-              <p>Choose Mail from your phone share screen to send the complete ticket image to yourself.</p>
+              <small>Share Ticket</small>
+              <p>Choose how you want to share the ticket.</p>
             </div>
             <button
               type="button"
