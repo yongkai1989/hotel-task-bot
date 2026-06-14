@@ -393,6 +393,32 @@ export default function BreakfastVouchersPage() {
     }
   }
 
+  async function deleteVoucher(id: string) {
+    if (!isSuperuser) return;
+    if (!window.confirm('Delete this breakfast voucher order permanently?')) return;
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
+
+      const res = await fetch(`/api/restaurant-kiosk/vouchers?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to delete voucher order');
+
+      setVouchers((rows) => rows.filter((row) => row.id !== id));
+      setMessage('Breakfast voucher order deleted.');
+      setTone('success');
+    } catch (error: any) {
+      setMessage(error?.message || 'Unable to delete voucher order');
+      setTone('danger');
+    }
+  }
+
   function stopScanner() {
     scanStopRef.current = true;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -570,6 +596,9 @@ export default function BreakfastVouchersPage() {
                 ) : null}
                 {voucher.status === 'PAID' || voucher.status === 'FULFILLED' ? (
                   <button type="button" onClick={() => reprintTicket(voucher)}>Reprint Ticket</button>
+                ) : null}
+                {isSuperuser ? (
+                  <button className="dangerBtn" type="button" onClick={() => deleteVoucher(voucher.id)}>Delete</button>
                 ) : null}
               </div>
             </article>
