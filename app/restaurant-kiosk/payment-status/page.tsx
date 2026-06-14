@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type OrderStatus = {
   id: string;
@@ -39,7 +39,6 @@ export default function RestaurantKioskPaymentStatusPage() {
   const [order, setOrder] = useState<OrderStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const printedRef = useRef(false);
 
   useEffect(() => {
     setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
@@ -100,14 +99,6 @@ export default function RestaurantKioskPaymentStatusPage() {
         : '',
     [qrPayload]
   );
-
-  useEffect(() => {
-    if (paid && qrPayload && !printedRef.current) {
-      printedRef.current = true;
-      const timer = setTimeout(() => window.print(), 650);
-      return () => clearTimeout(timer);
-    }
-  }, [paid, qrPayload]);
 
   return (
     <main className="statusPage">
@@ -171,7 +162,6 @@ export default function RestaurantKioskPaymentStatusPage() {
         ) : null}
 
         <div className="actions">
-          {paid ? <button type="button" onClick={() => window.print()}>Print ticket</button> : null}
           <a href="/restaurant-kiosk">{paid ? 'Buy another voucher' : 'Back to kiosk'}</a>
         </div>
       </section>
