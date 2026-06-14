@@ -39,6 +39,7 @@ export default function RestaurantKioskPaymentStatusPage() {
   const [order, setOrder] = useState<OrderStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [emailTo, setEmailTo] = useState('');
 
   useEffect(() => {
     setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
@@ -92,6 +93,22 @@ export default function RestaurantKioskPaymentStatusPage() {
   const paid = order?.status === 'PAID' || order?.status === 'FULFILLED';
   const failed = order?.status === 'FAILED' || order?.status === 'CANCELLED';
   const qrPayload = order?.voucher_code || '';
+  const itemLines = useMemo(() => {
+    const rows = Array.isArray(order?.items_json) ? order?.items_json : [];
+    if (rows.length) {
+      return rows.map((item: any) => ({
+        name: String(item?.name || 'Breakfast Voucher'),
+        quantity: Math.max(1, Number(item?.quantity || 1)),
+        total: Number(item?.line_total_myr || 0),
+      }));
+    }
+    if (!order) return [];
+    return [{
+      name: 'Breakfast Voucher',
+      quantity: Math.max(1, Number(order.voucher_quantity || 1)),
+      total: Number(order.total_myr || 0),
+    }];
+  }, [order]);
   const qrUrl = useMemo(
     () =>
       qrPayload
@@ -99,6 +116,27 @@ export default function RestaurantKioskPaymentStatusPage() {
         : '',
     [qrPayload]
   );
+  const emailHref = useMemo(() => {
+    if (!paid || !order) return '';
+    const subject = `Hallmark Crown Hotel Breakfast Voucher - Room ${order.room_number || ''}`;
+    const body = [
+      'Hallmark Crown Hotel Breakfast Voucher',
+      '',
+      `Room: ${order.room_number || '-'}`,
+      `Voucher Code: ${order.voucher_code || '-'}`,
+      `Quantity: ${order.voucher_quantity || 1}`,
+      `Total: ${money(order.total_myr)}`,
+      `Payment Ref: ${order.payment_reference || '-'}`,
+      '',
+      'Order Details:',
+      ...itemLines.map((item) => `- ${item.quantity}x ${item.name}${item.total ? ` (${money(item.total)})` : ''}`),
+      '',
+      'Please show the QR code or voucher code to our staff at the restaurant counter for redemption.',
+      qrPayload ? `QR Code: ${qrUrl}` : '',
+    ].filter(Boolean).join('\n');
+
+    return `mailto:${encodeURIComponent(emailTo.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }, [emailTo, itemLines, order, paid, qrPayload, qrUrl]);
 
   return (
     <main className="statusPage">
@@ -117,6 +155,7 @@ export default function RestaurantKioskPaymentStatusPage() {
         {error ? <div className="message">{error}</div> : null}
 
         {paid && order ? (
+          <>
           <div className="ticket">
             <div className="qrBox">
               {qrUrl ? <img src={qrUrl} alt="Breakfast voucher QR code" /> : <span>QR pending</span>}
@@ -134,10 +173,6 @@ export default function RestaurantKioskPaymentStatusPage() {
                   <b>{order.room_number || '-'}</b>
                 </div>
                 <div>
-                  <small>Guest</small>
-                  <b>{order.guest_name || '-'}</b>
-                </div>
-                <div>
                   <small>Paid</small>
                   <b>{formatDate(order.paid_at)}</b>
                 </div>
@@ -150,8 +185,39 @@ export default function RestaurantKioskPaymentStatusPage() {
                   <b>{order.payment_reference || '-'}</b>
                 </div>
               </div>
+              <div className="breakdown">
+                <small>Voucher Breakdown</small>
+                {itemLines.map((item, index) => (
+                  <div className="breakdownLine" key={`${item.name}-${index}`}>
+                    <span>{item.quantity}x {item.name}</span>
+                    <b>{item.total ? money(item.total) : '-'}</b>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
+          <div className="emailBox">
+            <div>
+              <small>Optional email copy</small>
+              <strong>Send ticket details to your email</strong>
+            </div>
+            <input
+              type="email"
+              value={emailTo}
+              onChange={(event) => setEmailTo(event.target.value)}
+              placeholder="Enter email address"
+            />
+            <a
+              className={!emailTo.trim() ? 'disabledLink' : ''}
+              href={emailTo.trim() ? emailHref : undefined}
+              onClick={(event) => {
+                if (!emailTo.trim()) event.preventDefault();
+              }}
+            >
+              Email me the ticket
+            </a>
+          </div>
+          </>
         ) : null}
 
         {!paid && !failed ? (
@@ -179,6 +245,8 @@ export default function RestaurantKioskPaymentStatusPage() {
           place-items: center;
           padding: 24px;
           background:
+            radial-gradient(circle at 13% 18%, rgba(48, 96, 62, 0.08), transparent 18%),
+            radial-gradient(circle at 88% 84%, rgba(170, 93, 34, 0.07), transparent 20%),
             radial-gradient(circle at 80% 10%, rgba(230, 191, 104, 0.2), transparent 28%),
             linear-gradient(135deg, #fffaf1, #eef5f3);
         }
@@ -311,6 +379,72 @@ export default function RestaurantKioskPaymentStatusPage() {
         b {
           overflow-wrap: anywhere;
         }
+        .breakdown {
+          margin-top: 18px;
+          border-radius: 18px;
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.08);
+          padding: 14px;
+        }
+        .breakdownLine {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 0;
+          color: #fff8ea;
+          font-weight: 850;
+        }
+        .breakdownLine + .breakdownLine {
+          border-top: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .emailBox {
+          margin-top: 18px;
+          display: grid;
+          grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+          gap: 12px;
+          align-items: center;
+          border: 1px solid #e2ceb2;
+          border-radius: 22px;
+          background: #fffaf1;
+          padding: 14px;
+          text-align: left;
+        }
+        .emailBox strong {
+          display: block;
+          color: #15120e;
+          font-size: 16px;
+        }
+        .emailBox small {
+          color: #9b6428;
+        }
+        .emailBox input {
+          min-height: 52px;
+          border-radius: 16px;
+          border: 1px solid #d7bf98;
+          background: #fffdf8;
+          padding: 0 14px;
+          color: #15120e;
+          font: inherit;
+          font-weight: 800;
+        }
+        .emailBox a {
+          min-height: 52px;
+          border-radius: 16px;
+          padding: 0 18px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: #15120e;
+          color: #fff8ea;
+          text-decoration: none;
+          font-weight: 950;
+          white-space: nowrap;
+        }
+        .emailBox a.disabledLink {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
         .actions {
           margin-top: 28px;
           display: flex;
@@ -338,15 +472,65 @@ export default function RestaurantKioskPaymentStatusPage() {
           color: #15120e;
         }
         @media (max-width: 760px) {
+          .statusPage {
+            padding: 10px;
+            place-items: start center;
+          }
+          .ticketCard {
+            border-radius: 22px;
+            padding: 18px;
+          }
+          .statusIcon {
+            width: 58px;
+            height: 58px;
+            border-radius: 18px;
+            margin-bottom: 12px;
+          }
+          h1 {
+            font-size: clamp(34px, 10vw, 48px);
+          }
+          .lead {
+            margin-top: 12px;
+            font-size: 15px;
+          }
           .ticket {
             grid-template-columns: 1fr;
+            margin-top: 18px;
+            gap: 14px;
           }
           .qrBox {
-            max-width: 340px;
+            max-width: 230px;
             margin: 0 auto;
+            border-radius: 20px;
+            padding: 14px;
+          }
+          .ticketInfo {
+            border-radius: 20px;
+            padding: 18px;
+          }
+          .ticketInfo > strong {
+            font-size: 22px;
           }
           .infoGrid {
             grid-template-columns: 1fr;
+            gap: 8px;
+            margin-top: 14px;
+          }
+          .infoGrid div,
+          .breakdown {
+            border-radius: 14px;
+            padding: 10px;
+          }
+          .emailBox {
+            grid-template-columns: 1fr;
+            border-radius: 18px;
+            padding: 12px;
+          }
+          .actions {
+            margin-top: 18px;
+          }
+          .actions a {
+            width: 100%;
           }
         }
         @media print {
