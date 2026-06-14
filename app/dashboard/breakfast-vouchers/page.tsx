@@ -85,10 +85,17 @@ export default function BreakfastVouchersPage() {
   const scanStopRef = useRef(false);
 
   async function getToken() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    return session?.access_token || '';
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.access_token) return session.access_token;
+
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+
+    return '';
   }
 
   async function load() {
@@ -121,7 +128,7 @@ export default function BreakfastVouchersPage() {
   async function loadProfile() {
     try {
       const token = await getToken();
-      if (!token) throw new Error('Missing login session');
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
 
       const res = await fetch('/api/session-profile', {
         cache: 'no-store',
@@ -139,7 +146,7 @@ export default function BreakfastVouchersPage() {
     setTypesLoading(true);
     try {
       const token = await getToken();
-      if (!token) throw new Error('Missing login session');
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
 
       const res = await fetch('/api/restaurant-kiosk/voucher-types?admin=1', {
         cache: 'no-store',
@@ -175,7 +182,7 @@ export default function BreakfastVouchersPage() {
   async function saveType() {
     try {
       const token = await getToken();
-      if (!token) throw new Error('Missing login session');
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
 
       const method = typeForm.id ? 'PUT' : 'POST';
       const res = await fetch('/api/restaurant-kiosk/voucher-types', {
@@ -209,7 +216,7 @@ export default function BreakfastVouchersPage() {
     if (!window.confirm('Delete this breakfast voucher type?')) return;
     try {
       const token = await getToken();
-      if (!token) throw new Error('Missing login session');
+      if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
 
       const res = await fetch(`/api/restaurant-kiosk/voucher-types?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
