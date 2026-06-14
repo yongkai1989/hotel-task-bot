@@ -89,12 +89,12 @@ function voucherItemText(voucher: Voucher) {
   return `${voucher.voucher_quantity || 1}x Breakfast Voucher`;
 }
 
-function loadJsQr() {
+function loadJsQr(): Promise<any> {
   if (typeof window === 'undefined') return Promise.reject(new Error('Camera scanner is not available here.'));
   if ((window as any).jsQR) return Promise.resolve((window as any).jsQR);
 
-  return new Promise<any>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-jsqr-loader="true"]');
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-jsqr-loader="true"]') as HTMLScriptElement | null;
     if (existing) {
       existing.addEventListener('load', () => resolve((window as any).jsQR), { once: true });
       existing.addEventListener('error', () => reject(new Error('Unable to load QR scanner. Please type the voucher code manually.')), { once: true });
@@ -920,4 +920,94 @@ export default function BreakfastVouchersPage() {
           padding: 16px;
           background: #fbfdff;
         }
-      
+        .voucherRow.redeemed {
+          border-color: #bdeacb;
+          background: #f1fff6;
+        }
+        .voucherRow h3 {
+          margin: 4px 0;
+          font-size: 19px;
+        }
+        .voucherRow small {
+          display: block;
+          margin-top: 8px;
+          color: #08733d;
+        }
+        .voucherRow small.itemBreakdown {
+          color: #245deb;
+          font-weight: 950;
+        }
+        .rowActions {
+          display: grid;
+          justify-items: end;
+          gap: 10px;
+          align-content: center;
+        }
+        .rowActions span {
+          border-radius: 999px;
+          background: #eef4ff;
+          color: #245deb;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 950;
+          text-transform: uppercase;
+        }
+        .redeemed .rowActions span {
+          background: #dff9e8;
+          color: #04703a;
+        }
+        .empty {
+          border: 1px dashed #c6d9ef;
+          border-radius: 18px;
+          padding: 24px;
+          text-align: center;
+          color: #5d6b83;
+          font-weight: 900;
+        }
+        @media (max-width: 760px) {
+          .hero,
+          .voucherRow,
+          .listHead {
+            align-items: stretch;
+            flex-direction: column;
+          }
+          .stats {
+            grid-template-columns: 1fr;
+          }
+          .tabBar,
+          .tabBar button {
+            width: 100%;
+          }
+          .typeEditor {
+            grid-template-columns: 1fr;
+          }
+          .filters input,
+          .filters button,
+          .manualRow button,
+          .heroActions a,
+          .heroActions button {
+            width: 100%;
+          }
+          .rowActions {
+            justify-items: stretch;
+          }
+          .scannerCard {
+            padding: 12px;
+          }
+          .cameraFrame {
+            min-height: 64vh;
+            border-radius: 20px;
+          }
+          video {
+            height: 64vh;
+            min-height: 360px;
+          }
+          .scanGuide span {
+            width: min(72vw, 280px);
+            border-radius: 24px;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
