@@ -141,10 +141,12 @@ export async function PUT(req: NextRequest) {
       .limit(1);
 
     lookup = code ? lookup.eq('voucher_code', code) : lookup.eq('id', orderId);
-    const { data: rows, error: loadError } = await lookup;
+    const result: any = await lookup;
+    const rows: any[] = Array.isArray(result?.data) ? result.data : [];
+    const loadError = result?.error;
     if (loadError) throw loadError;
 
-    const voucher = rows?.[0];
+    const voucher: any = rows[0] || null;
     if (!voucher) return jsonNoCache({ ok: false, error: 'Voucher not found', tone: 'danger' }, 404);
     if (voucher.status !== 'PAID' && voucher.status !== 'FULFILLED') {
       return jsonNoCache({ ok: false, error: 'Payment is not verified', voucher: normalizeVoucher(voucher), tone: 'danger' }, 400);
