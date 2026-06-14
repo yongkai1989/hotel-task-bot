@@ -243,4 +243,6 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    return jsonNoCac
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to load order status' }, 500);
+  }
+}
