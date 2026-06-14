@@ -239,46 +239,39 @@ export default function RestaurantKioskPage() {
           min-height: 100vh;
           padding: 28px;
           background:
-            radial-gradient(circle at 86% 16%, rgba(47, 88, 62, 0.08), transparent 18%),
-            radial-gradient(circle at 11% 88%, rgba(170, 93, 34, 0.07), transparent 22%),
-            radial-gradient(circle at 20% 10%, rgba(218, 178, 93, 0.2), transparent 30%),
-            linear-gradient(135deg, #fffaf0 0%, #f6efe5 42%, #eef4f2 100%);
+            linear-gradient(135deg, rgba(20, 25, 38, 0.04), transparent 34%),
+            linear-gradient(180deg, #f7f9fc 0%, #f1f5f9 52%, #f8fafc 100%);
         }
         .hero {
           position: relative;
           overflow: hidden;
-          min-height: 280px;
-          border: 1px solid rgba(213, 185, 125, 0.34);
-          border-radius: 28px;
-          padding: clamp(28px, 5vw, 64px);
+          min-height: 220px;
+          border: 1px solid #d8e2ef;
+          border-radius: 24px;
+          padding: clamp(28px, 4vw, 52px);
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 28px;
           background:
-            linear-gradient(115deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 46%),
-            linear-gradient(135deg, #17120d 0%, #241c15 48%, #101820 100%);
-          color: #fff8ea;
-          box-shadow: 0 30px 80px rgba(35, 28, 19, 0.22);
+            linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.94) 58%, rgba(241, 246, 252, 0.96) 100%);
+          color: #0f172a;
+          box-shadow: 0 22px 70px rgba(15, 23, 42, 0.1);
         }
         .hero::before {
           content: "";
           position: absolute;
-          inset: 18px;
-          border: 1px solid rgba(255, 248, 234, 0.08);
-          border-radius: 22px;
-          background:
-            linear-gradient(90deg, rgba(238, 199, 106, 0.16), transparent 34%, transparent 66%, rgba(255, 248, 234, 0.08));
+          inset: 0 0 auto;
+          height: 7px;
+          background: linear-gradient(90deg, #0f172a 0%, #c99a3d 45%, #2563eb 100%);
           pointer-events: none;
         }
         .hero::after {
           content: "";
           position: absolute;
-          left: clamp(28px, 5vw, 64px);
-          bottom: clamp(24px, 4vw, 44px);
-          width: min(260px, 34vw);
+          inset: 7px 0 auto;
           height: 1px;
-          background: linear-gradient(90deg, rgba(238, 199, 106, 0.85), transparent);
+          background: rgba(201, 154, 61, 0.26);
           pointer-events: none;
         }
         .hero > * {
@@ -291,15 +284,15 @@ export default function RestaurantKioskPage() {
         .heroCopy span {
           display: block;
           max-width: 560px;
-          margin-top: 18px;
-          color: rgba(255, 248, 234, 0.74);
-          font-size: clamp(16px, 2vw, 21px);
+          margin-top: 12px;
+          color: #64748b;
+          font-size: clamp(15px, 1.5vw, 18px);
           font-weight: 650;
           line-height: 1.45;
         }
         .eyebrow {
           margin: 0 0 10px;
-          color: #b78336;
+          color: #9a6a22;
           font-size: 12px;
           font-weight: 900;
           letter-spacing: 0.14em;
@@ -309,8 +302,8 @@ export default function RestaurantKioskPage() {
           margin: 0;
           max-width: 760px;
           font-family: Georgia, "Times New Roman", serif;
-          font-size: clamp(50px, 8vw, 106px);
-          line-height: 0.9;
+          font-size: clamp(46px, 6vw, 82px);
+          line-height: 0.96;
           letter-spacing: 0;
         }
         .subcopy {
@@ -321,17 +314,17 @@ export default function RestaurantKioskPage() {
           color: rgba(255, 248, 234, 0.84);
         }
         .priceCard {
-          min-width: 148px;
-          padding: 14px 16px;
-          border-radius: 16px;
-          background: rgba(255, 248, 234, 0.1);
-          border: 1px solid rgba(238, 199, 106, 0.38);
-          backdrop-filter: blur(16px);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+          min-width: 156px;
+          padding: 16px 18px;
+          border-radius: 18px;
+          background: #0f172a;
+          border: 1px solid rgba(15, 23, 42, 0.08);
+          color: #fff;
+          box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
         }
         .priceCard span {
           display: block;
-          color: rgba(238, 199, 106, 0.88);
+          color: #d9b56a;
           font-weight: 800;
           margin-bottom: 8px;
           text-transform: uppercase;
@@ -339,7 +332,7 @@ export default function RestaurantKioskPage() {
           font-size: 11px;
         }
         .priceCard strong {
-          font-size: 30px;
+          font-size: 32px;
           line-height: 1;
         }
         .workspace {
@@ -574,64 +567,99 @@ export default function RestaurantKioskPage() {
             padding: 10px;
           }
           .hero {
-            min-height: 250px;
-            border-radius: 20px;
-            padding: 24px 22px;
+            min-height: 178px;
+            border-radius: 18px;
+            padding: 22px 18px 18px;
             align-items: flex-start;
             flex-direction: column;
             justify-content: space-between;
+            gap: 16px;
           }
           h1 {
-            font-size: clamp(40px, 13vw, 58px);
+            max-width: 330px;
+            font-size: clamp(34px, 10.5vw, 46px);
+            line-height: 0.98;
           }
           .heroCopy span {
-            margin-top: 12px;
-            font-size: 15px;
+            max-width: 300px;
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.35;
+          }
+          .eyebrow {
+            margin-bottom: 8px;
+            font-size: 10px;
+            letter-spacing: 0.13em;
           }
           .workspace {
-            gap: 12px;
-            margin-top: 12px;
+            gap: 10px;
+            margin-top: 10px;
           }
           .panel {
-            border-radius: 20px;
+            border-radius: 18px;
           }
           .priceCard {
-            width: auto;
-            min-width: 138px;
-            align-self: flex-start;
+            width: 100%;
+            min-width: 0;
+            align-self: stretch;
             box-sizing: border-box;
-            padding: 12px 14px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-radius: 14px;
           }
           .priceCard strong {
-            font-size: 28px;
+            font-size: 24px;
+          }
+          .priceCard span {
+            margin: 0;
+            font-size: 10px;
           }
           .product {
-            padding: 12px;
+            padding: 10px;
+          }
+          .sectionHead h2,
+          h2 {
+            font-size: 24px;
           }
           .checkout {
-            padding: 18px;
+            padding: 16px;
           }
           .typeCard {
-            grid-template-columns: 46px minmax(0, 1fr);
-            padding: 12px;
+            grid-template-columns: 42px minmax(0, 1fr) auto;
+            padding: 10px;
             gap: 10px;
+            border-radius: 16px;
           }
           .typeBadge {
-            width: 46px;
-            height: 46px;
-            border-radius: 15px;
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            font-size: 13px;
+          }
+          .typeInfo h3 {
+            font-size: 15px;
+          }
+          .typeInfo p {
+            font-size: 12px;
+          }
+          .typeInfo strong {
+            font-size: 19px;
           }
           .qtyRow {
-            grid-column: 1 / -1;
-            justify-content: space-between;
-            padding: 6px;
+            grid-column: auto;
+            gap: 6px;
+            padding: 5px;
           }
           .qtyRow button {
-            width: 48px;
-            height: 44px;
+            width: 34px;
+            height: 34px;
+            font-size: 18px;
           }
           .qtyRow span {
-            font-size: 24px;
+            min-width: 22px;
+            font-size: 18px;
           }
           .cartLine {
             align-items: flex-start;
