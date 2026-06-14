@@ -1,8 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-const VOUCHER_PRICE = 20;
+type VoucherType = {
+  id: string;
+  name: string;
+  description: string;
+  price_myr: number;
+  is_active: boolean;
+};
 
 function money(value: number) {
   return `RM${Number(value || 0).toLocaleString('en-MY', {
@@ -12,6 +18,8 @@ function money(value: number) {
 }
 
 export default function RestaurantKioskPage() {
+  const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
+  const [selectedTypeId, setSelectedTypeId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [guestName, setGuestName] = useState('');
   const [roomNumber, setRoomNumber] = useState('');
@@ -20,7 +28,39 @@ export default function RestaurantKioskPage() {
   const [loading, setLoading] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
 
-  const total = useMemo(() => quantity * VOUCHER_PRICE, [quantity]);
+  const selectedType = useMemo(
+    () => voucherTypes.find((type) => type.id === selectedTypeId) || voucherTypes[0] || null,
+    [voucherTypes, selectedTypeId]
+  );
+  const total = useMemo(() => quantity * Number(selectedType?.price_myr || 0), [quantity, selectedType]);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadTypes() {
+      try {
+        const res = await fetch('/api/restaurant-kiosk/voucher-types', { cache: 'no-store' });
+        const json = await res.json().catch(() => ({}));
+        if (!alive) return;
+        const types = Array.isArray(json?.types) ? json.types : [];
+        setVoucherTypes(types);
+        setSelectedTypeId(String(types[0]?.id || ''));
+      } catch {
+        const fallback = [{
+          id: 'default-breakfast',
+          name: 'Breakfast Voucher',
+          description: 'Breakfast pass redeemable at the restaurant counter.',
+          price_myr: 20,
+          is_active: true,
+        }];
+        setVoucherTypes(fallback);
+        setSelectedTypeId(fallback[0].id);
+      }
+    }
+    loadTypes();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function pay() {
     setMessage('');
@@ -31,6 +71,7 @@ export default function RestaurantKioskPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quantity,
+          voucherTypeId: selectedType?.id || '',
           guestName: guestName.trim() || 'Restaurant Guest',
           roomNumber: roomNumber.trim() || 'Kiosk',
           email: email.trim(),
@@ -54,12 +95,12 @@ export default function RestaurantKioskPage() {
           <p className="eyebrow">Hallmark Crown Hotel</p>
           <h1>Breakfast Voucher</h1>
           <p className="subcopy">
-            Purchase your breakfast voucher here. A QR ticket will be shown after payment is verified.
+            Choose your breakfast voucher. A QR ticket will be shown after payment is verified.
           </p>
         </div>
         <div className="priceCard">
-          <span>Per voucher</span>
-          <strong>{money(VOUCHER_PRICE)}</strong>
+          <span>{selectedType?.name || 'Per voucher'}</span>
+          <strong>{money(selectedType?.price_myr || 0)}</strong>
         </div>
       </section>
 
@@ -67,8 +108,22 @@ export default function RestaurantKioskPage() {
         <div className="panel product">
           <div className="voucherArt">
             <span>Breakfast</span>
-            <strong>Hallmark Morning Pass</strong>
-            <small>Redeem once at the restaurant counter</small>
+            <strong>{selectedType?.name || 'Hallmark Morning Pass'}</strong>
+            <small>{selectedType?.description || 'Redeem once at the restaurant counter'}</small>
+          </div>
+          <div className="typeGrid">
+            {voucherTypes.map((type) => (
+              <button
+                className={type.id === selectedType?.id ? 'typeCard active' : 'typeCard'}
+                key={type.id}
+                type="button"
+                onClick={() => setSelectedTypeId(type.id)}
+              >
+                <span>{type.name}</span>
+                <strong>{money(type.price_myr)}</strong>
+                {type.description ? <small>{type.description}</small> : null}
+              </button>
+            ))}
           </div>
           <div className="qtyRow">
             <button type="button" onClick={() => setQuantity((value) => Math.max(1, value - 1))}>-</button>
@@ -79,7 +134,7 @@ export default function RestaurantKioskPage() {
 
         <div className="panel checkout">
           <p className="eyebrow">Your cart</p>
-          <h2>{quantity} breakfast {quantity === 1 ? 'voucher' : 'vouchers'}</h2>
+          <h2>{quantity}x {selectedType?.name || 'Breakfast Voucher'}</h2>
 
           <label>
             Guest name
@@ -202,7 +257,7 @@ export default function RestaurantKioskPage() {
         .product {
           padding: 20px;
           display: grid;
-          grid-template-columns: 1fr auto;
+          grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto;
           align-items: center;
           gap: 18px;
         }
@@ -236,6 +291,46 @@ export default function RestaurantKioskPage() {
           color: rgba(255, 248, 234, 0.72);
           font-size: 16px;
           font-weight: 700;
+        }
+        .typeGrid {
+          display: grid;
+          gap: 10px;
+          align-self: stretch;
+          align-content: center;
+        }
+        .typeCard {
+          width: 100%;
+          min-height: 86px;
+          border-radius: 18px;
+          border: 1px solid #e6d4b8;
+          background: #fffaf1;
+          padding: 14px;
+          text-align: left;
+          color: #15120e;
+          font: inherit;
+          cursor: pointer;
+        }
+        .typeCard.active {
+          border-color: #c9972b;
+          box-shadow: 0 12px 28px rgba(181, 132, 37, 0.18);
+        }
+        .typeCard span,
+        .typeCard strong,
+        .typeCard small {
+          display: block;
+        }
+        .typeCard span {
+          font-weight: 950;
+        }
+        .typeCard strong {
+          margin-top: 5px;
+          font-size: 24px;
+        }
+        .typeCard small {
+          margin-top: 4px;
+          color: #6a5b48;
+          font-weight: 750;
+          line-height: 1.35;
         }
         .qtyRow {
           display: flex;
@@ -361,6 +456,9 @@ export default function RestaurantKioskPage() {
           }
           .workspace,
           .product {
+            grid-template-columns: 1fr;
+          }
+          .typeGrid {
             grid-template-columns: 1fr;
           }
           .qtyRow {
