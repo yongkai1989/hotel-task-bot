@@ -11,6 +11,7 @@ type Voucher = {
   status: string;
   payment_reference: string;
   total_myr: number;
+  items_json?: any[];
   paid_at: string | null;
   created_at: string | null;
   voucher_code: string;
@@ -63,6 +64,19 @@ function money(value: number) {
 
 function isRedeemed(voucher: Voucher) {
   return voucher.voucher_status === 'REDEEMED' || voucher.status === 'FULFILLED';
+}
+
+function qrUrl(value: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=14&data=${encodeURIComponent(value)}`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 export default function BreakfastVouchersPage() {
@@ -231,6 +245,65 @@ export default function BreakfastVouchersPage() {
       setMessage(error?.message || 'Unable to delete voucher type');
       setTone('danger');
     }
+  }
+
+  function reprintTicket(voucher: Voucher) {
+    if (!voucher.voucher_code) {
+      setMessage('Voucher code is not ready yet.');
+      setTone('danger');
+      return;
+    }
+
+    const itemLines = Array.isArray(voucher.items_json) && voucher.items_json.length
+      ? voucher.items_json
+          .map((item: any) => `${Number(item?.quantity || 1)}x ${escapeHtml(item?.name || 'Breakfast Voucher')}`)
+          .join('<br />')
+      : `${voucher.voucher_quantity || 1}x Breakfast Voucher`;
+
+    const printWindow = window.open('', '_blank', 'width=760,height=920');
+    if (!printWindow) {
+      setMessage('Popup blocked. Please allow popups to reprint ticket.');
+      setTone('danger');
+      return;
+    }
+
+    printWindow.document.write(`<!doctype html>
+      <html>
+        <head>
+          <title>Breakfast Voucher ${escapeHtml(voucher.voucher_code)}</title>
+          <style>
+            body { margin: 0; background: #f7f2ea; color: #15120e; font-family: Arial, sans-serif; }
+            .ticket { max-width: 680px; margin: 28px auto; padding: 34px; border: 1px solid #d9bd8c; border-radius: 28px; background: #fffdf8; text-align: center; }
+            .brand { color: #9b6428; font-size: 12px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
+            h1 { margin: 10px 0 18px; font-size: 42px; }
+            img { width: 260px; height: 260px; border: 1px dashed #d9bd8c; border-radius: 24px; padding: 16px; background: #fffaf1; }
+            .code { margin: 18px 0; font-size: 26px; font-weight: 900; overflow-wrap: anywhere; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; text-align: left; }
+            .box { border: 1px solid #ead9bd; border-radius: 16px; padding: 14px; background: #fffaf1; }
+            small { display: block; color: #6a5b48; font-weight: 800; margin-bottom: 5px; }
+            b { font-size: 18px; }
+            .items { margin-top: 18px; padding: 16px; border-radius: 16px; background: #15120e; color: #fff8ea; font-weight: 800; }
+            @media print { body { background: #fff; } .ticket { margin: 0; border: 0; } }
+          </style>
+        </head>
+        <body>
+          <main class="ticket">
+            <div class="brand">Hallmark Crown Hotel</div>
+            <h1>Breakfast Voucher</h1>
+            <img src="${qrUrl(voucher.voucher_code)}" alt="Breakfast voucher QR" />
+            <div class="code">${escapeHtml(voucher.voucher_code)}</div>
+            <div class="grid">
+              <div class="box"><small>Room</small><b>${escapeHtml(voucher.room_number || '-')}</b></div>
+              <div class="box"><small>Quantity</small><b>${voucher.voucher_quantity || 1}</b></div>
+              <div class="box"><small>Total</small><b>${money(voucher.total_myr)}</b></div>
+              <div class="box"><small>Paid</small><b>${escapeHtml(formatTime(voucher.paid_at))}</b></div>
+            </div>
+            <div class="items">${itemLines}</div>
+          </main>
+          <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
+        </body>
+      </html>`);
+    printWindow.document.close();
   }
 
   async function redeem(value: string, orderId = '') {
@@ -408,6 +481,9 @@ export default function BreakfastVouchersPage() {
                 <span>{isRedeemed(voucher) ? 'Redeemed' : voucher.status === 'PAID' ? 'Ready' : voucher.status}</span>
                 {!isRedeemed(voucher) && voucher.status === 'PAID' ? (
                   <button type="button" onClick={() => redeem('', voucher.id)}>Redeem</button>
+                ) : null}
+                {voucher.status === 'PAID' || voucher.status === 'FULFILLED' ? (
+                  <button type="button" onClick={() => reprintTicket(voucher)}>Reprint Ticket</button>
                 ) : null}
               </div>
             </article>
