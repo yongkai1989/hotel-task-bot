@@ -89,6 +89,31 @@ function voucherItemText(voucher: Voucher) {
   return `${voucher.voucher_quantity || 1}x Breakfast Voucher`;
 }
 
+function loadJsQr() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Camera scanner is not available here.'));
+  if ((window as any).jsQR) return Promise.resolve((window as any).jsQR);
+
+  return new Promise<any>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[data-jsqr-loader="true"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve((window as any).jsQR), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Unable to load QR scanner. Please type the voucher code manually.')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+    script.async = true;
+    script.dataset.jsqrLoader = 'true';
+    script.onload = () => {
+      if ((window as any).jsQR) resolve((window as any).jsQR);
+      else reject(new Error('QR scanner did not load. Please type the voucher code manually.'));
+    };
+    script.onerror = () => reject(new Error('Unable to load QR scanner. Please type the voucher code manually.'));
+    document.head.appendChild(script);
+  });
+}
+
 export default function BreakfastVouchersPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [activeTab, setActiveTab] = useState<'redeem' | 'types'>('redeem');
@@ -366,9 +391,8 @@ export default function BreakfastVouchersPage() {
   async function startScanner() {
     setMessage('');
     setTone('neutral');
-    const BarcodeDetectorCtor = (window as any).BarcodeDetector;
-    if (!BarcodeDetectorCtor) {
-      setMessage('This browser does not support camera QR scanning. Please type the voucher code manually.');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage('This browser cannot open the camera. Please type the voucher code manually.');
       setTone('danger');
       return;
     }
@@ -382,13 +406,30 @@ export default function BreakfastVouchersPage() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      const detector = new BarcodeDetectorCtor({ formats: ['qr_code'] });
+      const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+      const detector = BarcodeDetectorCtor ? new BarcodeDetectorCtor({ formats: ['qr_code'] }) : null;
+      const jsQR = detector ? null : await loadJsQr();
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
 
       const scan = async () => {
         if (scanStopRef.current || !videoRef.current) return;
         try {
-          const codes = await detector.detect(videoRef.current);
-          const raw = String(codes?.[0]?.rawValue || '').trim();
+          let raw = '';
+          if (detector) {
+            const codes = await detector.detect(videoRef.current);
+            raw = String(codes?.[0]?.rawValue || '').trim();
+          } else if (jsQR && context && videoRef.current.videoWidth && videoRef.current.videoHeight) {
+            canvas.width = videoRef.current.videoWidth;
+            canvas.height = videoRef.current.videoHeight;
+            context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const result = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'attemptBoth',
+            });
+            raw = String(result?.data || '').trim();
+          }
+
           if (raw) {
             stopScanner();
             await redeem(raw);
@@ -397,7 +438,7 @@ export default function BreakfastVouchersPage() {
         } catch {
           // Keep the scanner running; manual entry is available if scanning fails.
         }
-        window.setTimeout(scan, 450);
+        window.setTimeout(scan, detector ? 450 : 650);
       };
       scan();
     } catch (error: any) {
@@ -456,7 +497,7 @@ export default function BreakfastVouchersPage() {
             <button type="button" onClick={startScanner}>Scan QR</button>
           )}
         </div>
-        {scanning ? <video ref={videoRef} playsInline muted /> : null}
+        {scanning ? <video ref={videoRef} playsInline muted autoPlay /> : null}
         <div className="manualRow">
           <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Enter voucher code manually" />
           <button type="button" onClick={() => redeem(code)}>Redeem</button>
