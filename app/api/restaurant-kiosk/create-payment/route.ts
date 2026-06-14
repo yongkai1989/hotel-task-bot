@@ -75,11 +75,54 @@ async function resolveVoucherType(typeId: string) {
   };
 }
 
+async function buildVoucherItems(body: any) {
+  const rawItems = Array.isArray(body?.items) ? body.items : [];
+  const requestedItems = rawItems
+    .map((item: any) => ({
+      voucherTypeId: cleanText(item?.voucherTypeId),
+      quantity: Math.max(0, Math.min(20, Math.floor(Number(item?.quantity || 0)))),
+    }))
+    .filter((item: any) => item.voucherTypeId && item.quantity > 0);
+
+  if (!requestedItems.length) {
+    const quantity = Math.max(1, Math.min(20, Math.floor(Number(body?.quantity || 1))));
+    requestedItems.push({
+      voucherTypeId: cleanText(body?.voucherTypeId),
+      quantity,
+    });
+  }
+
+  const merged = new Map<string, number>();
+  for (const item of requestedItems) {
+    merged.set(item.voucherTypeId, Math.min(20, (merged.get(item.voucherTypeId) || 0) + item.quantity));
+  }
+
+  const lines = [];
+  for (const [voucherTypeId, quantity] of merged.entries()) {
+    const voucherType = await resolveVoucherType(voucherTypeId);
+    const unitPrice = Number.isFinite(voucherType.price_myr) && voucherType.price_myr > 0 ? voucherType.price_myr : 20;
+    lines.push({
+      id: `breakfast-voucher-${voucherType.id}`,
+      voucher_type_id: voucherType.id,
+      name: voucherType.name,
+      description: voucherType.description,
+      category: 'Breakfast',
+      quantity,
+      price_myr: unitPrice,
+      line_total_myr: Number((unitPrice * quantity).toFixed(2)),
+    });
+  }
+
+  return lines;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const quantity = Math.max(1, Math.min(20, Math.floor(Number(body?.quantity || 1))));
-    const voucherType = await resolveVoucherType(cleanText(body?.voucherTypeId));
+    const orderItems = await buildVoucherItems(body);
+    const quantity = orderItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    if (quantity <= 0) return jsonNoCache({ ok: false, error: 'Please add at least one breakfast voucher' }, 400);
+
     const guestName = cleanText(body?.guestName, 'Restaurant Guest') || 'Restaurant Guest';
     const roomNumber = cleanText(body?.roomNumber, 'Kiosk') || 'Kiosk';
     const guestEmail = cleanText(body?.email);
@@ -95,20 +138,10 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Billplz environment variables are not configured' }, 500);
     }
 
-    const unitPrice = Number.isFinite(voucherType.price_myr) && voucherType.price_myr > 0 ? voucherType.price_myr : 20;
-    const totalMyr = Number((unitPrice * quantity).toFixed(2));
-    const orderItems = [
-      {
-        id: `breakfast-voucher-${voucherType.id}`,
-        voucher_type_id: voucherType.id,
-        name: voucherType.name,
-        description: voucherType.description,
-        category: 'Breakfast',
-        quantity,
-        price_myr: unitPrice,
-        line_total_myr: totalMyr,
-      },
-    ];
+    const totalMyr = Number(orderItems.reduce((sum, item) => sum + Number(item.line_total_myr || 0), 0).toFixed(2));
+    const descriptionSummary = orderItems
+      .map((item) => `${item.quantity}x ${item.name}`)
+      .join(', ');
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
@@ -142,7 +175,7 @@ export async function POST(req: NextRequest) {
     billBody.set('amount', String(Math.round(totalMyr * 100)));
     billBody.set('callback_url', callbackUrl);
     billBody.set('redirect_url', redirectUrl);
-    billBody.set('description', `Hallmark Crown ${voucherType.name} - ${quantity} pax`);
+    billBody.set('description', `Hallmark Crown Breakfast - ${descriptionSummary}`);
     billBody.set('reference_1_label', 'Order ID');
     billBody.set('reference_1', orderId);
     billBody.set('reference_2_label', 'Room');
