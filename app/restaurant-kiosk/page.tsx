@@ -31,9 +31,7 @@ function initials(name: string) {
 export default function RestaurantKioskPage() {
   const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
   const [cart, setCart] = useState<CartMap>({});
-  const [guestName, setGuestName] = useState('');
   const [roomNumber, setRoomNumber] = useState('');
-  const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
@@ -105,6 +103,11 @@ export default function RestaurantKioskPage() {
       return;
     }
 
+    if (!roomNumber.trim()) {
+      setMessage('Please enter your room number before payment.');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch('/api/restaurant-kiosk/create-payment', {
@@ -115,9 +118,7 @@ export default function RestaurantKioskPage() {
             voucherTypeId: line.type.id,
             quantity: line.quantity,
           })),
-          guestName: guestName.trim() || 'Restaurant Guest',
-          roomNumber: roomNumber.trim() || 'Kiosk',
-          email: email.trim(),
+          roomNumber: roomNumber.trim(),
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -137,9 +138,6 @@ export default function RestaurantKioskPage() {
         <div>
           <p className="eyebrow">Hallmark Crown Hotel</p>
           <h1>Breakfast Vouchers</h1>
-          <p className="subcopy">
-            Select adult and child breakfast vouchers in one order. Your QR ticket will appear after payment is verified.
-          </p>
         </div>
         <div className="priceCard">
           <span>Available from</span>
@@ -151,8 +149,7 @@ export default function RestaurantKioskPage() {
         <div className="panel product">
           <div className="voucherArt">
             <span>Breakfast</span>
-            <strong>Morning dining pass</strong>
-            <small>Build one cart with any mix of voucher types.</small>
+            <strong>Morning Buffet Breakfast Ticket</strong>
           </div>
 
           <div className="menuArea">
@@ -209,16 +206,8 @@ export default function RestaurantKioskPage() {
           </div>
 
           <label>
-            Guest name
-            <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Optional" />
-          </label>
-          <label>
             Room number
-            <input value={roomNumber} onChange={(event) => setRoomNumber(event.target.value)} placeholder="Optional for walk-in guest" />
-          </label>
-          <label>
-            Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Optional" type="email" />
+            <input value={roomNumber} onChange={(event) => setRoomNumber(event.target.value)} placeholder="Enter room number" />
           </label>
 
           <div className="totalLine">
