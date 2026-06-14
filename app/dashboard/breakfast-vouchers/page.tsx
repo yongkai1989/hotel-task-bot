@@ -79,6 +79,16 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
+function voucherItemText(voucher: Voucher) {
+  if (Array.isArray(voucher.items_json) && voucher.items_json.length) {
+    return voucher.items_json
+      .map((item: any) => `${Number(item?.quantity || 1)}x ${String(item?.name || 'Breakfast Voucher')}`)
+      .join(' | ');
+  }
+
+  return `${voucher.voucher_quantity || 1}x Breakfast Voucher`;
+}
+
 export default function BreakfastVouchersPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [activeTab, setActiveTab] = useState<'redeem' | 'types'>('redeem');
@@ -438,6 +448,7 @@ export default function BreakfastVouchersPage() {
           <div>
             <p>Voucher scan</p>
             <h2>Redeem ticket</h2>
+            <span>Use this phone or tablet camera to scan the guest QR code.</span>
           </div>
           {scanning ? (
             <button type="button" onClick={stopScanner}>Stop camera</button>
@@ -475,6 +486,7 @@ export default function BreakfastVouchersPage() {
                 <p>{voucher.voucher_code || 'Code pending'}</p>
                 <h3>Room {voucher.room_number || '-'} - {voucher.guest_name || '-'}</h3>
                 <span>{voucher.voucher_quantity || 1} voucher(s) - {money(voucher.total_myr)} - Paid {formatTime(voucher.paid_at)}</span>
+                <small className="itemBreakdown">{voucherItemText(voucher)}</small>
                 {isRedeemed(voucher) ? <small>Redeemed by {voucher.voucher_redeemed_by || '-'} on {formatTime(voucher.voucher_redeemed_at)}</small> : null}
               </div>
               <div className="rowActions">
@@ -680,6 +692,12 @@ export default function BreakfastVouchersPage() {
         .listHead {
           justify-content: space-between;
         }
+        .scannerHead span {
+          display: block;
+          margin-top: 6px;
+          color: #5d6b83;
+          font-weight: 750;
+        }
         video {
           width: 100%;
           max-height: 420px;
@@ -813,6 +831,10 @@ export default function BreakfastVouchersPage() {
           display: block;
           margin-top: 8px;
           color: #08733d;
+        }
+        .voucherRow small.itemBreakdown {
+          color: #245deb;
+          font-weight: 950;
         }
         .rowActions {
           display: grid;
