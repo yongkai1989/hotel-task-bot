@@ -123,11 +123,13 @@ export async function POST(req: NextRequest) {
     const quantity = orderItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     if (quantity <= 0) return jsonNoCache({ ok: false, error: 'Please add at least one breakfast voucher' }, 400);
 
-    const guestName = cleanText(body?.guestName, 'Restaurant Guest') || 'Restaurant Guest';
-    const roomNumber = cleanText(body?.roomNumber, 'Kiosk') || 'Kiosk';
-    const guestEmail = cleanText(body?.email);
+    const roomNumber = cleanText(body?.roomNumber);
+    if (!roomNumber) {
+      return jsonNoCache({ ok: false, error: 'Room number is required' }, 400);
+    }
+
+    const guestName = `Room ${roomNumber}`;
     const billplzEmail =
-      guestEmail ||
       cleanText(process.env.BILLPLZ_RECEIPT_EMAIL) ||
       cleanText(process.env.GUEST_SHOP_FALLBACK_EMAIL) ||
       'frontoffice@hotelhallmark.com';
@@ -148,7 +150,7 @@ export async function POST(req: NextRequest) {
       .insert({
         room_number: roomNumber,
         guest_name: guestName,
-        guest_email: guestEmail || null,
+        guest_email: null,
         status: 'PENDING_PAYMENT',
         order_type: 'BREAKFAST',
         payment_provider: `BILLPLZ_${String(process.env.BILLPLZ_MODE || 'sandbox').toUpperCase()}`,
