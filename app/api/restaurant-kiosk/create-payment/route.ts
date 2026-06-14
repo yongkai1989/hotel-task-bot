@@ -6,8 +6,6 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
 
-const BREAKFAST_PRICE_MYR = Number(process.env.BREAKFAST_VOUCHER_PRICE_MYR || 20);
-
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -48,10 +46,40 @@ function billplzErrorMessage(status: number, raw: any) {
   return text || 'Failed to create Billplz bill';
 }
 
+async function resolveVoucherType(typeId: string) {
+  if (typeId && typeId !== 'default-breakfast') {
+    const result: any = await supabaseAdmin
+      .from('breakfast_voucher_types')
+      .select('id, name, description, price_myr, is_active')
+      .eq('id', typeId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (result?.error) throw result.error;
+    if (result?.data) {
+      return {
+        id: String(result.data.id),
+        name: String(result.data.name || 'Breakfast Voucher'),
+        description: String(result.data.description || ''),
+        price_myr: Number(result.data.price_myr || 0),
+      };
+    }
+  }
+
+  const fallbackPrice = Number(process.env.BREAKFAST_VOUCHER_PRICE_MYR || 20);
+  return {
+    id: 'default-breakfast',
+    name: 'Breakfast Voucher',
+    description: 'Breakfast pass redeemable at the restaurant counter.',
+    price_myr: Number.isFinite(fallbackPrice) && fallbackPrice > 0 ? fallbackPrice : 20,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const quantity = Math.max(1, Math.min(20, Math.floor(Number(body?.quantity || 1))));
+    const voucherType = await resolveVoucherType(cleanText(body?.voucherTypeId));
     const guestName = cleanText(body?.guestName, 'Restaurant Guest') || 'Restaurant Guest';
     const roomNumber = cleanText(body?.roomNumber, 'Kiosk') || 'Kiosk';
     const guestEmail = cleanText(body?.email);
@@ -67,12 +95,14 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Billplz environment variables are not configured' }, 500);
     }
 
-    const unitPrice = Number.isFinite(BREAKFAST_PRICE_MYR) && BREAKFAST_PRICE_MYR > 0 ? BREAKFAST_PRICE_MYR : 20;
+    const unitPrice = Number.isFinite(voucherType.price_myr) && voucherType.price_myr > 0 ? voucherType.price_myr : 20;
     const totalMyr = Number((unitPrice * quantity).toFixed(2));
     const orderItems = [
       {
-        id: 'breakfast-voucher',
-        name: 'Breakfast Voucher',
+        id: `breakfast-voucher-${voucherType.id}`,
+        voucher_type_id: voucherType.id,
+        name: voucherType.name,
+        description: voucherType.description,
         category: 'Breakfast',
         quantity,
         price_myr: unitPrice,
@@ -112,7 +142,7 @@ export async function POST(req: NextRequest) {
     billBody.set('amount', String(Math.round(totalMyr * 100)));
     billBody.set('callback_url', callbackUrl);
     billBody.set('redirect_url', redirectUrl);
-    billBody.set('description', `Hallmark Crown Breakfast Voucher - ${quantity} pax`);
+    billBody.set('description', `Hallmark Crown ${voucherType.name} - ${quantity} pax`);
     billBody.set('reference_1_label', 'Order ID');
     billBody.set('reference_1', orderId);
     billBody.set('reference_2_label', 'Room');
