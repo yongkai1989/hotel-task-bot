@@ -137,7 +137,15 @@ export default function RestaurantKioskPage() {
       <section className="hero">
         <div>
           <p className="eyebrow">Hallmark Crown Hotel</p>
-          <h1>Morning Buffet Breakfast Ticket</h1>
+          <h1>Buffet Breakfast Ticket</h1>
+        </div>
+        <div className="breakfastVisual" aria-hidden="true">
+          <span className="steam steamOne" />
+          <span className="steam steamTwo" />
+          <span className="steam steamThree" />
+          <span className="plate" />
+          <span className="cutlery fork" />
+          <span className="cutlery knife" />
         </div>
         <div className="priceCard">
           <span>Available from</span>
@@ -273,18 +281,80 @@ export default function RestaurantKioskPage() {
         .hero::after {
           content: "";
           position: absolute;
-          right: clamp(22px, 6vw, 88px);
-          bottom: clamp(22px, 5vw, 58px);
-          width: clamp(110px, 18vw, 220px);
-          height: clamp(42px, 7vw, 82px);
-          border-bottom: 1px solid rgba(238, 199, 106, 0.42);
-          border-radius: 50%;
-          transform: rotate(-4deg);
+          right: clamp(36px, 12vw, 230px);
+          bottom: clamp(26px, 6vw, 86px);
+          width: clamp(150px, 18vw, 250px);
+          height: clamp(150px, 18vw, 250px);
+          border: 1px solid rgba(238, 199, 106, 0.13);
+          border-radius: 999px;
           pointer-events: none;
         }
         .hero > * {
           position: relative;
           z-index: 1;
+        }
+        .breakfastVisual {
+          position: absolute;
+          right: clamp(235px, 25vw, 390px);
+          bottom: clamp(34px, 5vw, 70px);
+          width: clamp(150px, 18vw, 220px);
+          height: clamp(120px, 14vw, 170px);
+          opacity: 0.82;
+          pointer-events: none;
+          z-index: 0;
+        }
+        .plate {
+          position: absolute;
+          left: 22px;
+          right: 22px;
+          bottom: 22px;
+          height: 34px;
+          border: 1px solid rgba(238, 199, 106, 0.58);
+          border-top: 0;
+          border-radius: 0 0 999px 999px;
+          box-shadow: inset 0 -10px 24px rgba(238, 199, 106, 0.08);
+        }
+        .steam {
+          position: absolute;
+          top: 18px;
+          width: 24px;
+          height: 56px;
+          border-left: 2px solid rgba(255, 248, 234, 0.28);
+          border-radius: 999px;
+          transform: rotate(18deg);
+        }
+        .steamOne {
+          left: 48px;
+        }
+        .steamTwo {
+          left: 86px;
+          top: 6px;
+          height: 66px;
+          border-color: rgba(238, 199, 106, 0.44);
+        }
+        .steamThree {
+          left: 126px;
+          transform: rotate(-14deg);
+        }
+        .cutlery {
+          position: absolute;
+          bottom: 18px;
+          width: 2px;
+          height: 88px;
+          background: rgba(255, 248, 234, 0.22);
+          border-radius: 999px;
+        }
+        .fork {
+          left: 0;
+          box-shadow:
+            5px -31px 0 -1px rgba(255, 248, 234, 0.22),
+            10px -31px 0 -1px rgba(255, 248, 234, 0.22);
+        }
+        .knife {
+          right: 0;
+          width: 5px;
+          border-radius: 999px 999px 18px 18px;
+          background: linear-gradient(180deg, rgba(238, 199, 106, 0.44), rgba(255, 248, 234, 0.18));
         }
         .eyebrow {
           margin: 0 0 10px;
@@ -565,6 +635,22 @@ export default function RestaurantKioskPage() {
             align-items: flex-start;
             flex-direction: column;
             justify-content: flex-end;
+          }
+          .breakfastVisual {
+            right: 20px;
+            bottom: 82px;
+            width: 132px;
+            height: 104px;
+            opacity: 0.34;
+          }
+          .steam {
+            height: 42px;
+          }
+          .steamTwo {
+            height: 50px;
+          }
+          .cutlery {
+            height: 62px;
           }
           h1 {
             font-size: clamp(42px, 14vw, 64px);
