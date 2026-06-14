@@ -39,7 +39,8 @@ export default function RestaurantKioskPaymentStatusPage() {
   const [order, setOrder] = useState<OrderStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [emailTo, setEmailTo] = useState('');
+  const [ticketImageBusy, setTicketImageBusy] = useState(false);
+  const [ticketImageMessage, setTicketImageMessage] = useState('');
 
   useEffect(() => {
     setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
@@ -116,27 +117,210 @@ export default function RestaurantKioskPaymentStatusPage() {
         : '',
     [qrPayload]
   );
-  const emailHref = useMemo(() => {
-    if (!paid || !order) return '';
-    const subject = `Hallmark Crown Hotel Breakfast Voucher - Room ${order.room_number || ''}`;
-    const body = [
-      'Hallmark Crown Hotel Breakfast Voucher',
-      '',
-      `Room: ${order.room_number || '-'}`,
-      `Voucher Code: ${order.voucher_code || '-'}`,
-      `Quantity: ${order.voucher_quantity || 1}`,
-      `Total: ${money(order.total_myr)}`,
-      `Payment Ref: ${order.payment_reference || '-'}`,
-      '',
-      'Order Details:',
-      ...itemLines.map((item) => `- ${item.quantity}x ${item.name}${item.total ? ` (${money(item.total)})` : ''}`),
-      '',
-      'Please show the QR code or voucher code to our staff at the restaurant counter for redemption.',
-      qrPayload ? `QR Code: ${qrUrl}` : '',
-    ].filter(Boolean).join('\n');
 
-    return `mailto:${encodeURIComponent(emailTo.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  }, [emailTo, itemLines, order, paid, qrPayload, qrUrl]);
+  async function loadImage(src: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Unable to prepare QR image'));
+      image.src = src;
+    });
+  }
+
+  function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+  }
+
+  function drawWrappedText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number,
+    maxLines = 2
+  ) {
+    const words = text.split(/\s+/).filter(Boolean);
+    let line = '';
+    let lineCount = 0;
+    for (let index = 0; index < words.length; index += 1) {
+      const testLine = line ? `${line} ${words[index]}` : words[index];
+      if (ctx.measureText(testLine).width > maxWidth && line) {
+        ctx.fillText(line, x, y);
+        y += lineHeight;
+        lineCount += 1;
+        line = words[index];
+        if (lineCount >= maxLines - 1) break;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line && lineCount < maxLines) ctx.fillText(line, x, y);
+    return y + lineHeight;
+  }
+
+  async function createTicketImageBlob() {
+    if (!order || !qrUrl) throw new Error('Ticket is not ready yet.');
+
+    const qrImage = await loadImage(qrUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1500;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Unable to create ticket image.');
+
+    const gradient = ctx.createLinearGradient(0, 0, 1080, 1500);
+    gradient.addColorStop(0, '#fbf6eb');
+    gradient.addColorStop(0.55, '#ffffff');
+    gradient.addColorStop(1, '#eef4f8');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 1080, 1500);
+
+    ctx.fillStyle = '#15120e';
+    roundRect(ctx, 60, 60, 960, 1380, 54);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#dec79f';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = '#15120e';
+    roundRect(ctx, 92, 92, 896, 270, 38);
+    ctx.fillStyle = '#17130f';
+    ctx.fill();
+
+    ctx.fillStyle = '#d8ad58';
+    ctx.font = '800 28px Arial';
+    ctx.fillText('HALLMARK CROWN HOTEL', 132, 154);
+    ctx.fillStyle = '#fff8ea';
+    ctx.font = '700 68px Georgia';
+    ctx.fillText('Buffet Breakfast Ticket', 132, 242);
+    ctx.fillStyle = 'rgba(255, 248, 234, 0.76)';
+    ctx.font = '600 28px Arial';
+    ctx.fillText('Show this QR ticket at the restaurant counter.', 132, 304);
+
+    roundRect(ctx, 330, 410, 420, 420, 38);
+    ctx.fillStyle = '#fffdf8';
+    ctx.fill();
+    ctx.strokeStyle = '#e0c99f';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.drawImage(qrImage, 372, 452, 336, 336);
+
+    ctx.fillStyle = '#9b6428';
+    ctx.font = '800 24px Arial';
+    ctx.fillText('VOUCHER CODE', 385, 880);
+    ctx.fillStyle = '#15120e';
+    ctx.font = '800 40px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(order.voucher_code || '-', 540, 930);
+    ctx.textAlign = 'left';
+
+    const stats = [
+      ['Room', order.room_number || '-'],
+      ['Quantity', String(order.voucher_quantity || 1)],
+      ['Total', money(order.total_myr)],
+      ['Paid', formatDate(order.paid_at)],
+    ];
+    let statY = 990;
+    stats.forEach((stat, index) => {
+      const x = index % 2 === 0 ? 104 : 552;
+      const y = statY + Math.floor(index / 2) * 122;
+      roundRect(ctx, x, y, 424, 92, 24);
+      ctx.fillStyle = '#fbf7ef';
+      ctx.fill();
+      ctx.strokeStyle = '#ead9bb';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#64748b';
+      ctx.font = '800 22px Arial';
+      ctx.fillText(stat[0].toUpperCase(), x + 28, y + 34);
+      ctx.fillStyle = '#15120e';
+      ctx.font = '800 30px Arial';
+      drawWrappedText(ctx, stat[1], x + 28, y + 68, 360, 32, 1);
+    });
+
+    ctx.fillStyle = '#15120e';
+    ctx.font = '800 30px Arial';
+    ctx.fillText('Order Details', 104, 1260);
+    ctx.strokeStyle = '#ead9bb';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(104, 1284);
+    ctx.lineTo(976, 1284);
+    ctx.stroke();
+
+    let lineY = 1330;
+    itemLines.slice(0, 5).forEach((item) => {
+      ctx.fillStyle = '#15120e';
+      ctx.font = '700 28px Arial';
+      drawWrappedText(ctx, `${item.quantity}x ${item.name}`, 104, lineY, 640, 34, 1);
+      ctx.textAlign = 'right';
+      ctx.fillText(item.total ? money(item.total) : '-', 976, lineY);
+      ctx.textAlign = 'left';
+      lineY += 42;
+    });
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = '600 22px Arial';
+    ctx.fillText('Valid for one-time redemption after verified payment.', 104, 1410);
+
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Unable to export ticket image.'));
+      }, 'image/png', 0.95);
+    });
+  }
+
+  async function shareTicketImage() {
+    if (!paid || !order) return;
+    setTicketImageBusy(true);
+    setTicketImageMessage('');
+    try {
+      const blob = await createTicketImageBlob();
+      const fileName = `hallmark-breakfast-ticket-${order.room_number || 'guest'}-${order.voucher_code || 'qr'}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      const nav = navigator as Navigator & {
+        canShare?: (data: { files?: File[] }) => boolean;
+        share?: (data: { files?: File[]; title?: string; text?: string }) => Promise<void>;
+      };
+
+      if (nav.share && nav.canShare?.({ files: [file] })) {
+        await nav.share({
+          files: [file],
+          title: 'Hallmark Crown Hotel Breakfast Ticket',
+          text: 'Please keep this breakfast ticket image for redemption.',
+        });
+        setTicketImageMessage('Ticket image is ready to send.');
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setTicketImageMessage('Ticket image downloaded. You may attach it to your email.');
+      }
+    } catch (err: any) {
+      setTicketImageMessage(err?.message || 'Unable to prepare ticket image.');
+    } finally {
+      setTicketImageBusy(false);
+    }
+  }
 
   return (
     <main className="statusPage">
@@ -198,24 +382,18 @@ export default function RestaurantKioskPaymentStatusPage() {
           </div>
           <div className="emailBox">
             <div>
-              <small>Optional email copy</small>
-              <strong>Send ticket details to your email</strong>
+              <small>Optional image copy</small>
+              <strong>Share or email the QR ticket image</strong>
+              <p>Choose Mail from your phone share screen to send the complete ticket image to yourself.</p>
             </div>
-            <input
-              type="email"
-              value={emailTo}
-              onChange={(event) => setEmailTo(event.target.value)}
-              placeholder="Enter email address"
-            />
-            <a
-              className={!emailTo.trim() ? 'disabledLink' : ''}
-              href={emailTo.trim() ? emailHref : undefined}
-              onClick={(event) => {
-                if (!emailTo.trim()) event.preventDefault();
-              }}
+            <button
+              type="button"
+              onClick={shareTicketImage}
+              disabled={ticketImageBusy}
             >
-              Email me the ticket
-            </a>
+              {ticketImageBusy ? 'Preparing image...' : 'Share Ticket Image'}
+            </button>
+            {ticketImageMessage ? <span className="imageMessage">{ticketImageMessage}</span> : null}
           </div>
           </>
         ) : null}
@@ -401,7 +579,7 @@ export default function RestaurantKioskPaymentStatusPage() {
         .emailBox {
           margin-top: 18px;
           display: grid;
-          grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+          grid-template-columns: minmax(220px, 1fr) auto;
           gap: 12px;
           align-items: center;
           border: 1px solid #e2ceb2;
@@ -418,32 +596,34 @@ export default function RestaurantKioskPaymentStatusPage() {
         .emailBox small {
           color: #9b6428;
         }
-        .emailBox input {
-          min-height: 52px;
-          border-radius: 16px;
-          border: 1px solid #d7bf98;
-          background: #fffdf8;
-          padding: 0 14px;
-          color: #15120e;
-          font: inherit;
-          font-weight: 800;
+        .emailBox p {
+          margin: 5px 0 0;
+          color: #5f6678;
+          font-weight: 750;
+          line-height: 1.4;
         }
-        .emailBox a {
+        .emailBox button {
           min-height: 52px;
           border-radius: 16px;
           padding: 0 18px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          border: 0;
           background: #15120e;
           color: #fff8ea;
-          text-decoration: none;
+          font: inherit;
           font-weight: 950;
           white-space: nowrap;
         }
-        .emailBox a.disabledLink {
+        .emailBox button:disabled {
           opacity: 0.45;
           cursor: not-allowed;
+        }
+        .imageMessage {
+          grid-column: 1 / -1;
+          color: #08733d;
+          font-weight: 900;
         }
         .actions {
           margin-top: 28px;
