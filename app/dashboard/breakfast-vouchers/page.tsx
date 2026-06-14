@@ -384,6 +384,7 @@ export default function BreakfastVouchersPage() {
   function stopScanner() {
     scanStopRef.current = true;
     streamRef.current?.getTracks().forEach((track) => track.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
     streamRef.current = null;
     setScanning(false);
   }
@@ -399,13 +400,25 @@ export default function BreakfastVouchersPage() {
 
     try {
       scanStopRef.current = false;
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      streamRef.current = stream;
       setScanning(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (!videoRef.current) throw new Error('Camera preview is not ready. Please tap Scan QR again.');
+
+      videoRef.current.setAttribute('playsinline', 'true');
+      videoRef.current.muted = true;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+
       const BarcodeDetectorCtor = (window as any).BarcodeDetector;
       const detector = BarcodeDetectorCtor ? new BarcodeDetectorCtor({ formats: ['qr_code'] }) : null;
       const jsQR = detector ? null : await loadJsQr();
@@ -497,7 +510,15 @@ export default function BreakfastVouchersPage() {
             <button type="button" onClick={startScanner}>Scan QR</button>
           )}
         </div>
-        {scanning ? <video ref={videoRef} playsInline muted autoPlay /> : null}
+        {scanning ? (
+          <div className="cameraFrame">
+            <video ref={videoRef} playsInline muted autoPlay />
+            <div className="scanGuide">
+              <span />
+              <b>Align QR inside the frame</b>
+            </div>
+          </div>
+        ) : null}
         <div className="manualRow">
           <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Enter voucher code manually" />
           <button type="button" onClick={() => redeem(code)}>Redeem</button>
@@ -739,13 +760,52 @@ export default function BreakfastVouchersPage() {
           color: #5d6b83;
           font-weight: 750;
         }
-        video {
+        .cameraFrame {
+          position: relative;
+          overflow: hidden;
           width: 100%;
-          max-height: 420px;
+          min-height: min(68vh, 620px);
           margin-top: 14px;
-          object-fit: cover;
-          border-radius: 20px;
+          border-radius: 24px;
           background: #071225;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+        video {
+          display: block;
+          width: 100%;
+          height: min(68vh, 620px);
+          min-height: 420px;
+          object-fit: cover;
+          background: #071225;
+        }
+        .scanGuide {
+          pointer-events: none;
+          position: absolute;
+          inset: 0;
+          display: grid;
+          place-items: center;
+          color: #fff;
+          text-align: center;
+        }
+        .scanGuide span {
+          width: min(58vw, 360px);
+          aspect-ratio: 1;
+          border: 3px solid rgba(255, 255, 255, 0.82);
+          border-radius: 28px;
+          box-shadow:
+            0 0 0 999px rgba(7, 18, 37, 0.28),
+            0 18px 50px rgba(0, 0, 0, 0.18);
+        }
+        .scanGuide b {
+          position: absolute;
+          bottom: 22px;
+          left: 50%;
+          transform: translateX(-50%);
+          border-radius: 999px;
+          padding: 10px 14px;
+          background: rgba(7, 18, 37, 0.72);
+          font-size: 13px;
+          white-space: nowrap;
         }
         input {
           min-height: 48px;
@@ -860,79 +920,4 @@ export default function BreakfastVouchersPage() {
           padding: 16px;
           background: #fbfdff;
         }
-        .voucherRow.redeemed {
-          border-color: #bdeacb;
-          background: #f1fff6;
-        }
-        .voucherRow h3 {
-          margin: 4px 0;
-          font-size: 19px;
-        }
-        .voucherRow small {
-          display: block;
-          margin-top: 8px;
-          color: #08733d;
-        }
-        .voucherRow small.itemBreakdown {
-          color: #245deb;
-          font-weight: 950;
-        }
-        .rowActions {
-          display: grid;
-          justify-items: end;
-          gap: 10px;
-          align-content: center;
-        }
-        .rowActions span {
-          border-radius: 999px;
-          background: #eef4ff;
-          color: #245deb;
-          padding: 8px 12px;
-          font-size: 12px;
-          font-weight: 950;
-          text-transform: uppercase;
-        }
-        .redeemed .rowActions span {
-          background: #dff9e8;
-          color: #04703a;
-        }
-        .empty {
-          border: 1px dashed #c6d9ef;
-          border-radius: 18px;
-          padding: 24px;
-          text-align: center;
-          color: #5d6b83;
-          font-weight: 900;
-        }
-        @media (max-width: 760px) {
-          .hero,
-          .voucherRow,
-          .listHead {
-            align-items: stretch;
-            flex-direction: column;
-          }
-          .stats {
-            grid-template-columns: 1fr;
-          }
-          .tabBar,
-          .tabBar button {
-            width: 100%;
-          }
-          .typeEditor {
-            grid-template-columns: 1fr;
-          }
-          .filters input,
-          .filters button,
-          .manualRow button,
-          .heroActions a,
-          .heroActions button {
-            width: 100%;
-          }
-          .rowActions {
-            justify-items: stretch;
-          }
-        }
-      `}</style>
-    </main>
-  );
-}
+      
