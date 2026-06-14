@@ -20,6 +20,24 @@ type Voucher = {
   voucher_redeemed_by: string;
 };
 
+type VoucherType = {
+  id: string;
+  name: string;
+  description: string;
+  price_myr: number;
+  is_active: boolean;
+  display_order: number;
+};
+
+const blankTypeForm = {
+  id: '',
+  name: '',
+  description: '',
+  price_myr: '20.00',
+  is_active: true,
+  display_order: '1',
+};
+
 function todayIso() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -47,6 +65,8 @@ function isRedeemed(voucher: Voucher) {
 }
 
 export default function BreakfastVouchersPage() {
+  const [activeTab, setActiveTab] = useState<'redeem' | 'types'>('redeem');
+  const [isSuperuser, setIsSuperuser] = useState(false);
   const [date, setDate] = useState(todayIso());
   const [room, setRoom] = useState('');
   const [code, setCode] = useState('');
@@ -55,6 +75,9 @@ export default function BreakfastVouchersPage() {
   const [tone, setTone] = useState<'neutral' | 'success' | 'danger'>('neutral');
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
+  const [typeForm, setTypeForm] = useState(blankTypeForm);
+  const [typesLoading, setTypesLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanStopRef = useRef(false);
@@ -77,9 +100,100 @@ export default function BreakfastVouchersPage() {
   }
 
   useEffect(() => {
+    loadProfile();
     load();
     return () => stopScanner();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'types' && isSuperuser) loadTypes();
+  }, [activeTab, isSuperuser]);
+
+  async function loadProfile() {
+    try {
+      const res = await fetch('/api/session-profile', { cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      const role = String(json?.user?.role || '').trim().toUpperCase();
+      setIsSuperuser(role === 'SUPERUSER');
+    } catch {
+      setIsSuperuser(false);
+    }
+  }
+
+  async function loadTypes() {
+    setTypesLoading(true);
+    try {
+      const res = await fetch('/api/restaurant-kiosk/voucher-types?admin=1', { cache: 'no-store' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load voucher types');
+      setVoucherTypes(Array.isArray(json.types) ? json.types : []);
+    } catch (error: any) {
+      setMessage(error?.message || 'Unable to load voucher types');
+      setTone('danger');
+    } finally {
+      setTypesLoading(false);
+    }
+  }
+
+  function editType(type: VoucherType) {
+    setTypeForm({
+      id: type.id,
+      name: type.name,
+      description: type.description,
+      price_myr: String(Number(type.price_myr || 0).toFixed(2)),
+      is_active: type.is_active,
+      display_order: String(type.display_order || 0),
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function resetTypeForm() {
+    setTypeForm(blankTypeForm);
+  }
+
+  async function saveType() {
+    try {
+      const method = typeForm.id ? 'PUT' : 'POST';
+      const res = await fetch('/api/restaurant-kiosk/voucher-types', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: typeForm.id,
+          name: typeForm.name,
+          description: typeForm.description,
+          price_myr: Number(typeForm.price_myr || 0),
+          is_active: typeForm.is_active,
+          display_order: Number(typeForm.display_order || 0),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to save voucher type');
+      setMessage(typeForm.id ? 'Voucher type updated.' : 'Voucher type created.');
+      setTone('success');
+      resetTypeForm();
+      await loadTypes();
+    } catch (error: any) {
+      setMessage(error?.message || 'Unable to save voucher type');
+      setTone('danger');
+    }
+  }
+
+  async function deleteType(id: string) {
+    if (!window.confirm('Delete this breakfast voucher type?')) return;
+    try {
+      const res = await fetch(`/api/restaurant-kiosk/voucher-types?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to delete voucher type');
+      setMessage('Voucher type deleted.');
+      setTone('success');
+      await loadTypes();
+    } catch (error: any) {
+      setMessage(error?.message || 'Unable to delete voucher type');
+      setTone('danger');
+    }
+  }
 
   async function redeem(value: string, orderId = '') {
     const voucherCode = value.trim();
@@ -195,6 +309,19 @@ export default function BreakfastVouchersPage() {
         <div><span>Pending use</span><strong>{Math.max(0, paidCount - redeemedCount)}</strong></div>
       </section>
 
+      <section className="tabBar">
+        <button className={activeTab === 'redeem' ? 'active' : ''} type="button" onClick={() => setActiveTab('redeem')}>
+          Scan & Redeem
+        </button>
+        {isSuperuser ? (
+          <button className={activeTab === 'types' ? 'active' : ''} type="button" onClick={() => setActiveTab('types')}>
+            Voucher Types
+          </button>
+        ) : null}
+      </section>
+
+      {activeTab === 'redeem' ? (
+        <>
       <section className="scannerCard">
         <div className="scannerHead">
           <div>
@@ -235,8 +362,8 @@ export default function BreakfastVouchersPage() {
             <article className={`voucherRow ${isRedeemed(voucher) ? 'redeemed' : ''}`} key={voucher.id}>
               <div>
                 <p>{voucher.voucher_code || 'Code pending'}</p>
-                <h3>Room {voucher.room_number || '-'} · {voucher.guest_name || '-'}</h3>
-                <span>{voucher.voucher_quantity || 1} voucher(s) · {money(voucher.total_myr)} · Paid {formatTime(voucher.paid_at)}</span>
+                <h3>Room {voucher.room_number || '-'} - {voucher.guest_name || '-'}</h3>
+                <span>{voucher.voucher_quantity || 1} voucher(s) - {money(voucher.total_myr)} - Paid {formatTime(voucher.paid_at)}</span>
                 {isRedeemed(voucher) ? <small>Redeemed by {voucher.voucher_redeemed_by || '-'} on {formatTime(voucher.voucher_redeemed_at)}</small> : null}
               </div>
               <div className="rowActions">
@@ -249,6 +376,65 @@ export default function BreakfastVouchersPage() {
           ))}
         </div>
       </section>
+        </>
+      ) : null}
+
+      {activeTab === 'types' && isSuperuser ? (
+        <section className="typeManager">
+          <div className="listHead">
+            <div>
+              <p>Superuser setup</p>
+              <h2>Breakfast voucher types</h2>
+            </div>
+            <button type="button" onClick={resetTypeForm}>New Type</button>
+          </div>
+
+          <div className="typeEditor">
+            <label>
+              Voucher Type
+              <input value={typeForm.name} onChange={(event) => setTypeForm((form) => ({ ...form, name: event.target.value }))} placeholder="Example: Adult Breakfast" />
+            </label>
+            <label>
+              Price (RM)
+              <input inputMode="decimal" value={typeForm.price_myr} onChange={(event) => setTypeForm((form) => ({ ...form, price_myr: event.target.value }))} placeholder="25.00" />
+            </label>
+            <label>
+              Display Order
+              <input inputMode="numeric" value={typeForm.display_order} onChange={(event) => setTypeForm((form) => ({ ...form, display_order: event.target.value }))} placeholder="1" />
+            </label>
+            <label className="wide">
+              Description
+              <input value={typeForm.description} onChange={(event) => setTypeForm((form) => ({ ...form, description: event.target.value }))} placeholder="Shown on the kiosk voucher card" />
+            </label>
+            <label className="checkLine">
+              <input type="checkbox" checked={typeForm.is_active} onChange={(event) => setTypeForm((form) => ({ ...form, is_active: event.target.checked }))} />
+              Active on kiosk
+            </label>
+            <button type="button" onClick={saveType}>{typeForm.id ? 'Save Changes' : 'Create Type'}</button>
+          </div>
+
+          {message ? <div className={`message ${tone}`}>{message}</div> : null}
+
+          <div className="typeList">
+            {typesLoading ? <div className="empty">Loading voucher types...</div> : null}
+            {!typesLoading && !voucherTypes.length ? <div className="empty">No voucher types created yet.</div> : null}
+            {voucherTypes.map((type) => (
+              <article className="typeRow" key={type.id}>
+                <div>
+                  <p>{type.is_active ? 'Active' : 'Hidden'}</p>
+                  <h3>{type.name}</h3>
+                  <span>{type.description || 'No description'} - Order {type.display_order}</span>
+                </div>
+                <div className="rowActions">
+                  <strong>{money(type.price_myr)}</strong>
+                  <button type="button" onClick={() => editType(type)}>Edit</button>
+                  <button className="dangerBtn" type="button" onClick={() => deleteType(type.id)}>Delete</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <style jsx>{`
         :global(body) {
@@ -262,7 +448,8 @@ export default function BreakfastVouchersPage() {
         }
         .hero,
         .scannerCard,
-        .listCard {
+        .listCard,
+        .typeManager {
           border: 1px solid #cfe0f6;
           border-radius: 24px;
           background: rgba(255, 255, 255, 0.88);
@@ -351,8 +538,27 @@ export default function BreakfastVouchersPage() {
           margin-top: 6px;
           font-size: 32px;
         }
+        .tabBar {
+          display: inline-flex;
+          gap: 8px;
+          margin: 0 0 14px;
+          padding: 6px;
+          border: 1px solid #cfe0f6;
+          border-radius: 18px;
+          background: #eaf3ff;
+        }
+        .tabBar button {
+          border: 0;
+          background: transparent;
+        }
+        .tabBar button.active {
+          background: #245deb;
+          color: #fff;
+          box-shadow: 0 12px 26px rgba(36, 93, 235, 0.22);
+        }
         .scannerCard,
-        .listCard {
+        .listCard,
+        .typeManager {
           padding: 18px;
           margin-top: 14px;
         }
@@ -399,6 +605,73 @@ export default function BreakfastVouchersPage() {
           background: #fff0f0;
           border: 1px solid #ffc4c4;
           color: #b6121b;
+        }
+        .typeEditor {
+          display: grid;
+          grid-template-columns: 1.2fr 0.7fr 0.6fr;
+          gap: 12px;
+          margin-top: 16px;
+          padding: 16px;
+          border: 1px solid #d5e3f5;
+          border-radius: 20px;
+          background: #fbfdff;
+        }
+        label {
+          display: grid;
+          gap: 7px;
+          color: #5d6b83;
+          font-size: 12px;
+          font-weight: 950;
+          text-transform: uppercase;
+        }
+        label.wide {
+          grid-column: 1 / -1;
+        }
+        .checkLine {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-height: 48px;
+          text-transform: none;
+          font-size: 14px;
+          color: #071225;
+        }
+        .checkLine input {
+          min-height: 0;
+          width: 18px;
+          height: 18px;
+        }
+        .typeList {
+          display: grid;
+          gap: 12px;
+          margin-top: 14px;
+        }
+        .typeRow {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          border: 1px solid #d5e3f5;
+          border-radius: 18px;
+          padding: 16px;
+          background: #fbfdff;
+        }
+        .typeRow h3 {
+          margin: 4px 0;
+          font-size: 20px;
+        }
+        .typeRow span {
+          color: #5d6b83;
+          font-weight: 750;
+        }
+        .rowActions strong {
+          font-size: 24px;
+          white-space: nowrap;
+        }
+        .dangerBtn {
+          border-color: #ffc4c4;
+          background: #fff0f0 !important;
+          color: #b6121b !important;
         }
         .voucherList {
           display: grid;
@@ -462,6 +735,13 @@ export default function BreakfastVouchersPage() {
             flex-direction: column;
           }
           .stats {
+            grid-template-columns: 1fr;
+          }
+          .tabBar,
+          .tabBar button {
+            width: 100%;
+          }
+          .typeEditor {
             grid-template-columns: 1fr;
           }
           .filters input,
