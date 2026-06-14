@@ -13,6 +13,10 @@ type OrderStatus = {
   total_myr: number;
   items_json: any[];
   paid_at: string | null;
+  order_type?: string;
+  voucher_code?: string;
+  voucher_quantity?: number;
+  voucher_status?: string;
 };
 
 type OrderedItem = {
@@ -232,6 +236,10 @@ function whatsappUrl(order: OrderStatus | null) {
   return `https://wa.me/60126308316?text=${encodeURIComponent(whatsappMessage(order))}`;
 }
 
+function qrCodeUrl(value: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=14&data=${encodeURIComponent(value)}`;
+}
+
 export default function GuestShopPaymentStatusPage() {
   const [language, setLanguage] = useState<LanguageCode>('en');
   const [order, setOrder] = useState<OrderStatus | null>(null);
@@ -297,6 +305,8 @@ export default function GuestShopPaymentStatusPage() {
   const orderedItems = orderItems(order?.items_json || []);
   const shouldSendToDesk =
     order?.status === 'PAID' || order?.status === 'FULFILLED' || order?.status === 'PENDING_PAYMENT';
+  const isBreakfastVoucher =
+    String(order?.order_type || '').toUpperCase() === 'BREAKFAST' && !!order?.voucher_code;
 
   return (
     <main className="status-page">
@@ -338,6 +348,23 @@ export default function GuestShopPaymentStatusPage() {
                 <strong>{order.payment_reference || '-'}</strong>
               </div>
             </div>
+
+            {isBreakfastVoucher ? (
+              <div className="breakfast-ticket">
+                <div className="breakfast-qr">
+                  <img src={qrCodeUrl(String(order?.voucher_code || ''))} alt="Breakfast voucher QR code" />
+                </div>
+                <div>
+                  <span>Breakfast Voucher</span>
+                  <strong>{order?.voucher_code}</strong>
+                  <p>
+                    Please screenshot this QR ticket and show it at the restaurant counter. Staff can also
+                    retrieve this voucher from the backend using your room number and payment status.
+                  </p>
+                  <small>Quantity: {order?.voucher_quantity || 1}</small>
+                </div>
+              </div>
+            ) : null}
 
             <div className="ordered-items">
               <div className="ordered-items-head">
@@ -528,6 +555,52 @@ export default function GuestShopPaymentStatusPage() {
           font-size: 16px;
         }
 
+        .breakfast-ticket {
+          margin-top: 14px;
+          display: grid;
+          grid-template-columns: 170px 1fr;
+          gap: 16px;
+          border-radius: 22px;
+          padding: 16px;
+          background: linear-gradient(135deg, #16110d, #342717);
+          color: #fff8ea;
+          text-align: left;
+        }
+
+        .breakfast-qr {
+          border-radius: 18px;
+          background: #fffaf2;
+          padding: 12px;
+        }
+
+        .breakfast-qr img {
+          width: 100%;
+          display: block;
+          border-radius: 12px;
+        }
+
+        .breakfast-ticket span {
+          color: #e2b95d;
+          font-size: 12px;
+          font-weight: 950;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+
+        .breakfast-ticket strong {
+          display: block;
+          margin-top: 8px;
+          font-size: 24px;
+          overflow-wrap: anywhere;
+        }
+
+        .breakfast-ticket p,
+        .breakfast-ticket small {
+          color: rgba(255, 248, 234, 0.76);
+          font-weight: 750;
+          line-height: 1.45;
+        }
+
         .ordered-items {
           margin-top: 12px;
           padding: 14px 16px;
@@ -618,6 +691,15 @@ export default function GuestShopPaymentStatusPage() {
 
           .receipt {
             grid-template-columns: 1fr;
+          }
+
+          .breakfast-ticket {
+            grid-template-columns: 1fr;
+          }
+
+          .breakfast-qr {
+            max-width: 220px;
+            margin: 0 auto;
           }
 
           .ordered-items-head,
