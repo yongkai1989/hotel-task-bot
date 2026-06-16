@@ -222,4 +222,11 @@ export async function POST(req: NextRequest) {
 
     return jsonNoCache({
       ok: true,
-      order_id: orderId
+      order_id: orderId,
+      bill_id: String(billJson.id),
+      payment_url: String(billJson.url),
+    });
+  } catch (error: any) {
+    return jsonNoCache({ ok: false, error: error?.message || 'Failed to create breakfast voucher payment' }, 500);
+  }
+}
