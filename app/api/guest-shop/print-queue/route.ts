@@ -70,8 +70,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('guest_shop_orders')
-      .select('id, room_number, guest_name, total_myr, items_json, paid_at, payment_reference, print_status, print_requested_at')
-      .eq('order_type', 'FNB')
+      .select('id, room_number, guest_name, total_myr, items_json, paid_at, payment_reference, print_status, print_requested_at, order_type, voucher_code, voucher_quantity')
       .in('status', ['PAID', 'FULFILLED'])
       .eq('print_status', 'QUEUED')
       .order('print_requested_at', { ascending: true })
@@ -106,7 +105,6 @@ export async function PUT(req: NextRequest) {
         print_error: status === 'FAILED' ? printError || 'Printer failed' : null,
       })
       .eq('id', id)
-      .eq('order_type', 'FNB')
       .select('id, print_status, printed_at, print_error')
       .single();
 
