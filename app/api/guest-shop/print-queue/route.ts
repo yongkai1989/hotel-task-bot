@@ -25,7 +25,38 @@ function canManageGuestShop(user: any) {
   return role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com' || email === 'walter@hotelhallmark.com';
 }
 
+function getBridgeKeyStatus(req: NextRequest) {
+  const expected = String(process.env.PRINTER_BRIDGE_KEY || '').trim();
+
+  const direct = String(req.headers.get('x-printer-bridge-key') || '').trim();
+  const auth = String(req.headers.get('authorization') || '').trim();
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  const provided = direct || bearer;
+
+  if (!provided) return { hasBridgeAttempt: false, ok: false, error: '' };
+  if (!expected) {
+    return {
+      hasBridgeAttempt: true,
+      ok: false,
+      error: 'PRINTER_BRIDGE_KEY is missing on Vercel. Add it to Production env vars and redeploy.',
+    };
+  }
+  if (provided !== expected) {
+    return {
+      hasBridgeAttempt: true,
+      ok: false,
+      error: `Printer bridge key mismatch. Bridge sent ${provided.length} chars, Vercel expects ${expected.length} chars.`,
+    };
+  }
+
+  return { hasBridgeAttempt: true, ok: true, error: '' };
+}
+
 async function requireManager(req: NextRequest) {
+  const bridgeKey = getBridgeKeyStatus(req);
+  if (bridgeKey.ok) return { error: '', status: 200 };
+  if (bridgeKey.hasBridgeAttempt) return { error: bridgeKey.error, status: 401 };
+
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return { error: error || 'Unauthorized', status: 401 };
   if (!canManageGuestShop(user)) return { error: 'Guest Shop Admin access denied', status: 403 };
@@ -41,7 +72,7 @@ export async function GET(req: NextRequest) {
       .from('guest_shop_orders')
       .select('id, room_number, guest_name, total_myr, items_json, paid_at, payment_reference, print_status, print_requested_at')
       .eq('order_type', 'FNB')
-      .eq('status', 'PAID')
+      .in('status', ['PAID', 'FULFILLED'])
       .eq('print_status', 'QUEUED')
       .order('print_requested_at', { ascending: true })
       .limit(20);
