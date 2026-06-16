@@ -141,6 +141,7 @@ export async function POST(req: NextRequest) {
     }
 
     const totalMyr = Number(orderItems.reduce((sum, item) => sum + Number(item.line_total_myr || 0), 0).toFixed(2));
+    const shouldPrintTicket = body?.printTicket === true;
     const descriptionSummary = orderItems
       .map((item) => `${item.quantity}x ${item.name}`)
       .join(', ');
@@ -159,6 +160,9 @@ export async function POST(req: NextRequest) {
         voucher_quantity: quantity,
         voucher_redeemed_quantity: 0,
         voucher_status: 'PENDING_PAYMENT',
+        print_status: shouldPrintTicket ? 'QUEUED' : 'NOT_QUEUED',
+        print_requested_at: shouldPrintTicket ? new Date().toISOString() : null,
+        print_error: null,
       })
       .select('id')
       .single();
@@ -218,11 +222,4 @@ export async function POST(req: NextRequest) {
 
     return jsonNoCache({
       ok: true,
-      order_id: orderId,
-      bill_id: String(billJson.id),
-      payment_url: String(billJson.url),
-    });
-  } catch (error: any) {
-    return jsonNoCache({ ok: false, error: error?.message || 'Failed to create breakfast voucher payment' }, 500);
-  }
-}
+      order_id: orderId
