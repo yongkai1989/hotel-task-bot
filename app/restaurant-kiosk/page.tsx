@@ -35,6 +35,7 @@ export default function RestaurantKioskPage() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
+  const [printMode, setPrintMode] = useState(false);
 
   const cartLines = useMemo(
     () =>
@@ -56,6 +57,10 @@ export default function RestaurantKioskPage() {
     if (!price) return lowest;
     return lowest === 0 ? price : Math.min(lowest, price);
   }, 0);
+
+  useEffect(() => {
+    setPrintMode(new URLSearchParams(window.location.search).get('mode') === 'kiosk');
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -119,6 +124,7 @@ export default function RestaurantKioskPage() {
             quantity: line.quantity,
           })),
           roomNumber: roomNumber.trim(),
+          printTicket: printMode,
         }),
       });
       const json = await res.json().catch(() => ({}));
@@ -134,6 +140,10 @@ export default function RestaurantKioskPage() {
 
   return (
     <main className="kiosk">
+      <nav className="modeTabs" aria-label="Breakfast voucher mode">
+        <a className={!printMode ? 'active' : ''} href="/restaurant-kiosk">Guest Phone</a>
+        <a className={printMode ? 'active' : ''} href="/restaurant-kiosk?mode=kiosk">Kiosk Print Mode</a>
+      </nav>
       <section className="hero">
         <div className="heroCopy">
           <p className="eyebrow">Hallmark Crown Hotel</p>
@@ -214,6 +224,12 @@ export default function RestaurantKioskPage() {
           <button className="payBtn" type="button" onClick={pay} disabled={loading || !cartLines.length}>
             {loading ? 'Opening payment...' : 'Pay with TNG'}
           </button>
+          {printMode ? (
+            <div className="printNotice">
+              <strong>Thermal ticket will print after successful payment.</strong>
+              <span>The guest does not need to share or email the QR code from this kiosk.</span>
+            </div>
+          ) : null}
           <button className="assistBtn" type="button" onClick={() => setShowAssist((value) => !value)}>
             I need staff assistance
           </button>
@@ -241,6 +257,36 @@ export default function RestaurantKioskPage() {
           background:
             linear-gradient(135deg, rgba(20, 25, 38, 0.04), transparent 34%),
             linear-gradient(180deg, #f7f9fc 0%, #f1f5f9 52%, #f8fafc 100%);
+        }
+        .modeTabs {
+          width: fit-content;
+          max-width: 100%;
+          display: flex;
+          gap: 8px;
+          margin: 0 0 14px;
+          padding: 6px;
+          border: 1px solid #d8e2ef;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.86);
+          box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+        }
+        .modeTabs a {
+          min-height: 42px;
+          padding: 0 18px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          color: #64748b;
+          text-decoration: none;
+          font-size: 14px;
+          font-weight: 950;
+          white-space: nowrap;
+        }
+        .modeTabs a.active {
+          background: #15120e;
+          color: #fff8ea;
+          box-shadow: 0 10px 24px rgba(15, 18, 14, 0.18);
         }
         .hero {
           position: relative;
@@ -536,7 +582,8 @@ export default function RestaurantKioskPage() {
           color: #15120e;
         }
         .assistBox,
-        .errorBox {
+        .errorBox,
+        .printNotice {
           margin-top: 14px;
           border-radius: 16px;
           padding: 14px;
@@ -548,6 +595,11 @@ export default function RestaurantKioskPage() {
           background: #eef8ff;
           border: 1px solid #b8dbff;
           color: #173d66;
+        }
+        .printNotice {
+          background: #f1f8ee;
+          border: 1px solid #c8e7bc;
+          color: #25631f;
         }
         .errorBox {
           background: #fff1f1;
@@ -565,6 +617,17 @@ export default function RestaurantKioskPage() {
         @media (max-width: 760px) {
           .kiosk {
             padding: 10px;
+          }
+          .modeTabs {
+            width: 100%;
+            box-sizing: border-box;
+            overflow-x: auto;
+          }
+          .modeTabs a {
+            flex: 1;
+            min-width: max-content;
+            padding: 0 12px;
+            font-size: 12px;
           }
           .hero {
             min-height: 178px;
