@@ -163,6 +163,9 @@ export async function POST(req: NextRequest) {
         print_status: shouldPrintTicket ? 'QUEUED' : 'NOT_QUEUED',
         print_requested_at: shouldPrintTicket ? new Date().toISOString() : null,
         print_error: null,
+        breakfast_print_status: shouldPrintTicket ? 'QUEUED' : 'NOT_QUEUED',
+        breakfast_print_requested_at: shouldPrintTicket ? new Date().toISOString() : null,
+        breakfast_print_error: null,
       })
       .select('id')
       .single();
