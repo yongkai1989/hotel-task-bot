@@ -2,20 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-type OrderStatus = {
+type VoucherType = {
   id: string;
-  room_number: string;
-  guest_name: string;
-  status: string;
-  payment_reference: string;
-  total_myr: number;
-  items_json: any[];
-  paid_at: string | null;
-  print_status: string;
-  voucher_code: string;
-  voucher_quantity: number;
-  voucher_status: string;
+  name: string;
+  description: string;
+  price_myr: number;
+  is_active: boolean;
 };
+
+type CartMap = Record<string, number>;
 
 function money(value: number) {
   return `RM${Number(value || 0).toLocaleString('en-MY', {
@@ -24,736 +19,716 @@ function money(value: number) {
   })}`;
 }
 
-function formatDate(value: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'BV';
 }
 
-export default function RestaurantKioskPaymentStatusPage() {
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [order, setOrder] = useState<OrderStatus | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [ticketImageBusy, setTicketImageBusy] = useState(false);
-  const [ticketImageMessage, setTicketImageMessage] = useState('');
+export default function RestaurantKioskPage() {
+  const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
+  const [cart, setCart] = useState<CartMap>({});
+  const [roomNumber, setRoomNumber] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showAssist, setShowAssist] = useState(false);
+  const [printMode, setPrintMode] = useState(false);
+
+  const cartLines = useMemo(
+    () =>
+      voucherTypes
+        .map((type) => ({
+          type,
+          quantity: Math.max(0, Math.floor(Number(cart[type.id] || 0))),
+        }))
+        .filter((line) => line.quantity > 0),
+    [cart, voucherTypes]
+  );
+  const totalQuantity = cartLines.reduce((sum, line) => sum + line.quantity, 0);
+  const total = cartLines.reduce(
+    (sum, line) => sum + line.quantity * Number(line.type.price_myr || 0),
+    0
+  );
+  const lowestPrice = voucherTypes.reduce((lowest, type) => {
+    const price = Number(type.price_myr || 0);
+    if (!price) return lowest;
+    return lowest === 0 ? price : Math.min(lowest, price);
+  }, 0);
 
   useEffect(() => {
-    setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
+    setPrintMode(new URLSearchParams(window.location.search).get('mode') === 'kiosk');
   }, []);
 
   useEffect(() => {
     let alive = true;
-    let attempts = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    async function load() {
-      if (orderId === null) return;
-      if (!orderId) {
-        setError('Missing order reference.');
-        setLoading(false);
-        return;
-      }
-
+    async function loadTypes() {
       try {
-        const res = await fetch(`/api/guest-shop/order-status?order_id=${encodeURIComponent(orderId)}`, {
-          cache: 'no-store',
-        });
+        const res = await fetch('/api/restaurant-kiosk/voucher-types', { cache: 'no-store' });
         const json = await res.json().catch(() => ({}));
         if (!alive) return;
-        if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load payment status');
-
-        setOrder(json.order);
-        setError('');
-        setLoading(false);
-
-        const status = String(json.order?.status || '');
-        if (status === 'PENDING_PAYMENT' && attempts < 12) {
-          attempts += 1;
-          timer = setTimeout(load, 2500);
-        }
-      } catch (err: any) {
+        const types = Array.isArray(json?.types) ? json.types : [];
+        setVoucherTypes(types);
+      } catch {
         if (!alive) return;
-        setError(err?.message || 'Unable to load payment status');
-        setLoading(false);
+        setVoucherTypes([
+          {
+            id: 'default-breakfast',
+            name: 'Breakfast Voucher',
+            description: 'Breakfast pass redeemable at the restaurant counter.',
+            price_myr: 20,
+            is_active: true,
+          },
+        ]);
       }
     }
-
-    if (orderId !== null) load();
-
+    loadTypes();
     return () => {
       alive = false;
-      if (timer) clearTimeout(timer);
     };
-  }, [orderId]);
+  }, []);
 
-  const paid = order?.status === 'PAID' || order?.status === 'FULFILLED';
-  const failed = order?.status === 'FAILED' || order?.status === 'CANCELLED';
-  const printStatus = String(order?.print_status || 'NOT_QUEUED').toUpperCase();
-  const isKioskPrintOrder = ['QUEUED', 'PRINTED', 'FAILED'].includes(printStatus);
-  const qrPayload = order?.voucher_code || '';
-  const itemLines = useMemo(() => {
-    const rows = Array.isArray(order?.items_json) ? order?.items_json : [];
-    if (rows.length) {
-      return rows.map((item: any) => ({
-        name: String(item?.name || 'Breakfast Voucher'),
-        quantity: Math.max(1, Number(item?.quantity || 1)),
-        total: Number(item?.line_total_myr || 0),
-      }));
+  function setTypeQuantity(typeId: string, nextQuantity: number) {
+    setCart((current) => {
+      const quantity = Math.max(0, Math.min(20, Math.floor(nextQuantity)));
+      const next = { ...current };
+      if (quantity <= 0) delete next[typeId];
+      else next[typeId] = quantity;
+      return next;
+    });
+  }
+
+  async function pay() {
+    setMessage('');
+
+    if (!cartLines.length) {
+      setMessage('Please add at least one breakfast voucher.');
+      return;
     }
-    if (!order) return [];
-    return [{
-      name: 'Breakfast Voucher',
-      quantity: Math.max(1, Number(order.voucher_quantity || 1)),
-      total: Number(order.total_myr || 0),
-    }];
-  }, [order]);
-  const qrUrl = useMemo(
-    () =>
-      qrPayload
-        ? `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=14&data=${encodeURIComponent(qrPayload)}`
-        : '',
-    [qrPayload]
-  );
 
-  async function loadImage(src: string) {
-    return new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image();
-      image.crossOrigin = 'anonymous';
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('Unable to prepare QR image'));
-      image.src = src;
-    });
-  }
-
-  function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-  }
-
-  function drawWrappedText(
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    x: number,
-    y: number,
-    maxWidth: number,
-    lineHeight: number,
-    maxLines = 2
-  ) {
-    const words = text.split(/\s+/).filter(Boolean);
-    let line = '';
-    let lineCount = 0;
-    for (let index = 0; index < words.length; index += 1) {
-      const testLine = line ? `${line} ${words[index]}` : words[index];
-      if (ctx.measureText(testLine).width > maxWidth && line) {
-        ctx.fillText(line, x, y);
-        y += lineHeight;
-        lineCount += 1;
-        line = words[index];
-        if (lineCount >= maxLines - 1) break;
-      } else {
-        line = testLine;
-      }
+    if (!roomNumber.trim()) {
+      setMessage('Please enter your room number before payment.');
+      return;
     }
-    if (line && lineCount < maxLines) ctx.fillText(line, x, y);
-    return y + lineHeight;
-  }
 
-  async function createTicketImageBlob() {
-    if (!order || !qrUrl) throw new Error('Ticket is not ready yet.');
-
-    const qrImage = await loadImage(qrUrl);
-    const canvas = document.createElement('canvas');
-    canvas.width = 1080;
-    canvas.height = 1500;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Unable to create ticket image.');
-
-    const gradient = ctx.createLinearGradient(0, 0, 1080, 1500);
-    gradient.addColorStop(0, '#fbf6eb');
-    gradient.addColorStop(0.55, '#ffffff');
-    gradient.addColorStop(1, '#eef4f8');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 1080, 1500);
-
-    ctx.fillStyle = '#15120e';
-    roundRect(ctx, 60, 60, 960, 1380, 54);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.strokeStyle = '#dec79f';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    ctx.fillStyle = '#15120e';
-    roundRect(ctx, 92, 92, 896, 270, 38);
-    ctx.fillStyle = '#17130f';
-    ctx.fill();
-
-    ctx.fillStyle = '#d8ad58';
-    ctx.font = '800 28px Arial';
-    ctx.fillText('HALLMARK CROWN HOTEL', 132, 154);
-    ctx.fillStyle = '#fff8ea';
-    ctx.font = '700 68px Georgia';
-    ctx.fillText('Buffet Breakfast Ticket', 132, 242);
-    ctx.fillStyle = 'rgba(255, 248, 234, 0.76)';
-    ctx.font = '600 28px Arial';
-    ctx.fillText('Show this QR ticket at the restaurant counter.', 132, 304);
-
-    roundRect(ctx, 330, 410, 420, 420, 38);
-    ctx.fillStyle = '#fffdf8';
-    ctx.fill();
-    ctx.strokeStyle = '#e0c99f';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.drawImage(qrImage, 372, 452, 336, 336);
-
-    ctx.fillStyle = '#9b6428';
-    ctx.font = '800 24px Arial';
-    ctx.fillText('VOUCHER CODE', 385, 880);
-    ctx.fillStyle = '#15120e';
-    ctx.font = '800 40px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(order.voucher_code || '-', 540, 930);
-    ctx.textAlign = 'left';
-
-    const stats = [
-      ['Room', order.room_number || '-'],
-      ['Quantity', String(order.voucher_quantity || 1)],
-      ['Total', money(order.total_myr)],
-      ['Paid', formatDate(order.paid_at)],
-    ];
-    let statY = 990;
-    stats.forEach((stat, index) => {
-      const x = index % 2 === 0 ? 104 : 552;
-      const y = statY + Math.floor(index / 2) * 122;
-      roundRect(ctx, x, y, 424, 92, 24);
-      ctx.fillStyle = '#fbf7ef';
-      ctx.fill();
-      ctx.strokeStyle = '#ead9bb';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = '#64748b';
-      ctx.font = '800 22px Arial';
-      ctx.fillText(stat[0].toUpperCase(), x + 28, y + 34);
-      ctx.fillStyle = '#15120e';
-      ctx.font = '800 30px Arial';
-      drawWrappedText(ctx, stat[1], x + 28, y + 68, 360, 32, 1);
-    });
-
-    ctx.fillStyle = '#15120e';
-    ctx.font = '800 30px Arial';
-    ctx.fillText('Order Details', 104, 1260);
-    ctx.strokeStyle = '#ead9bb';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(104, 1284);
-    ctx.lineTo(976, 1284);
-    ctx.stroke();
-
-    let lineY = 1330;
-    itemLines.slice(0, 5).forEach((item) => {
-      ctx.fillStyle = '#15120e';
-      ctx.font = '700 28px Arial';
-      drawWrappedText(ctx, `${item.quantity}x ${item.name}`, 104, lineY, 640, 34, 1);
-      ctx.textAlign = 'right';
-      ctx.fillText(item.total ? money(item.total) : '-', 976, lineY);
-      ctx.textAlign = 'left';
-      lineY += 42;
-    });
-
-    ctx.fillStyle = '#64748b';
-    ctx.font = '600 22px Arial';
-    ctx.fillText('Valid for one-time redemption after verified payment.', 104, 1410);
-
-    return new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error('Unable to export ticket image.'));
-      }, 'image/png', 0.95);
-    });
-  }
-
-  async function shareTicketImage() {
-    if (!paid || !order) return;
-    setTicketImageBusy(true);
-    setTicketImageMessage('');
+    setLoading(true);
     try {
-      const blob = await createTicketImageBlob();
-      const fileName = `hallmark-breakfast-ticket-${order.room_number || 'guest'}-${order.voucher_code || 'qr'}.png`;
-      const file = new File([blob], fileName, { type: 'image/png' });
-      const nav = navigator as Navigator & {
-        canShare?: (data: { files?: File[] }) => boolean;
-        share?: (data: { files?: File[]; title?: string; text?: string }) => Promise<void>;
-      };
-
-      if (nav.share && nav.canShare?.({ files: [file] })) {
-        await nav.share({
-          files: [file],
-          title: 'Hallmark Crown Hotel Breakfast Ticket',
-          text: 'Please keep this breakfast ticket image for redemption.',
-        });
-        setTicketImageMessage('Ticket image is ready to send.');
-      } else {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-        setTicketImageMessage('Ticket image downloaded. You may attach it to your email.');
+      const res = await fetch('/api/restaurant-kiosk/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: cartLines.map((line) => ({
+            voucherTypeId: line.type.id,
+            quantity: line.quantity,
+          })),
+          roomNumber: roomNumber.trim(),
+          printTicket: printMode,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok || !json?.payment_url) {
+        throw new Error(json?.error || 'Unable to start payment');
       }
-    } catch (err: any) {
-      setTicketImageMessage(err?.message || 'Unable to prepare ticket image.');
-    } finally {
-      setTicketImageBusy(false);
+      window.location.href = String(json.payment_url);
+    } catch (error: any) {
+      setMessage(error?.message || 'Unable to start payment');
+      setLoading(false);
     }
   }
 
   return (
-    <main className="statusPage">
-      <section className={`ticketCard ${paid ? 'paid' : failed ? 'failed' : 'pending'}`}>
-        <div className="statusIcon">{paid ? 'OK' : failed ? '!' : '...'}</div>
-        <p className="eyebrow">Hallmark Crown Hotel</p>
-        <h1>{paid ? 'Breakfast voucher ready' : failed ? 'Payment not completed' : 'Confirming payment'}</h1>
-        <p className="lead">
-          {paid
-            ? 'Please keep this QR ticket. Show it to staff at the restaurant counter for redemption.'
-            : failed
-              ? 'No voucher was released. Please try again or call staff assistance.'
-              : 'We are waiting for Billplz to confirm the payment.'}
-        </p>
+    <main className="kiosk">
+      <nav className="modeTabs" aria-label="Breakfast voucher mode">
+        <a className={!printMode ? 'active' : ''} href="/restaurant-kiosk">Guest Phone</a>
+        <a className={printMode ? 'active' : ''} href="/restaurant-kiosk?mode=kiosk">Kiosk Print Mode</a>
+      </nav>
+      <section className="hero">
+        <div className="heroCopy">
+          <p className="eyebrow">Hallmark Crown Hotel</p>
+          <h1>Buffet Breakfast Ticket</h1>
+          <span>Purchase your breakfast ticket securely before entering the restaurant.</span>
+        </div>
+        <div className="priceCard">
+          <span>From</span>
+          <strong>{lowestPrice ? money(lowestPrice) : 'Select'}</strong>
+        </div>
+      </section>
 
-        {error ? <div className="message">{error}</div> : null}
-
-        {paid && order ? (
-          <>
-          <div className="ticket">
-            <div className="qrBox">
-              {qrUrl ? <img src={qrUrl} alt="Breakfast voucher QR code" /> : <span>QR pending</span>}
+      <section className="workspace">
+        <div className="panel product">
+          <div className="menuArea">
+            <div className="sectionHead">
+              <p className="eyebrow">Voucher Menu</p>
+              <h2>Choose quantity</h2>
             </div>
-            <div className="ticketInfo">
-              <span>Breakfast Voucher</span>
-              <strong>{order.voucher_code || '-'}</strong>
-              <div className="infoGrid">
-                <div>
-                  <small>Quantity</small>
-                  <b>{order.voucher_quantity || 1}</b>
-                </div>
-                <div>
-                  <small>Room</small>
-                  <b>{order.room_number || '-'}</b>
-                </div>
-                <div>
-                  <small>Paid</small>
-                  <b>{formatDate(order.paid_at)}</b>
-                </div>
-                <div>
-                  <small>Total</small>
-                  <b>{money(order.total_myr)}</b>
-                </div>
-                <div>
-                  <small>Payment Ref</small>
-                  <b>{order.payment_reference || '-'}</b>
-                </div>
-              </div>
-              <div className="breakdown">
-                <small>Voucher Breakdown</small>
-                {itemLines.map((item, index) => (
-                  <div className="breakdownLine" key={`${item.name}-${index}`}>
-                    <span>{item.quantity}x {item.name}</span>
-                    <b>{item.total ? money(item.total) : '-'}</b>
+
+            <div className="typeGrid">
+              {voucherTypes.map((type) => {
+                const quantity = Math.max(0, Number(cart[type.id] || 0));
+                return (
+                  <article className={quantity > 0 ? 'typeCard active' : 'typeCard'} key={type.id}>
+                    <div className="typeBadge">{initials(type.name)}</div>
+                    <div className="typeInfo">
+                      <h3>{type.name}</h3>
+                      {type.description ? <p>{type.description}</p> : null}
+                      <strong>{money(type.price_myr)}</strong>
+                    </div>
+                    <div className="qtyRow" aria-label={`${type.name} quantity`}>
+                      <button type="button" onClick={() => setTypeQuantity(type.id, quantity - 1)} disabled={quantity <= 0}>
+                        -
+                      </button>
+                      <span>{quantity}</span>
+                      <button type="button" onClick={() => setTypeQuantity(type.id, quantity + 1)}>
+                        +
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel checkout">
+          <p className="eyebrow">Your cart</p>
+          <h2>{totalQuantity ? `${totalQuantity} voucher${totalQuantity === 1 ? '' : 's'}` : 'No voucher selected'}</h2>
+
+          <div className="cartList">
+            {cartLines.length ? (
+              cartLines.map((line) => (
+                <div className="cartLine" key={line.type.id}>
+                  <div>
+                    <strong>{line.quantity}x {line.type.name}</strong>
+                    <span>{money(line.type.price_myr)} each</span>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <b>{money(line.quantity * Number(line.type.price_myr || 0))}</b>
+                </div>
+              ))
+            ) : (
+              <div className="emptyCart">Tap + beside a voucher type to add it here.</div>
+            )}
           </div>
-          {isKioskPrintOrder ? (
-            <div className="printBox">
-              <div>
-                <small>Thermal Ticket</small>
-                <p>
-                  {printStatus === 'PRINTED'
-                    ? 'Your QR ticket has been sent to the kiosk printer.'
-                    : printStatus === 'FAILED'
-                      ? 'The kiosk printer could not print this ticket. Please call staff for assistance.'
-                      : 'Your QR ticket is being sent to the kiosk printer.'}
-                </p>
-              </div>
-            </div>
-          ) : (
-          <div className="emailBox">
-            <div>
-              <small>Share Ticket</small>
-              <p>Choose how you want to share the ticket.</p>
-            </div>
-            <button
-              type="button"
-              onClick={shareTicketImage}
-              disabled={ticketImageBusy}
-            >
-              {ticketImageBusy ? 'Preparing image...' : 'Share Ticket Image'}
-            </button>
-            {ticketImageMessage ? <span className="imageMessage">{ticketImageMessage}</span> : null}
-          </div>
-          )}
-          </>
-        ) : null}
 
-        {!paid && !failed ? (
-          <div className="waitingBox">
-            <strong>{loading ? 'Checking payment...' : 'Still pending'}</strong>
-            <span>If this takes too long, please call Front Office staff for assistance.</span>
-          </div>
-        ) : null}
+          <label>
+            Room number
+            <input value={roomNumber} onChange={(event) => setRoomNumber(event.target.value)} placeholder="Enter room number" />
+          </label>
 
-        <div className="actions">
-          <a href="/restaurant-kiosk">{paid ? 'Buy another voucher' : 'Back to kiosk'}</a>
+          <div className="totalLine">
+            <span>Total</span>
+            <strong>{money(total)}</strong>
+          </div>
+
+          <button className="payBtn" type="button" onClick={pay} disabled={loading || !cartLines.length}>
+            {loading ? 'Opening payment...' : 'Pay with TNG'}
+          </button>
+          {printMode ? (
+            <div className="printNotice">
+              <strong>Thermal ticket will print after successful payment.</strong>
+              <span>The guest does not need to share or email the QR code from this kiosk.</span>
+            </div>
+          ) : null}
+          <button className="assistBtn" type="button" onClick={() => setShowAssist((value) => !value)}>
+            I need staff assistance
+          </button>
+
+          {showAssist ? (
+            <div className="assistBox">
+              <strong>Please approach our friendly F&amp;B staff.</strong>
+              <span>For guests who would like to use a credit card, our staff can assist with manual payment. We do not accept cash payments.</span>
+            </div>
+          ) : null}
+          {message ? <div className="errorBox">{message}</div> : null}
         </div>
       </section>
 
       <style jsx>{`
         :global(body) {
           margin: 0;
-          background: #f6efe6;
+          background: #f7f2ea;
           color: #15120e;
           font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
-        .statusPage {
+        .kiosk {
           min-height: 100vh;
-          display: grid;
-          place-items: center;
-          padding: 24px;
+          padding: 28px;
           background:
-            radial-gradient(circle at 13% 18%, rgba(48, 96, 62, 0.08), transparent 18%),
-            radial-gradient(circle at 88% 84%, rgba(170, 93, 34, 0.07), transparent 20%),
-            radial-gradient(circle at 80% 10%, rgba(230, 191, 104, 0.2), transparent 28%),
-            linear-gradient(135deg, #fffaf1, #eef5f3);
+            linear-gradient(135deg, rgba(20, 25, 38, 0.04), transparent 34%),
+            linear-gradient(180deg, #f7f9fc 0%, #f1f5f9 52%, #f8fafc 100%);
         }
-        .ticketCard {
-          width: min(920px, 100%);
-          border: 1px solid #e2ceb2;
-          border-radius: 30px;
-          padding: clamp(24px, 4vw, 44px);
-          background: rgba(255, 255, 255, 0.88);
-          box-shadow: 0 28px 80px rgba(44, 34, 19, 0.15);
-          text-align: center;
-        }
-        .statusIcon {
-          width: 84px;
-          height: 84px;
-          margin: 0 auto 18px;
-          display: grid;
-          place-items: center;
-          border-radius: 26px;
-          font-weight: 950;
-          background: #fff0bf;
-          color: #9b5e11;
-        }
-        .paid .statusIcon {
-          background: #d9fbe7;
-          color: #08733d;
-        }
-        .failed .statusIcon {
-          background: #ffe1e1;
-          color: #b3121d;
-        }
-        .eyebrow {
-          margin: 0 0 8px;
-          color: #9b6428;
-          font-size: 12px;
-          font-weight: 900;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-        }
-        h1 {
-          margin: 0;
-          font-size: clamp(38px, 6vw, 68px);
-          line-height: 0.95;
-          letter-spacing: 0;
-        }
-        .lead {
-          max-width: 680px;
-          margin: 18px auto 0;
-          color: #5f6678;
-          font-size: 18px;
-          line-height: 1.5;
-          font-weight: 700;
-        }
-        .message,
-        .waitingBox {
-          margin: 22px auto 0;
-          max-width: 640px;
-          border-radius: 18px;
-          padding: 16px;
-          background: #fff1f1;
-          border: 1px solid #ffc7c7;
-          color: #b3121d;
-          font-weight: 900;
-        }
-        .waitingBox {
-          display: grid;
-          gap: 5px;
-          color: #9b6428;
-          background: #fff7df;
-          border-color: #edd292;
-        }
-        .ticket {
-          margin-top: 28px;
-          display: grid;
-          grid-template-columns: 300px 1fr;
-          gap: 24px;
-          text-align: left;
-          align-items: stretch;
-        }
-        .qrBox {
-          border-radius: 26px;
-          border: 1px dashed #d9bd8c;
-          background: #fffaf1;
-          display: grid;
-          place-items: center;
-          padding: 20px;
-        }
-        .qrBox img {
-          width: 100%;
-          height: auto;
-          border-radius: 18px;
-        }
-        .ticketInfo {
-          border-radius: 26px;
-          padding: 24px;
-          background: linear-gradient(135deg, #15120e, #2d261f);
-          color: #fff8ea;
-        }
-        .ticketInfo > span {
-          color: #d9b35c;
-          font-size: 12px;
-          font-weight: 950;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-        }
-        .ticketInfo > strong {
-          display: block;
-          margin-top: 12px;
-          font-size: 30px;
-          overflow-wrap: anywhere;
-        }
-        .infoGrid {
-          margin-top: 22px;
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-        .infoGrid div {
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          padding: 12px;
-        }
-        small {
-          display: block;
-          color: rgba(255, 248, 234, 0.62);
-          font-weight: 900;
-          margin-bottom: 5px;
-        }
-        b {
-          overflow-wrap: anywhere;
-        }
-        .breakdown {
-          margin-top: 18px;
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.08);
-          padding: 14px;
-        }
-        .breakdownLine {
+        .modeTabs {
+          width: fit-content;
+          max-width: 100%;
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 10px 0;
-          color: #fff8ea;
-          font-weight: 850;
+          gap: 8px;
+          margin: 0 0 14px;
+          padding: 6px;
+          border: 1px solid #d8e2ef;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.86);
+          box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
         }
-        .breakdownLine + .breakdownLine {
-          border-top: 1px solid rgba(255, 255, 255, 0.12);
-        }
-        .emailBox,
-        .printBox {
-          margin-top: 18px;
-          display: grid;
-          grid-template-columns: minmax(220px, 1fr) auto;
-          gap: 12px;
-          align-items: center;
-          border: 1px solid #e2ceb2;
-          border-radius: 22px;
-          background: #fffaf1;
-          padding: 14px;
-          text-align: left;
-        }
-        .emailBox strong {
-          display: block;
-          color: #15120e;
-          font-size: 16px;
-        }
-        .emailBox small,
-        .printBox small {
-          color: #9b6428;
-        }
-        .emailBox p,
-        .printBox p {
-          margin: 5px 0 0;
-          color: #5f6678;
-          font-weight: 750;
-          line-height: 1.4;
-        }
-        .emailBox button {
-          min-height: 52px;
-          border-radius: 16px;
+        .modeTabs a {
+          min-height: 42px;
           padding: 0 18px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          border: 0;
-          background: #15120e;
-          color: #fff8ea;
-          font: inherit;
+          border-radius: 999px;
+          color: #64748b;
+          text-decoration: none;
+          font-size: 14px;
           font-weight: 950;
           white-space: nowrap;
         }
-        .emailBox button:disabled {
-          opacity: 0.45;
-          cursor: not-allowed;
+        .modeTabs a.active {
+          background: #15120e;
+          color: #fff8ea;
+          box-shadow: 0 10px 24px rgba(15, 18, 14, 0.18);
         }
-        .imageMessage {
-          grid-column: 1 / -1;
-          color: #08733d;
-          font-weight: 900;
-        }
-        .actions {
-          margin-top: 28px;
+        .hero {
+          position: relative;
+          overflow: hidden;
+          min-height: 220px;
+          border: 1px solid #d8e2ef;
+          border-radius: 24px;
+          padding: clamp(28px, 4vw, 52px);
           display: flex;
-          justify-content: center;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-        .actions button,
-        .actions a {
-          min-height: 54px;
-          border-radius: 999px;
-          padding: 0 26px;
-          display: inline-flex;
           align-items: center;
-          justify-content: center;
-          border: 1px solid #d7bf98;
+          justify-content: space-between;
+          gap: 28px;
+          background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.94) 58%, rgba(241, 246, 252, 0.96) 100%);
+          color: #0f172a;
+          box-shadow: 0 22px 70px rgba(15, 23, 42, 0.1);
+        }
+        .hero::before {
+          content: "";
+          position: absolute;
+          inset: 0 0 auto;
+          height: 7px;
+          background: linear-gradient(90deg, #0f172a 0%, #c99a3d 45%, #2563eb 100%);
+          pointer-events: none;
+        }
+        .hero::after {
+          content: "";
+          position: absolute;
+          inset: 7px 0 auto;
+          height: 1px;
+          background: rgba(201, 154, 61, 0.26);
+          pointer-events: none;
+        }
+        .hero > * {
+          position: relative;
+          z-index: 1;
+        }
+        .heroCopy {
+          max-width: 760px;
+        }
+        .heroCopy span {
+          display: block;
+          max-width: 560px;
+          margin-top: 12px;
+          color: #64748b;
+          font-size: clamp(15px, 1.5vw, 18px);
+          font-weight: 650;
+          line-height: 1.45;
+        }
+        .eyebrow {
+          margin: 0 0 10px;
+          color: #9a6a22;
+          font-size: 12px;
+          font-weight: 900;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+        h1 {
+          margin: 0;
+          max-width: 760px;
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: clamp(46px, 6vw, 82px);
+          line-height: 0.96;
+          letter-spacing: 0;
+        }
+        .subcopy {
+          max-width: 640px;
+          margin: 22px 0 0;
+          font-size: clamp(17px, 2vw, 23px);
+          line-height: 1.45;
+          color: rgba(255, 248, 234, 0.84);
+        }
+        .priceCard {
+          min-width: 156px;
+          padding: 16px 18px;
+          border-radius: 18px;
+          background: #0f172a;
+          border: 1px solid rgba(15, 23, 42, 0.08);
+          color: #fff;
+          box-shadow: 0 16px 34px rgba(15, 23, 42, 0.18);
+        }
+        .priceCard span {
+          display: block;
+          color: #d9b56a;
+          font-weight: 800;
+          margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 11px;
+        }
+        .priceCard strong {
+          font-size: 32px;
+          line-height: 1;
+        }
+        .workspace {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 420px;
+          gap: 22px;
+          margin-top: 22px;
+          align-items: start;
+        }
+        .panel {
+          border: 1px solid rgba(142, 104, 50, 0.2);
+          border-radius: 24px;
+          background: rgba(255, 255, 255, 0.78);
+          box-shadow: 0 20px 55px rgba(48, 40, 27, 0.11);
+        }
+        .product {
+          padding: 20px;
+          display: block;
+        }
+        .menuArea {
+          min-width: 0;
+          display: grid;
+          gap: 14px;
+        }
+        .sectionHead h2 {
+          margin: 0;
+          font-size: 30px;
+        }
+        .typeGrid {
+          display: grid;
+          gap: 12px;
+        }
+        .typeCard {
+          display: grid;
+          grid-template-columns: 54px minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 14px;
+          border-radius: 20px;
+          border: 1px solid #e6d4b8;
+          background: #fffaf1;
+          padding: 14px;
+          color: #15120e;
+        }
+        .typeCard.active {
+          border-color: #c9972b;
+          box-shadow: 0 12px 28px rgba(181, 132, 37, 0.18);
+        }
+        .typeBadge {
+          width: 54px;
+          height: 54px;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(135deg, #fff4d9, #ead0a0);
+          color: #9c641b;
+          font-weight: 950;
+          letter-spacing: 0;
+        }
+        .typeInfo {
+          min-width: 0;
+        }
+        .typeInfo h3 {
+          margin: 0;
+          font-size: 18px;
+          line-height: 1.2;
+        }
+        .typeInfo p {
+          margin: 4px 0 6px;
+          color: #6a5b48;
+          font-weight: 750;
+          line-height: 1.35;
+        }
+        .typeInfo strong {
+          display: block;
+          font-size: 24px;
+        }
+        .qtyRow {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px;
+          border-radius: 999px;
+          background: #fffdf8;
+          border: 1px solid #e6d4b8;
+        }
+        .qtyRow button {
+          width: 44px;
+          height: 44px;
+          border: 0;
+          border-radius: 999px;
           background: #15120e;
           color: #fff;
-          text-decoration: none;
+          font-size: 22px;
+          font-weight: 900;
+        }
+        .qtyRow button:disabled {
+          opacity: 0.32;
+        }
+        .qtyRow span {
+          min-width: 32px;
+          text-align: center;
+          font-size: 24px;
+          font-weight: 950;
+        }
+        .checkout {
+          padding: 24px;
+          position: sticky;
+          top: 18px;
+        }
+        h2 {
+          margin: 0 0 18px;
+          font-size: 30px;
+          line-height: 1.15;
+        }
+        .cartList {
+          display: grid;
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+        .cartLine,
+        .emptyCart {
+          border: 1px solid #e6d4b8;
+          border-radius: 16px;
+          background: #fffdf8;
+          padding: 13px;
+        }
+        .cartLine {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: center;
+        }
+        .cartLine strong,
+        .cartLine span {
+          display: block;
+        }
+        .cartLine span,
+        .emptyCart {
+          color: #6a5b48;
+          font-weight: 800;
+        }
+        .cartLine b {
+          white-space: nowrap;
+        }
+        label {
+          display: grid;
+          gap: 8px;
+          margin-top: 14px;
+          color: #6a5b48;
+          font-weight: 900;
+        }
+        input {
+          width: 100%;
+          box-sizing: border-box;
+          min-height: 54px;
+          border-radius: 16px;
+          border: 1px solid #dfceb4;
+          background: #fffdf8;
+          padding: 0 16px;
+          color: #15120e;
+          font: inherit;
+          font-weight: 800;
+        }
+        .totalLine {
+          margin-top: 22px;
+          padding-top: 20px;
+          border-top: 1px solid #e7d9c4;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .totalLine span {
+          color: #6a5b48;
+          font-weight: 900;
+        }
+        .totalLine strong {
+          font-size: 42px;
+        }
+        .payBtn,
+        .assistBtn {
+          width: 100%;
+          min-height: 58px;
+          margin-top: 14px;
+          border-radius: 18px;
+          border: 0;
           font: inherit;
           font-weight: 950;
         }
-        .actions a {
+        .payBtn {
+          background: linear-gradient(135deg, #f2d17a, #c9972b);
+          color: #17130c;
+          box-shadow: 0 16px 32px rgba(181, 132, 37, 0.28);
+        }
+        .payBtn:disabled {
+          opacity: 0.55;
+          box-shadow: none;
+        }
+        .assistBtn {
           background: #fffaf1;
+          border: 1px solid #dfceb4;
           color: #15120e;
         }
-        @media (max-width: 760px) {
-          .statusPage {
-            padding: 10px;
-            place-items: start center;
-          }
-          .ticketCard {
-            border-radius: 22px;
-            padding: 18px;
-          }
-          .statusIcon {
-            width: 58px;
-            height: 58px;
-            border-radius: 18px;
-            margin-bottom: 12px;
-          }
-          h1 {
-            font-size: clamp(34px, 10vw, 48px);
-          }
-          .lead {
-            margin-top: 12px;
-            font-size: 15px;
-          }
-          .ticket {
+        .assistBox,
+        .errorBox,
+        .printNotice {
+          margin-top: 14px;
+          border-radius: 16px;
+          padding: 14px;
+          display: grid;
+          gap: 4px;
+          font-weight: 800;
+        }
+        .assistBox {
+          background: #eef8ff;
+          border: 1px solid #b8dbff;
+          color: #173d66;
+        }
+        .printNotice {
+          background: #f1f8ee;
+          border: 1px solid #c8e7bc;
+          color: #25631f;
+        }
+        .errorBox {
+          background: #fff1f1;
+          border: 1px solid #ffc5c5;
+          color: #b20d17;
+        }
+        @media (max-width: 980px) {
+          .workspace {
             grid-template-columns: 1fr;
-            margin-top: 18px;
-            gap: 14px;
           }
-          .qrBox {
-            max-width: 230px;
-            margin: 0 auto;
-            border-radius: 20px;
-            padding: 14px;
-          }
-          .ticketInfo {
-            border-radius: 20px;
-            padding: 18px;
-          }
-          .ticketInfo > strong {
-            font-size: 22px;
-          }
-          .infoGrid {
-            grid-template-columns: 1fr;
-            gap: 8px;
-            margin-top: 14px;
-          }
-          .infoGrid div,
-          .breakdown {
-            border-radius: 14px;
-            padding: 10px;
-          }
-          .emailBox,
-          .printBox {
-            grid-template-columns: 1fr;
-            border-radius: 18px;
-            padding: 12px;
-          }
-          .actions {
-            margin-top: 18px;
-          }
-          .actions a {
-            width: 100%;
+          .checkout {
+            position: static;
           }
         }
-        @media print {
-          :global(body) {
-            background: #fff;
+        @media (max-width: 760px) {
+          .kiosk {
+            padding: 10px;
           }
-          .statusPage {
-            min-height: auto;
-            padding: 0;
-            background: #fff;
+          .modeTabs {
+            width: 100%;
+            box-sizing: border-box;
+            overflow-x: auto;
           }
-          .ticketCard {
-            box-shadow: none;
-            border: 0;
-            padding: 12mm;
+          .modeTabs a {
+            flex: 1;
+            min-width: max-content;
+            padding: 0 12px;
+            font-size: 12px;
           }
-          .actions,
-          .lead {
-            display: none;
+          .hero {
+            min-height: 178px;
+            border-radius: 18px;
+            padding: 22px 18px 18px;
+            align-items: flex-start;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 16px;
           }
-          .ticket {
-            grid-template-columns: 280px 1fr;
+          h1 {
+            max-width: 330px;
+            font-size: clamp(34px, 10.5vw, 46px);
+            line-height: 0.98;
+          }
+          .heroCopy span {
+            max-width: 300px;
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.35;
+          }
+          .eyebrow {
+            margin-bottom: 8px;
+            font-size: 10px;
+            letter-spacing: 0.13em;
+          }
+          .workspace {
+            gap: 10px;
+            margin-top: 10px;
+          }
+          .panel {
+            border-radius: 18px;
+          }
+          .priceCard {
+            width: 100%;
+            min-width: 0;
+            align-self: stretch;
+            box-sizing: border-box;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-radius: 14px;
+          }
+          .priceCard strong {
+            font-size: 24px;
+          }
+          .priceCard span {
+            margin: 0;
+            font-size: 10px;
+          }
+          .product {
+            padding: 10px;
+          }
+          .sectionHead h2,
+          h2 {
+            font-size: 24px;
+          }
+          .checkout {
+            padding: 16px;
+          }
+          .typeCard {
+            grid-template-columns: 42px minmax(0, 1fr) auto;
+            padding: 10px;
+            gap: 10px;
+            border-radius: 16px;
+          }
+          .typeBadge {
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            font-size: 13px;
+          }
+          .typeInfo h3 {
+            font-size: 15px;
+          }
+          .typeInfo p {
+            font-size: 12px;
+          }
+          .typeInfo strong {
+            font-size: 19px;
+          }
+          .qtyRow {
+            grid-column: auto;
+            gap: 6px;
+            padding: 5px;
+          }
+          .qtyRow button {
+            width: 34px;
+            height: 34px;
+            font-size: 18px;
+          }
+          .qtyRow span {
+            min-width: 22px;
+            font-size: 18px;
+          }
+          .cartLine {
+            align-items: flex-start;
+          }
+          .totalLine strong {
+            font-size: 34px;
           }
         }
       `}</style>
