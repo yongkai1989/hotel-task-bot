@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 export function middleware(req: NextRequest) {
   const { pathname, searchParams } = req.nextUrl;
+  const cleanPathname = pathname.replace(/\/+$/, '');
 
-  if (pathname === '/restaurant-kiosk/payment-status' && !searchParams.get('order_id')) {
+  if (cleanPathname === '/restaurant-kiosk/payment-status' && !String(searchParams.get('order_id') || '').trim()) {
     const url = req.nextUrl.clone();
     url.pathname = '/restaurant-kiosk';
     url.search = '?mode=kiosk';
@@ -14,5 +15,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/restaurant-kiosk/payment-status'],
+  matcher: ['/restaurant-kiosk/payment-status/:path*'],
 };
