@@ -11,6 +11,7 @@ type OrderStatus = {
   total_myr: number;
   items_json: any[];
   paid_at: string | null;
+  print_status: string;
   voucher_code: string;
   voucher_quantity: number;
   voucher_status: string;
@@ -43,7 +44,17 @@ export default function RestaurantKioskPaymentStatusPage() {
   const [ticketImageMessage, setTicketImageMessage] = useState('');
 
   useEffect(() => {
-    setOrderId(new URLSearchParams(window.location.search).get('order_id') || '');
+    const nextOrderId = new URLSearchParams(window.location.search).get('order_id') || '';
+    setOrderId(nextOrderId);
+
+    if (!nextOrderId) {
+      const timer = window.setTimeout(() => {
+        window.location.replace('/restaurant-kiosk');
+      }, 1200);
+      return () => window.clearTimeout(timer);
+    }
+
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -54,7 +65,7 @@ export default function RestaurantKioskPaymentStatusPage() {
     async function load() {
       if (orderId === null) return;
       if (!orderId) {
-        setError('Missing order reference.');
+        setError('Missing order reference. Returning to kiosk menu...');
         setLoading(false);
         return;
       }
@@ -93,6 +104,9 @@ export default function RestaurantKioskPaymentStatusPage() {
 
   const paid = order?.status === 'PAID' || order?.status === 'FULFILLED';
   const failed = order?.status === 'FAILED' || order?.status === 'CANCELLED';
+  const missingOrderReference = orderId === '';
+  const printStatus = String(order?.print_status || 'NOT_QUEUED').toUpperCase();
+  const isKioskPrintOrder = ['QUEUED', 'PRINTED', 'FAILED'].includes(printStatus);
   const qrPayload = order?.voucher_code || '';
   const itemLines = useMemo(() => {
     const rows = Array.isArray(order?.items_json) ? order?.items_json : [];
@@ -380,6 +394,20 @@ export default function RestaurantKioskPaymentStatusPage() {
               </div>
             </div>
           </div>
+          {isKioskPrintOrder ? (
+            <div className="printBox">
+              <div>
+                <small>Thermal Ticket</small>
+                <p>
+                  {printStatus === 'PRINTED'
+                    ? 'Your QR ticket has been sent to the kiosk printer.'
+                    : printStatus === 'FAILED'
+                      ? 'The kiosk printer could not print this ticket. Please call staff for assistance.'
+                      : 'Your QR ticket is being sent to the kiosk printer.'}
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="emailBox">
             <div>
               <small>Share Ticket</small>
@@ -394,13 +422,20 @@ export default function RestaurantKioskPaymentStatusPage() {
             </button>
             {ticketImageMessage ? <span className="imageMessage">{ticketImageMessage}</span> : null}
           </div>
+          )}
           </>
         ) : null}
 
         {!paid && !failed ? (
           <div className="waitingBox">
-            <strong>{loading ? 'Checking payment...' : 'Still pending'}</strong>
-            <span>If this takes too long, please call Front Office staff for assistance.</span>
+            <strong>
+              {missingOrderReference ? 'Returning to kiosk menu...' : loading ? 'Checking payment...' : 'Still pending'}
+            </strong>
+            <span>
+              {missingOrderReference
+                ? 'This page needs a payment reference.'
+                : 'If this takes too long, please call Front Office staff for assistance.'}
+            </span>
           </div>
         ) : null}
 
@@ -575,7 +610,8 @@ export default function RestaurantKioskPaymentStatusPage() {
         .breakdownLine + .breakdownLine {
           border-top: 1px solid rgba(255, 255, 255, 0.12);
         }
-        .emailBox {
+        .emailBox,
+        .printBox {
           margin-top: 18px;
           display: grid;
           grid-template-columns: minmax(220px, 1fr) auto;
@@ -592,10 +628,12 @@ export default function RestaurantKioskPaymentStatusPage() {
           color: #15120e;
           font-size: 16px;
         }
-        .emailBox small {
+        .emailBox small,
+        .printBox small {
           color: #9b6428;
         }
-        .emailBox p {
+        .emailBox p,
+        .printBox p {
           margin: 5px 0 0;
           color: #5f6678;
           font-weight: 750;
@@ -700,7 +738,8 @@ export default function RestaurantKioskPaymentStatusPage() {
             border-radius: 14px;
             padding: 10px;
           }
-          .emailBox {
+          .emailBox,
+          .printBox {
             grid-template-columns: 1fr;
             border-radius: 18px;
             padding: 12px;
