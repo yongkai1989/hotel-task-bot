@@ -64,15 +64,32 @@ async function decrementPaidStock(items: any[]) {
 }
 
 function paidOrderUpdatePayload(order: any, paidAt: string) {
-  const isFnb = String(order?.order_type || '').trim().toUpperCase() === 'FNB';
+  const orderType = String(order?.order_type || '').trim().toUpperCase();
+  const isFnb = orderType === 'FNB';
+  const isGuestShop = orderType === 'GUEST_SHOP';
+  const now = new Date().toISOString();
+
   return {
     status: 'PAID',
     paid_at: paidAt,
     ...(isFnb
       ? {
           print_status: 'QUEUED',
-          print_requested_at: new Date().toISOString(),
+          print_requested_at: now,
           print_error: null,
+          fnb_print_status: 'QUEUED',
+          fnb_print_requested_at: now,
+          fnb_print_error: null,
+          fo_print_status: 'QUEUED',
+          fo_print_requested_at: now,
+          fo_print_error: null,
+        }
+      : {}),
+    ...(isGuestShop
+      ? {
+          fo_print_status: 'QUEUED',
+          fo_print_requested_at: now,
+          fo_print_error: null,
         }
       : {}),
   };
