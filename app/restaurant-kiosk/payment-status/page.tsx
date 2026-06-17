@@ -440,7 +440,9 @@ export default function RestaurantKioskPaymentStatusPage() {
         ) : null}
 
         <div className="actions">
-          <a href="/restaurant-kiosk">{paid ? 'Buy another voucher' : 'Back to kiosk'}</a>
+          <a href={isKioskPrintOrder || missingOrderReference ? '/restaurant-kiosk?mode=kiosk' : '/restaurant-kiosk'}>
+            {paid ? 'Buy another voucher' : 'Back to kiosk'}
+          </a>
         </div>
       </section>
 
