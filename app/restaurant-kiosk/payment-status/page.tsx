@@ -49,7 +49,7 @@ export default function RestaurantKioskPaymentStatusPage() {
 
     if (!nextOrderId) {
       const timer = window.setTimeout(() => {
-        window.location.replace('/restaurant-kiosk');
+        window.location.href = '/restaurant-kiosk?mode=kiosk';
       }, 1200);
       return () => window.clearTimeout(timer);
     }
@@ -334,6 +334,105 @@ export default function RestaurantKioskPaymentStatusPage() {
     } finally {
       setTicketImageBusy(false);
     }
+  }
+
+  if (missingOrderReference) {
+    return (
+      <main className="statusPage">
+        <section className="ticketCard pending">
+          <div className="statusIcon">...</div>
+          <p className="eyebrow">Hallmark Crown Hotel</p>
+          <h1>Returning to kiosk</h1>
+          <p className="lead">This payment page needs an order reference.</p>
+          <div className="message">Missing order reference. Returning to kiosk menu...</div>
+          <div className="actions">
+            <a href="/restaurant-kiosk?mode=kiosk">Back to kiosk</a>
+          </div>
+        </section>
+
+        <style jsx>{`
+          :global(body) {
+            margin: 0;
+            background: #f6efe6;
+            color: #15120e;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }
+          .statusPage {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: linear-gradient(135deg, #fffaf1, #eef5f3);
+          }
+          .ticketCard {
+            width: min(720px, 100%);
+            border: 1px solid #e2ceb2;
+            border-radius: 30px;
+            padding: clamp(24px, 4vw, 44px);
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 28px 80px rgba(44, 34, 19, 0.15);
+            text-align: center;
+          }
+          .statusIcon {
+            width: 84px;
+            height: 84px;
+            margin: 0 auto 18px;
+            display: grid;
+            place-items: center;
+            border-radius: 26px;
+            background: #fff0bf;
+            color: #9a5b12;
+            font-weight: 900;
+          }
+          .eyebrow {
+            margin: 0 0 10px;
+            color: #9b6428;
+            font-size: 12px;
+            font-weight: 900;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+          }
+          h1 {
+            margin: 0;
+            font-size: clamp(34px, 8vw, 60px);
+            line-height: 0.95;
+          }
+          .lead {
+            margin: 18px auto 0;
+            max-width: 560px;
+            color: #53627a;
+            font-weight: 700;
+            line-height: 1.5;
+          }
+          .message {
+            margin-top: 24px;
+            padding: 16px;
+            border-radius: 16px;
+            background: #fff7da;
+            border: 1px solid #f3c86d;
+            color: #9a5b12;
+            font-weight: 900;
+          }
+          .actions {
+            margin-top: 28px;
+            display: flex;
+            justify-content: center;
+          }
+          .actions a {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 52px;
+            padding: 0 28px;
+            border-radius: 999px;
+            background: #15120e;
+            color: #fffaf1;
+            font-weight: 900;
+            text-decoration: none;
+          }
+        `}</style>
+      </main>
+    );
   }
 
   return (
