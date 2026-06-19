@@ -933,9 +933,6 @@ export default function GuestShopPage() {
 
   return (
     <main className="guest-shop">
-      {hero.hero_image_url ? (
-        <link rel="preload" as="image" href={hero.hero_image_url} />
-      ) : null}
       <section
         className={heroReady ? 'hero hero-ready' : 'hero'}
         style={heroStyle}
@@ -2389,4 +2386,209 @@ export default function GuestShopPage() {
             font-size: 16px;
           }
 
-          .p
+          .product-info p {
+            font-size: 12px;
+            -webkit-line-clamp: 2;
+          }
+
+          .product-footer {
+            align-items: center;
+            flex-direction: row;
+          }
+
+          .product-footer strong {
+            font-size: 18px;
+          }
+
+          .product-footer button {
+            min-width: 64px;
+            min-height: 36px;
+            padding: 0 11px;
+            font-size: 12px;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .guest-shop {
+            padding-bottom: 76px;
+          }
+
+          .hero-content h1 {
+            font-size: 46px;
+          }
+
+          .nav {
+            align-items: flex-start;
+          }
+
+          .cart-button span {
+            display: none;
+          }
+
+          .hero-actions a {
+            width: 100%;
+          }
+
+          .categories {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            margin-right: -12px;
+            margin-left: -2px;
+            padding: 2px 12px 4px 2px;
+            overflow-x: auto;
+            scroll-snap-type: x proximity;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .categories button {
+            flex: 0 0 auto;
+            min-height: 36px;
+            padding: 0 12px;
+            scroll-snap-align: start;
+          }
+
+          .submenus {
+            flex-wrap: nowrap;
+            margin-right: -12px;
+            padding: 8px 12px 8px 8px;
+            overflow-x: auto;
+            scroll-snap-type: x proximity;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .submenus button {
+            flex: 0 0 auto;
+            scroll-snap-align: start;
+          }
+
+          .products {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .product-card {
+            border-radius: 16px;
+            box-shadow: 0 12px 30px rgba(44, 34, 23, 0.07);
+          }
+
+          .product-image {
+            height: 122px;
+          }
+
+          .category-chip,
+          .submenu-chip {
+            bottom: 8px;
+            padding: 5px 7px;
+            font-size: 8px;
+          }
+
+          .category-chip {
+            left: 8px;
+          }
+
+          .submenu-chip {
+            right: 8px;
+          }
+
+          .item-label {
+            top: 8px;
+            left: 8px;
+            padding: 5px 7px;
+            font-size: 8px;
+          }
+
+          .product-info {
+            padding: 10px;
+          }
+
+          .product-info h3 {
+            margin-bottom: 4px;
+            font-size: 15px;
+            line-height: 1.15;
+          }
+
+          .product-info p {
+            font-size: 11px;
+            line-height: 1.32;
+          }
+
+          .option-panel {
+            gap: 7px;
+            padding: 8px;
+            border-radius: 12px;
+          }
+
+          .customize-head {
+            display: block;
+          }
+
+          .customize-head span {
+            display: none;
+          }
+
+          .option-title {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 4px;
+          }
+
+          .option-title-actions {
+            gap: 6px;
+          }
+
+          .option-pill {
+            min-height: 28px;
+            padding: 0 7px;
+            font-size: 10px;
+          }
+
+          .option-pill em {
+            font-size: 10px;
+          }
+
+          .product-footer,
+          .order-line {
+            align-items: center;
+            flex-direction: row;
+          }
+
+          .product-footer button {
+            width: auto;
+            min-width: 62px;
+            min-height: 34px;
+            border-radius: 999px;
+          }
+
+          .stepper {
+            justify-content: space-between;
+          }
+
+          .total-row strong {
+            font-size: 30px;
+          }
+
+          .front-office-contact {
+            align-items: stretch;
+            flex-direction: column;
+            margin-right: 16px;
+            margin-left: 16px;
+          }
+
+          .whatsapp-button {
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .floating-cart {
+            right: 14px;
+            bottom: 14px;
+            min-height: 52px;
+            padding: 0 14px;
+            font-size: 14px;
+          }
+        }
+      `}</style>
+    </main>
+  );
+}
