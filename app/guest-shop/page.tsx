@@ -1601,7 +1601,7 @@ export default function GuestShopPage() {
         }
 
         .collection {
-          padding: clamp(34px, 6vw, 82px) clamp(18px, 4vw, 64px) clamp(38px, 6vw, 90px);
+          padding: clamp(28px, 5vw, 66px) clamp(16px, 4vw, 54px) clamp(34px, 5vw, 76px);
         }
 
         .collection-head {
@@ -1609,13 +1609,13 @@ export default function GuestShopPage() {
           align-items: end;
           justify-content: space-between;
           gap: 22px;
-          margin-bottom: 22px;
+          margin-bottom: 18px;
         }
 
         .collection-head h2 {
           margin: 6px 0 0;
           font-family: Georgia, "Times New Roman", serif;
-          font-size: clamp(34px, 5vw, 58px);
+          font-size: clamp(30px, 4.2vw, 50px);
           font-weight: 500;
           letter-spacing: 0;
         }
@@ -1626,13 +1626,13 @@ export default function GuestShopPage() {
 
         .menu-toolbar {
           display: grid;
-          gap: 18px;
-          margin-bottom: 34px;
-          padding: 18px;
-          border: 1px solid rgba(91, 74, 50, 0.12);
-          border-radius: 26px;
-          background: rgba(255, 252, 246, 0.62);
-          box-shadow: 0 22px 60px rgba(44, 34, 23, 0.06);
+          gap: 14px;
+          margin-bottom: 26px;
+          padding: 14px;
+          border: 1px solid rgba(91, 74, 50, 0.11);
+          border-radius: 22px;
+          background: rgba(255, 252, 246, 0.78);
+          box-shadow: 0 18px 46px rgba(44, 34, 23, 0.055);
         }
 
         .filter-block {
@@ -1641,7 +1641,7 @@ export default function GuestShopPage() {
         }
 
         .fnb-filter-block {
-          padding-top: 16px;
+          padding-top: 13px;
           border-top: 1px solid rgba(91, 74, 50, 0.1);
         }
 
@@ -1669,15 +1669,16 @@ export default function GuestShopPage() {
           display: flex;
           flex-wrap: wrap;
           justify-content: flex-start;
-          gap: 10px;
+          gap: 8px;
         }
 
         .categories button {
-          min-height: 44px;
-          padding: 0 17px;
+          min-height: 38px;
+          padding: 0 15px;
           color: #403326;
           border-color: rgba(104, 82, 53, 0.16);
           background: rgba(255, 252, 246, 0.86);
+          font-size: 13px;
         }
 
         .categories button.active {
@@ -1687,10 +1688,10 @@ export default function GuestShopPage() {
 
         .submenus {
           display: flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
-          padding: 12px;
-          border-radius: 20px;
+          padding: 10px;
+          border-radius: 18px;
           background: rgba(255, 255, 255, 0.64);
           border: 1px solid rgba(91, 74, 50, 0.1);
         }
@@ -1701,13 +1702,13 @@ export default function GuestShopPage() {
         }
 
         .submenus button {
-          min-height: 38px;
-          padding: 0 15px;
+          min-height: 34px;
+          padding: 0 13px;
           border: 1px solid rgba(104, 82, 53, 0.16);
           border-radius: 999px;
           background: rgba(255, 252, 246, 0.72);
           color: #493728;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 900;
           cursor: pointer;
         }
@@ -1720,35 +1721,42 @@ export default function GuestShopPage() {
 
         .shop-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(330px, 420px);
-          gap: 26px;
+          grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+          gap: 22px;
           align-items: start;
         }
 
         .products {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 20px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 14px;
         }
 
         .product-card,
         .order-panel {
           overflow: hidden;
           border: 1px solid rgba(91, 74, 50, 0.14);
-          border-radius: 26px;
-          background: rgba(255, 252, 246, 0.88);
-          box-shadow: 0 24px 70px rgba(44, 34, 23, 0.09);
+          border-radius: 20px;
+          background: rgba(255, 252, 246, 0.92);
+          box-shadow: 0 18px 46px rgba(44, 34, 23, 0.075);
         }
 
         .product-card {
           display: flex;
-          min-height: 478px;
+          min-height: 0;
           flex-direction: column;
+          transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+        }
+
+        .product-card:hover {
+          border-color: rgba(166, 114, 43, 0.24);
+          box-shadow: 0 22px 54px rgba(44, 34, 23, 0.11);
+          transform: translateY(-2px);
         }
 
         .product-image {
           position: relative;
-          height: 268px;
+          height: 184px;
           overflow: hidden;
           background: color-mix(in srgb, var(--accent) 14%, #fbf5ea);
         }
@@ -1781,7 +1789,7 @@ export default function GuestShopPage() {
           display: grid;
           place-items: center;
           color: color-mix(in srgb, var(--accent) 62%, #fff);
-          font-size: 44px;
+          font-size: 34px;
           font-weight: 900;
         }
 
@@ -1791,34 +1799,42 @@ export default function GuestShopPage() {
           position: absolute;
           z-index: 2;
           border-radius: 999px;
-          font-size: 11px;
+          font-size: 9px;
           font-weight: 900;
-          letter-spacing: 0.1em;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
         }
 
         .category-chip {
-          left: 14px;
-          bottom: 14px;
-          padding: 8px 11px;
+          left: 10px;
+          bottom: 10px;
+          max-width: calc(100% - 20px);
+          padding: 6px 9px;
           color: #fff8ed;
           background: rgba(18, 15, 12, 0.62);
           backdrop-filter: blur(12px);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .submenu-chip {
-          right: 14px;
-          bottom: 14px;
-          padding: 8px 11px;
+          right: 10px;
+          bottom: 10px;
+          max-width: calc(100% - 20px);
+          padding: 6px 9px;
           color: #2e1f0e;
           background: rgba(255, 248, 233, 0.9);
           backdrop-filter: blur(12px);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .item-label {
-          top: 14px;
-          left: 14px;
-          padding: 8px 11px;
+          top: 10px;
+          left: 10px;
+          padding: 6px 9px;
           color: #2e1f0e;
           background: rgba(246, 224, 170, 0.94);
         }
@@ -1828,28 +1844,38 @@ export default function GuestShopPage() {
           flex: 1;
           flex-direction: column;
           justify-content: space-between;
-          gap: 18px;
-          padding: 20px;
+          gap: 12px;
+          padding: 14px;
         }
 
         .product-info h3 {
-          margin: 0 0 8px;
-          font-size: 23px;
+          display: -webkit-box;
+          margin: 0 0 6px;
+          overflow: hidden;
+          font-size: 18px;
           letter-spacing: 0;
+          line-height: 1.16;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
         }
 
         .product-info p {
+          display: -webkit-box;
           margin: 0;
           color: #655b51;
-          line-height: 1.56;
+          overflow: hidden;
+          font-size: 13px;
+          line-height: 1.38;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
         }
 
         .option-panel {
           display: grid;
-          gap: 12px;
-          padding: 12px;
+          gap: 9px;
+          padding: 10px;
           border: 1px solid rgba(91, 74, 50, 0.1);
-          border-radius: 18px;
+          border-radius: 14px;
           background: rgba(255, 255, 255, 0.58);
         }
 
@@ -1858,19 +1884,19 @@ export default function GuestShopPage() {
           align-items: flex-start;
           justify-content: space-between;
           gap: 10px;
-          padding-bottom: 10px;
+          padding-bottom: 8px;
           border-bottom: 1px solid rgba(91, 74, 50, 0.1);
         }
 
         .customize-head strong {
           color: #1b1713;
-          font-size: 14px;
+          font-size: 12px;
         }
 
         .customize-head span {
-          max-width: 190px;
+          max-width: 150px;
           color: #6b6259;
-          font-size: 12px;
+          font-size: 10px;
           font-weight: 800;
           text-align: right;
         }
@@ -1886,7 +1912,7 @@ export default function GuestShopPage() {
           justify-content: space-between;
           gap: 8px;
           color: #3e3329;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 900;
         }
 
@@ -1922,20 +1948,20 @@ export default function GuestShopPage() {
         .option-list {
           display: flex;
           flex-wrap: wrap;
-          gap: 8px;
+          gap: 6px;
         }
 
         .option-pill {
           display: inline-flex;
           align-items: center;
-          gap: 7px;
-          min-height: 34px;
-          padding: 0 10px;
+          gap: 6px;
+          min-height: 30px;
+          padding: 0 8px;
           border: 1px solid rgba(91, 74, 50, 0.13);
           border-radius: 999px;
           background: rgba(255, 252, 246, 0.94);
           color: #2d241b;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 900;
           cursor: pointer;
         }
@@ -1953,30 +1979,32 @@ export default function GuestShopPage() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 14px;
-          padding-top: 16px;
+          gap: 10px;
+          padding-top: 12px;
           border-top: 1px solid rgba(91, 74, 50, 0.13);
         }
 
         .product-footer strong {
           display: block;
-          font-size: 24px;
+          font-size: 20px;
           letter-spacing: 0;
         }
 
         .product-footer span {
           display: block;
-          margin-top: 4px;
+          margin-top: 2px;
           color: #766b5f;
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 800;
         }
 
         .product-footer button {
-          min-width: 84px;
-          padding: 0 18px;
+          min-width: 72px;
+          min-height: 38px;
+          padding: 0 14px;
           color: #fff7e8;
           background: #1b1713;
+          font-size: 13px;
         }
 
         .product-footer button.added {
@@ -2243,7 +2271,7 @@ export default function GuestShopPage() {
           }
 
           .products {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
           }
         }
 
@@ -2317,9 +2345,22 @@ export default function GuestShopPage() {
             padding-left: 16px;
           }
 
+          .menu-toolbar {
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 12px;
+            border-radius: 18px;
+          }
+
           .collection-head {
             align-items: stretch;
             flex-direction: column;
+            margin-bottom: 14px;
+          }
+
+          .collection-head h2 {
+            font-size: 36px;
+            line-height: 1.04;
           }
 
           .categories {
@@ -2327,87 +2368,25 @@ export default function GuestShopPage() {
           }
 
           .products {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
           }
 
           .product-card {
             min-height: 0;
           }
-        }
-
-        @media (max-width: 520px) {
-          .guest-shop {
-            padding-bottom: 76px;
-          }
-
-          .hero-content h1 {
-            font-size: 46px;
-          }
-
-          .nav {
-            align-items: flex-start;
-          }
-
-          .cart-button span {
-            display: none;
-          }
-
-          .hero-actions a {
-            width: 100%;
-          }
-
-          .categories {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .categories button {
-            padding: 0 10px;
-          }
 
           .product-image {
-            height: 234px;
+            height: 150px;
           }
 
-          .product-footer,
-          .order-line {
-            align-items: stretch;
-            flex-direction: column;
+          .product-info {
+            gap: 10px;
+            padding: 12px;
           }
 
-          .product-footer button {
-            width: 100%;
+          .product-info h3 {
+            font-size: 16px;
           }
 
-          .stepper {
-            justify-content: space-between;
-          }
-
-          .total-row strong {
-            font-size: 30px;
-          }
-
-          .front-office-contact {
-            align-items: stretch;
-            flex-direction: column;
-            margin-right: 16px;
-            margin-left: 16px;
-          }
-
-          .whatsapp-button {
-            width: 100%;
-            box-sizing: border-box;
-          }
-
-          .floating-cart {
-            right: 14px;
-            bottom: 14px;
-            min-height: 52px;
-            padding: 0 14px;
-            font-size: 14px;
-          }
-        }
-      `}</style>
-    </main>
-  );
-}
+          .p
