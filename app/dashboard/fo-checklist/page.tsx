@@ -345,7 +345,6 @@ export default function FoChecklistPage() {
         supabase
           .from('fo_checklist_submissions')
           .select('*')
-          .eq('template_id', templateId)
           .gte('submission_date', startDate)
           .order('submission_date', { ascending: false })
           .order('created_at', { ascending: false }),
