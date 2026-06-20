@@ -348,23 +348,72 @@ function buildBillMaps(rows: LinenBillRow[]) {
     B1: zeroTotals(),
     B2: zeroTotals(),
   };
+  const detailedRowsByBlock = new Map<string, LinenBillRow[]>();
+  const aggregateRowsByBlock = new Map<string, LinenBillRow[]>();
 
   FLOOR_CONFIG.forEach((floor) => {
     floorBillMap[floor.key] = zeroTotals();
   });
 
   rows.forEach((row) => {
-    const totals = parseTotals(row);
     const blockKey = `B${row.block_no}`;
+    const hasFloor = typeof row.floor_no === 'number' && !Number.isNaN(Number(row.floor_no));
 
-    addTotals(blockBillTotals[blockKey] || (blockBillTotals[blockKey] = zeroTotals()), totals);
-
-    if (typeof row.floor_no === 'number') {
-      floorBillMap[floorKey(row.block_no, row.floor_no)] = totals;
+    if (hasFloor) {
+      const list = detailedRowsByBlock.get(blockKey) || [];
+      list.push(row);
+      detailedRowsByBlock.set(blockKey, list);
+      return;
     }
+
+    const list = aggregateRowsByBlock.get(blockKey) || [];
+    list.push(row);
+    aggregateRowsByBlock.set(blockKey, list);
+  });
+
+  const blockKeys = new Set<string>([
+    ...Array.from(detailedRowsByBlock.keys()),
+    ...Array.from(aggregateRowsByBlock.keys()),
+  ]);
+
+  blockKeys.forEach((blockKey) => {
+    const detailedRows = detailedRowsByBlock.get(blockKey) || [];
+    const aggregateRows = aggregateRowsByBlock.get(blockKey) || [];
+    const rowsToUse = detailedRows.length > 0 ? detailedRows : aggregateRows;
+
+    rowsToUse.forEach((row) => {
+      const totals = parseTotals(row);
+      addTotals(blockBillTotals[blockKey] || (blockBillTotals[blockKey] = zeroTotals()), totals);
+
+      if (typeof row.floor_no === 'number' && !Number.isNaN(Number(row.floor_no))) {
+        floorBillMap[floorKey(row.block_no, row.floor_no)] = totals;
+      }
+    });
   });
 
   return { floorBillMap, blockBillTotals };
+}
+
+function getBillRowsForReport(rows: LinenBillRow[]) {
+  const rowsByDateBlock = new Map<string, { detailed: LinenBillRow[]; aggregate: LinenBillRow[] }>();
+
+  rows.forEach((row) => {
+    const key = `${row.service_date || ''}|B${row.block_no}`;
+    const group = rowsByDateBlock.get(key) || { detailed: [], aggregate: [] };
+    const hasFloor = typeof row.floor_no === 'number' && !Number.isNaN(Number(row.floor_no));
+
+    if (hasFloor) {
+      group.detailed.push(row);
+    } else {
+      group.aggregate.push(row);
+    }
+
+    rowsByDateBlock.set(key, group);
+  });
+
+  return Array.from(rowsByDateBlock.values()).flatMap((group) =>
+    group.detailed.length > 0 ? group.detailed : group.aggregate
+  );
 }
 
 function buildReceivedBlockTotals(rows: LinenReceivedRow[]) {
@@ -931,7 +980,8 @@ export default function LinenHistoryPage() {
       });
 
       const inBill = zeroTotals();
-      ((billRes.data || []) as LinenBillRow[]).forEach((row) => {
+      const billRowsForReport = getBillRowsForReport((billRes.data || []) as LinenBillRow[]);
+      billRowsForReport.forEach((row) => {
         addTotals(inBill, parseTotals(row));
       });
 
@@ -948,7 +998,7 @@ export default function LinenHistoryPage() {
         inBill,
         returned,
         actualRows: ((entryRes.data || []) as MonthlyEntryRow[]).filter((row) => !row.is_dnd).length,
-        billRows: ((billRes.data || []) as LinenBillRow[]).length,
+        billRows: billRowsForReport.length,
         returnedRows: ((receivedRes.data || []) as LinenReceivedRow[]).length,
       });
     } catch (err: any) {
@@ -1677,84 +1727,4 @@ const styles: Record<string, React.CSSProperties> = {
   },
   metricRow: {
     display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'center',
-    padding: '10px 0',
-    borderTop: '1px solid #f1f5f9',
-  },
-  metricLabel: {
-    fontSize: '14px',
-    color: '#64748b',
-    fontWeight: 700,
-  },
-  metricValue: {
-    fontSize: '22px',
-    color: '#0f172a',
-    fontWeight: 800,
-  },
-  secondaryBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: '1px solid #cbd5e1',
-    background: '#ffffff',
-    color: '#0f172a',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-  },
-  errorBox: {
-    marginBottom: '14px',
-    background: '#fef2f2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: '12px',
-    padding: '12px 14px',
-    fontWeight: 600,
-  },
-  emptyState: {
-    border: '1px dashed #cbd5e1',
-    background: '#f8fafc',
-    borderRadius: '14px',
-    padding: '24px',
-    textAlign: 'center',
-    color: '#64748b',
-    fontWeight: 600,
-  },
-  centerCard: {
-    maxWidth: '460px',
-    margin: '80px auto',
-    background: '#ffffff',
-    border: '1px solid #e2e8f0',
-    borderRadius: '18px',
-    padding: '24px',
-    textAlign: 'center',
-    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
-  },
-  centerTitle: {
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#0f172a',
-    marginBottom: '10px',
-  },
-  centerText: {
-    fontSize: '15px',
-    color: '#64748b',
-    lineHeight: 1.5,
-    marginBottom: '16px',
-  },
-  linkBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textDecoration: 'none',
-    border: '1px solid #0f172a',
-    background: '#0f172a',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '12px 16px',
-    fontWeight: 700,
-  },
-};
+    justi
