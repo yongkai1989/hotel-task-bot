@@ -12,7 +12,7 @@ type DashboardUser = {
 };
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
-type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND';
+type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND' | 'MONTHLY';
 
 type RoomMasterRow = {
   room_number: string;
@@ -36,6 +36,10 @@ type EntryRow = {
   bath_mat: number | null;
   duvet_cover_king: number | null;
   duvet_cover_single: number | null;
+};
+
+type MonthlyEntryRow = EntryRow & {
+  service_date: string;
 };
 
 type PaEntryRow = {
@@ -127,6 +131,18 @@ type HistoryData = {
   snapshotServiceDate?: string | null;
 };
 
+type MonthlyReportData = {
+  month: string;
+  monthStart: string;
+  monthEnd: string;
+  actual: LinenTotals;
+  inBill: LinenTotals;
+  returned: LinenTotals;
+  actualRows: number;
+  billRows: number;
+  returnedRows: number;
+};
+
 const FLOOR_OPTIONS = [
   { key: 'B1F1', label: 'Block 1 Floor 1' },
   { key: 'B1F2', label: 'Block 1 Floor 2' },
@@ -205,6 +221,29 @@ function formatHistoryDateLabel(value: string, today: string) {
     day: '2-digit',
     month: 'short',
   });
+}
+
+function formatMonthLabel(value: string) {
+  const d = new Date(`${value}-01T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+
+  return d.toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+function getMonthStart(value: string) {
+  return `${value}-01`;
+}
+
+function getMonthEnd(value: string) {
+  const [yearRaw, monthRaw] = value.split('-');
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const d = new Date(year, month, 0);
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${yearRaw}-${monthRaw}-${day}`;
 }
 
 function safeNumber(value: unknown) {
@@ -607,8 +646,11 @@ export default function LinenHistoryPage() {
   const today = getTodayLocalDateString();
   const yesterday = shiftDateString(today, -1);
   const oldestAllowedDate = shiftDateString(today, -7);
+  const currentMonth = yesterday.slice(0, 7);
   const [selectedDate, setSelectedDate] = useState(yesterday);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [historyData, setHistoryData] = useState<HistoryData | null>(null);
+  const [monthlyReport, setMonthlyReport] = useState<MonthlyReportData | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
   const [pageTab, setPageTab] = useState<PageTab>('COUNT');
@@ -845,14 +887,91 @@ export default function LinenHistoryPage() {
     }
   }
 
+  async function loadMonthlyReport() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setErrorMsg('');
+
+      const monthStart = getMonthStart(selectedMonth);
+      const monthEnd = getMonthEnd(selectedMonth);
+
+      const [entryRes, billRes, receivedRes] = await Promise.all([
+        supabase
+          .from('linen_room_entry')
+          .select('service_date, room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .gte('service_date', monthStart)
+          .lte('service_date', monthEnd)
+          .order('service_date', { ascending: true }),
+        supabase
+          .from('linen_laundry_bill')
+          .select('service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .gte('service_date', monthStart)
+          .lte('service_date', monthEnd),
+        supabase
+          .from('linen_laundry_received')
+          .select('service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .gte('service_date', monthStart)
+          .lte('service_date', monthEnd),
+      ]);
+
+      if (entryRes.error) throw entryRes.error;
+      if (billRes.error) throw billRes.error;
+      if (receivedRes.error) throw receivedRes.error;
+
+      const actual = zeroTotals();
+      ((entryRes.data || []) as MonthlyEntryRow[]).forEach((row) => {
+        if (row.is_dnd) return;
+        addTotals(actual, parseTotals(row));
+      });
+
+      const inBill = zeroTotals();
+      ((billRes.data || []) as LinenBillRow[]).forEach((row) => {
+        addTotals(inBill, parseTotals(row));
+      });
+
+      const returned = zeroTotals();
+      ((receivedRes.data || []) as LinenReceivedRow[]).forEach((row) => {
+        addTotals(returned, parseTotals(row));
+      });
+
+      setMonthlyReport({
+        month: selectedMonth,
+        monthStart,
+        monthEnd,
+        actual,
+        inBill,
+        returned,
+        actualRows: ((entryRes.data || []) as MonthlyEntryRow[]).filter((row) => !row.is_dnd).length,
+        billRows: ((billRes.data || []) as LinenBillRow[]).length,
+        returnedRows: ((receivedRes.data || []) as LinenReceivedRow[]).length,
+      });
+    } catch (err: any) {
+      setMonthlyReport(null);
+      setErrorMsg(err?.message || 'Failed to load monthly linen report');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!profile || !canAccess) {
       setLoading(false);
       return;
     }
 
+    if (pageTab === 'MONTHLY') {
+      void loadMonthlyReport();
+      return;
+    }
+
     void loadHistory();
-  }, [profile, canAccess, selectedDate]);
+  }, [profile, canAccess, selectedDate, selectedMonth, pageTab]);
 
   const selectedSummary = useMemo(() => {
     const expected = historyData?.snapshot?.expected_json || {};
@@ -1030,31 +1149,45 @@ export default function LinenHistoryPage() {
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>Date</div>
+          <div style={styles.sectionTitle}>{pageTab === 'MONTHLY' ? 'Month' : 'Date'}</div>
           <div style={styles.historyHint}>
-            Linen History shows yesterday and the previous 6 days. Today is kept out because returned laundry belongs to yesterday's sent-out linen.
+            {pageTab === 'MONTHLY'
+              ? 'Monthly Report totals Actual chambermaid entry, In Bill, and Returned linen for the selected month.'
+              : "Linen History shows yesterday and the previous 6 days. Today is kept out because returned laundry belongs to yesterday's sent-out linen."}
           </div>
 
-          <div style={styles.selectorRow}>
-            {historyDateOptions.map((date) => {
-              const isAvailable = availableDates.includes(date);
-              return (
-                <button
-                  key={date}
-                  type="button"
-                  onClick={() => setSelectedDate(date)}
-                  style={{
-                    ...styles.selectorBtn,
-                    ...(selectedDate === date ? styles.selectorBtnActive : {}),
-                    opacity: isAvailable ? 1 : 0.55,
-                  }}
-                  title={isAvailable ? date : `${date} (no archived snapshot found yet)`}
-                >
-                  {formatHistoryDateLabel(date, today)}
-                </button>
-              );
-            })}
-          </div>
+          {pageTab === 'MONTHLY' ? (
+            <div style={styles.monthControlRow}>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value || currentMonth)}
+                style={styles.monthInput}
+              />
+              <div style={styles.monthLabel}>{formatMonthLabel(selectedMonth)}</div>
+            </div>
+          ) : (
+            <div style={styles.selectorRow}>
+              {historyDateOptions.map((date) => {
+                const isAvailable = availableDates.includes(date);
+                return (
+                  <button
+                    key={date}
+                    type="button"
+                    onClick={() => setSelectedDate(date)}
+                    style={{
+                      ...styles.selectorBtn,
+                      ...(selectedDate === date ? styles.selectorBtnActive : {}),
+                      opacity: isAvailable ? 1 : 0.55,
+                    }}
+                    title={isAvailable ? date : `${date} (no archived snapshot found yet)`}
+                  >
+                    {formatHistoryDateLabel(date, today)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <section style={styles.panel}>
@@ -1081,6 +1214,13 @@ export default function LinenHistoryPage() {
               style={{ ...styles.modeBtn, ...(pageTab === 'BILL_GRAND' ? styles.modeBtnActive : {}) }}
             >
               Laundry Bill Grand Total
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab('MONTHLY')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'MONTHLY' ? styles.modeBtnActive : {}) }}
+            >
+              Monthly Report
             </button>
           </div>
         </section>
@@ -1149,7 +1289,7 @@ export default function LinenHistoryPage() {
               </div>
             ) : null}
           </section>
-        ) : (
+        ) : pageTab === 'MONTHLY' ? null : (
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>
               {pageTab === 'BILL_ENTRY' ? 'Laundry Bill Entry History' : 'Laundry Bill Grand Total History'}
@@ -1191,6 +1331,42 @@ export default function LinenHistoryPage() {
         {loading ? (
           <section style={styles.panel}>
             <div style={styles.emptyState}>Loading linen history...</div>
+          </section>
+        ) : pageTab === 'MONTHLY' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Monthly Report</div>
+            <div style={styles.groupMeta}>
+              {monthlyReport
+                ? `${formatMonthLabel(monthlyReport.month)} | ${monthlyReport.monthStart} to ${monthlyReport.monthEnd} | ${monthlyReport.actualRows} chambermaid row(s)`
+                : formatMonthLabel(selectedMonth)}
+            </div>
+
+            {!monthlyReport ? (
+              <div style={styles.emptyState}>No monthly linen data found.</div>
+            ) : (
+              <div style={styles.reportTableWrap}>
+                <table style={styles.reportTable}>
+                  <thead>
+                    <tr>
+                      <th style={styles.reportTh}>Linen Type</th>
+                      <th style={styles.reportTh}>Actual</th>
+                      <th style={styles.reportTh}>In Bill</th>
+                      <th style={styles.reportTh}>Returned</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ITEM_DEFS.map((item) => (
+                      <tr key={item.key}>
+                        <td style={{ ...styles.reportTd, ...styles.reportItemCell }}>{item.label}</td>
+                        <td style={styles.reportValueTd}>{monthlyReport.actual[item.key]}</td>
+                        <td style={styles.reportValueTd}>{monthlyReport.inBill[item.key]}</td>
+                        <td style={styles.reportValueTd}>{monthlyReport.returned[item.key]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         ) : !historyData?.snapshot ? (
           <section style={styles.panel}>
@@ -1375,6 +1551,33 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '15px',
     outline: 'none',
   },
+  monthControlRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap',
+  },
+  monthInput: {
+    width: '220px',
+    maxWidth: '100%',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontSize: '15px',
+    fontWeight: 700,
+    outline: 'none',
+  },
+  monthLabel: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '999px',
+    padding: '10px 14px',
+    fontSize: '14px',
+    fontWeight: 800,
+  },
   modeRow: {
     display: 'flex',
     gap: '10px',
@@ -1424,6 +1627,46 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '18px',
     background: '#ffffff',
     padding: '14px',
+  },
+  reportTableWrap: {
+    width: '100%',
+    overflowX: 'auto',
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    background: '#ffffff',
+  },
+  reportTable: {
+    width: '100%',
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+    minWidth: '640px',
+  },
+  reportTh: {
+    textAlign: 'left',
+    background: '#f8fafc',
+    color: '#475569',
+    fontSize: '12px',
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    padding: '14px 16px',
+    borderBottom: '1px solid #e2e8f0',
+  },
+  reportTd: {
+    padding: '14px 16px',
+    borderBottom: '1px solid #f1f5f9',
+    color: '#0f172a',
+  },
+  reportItemCell: {
+    fontWeight: 800,
+    fontSize: '15px',
+  },
+  reportValueTd: {
+    padding: '14px 16px',
+    borderBottom: '1px solid #f1f5f9',
+    color: '#0f172a',
+    fontSize: '20px',
+    fontWeight: 900,
+    textAlign: 'left',
   },
   itemTitle: {
     fontSize: '20px',
