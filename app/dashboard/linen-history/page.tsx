@@ -43,6 +43,7 @@ type MonthlyEntryRow = EntryRow & {
 };
 
 type PaEntryRow = {
+  service_date?: string;
   room_number: string;
   block_no: number;
   floor_no: number;
@@ -136,9 +137,12 @@ type MonthlyReportData = {
   monthStart: string;
   monthEnd: string;
   actual: LinenTotals;
+  paUsed: LinenTotals;
+  totalUsed: LinenTotals;
   inBill: LinenTotals;
   returned: LinenTotals;
   actualRows: number;
+  paRows: number;
   billRows: number;
   returnedRows: number;
 };
@@ -431,6 +435,16 @@ function getBillRowsForReport(rows: LinenBillRow[]) {
 
 function getEntryRowsForReport(rows: MonthlyEntryRow[]) {
   const latestByDateRoom = new Map<string, MonthlyEntryRow>();
+
+  rows.forEach((row) => {
+    latestByDateRoom.set(`${row.service_date || ''}|${row.room_number || ''}`, row);
+  });
+
+  return Array.from(latestByDateRoom.values());
+}
+
+function getPaRowsForReport(rows: PaEntryRow[]) {
+  const latestByDateRoom = new Map<string, PaEntryRow>();
 
   rows.forEach((row) => {
     latestByDateRoom.set(`${row.service_date || ''}|${row.room_number || ''}`, row);
@@ -981,15 +995,20 @@ export default function LinenHistoryPage() {
       setErrorMsg('');
 
       const monthStart = getMonthStart(selectedMonth);
-      const monthEnd = getMonthEnd(selectedMonth);
+      const monthEnd = selectedMonth === currentMonth ? yesterday : getMonthEnd(selectedMonth);
 
-      const [entryRes, billRes, receivedRes] = await Promise.all([
+      const [entryRes, paEntryRes, billRes, receivedRes] = await Promise.all([
         supabase
           .from('linen_room_entry')
           .select('service_date, room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .gte('service_date', monthStart)
           .lte('service_date', monthEnd)
           .order('service_date', { ascending: true }),
+        supabase
+          .from('linen_pa_entry')
+          .select('service_date, room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .gte('service_date', monthStart)
+          .lte('service_date', monthEnd),
         supabase
           .from('linen_laundry_bill')
           .select('service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
@@ -1003,6 +1022,7 @@ export default function LinenHistoryPage() {
       ]);
 
       if (entryRes.error) throw entryRes.error;
+      if (paEntryRes.error) throw paEntryRes.error;
       if (billRes.error) throw billRes.error;
       if (receivedRes.error) throw receivedRes.error;
 
@@ -1012,6 +1032,16 @@ export default function LinenHistoryPage() {
         if (row.is_dnd) return;
         addTotals(actual, parseTotals(row));
       });
+
+      const paUsed = zeroTotals();
+      const paRowsForReport = getPaRowsForReport((paEntryRes.data || []) as PaEntryRow[]);
+      paRowsForReport.forEach((row) => {
+        addTotals(paUsed, parseTotals(row));
+      });
+
+      const totalUsed = zeroTotals();
+      addTotals(totalUsed, actual);
+      addTotals(totalUsed, paUsed);
 
       const inBill = zeroTotals();
       const billRowsForReport = getBillRowsForReport((billRes.data || []) as LinenBillRow[]);
@@ -1030,9 +1060,12 @@ export default function LinenHistoryPage() {
         monthStart,
         monthEnd,
         actual,
+        paUsed,
+        totalUsed,
         inBill,
         returned,
         actualRows: entryRowsForReport.filter((row) => !row.is_dnd).length,
+        paRows: paRowsForReport.length,
         billRows: billRowsForReport.length,
         returnedRows: receivedRowsForReport.length,
       });
@@ -1422,7 +1455,7 @@ export default function LinenHistoryPage() {
             <div style={styles.sectionTitle}>Monthly Report</div>
             <div style={styles.groupMeta}>
               {monthlyReport
-                ? `${formatMonthLabel(monthlyReport.month)} | ${monthlyReport.monthStart} to ${monthlyReport.monthEnd} | ${monthlyReport.actualRows} chambermaid row(s)`
+                ? `${formatMonthLabel(monthlyReport.month)} | ${monthlyReport.monthStart} to ${monthlyReport.monthEnd} | ${monthlyReport.actualRows} chambermaid row(s), ${monthlyReport.paRows} PA row(s), ${monthlyReport.billRows} bill row(s), ${monthlyReport.returnedRows} returned row(s)`
                 : formatMonthLabel(selectedMonth)}
             </div>
 
@@ -1435,6 +1468,8 @@ export default function LinenHistoryPage() {
                     <tr>
                       <th style={styles.reportTh}>Linen Type</th>
                       <th style={styles.reportTh}>Actual</th>
+                      <th style={styles.reportTh}>PA Used</th>
+                      <th style={styles.reportTh}>Total Used</th>
                       <th style={styles.reportTh}>In Bill</th>
                       <th style={styles.reportTh}>Returned</th>
                     </tr>
@@ -1444,6 +1479,8 @@ export default function LinenHistoryPage() {
                       <tr key={item.key}>
                         <td style={{ ...styles.reportTd, ...styles.reportItemCell }}>{item.label}</td>
                         <td style={styles.reportValueTd}>{monthlyReport.actual[item.key]}</td>
+                        <td style={styles.reportValueTd}>{monthlyReport.paUsed[item.key]}</td>
+                        <td style={styles.reportValueTd}>{monthlyReport.totalUsed[item.key]}</td>
                         <td style={styles.reportValueTd}>{monthlyReport.inBill[item.key]}</td>
                         <td style={styles.reportValueTd}>{monthlyReport.returned[item.key]}</td>
                       </tr>
