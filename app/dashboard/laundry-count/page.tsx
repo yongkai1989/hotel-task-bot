@@ -197,8 +197,8 @@ function formatDiff(value: number) {
 }
 
 function diffStyle(value: number): React.CSSProperties {
-  if (value > 0) return { color: '#b45309', fontWeight: 800 };
-  if (value < 0) return { color: '#b91c1c', fontWeight: 800 };
+  if (value > 0) return { color: '#b91c1c', fontWeight: 800 };
+  if (value < 0) return { color: '#166534', fontWeight: 800 };
   return { color: '#166534', fontWeight: 800 };
 }
 
@@ -1400,7 +1400,7 @@ export default function LaundryCountPage() {
                           <span style={responsiveStyles.metricValue}>{selectedSummary.inBill[item.key]}</span>
                         </div>
                         <div style={styles.metricRow}>
-                          <span style={styles.metricLabel}>Difference</span>
+                          <span style={styles.metricLabel}>Count Difference</span>
                           <span style={{ ...responsiveStyles.metricValue, ...diffStyle(diffValue) }}>
                             {formatDiff(diffValue)}
                           </span>
