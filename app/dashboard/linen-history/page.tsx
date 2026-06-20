@@ -396,24 +396,57 @@ function buildBillMaps(rows: LinenBillRow[]) {
 
 function getBillRowsForReport(rows: LinenBillRow[]) {
   const rowsByDateBlock = new Map<string, { detailed: LinenBillRow[]; aggregate: LinenBillRow[] }>();
+  const latestDetailedRows = new Map<string, LinenBillRow>();
+  const latestAggregateRows = new Map<string, LinenBillRow>();
 
   rows.forEach((row) => {
-    const key = `${row.service_date || ''}|B${row.block_no}`;
-    const group = rowsByDateBlock.get(key) || { detailed: [], aggregate: [] };
+    const blockKey = `${row.service_date || ''}|B${row.block_no}`;
     const hasFloor = typeof row.floor_no === 'number' && !Number.isNaN(Number(row.floor_no));
 
     if (hasFloor) {
-      group.detailed.push(row);
+      latestDetailedRows.set(`${blockKey}|F${row.floor_no}`, row);
     } else {
-      group.aggregate.push(row);
+      latestAggregateRows.set(blockKey, row);
     }
+  });
 
-    rowsByDateBlock.set(key, group);
+  latestDetailedRows.forEach((row) => {
+    const blockKey = `${row.service_date || ''}|B${row.block_no}`;
+    const group = rowsByDateBlock.get(blockKey) || { detailed: [], aggregate: [] };
+    group.detailed.push(row);
+    rowsByDateBlock.set(blockKey, group);
+  });
+
+  latestAggregateRows.forEach((row) => {
+    const blockKey = `${row.service_date || ''}|B${row.block_no}`;
+    const group = rowsByDateBlock.get(blockKey) || { detailed: [], aggregate: [] };
+    group.aggregate.push(row);
+    rowsByDateBlock.set(blockKey, group);
   });
 
   return Array.from(rowsByDateBlock.values()).flatMap((group) =>
     group.detailed.length > 0 ? group.detailed : group.aggregate
   );
+}
+
+function getEntryRowsForReport(rows: MonthlyEntryRow[]) {
+  const latestByDateRoom = new Map<string, MonthlyEntryRow>();
+
+  rows.forEach((row) => {
+    latestByDateRoom.set(`${row.service_date || ''}|${row.room_number || ''}`, row);
+  });
+
+  return Array.from(latestByDateRoom.values());
+}
+
+function getReceivedRowsForReport(rows: LinenReceivedRow[]) {
+  const latestByDateBlock = new Map<string, LinenReceivedRow>();
+
+  rows.forEach((row) => {
+    latestByDateBlock.set(`${row.service_date || ''}|B${row.block_no}`, row);
+  });
+
+  return Array.from(latestByDateBlock.values());
 }
 
 function buildReceivedBlockTotals(rows: LinenReceivedRow[]) {
@@ -974,7 +1007,8 @@ export default function LinenHistoryPage() {
       if (receivedRes.error) throw receivedRes.error;
 
       const actual = zeroTotals();
-      ((entryRes.data || []) as MonthlyEntryRow[]).forEach((row) => {
+      const entryRowsForReport = getEntryRowsForReport((entryRes.data || []) as MonthlyEntryRow[]);
+      entryRowsForReport.forEach((row) => {
         if (row.is_dnd) return;
         addTotals(actual, parseTotals(row));
       });
@@ -986,7 +1020,8 @@ export default function LinenHistoryPage() {
       });
 
       const returned = zeroTotals();
-      ((receivedRes.data || []) as LinenReceivedRow[]).forEach((row) => {
+      const receivedRowsForReport = getReceivedRowsForReport((receivedRes.data || []) as LinenReceivedRow[]);
+      receivedRowsForReport.forEach((row) => {
         addTotals(returned, parseTotals(row));
       });
 
@@ -997,9 +1032,9 @@ export default function LinenHistoryPage() {
         actual,
         inBill,
         returned,
-        actualRows: ((entryRes.data || []) as MonthlyEntryRow[]).filter((row) => !row.is_dnd).length,
+        actualRows: entryRowsForReport.filter((row) => !row.is_dnd).length,
         billRows: billRowsForReport.length,
-        returnedRows: ((receivedRes.data || []) as LinenReceivedRow[]).length,
+        returnedRows: receivedRowsForReport.length,
       });
     } catch (err: any) {
       setMonthlyReport(null);
@@ -1727,4 +1762,84 @@ const styles: Record<string, React.CSSProperties> = {
   },
   metricRow: {
     display: 'flex',
-    justi
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'center',
+    padding: '10px 0',
+    borderTop: '1px solid #f1f5f9',
+  },
+  metricLabel: {
+    fontSize: '14px',
+    color: '#64748b',
+    fontWeight: 700,
+  },
+  metricValue: {
+    fontSize: '22px',
+    color: '#0f172a',
+    fontWeight: 800,
+  },
+  secondaryBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 700,
+  },
+  errorBox: {
+    marginBottom: '14px',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    border: '1px solid #fecaca',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    fontWeight: 600,
+  },
+  emptyState: {
+    border: '1px dashed #cbd5e1',
+    background: '#f8fafc',
+    borderRadius: '14px',
+    padding: '24px',
+    textAlign: 'center',
+    color: '#64748b',
+    fontWeight: 600,
+  },
+  centerCard: {
+    maxWidth: '460px',
+    margin: '80px auto',
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    padding: '24px',
+    textAlign: 'center',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.05)',
+  },
+  centerTitle: {
+    fontSize: '24px',
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: '10px',
+  },
+  centerText: {
+    fontSize: '15px',
+    color: '#64748b',
+    lineHeight: 1.5,
+    marginBottom: '16px',
+  },
+  linkBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    border: '1px solid #0f172a',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 700,
+  },
+};
