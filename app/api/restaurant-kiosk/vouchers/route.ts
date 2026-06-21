@@ -221,4 +221,155 @@ export async function POST(req: NextRequest) {
     if (!canManageBreakfastVouchers(user)) return jsonNoCache({ ok: false, error: 'Access denied' }, 403);
 
     const body = await req.json().catch(() => ({}));
-    const roomNumber = cleanText(body?.room_n
+    const roomNumber = cleanText(body?.room_number);
+    const sellingStaffName = cleanText(body?.manual_sold_by_name);
+    const paymentType = cleanText(body?.manual_payment_type).toUpperCase();
+    const allowedPaymentTypes = ['CASH', 'CARD_TERMINAL', 'MANUAL_QR', 'COMPLIMENTARY'];
+
+    if (!roomNumber) return jsonNoCache({ ok: false, error: 'Room number is required' }, 400);
+    if (!sellingStaffName) return jsonNoCache({ ok: false, error: 'Selling staff name is required' }, 400);
+    if (!allowedPaymentTypes.includes(paymentType)) {
+      return jsonNoCache({ ok: false, error: 'Payment type is required' }, 400);
+    }
+
+    const items = await buildManualVoucherItems(body?.items || []);
+    const quantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const totalMyr = Number(items.reduce((sum, item) => sum + Number(item.line_total_myr || 0), 0).toFixed(2));
+    const amountReceived = Number(body?.manual_amount_received ?? totalMyr);
+
+    if (paymentType !== 'COMPLIMENTARY' && (!Number.isFinite(amountReceived) || amountReceived < totalMyr)) {
+      return jsonNoCache({ ok: false, error: 'Amount received must be at least the voucher total' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const voucherCode = breakfastVoucherCode();
+    const { data, error: insertError } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .insert({
+        room_number: roomNumber,
+        guest_name: `Room ${roomNumber}`,
+        guest_email: null,
+        status: 'PAID',
+        order_type: 'BREAKFAST',
+        payment_provider: `MANUAL_${paymentType}`,
+        payment_reference: `MANUAL-${voucherCode}`,
+        total_myr: totalMyr,
+        items_json: items,
+        paid_at: now,
+        voucher_code: voucherCode,
+        voucher_quantity: quantity,
+        voucher_redeemed_quantity: 0,
+        voucher_status: 'ACTIVE',
+        print_status: 'NOT_QUEUED',
+        breakfast_print_status: 'NOT_QUEUED',
+        fo_print_status: 'NOT_QUEUED',
+        fnb_print_status: 'NOT_QUEUED',
+        manual_sale_channel: 'FRONT_OFFICE',
+        manual_payment_type: paymentType,
+        manual_amount_received: paymentType === 'COMPLIMENTARY' ? 0 : Number(amountReceived.toFixed(2)),
+        manual_sold_by_name: sellingStaffName,
+        manual_issued_by_user_id: user?.user_id || null,
+        manual_issued_by_name: String(user?.name || user?.email || 'Staff'),
+        manual_issued_by_email: String(user?.email || ''),
+        manual_issued_at: now,
+      })
+      .select(voucherSelect())
+      .single();
+
+    if (insertError) throw insertError;
+    return jsonNoCache({ ok: true, voucher: normalizeVoucher(data) });
+  } catch (err: any) {
+    return jsonNoCache({ ok: false, error: err?.message || 'Failed to issue manual breakfast voucher' }, 500);
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const { user, error } = await getDashboardUserFromRequest(req);
+    if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
+    if (!canManageBreakfastVouchers(user)) return jsonNoCache({ ok: false, error: 'Access denied' }, 403);
+
+    const body = await req.json().catch(() => ({}));
+    const code = String(body?.code || '').trim();
+    const orderId = String(body?.order_id || '').trim();
+    if (!code && !orderId) return jsonNoCache({ ok: false, error: 'Missing voucher code' }, 400);
+
+    let lookup = supabaseAdmin
+      .from('guest_shop_orders')
+      .select(voucherSelect())
+      .eq('order_type', 'BREAKFAST')
+      .limit(1);
+
+    lookup = code ? lookup.eq('voucher_code', code) : lookup.eq('id', orderId);
+    const result: any = await lookup;
+    const rows: any[] = Array.isArray(result?.data) ? result.data : [];
+    const loadError = result?.error;
+    if (loadError) throw loadError;
+
+    const voucher: any = rows[0] || null;
+    if (!voucher) return jsonNoCache({ ok: false, error: 'Voucher not found', tone: 'danger' }, 404);
+    if (voucher.status !== 'PAID' && voucher.status !== 'FULFILLED') {
+      return jsonNoCache({ ok: false, error: 'Payment is not verified', voucher: normalizeVoucher(voucher), tone: 'danger' }, 400);
+    }
+    if (String(voucher.voucher_status || '').toUpperCase() === 'REDEEMED' || voucher.fulfilled_at) {
+      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: normalizeVoucher(voucher), tone: 'danger' }, 409);
+    }
+
+    const now = new Date().toISOString();
+    const redeemedBy = String(user?.name || user?.email || 'Staff');
+    const quantity = Math.max(1, Number(voucher.voucher_quantity || 1));
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .update({
+        status: 'FULFILLED',
+        fulfilled_at: now,
+        voucher_status: 'REDEEMED',
+        voucher_redeemed_quantity: quantity,
+        voucher_redeemed_at: now,
+        voucher_redeemed_by: redeemedBy,
+      })
+      .eq('id', voucher.id)
+      .neq('voucher_status', 'REDEEMED')
+      .select(voucherSelect())
+      .maybeSingle();
+
+    if (updateError) throw updateError;
+    if (!updated) {
+      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: normalizeVoucher(voucher), tone: 'danger' }, 409);
+    }
+
+    return jsonNoCache({ ok: true, voucher: normalizeVoucher(updated), tone: 'success' });
+  } catch (err: any) {
+    return jsonNoCache({ ok: false, error: err?.message || 'Failed to redeem voucher' }, 500);
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { user, error } = await getDashboardUserFromRequest(req);
+    if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
+
+    const role = String(user?.role || '').trim().toUpperCase();
+    if (role !== 'SUPERUSER') {
+      return jsonNoCache({ ok: false, error: 'Only superuser can delete breakfast voucher orders' }, 403);
+    }
+
+    const id = String(req.nextUrl.searchParams.get('id') || '').trim();
+    if (!id) return jsonNoCache({ ok: false, error: 'Missing voucher order id' }, 400);
+
+    const { data, error: deleteError } = await supabaseAdmin
+      .from('guest_shop_orders')
+      .delete()
+      .eq('id', id)
+      .eq('order_type', 'BREAKFAST')
+      .select('id')
+      .maybeSingle();
+
+    if (deleteError) throw deleteError;
+    if (!data) return jsonNoCache({ ok: false, error: 'Breakfast voucher order not found' }, 404);
+
+    return jsonNoCache({ ok: true });
+  } catch (err: any) {
+    return jsonNoCache({ ok: false, error: err?.message || 'Failed to delete voucher order' }, 500);
+  }
+}
