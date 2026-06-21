@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 
@@ -24,8 +25,12 @@ function canManageBreakfastVouchers(user: any) {
   const email = normalizeEmail(user?.email);
   return (
     role === 'SUPERUSER' ||
+    role === 'FO' ||
     role === 'FNB' ||
+    user?.can_access_lost_found === true ||
     user?.can_access_fnb_orders === true ||
+    email === 'fo@hotelhallmark.com' ||
+    email === 'walter@hotelhallmark.com' ||
     email === 'fnb@hotelhallmark.com' ||
     email === 'fenny@hotelhallmark.com'
   );
@@ -64,7 +69,14 @@ function voucherSelect() {
     voucher_redeemed_quantity,
     voucher_status,
     voucher_redeemed_at,
-    voucher_redeemed_by
+    voucher_redeemed_by,
+    manual_sale_channel,
+    manual_payment_type,
+    manual_amount_received,
+    manual_sold_by_name,
+    manual_issued_by_name,
+    manual_issued_by_email,
+    manual_issued_at
   `;
 }
 
@@ -87,7 +99,86 @@ function normalizeVoucher(row: any) {
     voucher_status: String(row?.voucher_status || 'NOT_REQUIRED'),
     voucher_redeemed_at: row?.voucher_redeemed_at || null,
     voucher_redeemed_by: String(row?.voucher_redeemed_by || ''),
+    manual_sale_channel: String(row?.manual_sale_channel || ''),
+    manual_payment_type: String(row?.manual_payment_type || ''),
+    manual_amount_received: row?.manual_amount_received == null ? null : Number(row.manual_amount_received || 0),
+    manual_sold_by_name: String(row?.manual_sold_by_name || ''),
+    manual_issued_by_name: String(row?.manual_issued_by_name || ''),
+    manual_issued_by_email: String(row?.manual_issued_by_email || ''),
+    manual_issued_at: row?.manual_issued_at || null,
   };
+}
+
+function cleanText(value: unknown) {
+  return String(value || '').trim();
+}
+
+function breakfastVoucherCode() {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `BF-${day}-${randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+async function resolveVoucherType(typeId: string) {
+  if (typeId && typeId !== 'default-breakfast') {
+    const result: any = await supabaseAdmin
+      .from('breakfast_voucher_types')
+      .select('id, name, description, price_myr, is_active')
+      .eq('id', typeId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (result?.error) throw result.error;
+    if (result?.data) {
+      return {
+        id: String(result.data.id),
+        name: String(result.data.name || 'Breakfast Voucher'),
+        description: String(result.data.description || ''),
+        price_myr: Number(result.data.price_myr || 0),
+      };
+    }
+  }
+
+  const fallbackPrice = Number(process.env.BREAKFAST_VOUCHER_PRICE_MYR || 20);
+  return {
+    id: 'default-breakfast',
+    name: 'Breakfast Voucher',
+    description: 'Breakfast pass redeemable at the restaurant counter.',
+    price_myr: Number.isFinite(fallbackPrice) && fallbackPrice > 0 ? fallbackPrice : 20,
+  };
+}
+
+async function buildManualVoucherItems(rawItems: any[]) {
+  const requested = (Array.isArray(rawItems) ? rawItems : [])
+    .map((item: any) => ({
+      voucherTypeId: cleanText(item?.voucherTypeId),
+      quantity: Math.max(0, Math.min(20, Math.floor(Number(item?.quantity || 0)))),
+    }))
+    .filter((item: any) => item.voucherTypeId && item.quantity > 0);
+
+  if (!requested.length) throw new Error('Please add at least one breakfast voucher.');
+
+  const merged = new Map<string, number>();
+  requested.forEach((item: any) => {
+    merged.set(item.voucherTypeId, Math.min(20, (merged.get(item.voucherTypeId) || 0) + item.quantity));
+  });
+
+  const lines = [];
+  for (const [voucherTypeId, quantity] of merged.entries()) {
+    const voucherType = await resolveVoucherType(voucherTypeId);
+    const unitPrice = Number.isFinite(voucherType.price_myr) && voucherType.price_myr > 0 ? voucherType.price_myr : 20;
+    lines.push({
+      id: `breakfast-voucher-${voucherType.id}`,
+      voucher_type_id: voucherType.id,
+      name: voucherType.name,
+      description: voucherType.description,
+      category: 'Breakfast',
+      quantity,
+      price_myr: unitPrice,
+      line_total_myr: Number((unitPrice * quantity).toFixed(2)),
+    });
+  }
+
+  return lines;
 }
 
 export async function GET(req: NextRequest) {
@@ -123,93 +214,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function PUT(req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
     const { user, error } = await getDashboardUserFromRequest(req);
     if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
     if (!canManageBreakfastVouchers(user)) return jsonNoCache({ ok: false, error: 'Access denied' }, 403);
 
     const body = await req.json().catch(() => ({}));
-    const code = String(body?.code || '').trim();
-    const orderId = String(body?.order_id || '').trim();
-    if (!code && !orderId) return jsonNoCache({ ok: false, error: 'Missing voucher code' }, 400);
-
-    let lookup = supabaseAdmin
-      .from('guest_shop_orders')
-      .select(voucherSelect())
-      .eq('order_type', 'BREAKFAST')
-      .limit(1);
-
-    lookup = code ? lookup.eq('voucher_code', code) : lookup.eq('id', orderId);
-    const result: any = await lookup;
-    const rows: any[] = Array.isArray(result?.data) ? result.data : [];
-    const loadError = result?.error;
-    if (loadError) throw loadError;
-
-    const voucher: any = rows[0] || null;
-    if (!voucher) return jsonNoCache({ ok: false, error: 'Voucher not found', tone: 'danger' }, 404);
-    if (voucher.status !== 'PAID' && voucher.status !== 'FULFILLED') {
-      return jsonNoCache({ ok: false, error: 'Payment is not verified', voucher: normalizeVoucher(voucher), tone: 'danger' }, 400);
-    }
-    if (String(voucher.voucher_status || '').toUpperCase() === 'REDEEMED' || voucher.fulfilled_at) {
-      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: normalizeVoucher(voucher), tone: 'danger' }, 409);
-    }
-
-    const now = new Date().toISOString();
-    const redeemedBy = String(user?.name || user?.email || 'Staff');
-    const quantity = Math.max(1, Number(voucher.voucher_quantity || 1));
-    const { data: updated, error: updateError } = await supabaseAdmin
-      .from('guest_shop_orders')
-      .update({
-        status: 'FULFILLED',
-        fulfilled_at: now,
-        voucher_status: 'REDEEMED',
-        voucher_redeemed_quantity: quantity,
-        voucher_redeemed_at: now,
-        voucher_redeemed_by: redeemedBy,
-      })
-      .eq('id', voucher.id)
-      .neq('voucher_status', 'REDEEMED')
-      .select(voucherSelect())
-      .maybeSingle();
-
-    if (updateError) throw updateError;
-    if (!updated) {
-      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: normalizeVoucher(voucher), tone: 'danger' }, 409);
-    }
-
-    return jsonNoCache({ ok: true, voucher: normalizeVoucher(updated), tone: 'success' });
-  } catch (err: any) {
-    return jsonNoCache({ ok: false, error: err?.message || 'Failed to redeem voucher' }, 500);
-  }
-}
-
-export async function DELETE(req: NextRequest) {
-  try {
-    const { user, error } = await getDashboardUserFromRequest(req);
-    if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
-
-    const role = String(user?.role || '').trim().toUpperCase();
-    if (role !== 'SUPERUSER') {
-      return jsonNoCache({ ok: false, error: 'Only superuser can delete breakfast voucher orders' }, 403);
-    }
-
-    const id = String(req.nextUrl.searchParams.get('id') || '').trim();
-    if (!id) return jsonNoCache({ ok: false, error: 'Missing voucher order id' }, 400);
-
-    const { data, error: deleteError } = await supabaseAdmin
-      .from('guest_shop_orders')
-      .delete()
-      .eq('id', id)
-      .eq('order_type', 'BREAKFAST')
-      .select('id')
-      .maybeSingle();
-
-    if (deleteError) throw deleteError;
-    if (!data) return jsonNoCache({ ok: false, error: 'Breakfast voucher order not found' }, 404);
-
-    return jsonNoCache({ ok: true });
-  } catch (err: any) {
-    return jsonNoCache({ ok: false, error: err?.message || 'Failed to delete voucher order' }, 500);
-  }
-}
+    const roomNumber = cleanText(body?.room_n
