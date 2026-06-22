@@ -105,9 +105,15 @@ function countMeals(meals: Record<string, MealChoice>) {
   );
 }
 
+function canViewStaffMeal(user: any) {
+  const role = String(user?.role || '').trim().toUpperCase();
+  const email = String(user?.email || '').trim().toLowerCase();
+  return role === 'SUPERUSER' || role === 'FNB' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+}
+
 function canManageStaffMeal(user: any) {
   const role = String(user?.role || '').trim().toUpperCase();
-  return role === 'SUPERUSER' || role === 'MANAGER';
+  return role === 'SUPERUSER';
 }
 
 async function cleanupOldOrders() {
@@ -128,6 +134,7 @@ export async function GET(req: NextRequest) {
 
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
+  if (!canViewStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Staff Meal is available to Superuser, F&B, and Fenny only.' }, 403);
 
   await cleanupOldOrders();
 
@@ -200,7 +207,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
-  if (!canManageStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Only managers and superusers can edit staff meal orders.' }, 403);
+  if (!canManageStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Only superusers can edit staff meal orders.' }, 403);
 
   const body = await req.json().catch(() => ({}));
   const id = normalizeName(body?.id);
@@ -243,7 +250,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
-  if (!canManageStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Only managers and superusers can delete staff meal orders.' }, 403);
+  if (!canManageStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Only superusers can delete staff meal orders.' }, 403);
 
   const id = req.nextUrl.searchParams.get('id') || '';
   if (!id) return jsonNoCache({ ok: false, error: 'Missing order id.' }, 400);
