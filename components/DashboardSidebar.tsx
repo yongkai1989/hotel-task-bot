@@ -754,7 +754,11 @@ export default function DashboardSidebar({
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
   const effectiveEmail = String(effectiveProfile?.email || '').trim().toLowerCase();
   const effectiveRole = String(effectiveProfile?.role || '').trim().toUpperCase();
-  const canSeeStaffMeal = effectiveRole === 'SUPERUSER' || effectiveRole === 'MANAGER';
+  const canSeeStaffMeal =
+    effectiveRole === 'SUPERUSER' ||
+    effectiveRole === 'FNB' ||
+    effectiveEmail === 'fnb@hotelhallmark.com' ||
+    effectiveEmail === 'fenny@hotelhallmark.com';
   const canSeeCommissionChecker =
     effectiveRole === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_commission_checker ||
@@ -812,14 +816,14 @@ export default function DashboardSidebar({
     canSeeSupervisorChecklist;
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
-    canSeeDailyForms || canSeeManagementTasks || canSeeStaffMeal || canSeeCommissionChecker || canSeeAdminSettings;
+    canSeeDailyForms || canSeeManagementTasks || canSeeCommissionChecker || canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeLostFound ||
     canSeeFoChecklist ||
     canSeePriceGuide ||
     canSeeGuestLaundry ||
     canSeeFoGuestShopAdmin;
-  const showFnbGroup = canSeeFnbChecklist || canSeeFnbMenuAdmin || canSeeFnbOrders;
+  const showFnbGroup = canSeeFnbChecklist || canSeeFnbMenuAdmin || canSeeFnbOrders || canSeeStaffMeal;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -1474,6 +1478,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeStaffMeal ? (
+                <Link
+                  href="/dashboard/staff-meal"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Staff Meal</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeFnbMenuAdmin ? (
                 <Link
                   href="/dashboard/guest-shop-admin?scope=fnb"
@@ -1513,17 +1528,6 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="list" sub>Management Tasks</SidebarNavContent>
-                </Link>
-              ) : null}
-
-              {canSeeStaffMeal ? (
-                <Link
-                  href="/dashboard/staff-meal"
-                  prefetch={false}
-                  onClick={closeSidebar}
-                  style={styles.subNavBtn}
-                >
-                  <SidebarNavContent icon="clipboard" sub>Staff Meal</SidebarNavContent>
                 </Link>
               ) : null}
 
