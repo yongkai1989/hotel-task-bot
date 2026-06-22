@@ -40,6 +40,17 @@ function formatLongDate(value: string) {
   });
 }
 
+function formatShortDate(value: string) {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+  });
+}
+
 function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00`);
   date.setDate(date.getDate() + days);
@@ -59,6 +70,13 @@ function mealLabel(choice: MealChoice) {
   if (choice === 'dinner') return 'Dinner';
   if (choice === 'both') return 'Lunch + Dinner';
   return 'No meal';
+}
+
+function mealHint(choice: MealChoice) {
+  if (choice === 'lunch') return 'Noon shift';
+  if (choice === 'dinner') return 'Night shift';
+  if (choice === 'both') return '12-hour shift only';
+  return 'Rest day / no order';
 }
 
 function countMeals(meals: Record<string, MealChoice>) {
@@ -154,11 +172,11 @@ export default function StaffMealPage() {
     return (
       <main style={styles.page}>
         <section style={styles.confirmCard}>
-          <div style={styles.successIcon}>OK</div>
+          <div style={styles.successIcon}>✓</div>
           <div style={styles.eyebrow}>Staff Meal Order Confirmed</div>
-          <h1 style={styles.confirmTitle}>Please screenshot this page</h1>
+          <h1 style={styles.confirmTitle}>Your meal order is saved</h1>
           <p style={styles.subText}>
-            Changes after submission must be handled by your manager.
+            Please screenshot this confirmation. Changes after submission must be handled by your manager.
           </p>
 
           <div style={styles.confirmGrid}>
@@ -187,7 +205,7 @@ export default function StaffMealPage() {
               closes_at_label: '',
             }).map((date) => (
               <div key={date} style={styles.confirmRow}>
-                <span>{formatLongDate(date)}</span>
+                <span>{formatShortDate(date)}</span>
                 <strong>{mealLabel(submitted.meals?.[date] || 'none')}</strong>
               </div>
             ))}
@@ -204,23 +222,38 @@ export default function StaffMealPage() {
   return (
     <main style={styles.page}>
       <section style={styles.hero}>
-        <div>
+        <div style={styles.heroCopy}>
           <div style={styles.eyebrow}>Hallmark Staff Meal</div>
           <h1 style={styles.title}>Weekly Meal Order</h1>
           <p style={styles.subText}>
-            Choose your lunch and dinner for the displayed order week. One name can submit once per branch.
+            Choose your meals for the week ahead. Simple, clear, and saved under your branch.
           </p>
+          <div style={styles.heroChips}>
+            <span style={styles.heroChip}>One submission per name</span>
+            <span style={styles.heroChip}>Screenshot after submit</span>
+            <span style={styles.heroChip}>Manager edits only</span>
+          </div>
         </div>
         <div style={styles.weekBadge}>
-          <span>Ordering For</span>
-          <strong>{formatLongDate(cycle.order_week_start)} - {formatLongDate(cycle.order_week_end)}</strong>
-          <small>Cycle closes {cycle.closes_at_label}</small>
+          <span style={styles.weekKicker}>Ordering Week</span>
+          <strong>{formatLongDate(cycle.order_week_start)}</strong>
+          <em>to</em>
+          <strong>{formatLongDate(cycle.order_week_end)}</strong>
+          <small>Last call: {cycle.closes_at_label || '-'}</small>
         </div>
       </section>
 
       {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
       <section style={styles.card}>
+        <div style={styles.sectionHeader}>
+          <div>
+            <div style={styles.eyebrow}>Your Details</div>
+            <h2 style={styles.sectionTitle}>Start with branch and name</h2>
+          </div>
+          <div style={styles.orderPill}>{totals.lunch + totals.dinner} meal(s) selected</div>
+        </div>
+
         <div style={styles.formGrid}>
           <label style={styles.field}>
             <span style={styles.label}>Branch</span>
@@ -243,7 +276,14 @@ export default function StaffMealPage() {
         </div>
 
         <div style={styles.notice}>
-          Selecting <strong>Lunch + Dinner</strong> is reserved only for staff working approved 12-hour shifts.
+          <strong>Reminder:</strong> Lunch + Dinner is reserved only for staff working approved 12-hour shifts.
+        </div>
+
+        <div style={styles.sectionHeader}>
+          <div>
+            <div style={styles.eyebrow}>Meal Plan</div>
+            <h2 style={styles.sectionTitle}>Choose your meals</h2>
+          </div>
         </div>
 
         <div style={styles.mealGrid}>
@@ -252,8 +292,12 @@ export default function StaffMealPage() {
           ) : (
             dates.map((date) => (
               <article key={date} style={styles.dayCard}>
-                <div>
-                  <div style={styles.dayTitle}>{formatLongDate(date)}</div>
+                <div style={styles.dayInfo}>
+                  <span style={styles.dayBadge}>{formatShortDate(date).split(' ')[0]}</span>
+                  <div>
+                    <div style={styles.dayTitle}>{formatShortDate(date).replace(',', '')}</div>
+                    <div style={styles.dayChoice}>{mealLabel(meals[date] || 'none')}</div>
+                  </div>
                 </div>
                 <div style={styles.choiceGrid}>
                   {(['none', 'lunch', 'dinner', 'both'] as MealChoice[]).map((choice) => (
@@ -266,7 +310,8 @@ export default function StaffMealPage() {
                         ...(meals[date] === choice ? styles.choiceBtnActive : {}),
                       }}
                     >
-                      {mealLabel(choice)}
+                      <span>{mealLabel(choice)}</span>
+                      <small>{mealHint(choice)}</small>
                     </button>
                   ))}
                 </div>
@@ -280,7 +325,7 @@ export default function StaffMealPage() {
           <textarea
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
-            placeholder="Optional notes for manager"
+            placeholder="Optional notes, for example shift changes or special remarks"
             style={{ ...styles.input, minHeight: 88, resize: 'vertical' }}
           />
         </label>
@@ -302,22 +347,30 @@ export default function StaffMealPage() {
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#eef4fb',
+    background:
+      'radial-gradient(circle at top left, rgba(218, 234, 255, 0.95) 0, rgba(248, 251, 255, 0) 34%), linear-gradient(180deg, #f3f7fc 0%, #eef4fb 42%, #ffffff 100%)',
     color: '#07152f',
-    padding: 'clamp(18px, 4vw, 48px)',
+    padding: 'clamp(14px, 4vw, 46px)',
     fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   hero: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))',
-    gap: 18,
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))',
+    gap: 16,
     alignItems: 'stretch',
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 58%, #edf5ff 100%)',
+    background: 'linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(250,253,255,0.94) 58%, rgba(232,242,255,0.92) 100%)',
     border: '1px solid #cfe0f3',
-    borderRadius: 28,
-    padding: 'clamp(22px, 4vw, 38px)',
-    boxShadow: '0 18px 48px rgba(25, 75, 135, 0.12)',
-    marginBottom: 18,
+    borderRadius: 30,
+    padding: 'clamp(20px, 4vw, 40px)',
+    boxShadow: '0 22px 65px rgba(25, 75, 135, 0.13)',
+    margin: '0 auto 16px',
+    maxWidth: 1180,
+    overflow: 'hidden',
+  },
+  heroCopy: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
   },
   eyebrow: {
     color: '#2563eb',
@@ -328,8 +381,9 @@ const styles: Record<string, CSSProperties> = {
   },
   title: {
     margin: '8px 0',
-    fontSize: 'clamp(36px, 7vw, 72px)',
-    lineHeight: 0.95,
+    fontSize: 'clamp(34px, 7vw, 68px)',
+    lineHeight: 0.92,
+    letterSpacing: '-0.02em',
   },
   subText: {
     color: '#53657f',
@@ -337,24 +391,71 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 16,
     lineHeight: 1.5,
     margin: 0,
+    maxWidth: 620,
+  },
+  heroChips: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 20,
+  },
+  heroChip: {
+    border: '1px solid #d7e5f7',
+    background: '#ffffff',
+    borderRadius: 999,
+    padding: '8px 11px',
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: 900,
   },
   weekBadge: {
-    background: '#0f172a',
+    background: 'linear-gradient(145deg, #0f172a 0%, #172554 100%)',
     color: '#fff',
-    borderRadius: 24,
-    padding: 22,
+    borderRadius: 26,
+    padding: 'clamp(18px, 3vw, 26px)',
     display: 'flex',
     flexDirection: 'column',
-    gap: 8,
+    gap: 5,
     justifyContent: 'center',
-    boxShadow: '0 14px 34px rgba(15, 23, 42, 0.22)',
+    boxShadow: '0 18px 42px rgba(15, 23, 42, 0.24)',
+  },
+  weekKicker: {
+    color: '#93c5fd',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    fontSize: 11,
+    fontWeight: 950,
+  },
+  orderPill: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: 999,
+    padding: '9px 13px',
+    fontWeight: 950,
+    whiteSpace: 'nowrap',
   },
   card: {
     background: '#fff',
     border: '1px solid #d6e3f3',
-    borderRadius: 28,
-    padding: 'clamp(18px, 3vw, 28px)',
-    boxShadow: '0 16px 42px rgba(20, 48, 86, 0.09)',
+    borderRadius: 30,
+    padding: 'clamp(16px, 3vw, 30px)',
+    boxShadow: '0 18px 54px rgba(20, 48, 86, 0.1)',
+    maxWidth: 1180,
+    margin: '0 auto',
+  },
+  sectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    flexWrap: 'wrap',
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    margin: '4px 0 0',
+    fontSize: 'clamp(22px, 4vw, 32px)',
+    lineHeight: 1,
   },
   formGrid: {
     display: 'grid',
@@ -374,57 +475,84 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     boxSizing: 'border-box',
     border: '1px solid #c9d8eb',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: '15px 16px',
     fontSize: 16,
     fontWeight: 750,
     outline: 'none',
-    background: '#fbfdff',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
   },
   notice: {
-    background: '#fff7ed',
+    background: 'linear-gradient(135deg, #fff7ed 0%, #fffaf4 100%)',
     border: '1px solid #fed7aa',
     color: '#9a3412',
     borderRadius: 18,
-    padding: 14,
+    padding: '13px 15px',
     fontWeight: 850,
-    margin: '4px 0 18px',
+    margin: '4px 0 22px',
   },
   mealGrid: {
     display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(330px, 100%), 1fr))',
     gap: 12,
     marginBottom: 18,
   },
   dayCard: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
+    gridTemplateColumns: '1fr',
+    gap: 12,
+    border: '1px solid #dbe6f4',
+    borderRadius: 22,
+    padding: 14,
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
+    boxShadow: '0 10px 26px rgba(20, 48, 86, 0.06)',
+  },
+  dayInfo: {
+    display: 'flex',
     gap: 12,
     alignItems: 'center',
-    border: '1px solid #dbe6f4',
-    borderRadius: 18,
-    padding: 14,
-    background: '#fbfdff',
+  },
+  dayBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    display: 'grid',
+    placeItems: 'center',
+    background: '#eaf2ff',
+    color: '#1d4ed8',
+    fontWeight: 950,
+    fontSize: 12,
+    textTransform: 'uppercase',
   },
   dayTitle: {
     fontWeight: 950,
     fontSize: 16,
   },
+  dayChoice: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: 850,
+    marginTop: 2,
+  },
   choiceGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 8,
   },
   choiceBtn: {
     border: '1px solid #cddcf0',
-    background: '#fff',
-    borderRadius: 14,
-    padding: '12px 8px',
+    background: '#ffffff',
+    borderRadius: 16,
+    padding: '11px 10px',
     fontWeight: 900,
     color: '#16243b',
     cursor: 'pointer',
+    display: 'grid',
+    gap: 3,
+    textAlign: 'left',
   },
   choiceBtnActive: {
-    background: '#2563eb',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
     borderColor: '#2563eb',
     color: '#fff',
     boxShadow: '0 10px 24px rgba(37, 99, 235, 0.22)',
@@ -434,9 +562,11 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     gap: 16,
     alignItems: 'center',
-    background: '#f4f8ff',
-    borderRadius: 20,
+    background: 'linear-gradient(135deg, #f4f8ff 0%, #eef6ff 100%)',
+    border: '1px solid #d9e9ff',
+    borderRadius: 22,
     padding: 16,
+    flexWrap: 'wrap',
   },
   footerTotal: {
     fontSize: 22,
@@ -448,9 +578,9 @@ const styles: Record<string, CSSProperties> = {
   },
   primaryBtn: {
     border: 0,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: '15px 22px',
-    background: '#0f172a',
+    background: 'linear-gradient(135deg, #0f172a 0%, #172554 100%)',
     color: '#fff',
     fontWeight: 950,
     fontSize: 15,
@@ -465,6 +595,9 @@ const styles: Record<string, CSSProperties> = {
     padding: 14,
     fontWeight: 900,
     marginBottom: 16,
+    maxWidth: 1180,
+    marginLeft: 'auto',
+    marginRight: 'auto',
   },
   emptyState: {
     padding: 24,
@@ -479,19 +612,20 @@ const styles: Record<string, CSSProperties> = {
     margin: '0 auto',
     background: '#fff',
     border: '1px solid #d6e3f3',
-    borderRadius: 30,
+    borderRadius: 32,
     padding: 'clamp(22px, 4vw, 42px)',
     boxShadow: '0 18px 54px rgba(20, 48, 86, 0.14)',
   },
   successIcon: {
     width: 72,
     height: 72,
-    borderRadius: 24,
+    borderRadius: 26,
     background: '#dcfce7',
     color: '#047857',
     display: 'grid',
     placeItems: 'center',
     fontWeight: 950,
+    fontSize: 34,
     marginBottom: 18,
   },
   confirmTitle: {
