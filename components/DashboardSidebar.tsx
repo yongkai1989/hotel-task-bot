@@ -754,6 +754,7 @@ export default function DashboardSidebar({
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
   const effectiveEmail = String(effectiveProfile?.email || '').trim().toLowerCase();
   const effectiveRole = String(effectiveProfile?.role || '').trim().toUpperCase();
+  const canSeeStaffMeal = effectiveRole === 'SUPERUSER' || effectiveRole === 'MANAGER';
   const canSeeCommissionChecker =
     effectiveRole === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_commission_checker ||
@@ -811,7 +812,7 @@ export default function DashboardSidebar({
     canSeeSupervisorChecklist;
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
-    canSeeDailyForms || canSeeManagementTasks || canSeeCommissionChecker || canSeeAdminSettings;
+    canSeeDailyForms || canSeeManagementTasks || canSeeStaffMeal || canSeeCommissionChecker || canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeLostFound ||
     canSeeFoChecklist ||
@@ -1515,6 +1516,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeStaffMeal ? (
+                <Link
+                  href="/dashboard/staff-meal"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Staff Meal</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeCommissionChecker ? (
                 <Link
                   href="/dashboard/commission-checker"
@@ -2082,4 +2094,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
   },
 };
+
 
