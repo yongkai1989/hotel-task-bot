@@ -79,6 +79,13 @@ function mealHint(choice: MealChoice) {
   return 'Rest day / no order';
 }
 
+function mealShortLabel(choice: MealChoice) {
+  if (choice === 'lunch') return 'Lunch';
+  if (choice === 'dinner') return 'Dinner';
+  if (choice === 'both') return 'Both';
+  return 'Off';
+}
+
 function countMeals(meals: Record<string, MealChoice>) {
   return Object.values(meals).reduce(
     (acc, choice) => {
@@ -172,7 +179,7 @@ export default function StaffMealPage() {
     return (
       <main style={styles.page}>
         <section style={styles.confirmCard}>
-          <div style={styles.successIcon}>✓</div>
+          <div style={styles.successIcon}>OK</div>
           <div style={styles.eyebrow}>Staff Meal Order Confirmed</div>
           <h1 style={styles.confirmTitle}>Your meal order is saved</h1>
           <p style={styles.subText}>
@@ -221,144 +228,128 @@ export default function StaffMealPage() {
 
   return (
     <main style={styles.page}>
-      <section style={styles.topBar}>
-        <div style={styles.brandBlock}>
-          <div style={styles.logoMark}>HC</div>
-          <div>
-            <div style={styles.brandName}>Hallmark Crown Hotel</div>
-            <div style={styles.brandSub}>Staff Dining</div>
-          </div>
-        </div>
-        <div style={styles.topMeta}>Weekly meal order</div>
-      </section>
-
       <section style={styles.hero}>
         <div style={styles.heroCopy}>
-          <div style={styles.eyebrow}>Staff Meal Concierge</div>
-          <h1 style={styles.title}>Reserve your meals for the week.</h1>
-          <p style={styles.subText}>
-            Select lunch, dinner, or both for each working day. Your order is saved under your branch for kitchen planning.
-          </p>
-          <div style={styles.heroChips}>
-            <span style={styles.heroChip}>One submission per branch</span>
-            <span style={styles.heroChip}>Screenshot confirmation</span>
-            <span style={styles.heroChip}>Manager-assisted changes</span>
+          <div style={styles.brandBlock}>
+            <div style={styles.logoMark}>HC</div>
+            <div>
+              <div style={styles.brandName}>Hallmark Crown Hotel</div>
+              <div style={styles.brandSub}>Staff Meal Order</div>
+            </div>
           </div>
+          <h1 style={styles.title}>Select your meals for the week</h1>
+          <p style={styles.subText}>Choose lunch, dinner, or both. Please screenshot the confirmation after submitting.</p>
         </div>
 
         <aside style={styles.weekPanel}>
-          <div style={styles.weekPanelTop}>
-            <span style={styles.weekKicker}>Current Order Week</span>
-            <span style={styles.weekStatus}>Open</span>
-          </div>
+          <span style={styles.weekKicker}>Current Order Week</span>
           <div style={styles.weekDateLine}>
             <strong>{formatShortDate(cycle.order_week_start)}</strong>
             <span>to</span>
             <strong>{formatShortDate(cycle.order_week_end)}</strong>
           </div>
           <div style={styles.weekFinePrint}>Last call: {cycle.closes_at_label || '-'}</div>
-          <div style={styles.weekRule}>
-            Lunch + Dinner is only for approved 12-hour shifts.
-          </div>
         </aside>
       </section>
 
       {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
-      <section style={styles.card}>
-        <div style={styles.sectionHeader}>
-          <div>
-            <div style={styles.eyebrow}>Step 1</div>
-            <h2 style={styles.sectionTitle}>Tell us who is ordering</h2>
+      <section style={styles.orderShell}>
+        <aside style={styles.sideCard}>
+          <div style={styles.eyebrow}>Your Details</div>
+          <h2 style={styles.sideTitle}>Submission</h2>
+          <div style={styles.formGrid}>
+            <label style={styles.field}>
+              <span style={styles.label}>Branch</span>
+              <select value={branch} onChange={(event) => setBranch(event.target.value as Branch)} style={styles.input}>
+                {BRANCHES.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Staff Name</span>
+              <input
+                value={staffName}
+                onChange={(event) => setStaffName(event.target.value)}
+                placeholder="Enter your name"
+                style={styles.input}
+              />
+            </label>
           </div>
-          <div style={styles.orderPill}>{totals.lunch + totals.dinner} meal(s) selected</div>
-        </div>
-
-        <div style={styles.formGrid}>
-          <label style={styles.field}>
-            <span style={styles.label}>Branch</span>
-            <select value={branch} onChange={(event) => setBranch(event.target.value as Branch)} style={styles.input}>
-              {BRANCHES.map((item) => (
-                <option key={item} value={item}>{item}</option>
-              ))}
-            </select>
-          </label>
 
           <label style={styles.field}>
-            <span style={styles.label}>Staff Name</span>
-            <input
-              value={staffName}
-              onChange={(event) => setStaffName(event.target.value)}
-              placeholder="Enter your name"
-              style={styles.input}
+            <span style={styles.label}>Notes</span>
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Optional"
+              style={{ ...styles.input, minHeight: 74, resize: 'vertical' }}
             />
           </label>
-        </div>
 
-        <div style={styles.sectionHeader}>
-          <div>
-            <div style={styles.eyebrow}>Step 2</div>
-            <h2 style={styles.sectionTitle}>Build your weekly meal plan</h2>
+          <div style={styles.compactNotice}>Lunch + Dinner is for approved 12-hour shifts only.</div>
+
+          <div style={styles.summaryStrip}>
+            <div style={styles.summaryMetric}>
+              <span>Lunch</span>
+              <strong>{totals.lunch}</strong>
+            </div>
+            <div style={styles.summaryMetric}>
+              <span>Dinner</span>
+              <strong>{totals.dinner}</strong>
+            </div>
           </div>
-        </div>
 
-        <div style={styles.notice}>
-          <strong>Reminder:</strong> Lunch + Dinner is reserved only for staff working approved 12-hour shifts.
-        </div>
-
-        <div style={styles.mealGrid}>
-          {loading ? (
-            <div style={styles.emptyState}>Loading order week...</div>
-          ) : (
-            dates.map((date) => (
-              <article key={date} style={styles.dayCard}>
-                <div style={styles.dayInfo}>
-                  <span style={styles.dayBadge}>{formatShortDate(date).split(' ')[0]}</span>
-                  <div>
-                    <div style={styles.dayTitle}>{formatShortDate(date).replace(',', '')}</div>
-                    <div style={styles.dayChoice}>{mealLabel(meals[date] || 'none')}</div>
-                  </div>
-                </div>
-                <div style={styles.choiceGrid}>
-                  {(['none', 'lunch', 'dinner', 'both'] as MealChoice[]).map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      onClick={() => updateMeal(date, choice)}
-                      style={{
-                        ...styles.choiceBtn,
-                        ...(meals[date] === choice ? styles.choiceBtnActive : {}),
-                      }}
-                    >
-                      <span>{mealLabel(choice)}</span>
-                      <small>{mealHint(choice)}</small>
-                    </button>
-                  ))}
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-
-        <label style={styles.field}>
-          <span style={styles.label}>Notes</span>
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Optional notes, for example shift changes or special remarks"
-            style={{ ...styles.input, minHeight: 88, resize: 'vertical' }}
-          />
-        </label>
-
-        <div style={styles.footerBar}>
-          <div>
-            <div style={styles.footerTotal}>{totals.lunch} lunch / {totals.dinner} dinner</div>
-            <div style={styles.footerHint}>Please check carefully before submitting.</div>
-          </div>
           <button type="button" disabled={saving || loading} onClick={submitOrder} style={styles.primaryBtn}>
-            {saving ? 'Submitting...' : 'Submit Meal Order'}
+            {saving ? 'Submitting...' : 'Submit Order'}
           </button>
-        </div>
+        </aside>
+
+        <section style={styles.mealPanel}>
+          <div style={styles.panelTop}>
+            <div>
+              <div style={styles.eyebrow}>Meal Plan</div>
+              <h2 style={styles.sectionTitle}>Choose by day</h2>
+            </div>
+            <div style={styles.orderPill}>{totals.lunch + totals.dinner} selected</div>
+          </div>
+
+          <div style={styles.mealList}>
+            {loading ? (
+              <div style={styles.emptyState}>Loading order week...</div>
+            ) : (
+              dates.map((date) => (
+                <article key={date} style={styles.dayRow}>
+                  <div style={styles.dayInfo}>
+                    <span style={styles.dayBadge}>{formatShortDate(date).slice(0, 3)}</span>
+                    <div>
+                      <div style={styles.dayTitle}>{formatShortDate(date).replace(',', '')}</div>
+                      <div style={styles.dayChoice}>{mealLabel(meals[date] || 'none')}</div>
+                    </div>
+                  </div>
+                  <div style={styles.choiceGrid}>
+                    {(['none', 'lunch', 'dinner', 'both'] as MealChoice[]).map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => updateMeal(date, choice)}
+                        title={mealHint(choice)}
+                        style={{
+                          ...styles.choiceBtn,
+                          ...(meals[date] === choice ? styles.choiceBtnActive : {}),
+                        }}
+                      >
+                        {mealShortLabel(choice)}
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
       </section>
     </main>
   );
@@ -368,408 +359,370 @@ const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: '100vh',
     background:
-      'radial-gradient(circle at 12% 0%, rgba(241, 222, 177, 0.42) 0, rgba(241, 222, 177, 0) 34%), radial-gradient(circle at 90% 10%, rgba(191, 219, 254, 0.55) 0, rgba(191, 219, 254, 0) 32%), linear-gradient(180deg, #f7f2ea 0%, #eef4fb 38%, #ffffff 100%)',
-    color: '#111827',
-    padding: 'clamp(14px, 4vw, 46px)',
+      'radial-gradient(circle at 12% 0%, rgba(244, 211, 148, 0.28) 0, rgba(244, 211, 148, 0) 31%), radial-gradient(circle at 90% 8%, rgba(191, 219, 254, 0.45) 0, rgba(191, 219, 254, 0) 30%), linear-gradient(180deg, #f7f2ea 0%, #eef4fb 45%, #ffffff 100%)',
+    color: '#0f172a',
+    padding: 'clamp(10px, 2.6vw, 30px)',
     fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
-  topBar: {
-    maxWidth: 1180,
-    margin: '0 auto 14px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 14,
-    padding: '10px 4px',
+  hero: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(330px, 100%), 1fr))',
+    gap: 12,
+    alignItems: 'stretch',
+    background: 'rgba(255, 255, 255, 0.9)',
+    border: '1px solid rgba(190, 154, 100, 0.28)',
+    borderRadius: 24,
+    padding: 'clamp(14px, 2.4vw, 24px)',
+    boxShadow: '0 18px 54px rgba(51, 65, 85, 0.12)',
+    margin: '0 auto 12px',
+    maxWidth: 1120,
+  },
+  heroCopy: {
+    display: 'grid',
+    gap: 10,
+    alignContent: 'center',
   },
   brandBlock: {
     display: 'flex',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   logoMark: {
-    width: 46,
-    height: 46,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     display: 'grid',
     placeItems: 'center',
     background: 'linear-gradient(145deg, #18120c 0%, #3b2a18 100%)',
     color: '#f8e7bd',
     fontWeight: 950,
-    letterSpacing: 0.5,
-    boxShadow: '0 12px 30px rgba(59, 42, 24, 0.22)',
+    fontSize: 12,
+    letterSpacing: 0.4,
+    boxShadow: '0 10px 24px rgba(59, 42, 24, 0.2)',
   },
   brandName: {
     textTransform: 'uppercase',
-    letterSpacing: 1.8,
-    color: '#8a5a20',
+    letterSpacing: 1.6,
+    color: '#9a5b0b',
     fontWeight: 950,
-    fontSize: 12,
+    fontSize: 11,
   },
   brandSub: {
-    color: '#111827',
+    color: '#0f172a',
     fontWeight: 950,
-    fontSize: 18,
+    fontSize: 17,
     lineHeight: 1.1,
   },
-  topMeta: {
-    border: '1px solid rgba(145, 104, 45, 0.25)',
-    background: 'rgba(255, 255, 255, 0.72)',
-    borderRadius: 999,
-    padding: '10px 14px',
-    color: '#6b4b25',
-    fontWeight: 900,
-    whiteSpace: 'nowrap',
-  },
-  hero: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))',
-    gap: 16,
-    alignItems: 'stretch',
-    background:
-      'linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(255,252,246,0.94) 48%, rgba(239,246,255,0.9) 100%)',
-    border: '1px solid rgba(190, 154, 100, 0.32)',
-    borderRadius: 34,
-    padding: 'clamp(20px, 4vw, 40px)',
-    boxShadow: '0 26px 80px rgba(71, 55, 33, 0.16)',
-    margin: '0 auto 16px',
-    maxWidth: 1180,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  heroCopy: {
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  eyebrow: {
-    color: '#a16207',
-    textTransform: 'uppercase',
-    letterSpacing: 2.4,
-    fontWeight: 900,
-    fontSize: 12,
-  },
   title: {
-    margin: '10px 0',
-    fontSize: 'clamp(40px, 7vw, 78px)',
-    lineHeight: 0.9,
-    letterSpacing: '-0.045em',
-    maxWidth: 740,
+    margin: 0,
+    fontSize: 'clamp(30px, 5vw, 48px)',
+    lineHeight: 0.98,
+    letterSpacing: '-0.035em',
+    maxWidth: 600,
   },
   subText: {
-    color: '#516071',
-    fontWeight: 700,
-    fontSize: 'clamp(16px, 2vw, 19px)',
-    lineHeight: 1.55,
+    color: '#475569',
+    fontWeight: 750,
+    fontSize: 15,
+    lineHeight: 1.45,
     margin: 0,
-    maxWidth: 620,
-  },
-  heroChips: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 20,
-  },
-  heroChip: {
-    border: '1px solid rgba(145, 104, 45, 0.2)',
-    background: 'rgba(255,255,255,0.74)',
-    borderRadius: 999,
-    padding: '9px 12px',
-    color: '#50391b',
-    fontSize: 13,
-    fontWeight: 900,
+    maxWidth: 610,
   },
   weekPanel: {
-    background: 'linear-gradient(145deg, #17110b 0%, #24304c 100%)',
+    background: 'linear-gradient(145deg, #15110d 0%, #26314a 100%)',
     color: '#fffaf0',
-    borderRadius: 30,
-    padding: 'clamp(22px, 4vw, 32px)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-    justifyContent: 'center',
-    boxShadow: '0 20px 48px rgba(23, 17, 11, 0.3)',
-    minHeight: 250,
-  },
-  weekPanelTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 10,
+    borderRadius: 22,
+    padding: 'clamp(14px, 2vw, 20px)',
+    display: 'grid',
+    gap: 8,
+    alignContent: 'center',
+    boxShadow: '0 14px 34px rgba(23, 17, 11, 0.24)',
   },
   weekKicker: {
     color: '#f6d98b',
     textTransform: 'uppercase',
     letterSpacing: 1.8,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: 950,
-  },
-  weekStatus: {
-    border: '1px solid rgba(246, 217, 139, 0.36)',
-    background: 'rgba(255, 255, 255, 0.08)',
-    color: '#fef3c7',
-    borderRadius: 999,
-    padding: '7px 10px',
-    fontWeight: 950,
-    fontSize: 12,
   },
   weekDateLine: {
-    display: 'grid',
-    gap: 4,
-    fontSize: 'clamp(22px, 4vw, 34px)',
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 'clamp(18px, 2.7vw, 26px)',
     lineHeight: 1.05,
   },
   weekFinePrint: {
     color: '#cbd5e1',
     fontWeight: 850,
+    fontSize: 13,
   },
-  weekRule: {
-    marginTop: 8,
-    borderTop: '1px solid rgba(255, 255, 255, 0.14)',
-    paddingTop: 14,
-    color: '#fef3c7',
-    fontWeight: 850,
-    lineHeight: 1.45,
-  },
-  orderPill: {
-    border: '1px solid #e8cf9f',
-    background: '#fff8ea',
-    color: '#9a5b0b',
-    borderRadius: 999,
-    padding: '10px 14px',
-    fontWeight: 950,
-    whiteSpace: 'nowrap',
-  },
-  card: {
-    background: 'rgba(255,255,255,0.96)',
-    border: '1px solid rgba(205, 180, 139, 0.44)',
-    borderRadius: 34,
-    padding: 'clamp(18px, 3vw, 34px)',
-    boxShadow: '0 24px 72px rgba(71, 55, 33, 0.12)',
-    maxWidth: 1180,
+  orderShell: {
+    maxWidth: 1120,
     margin: '0 auto',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))',
+    gap: 12,
+    alignItems: 'start',
   },
-  sectionHeader: {
+  sideCard: {
+    background: 'rgba(255, 255, 255, 0.94)',
+    border: '1px solid rgba(203, 213, 225, 0.95)',
+    borderRadius: 22,
+    padding: 'clamp(14px, 2vw, 18px)',
+    boxShadow: '0 16px 44px rgba(51, 65, 85, 0.1)',
+  },
+  mealPanel: {
+    background: 'rgba(255, 255, 255, 0.94)',
+    border: '1px solid rgba(203, 213, 225, 0.95)',
+    borderRadius: 22,
+    padding: 'clamp(14px, 2vw, 18px)',
+    boxShadow: '0 16px 44px rgba(51, 65, 85, 0.1)',
+  },
+  panelTop: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: 12,
-    flexWrap: 'wrap',
-    marginBottom: 14,
+    gap: 10,
+    marginBottom: 10,
+  },
+  eyebrow: {
+    color: '#2563eb',
+    textTransform: 'uppercase',
+    letterSpacing: 1.9,
+    fontWeight: 950,
+    fontSize: 10,
+  },
+  sideTitle: {
+    margin: '3px 0 12px',
+    fontSize: 24,
+    lineHeight: 1,
+    letterSpacing: '-0.025em',
   },
   sectionTitle: {
-    margin: '4px 0 0',
-    fontSize: 'clamp(24px, 4vw, 36px)',
-    lineHeight: 0.98,
+    margin: '3px 0 0',
+    fontSize: 24,
+    lineHeight: 1,
     letterSpacing: '-0.025em',
   },
   formGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
-    gap: 14,
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))',
+    gap: 10,
   },
   field: {
     display: 'grid',
-    gap: 8,
-    marginBottom: 16,
+    gap: 6,
+    marginBottom: 10,
   },
   label: {
     fontWeight: 900,
-    color: '#243653',
+    color: '#334155',
+    fontSize: 13,
   },
   input: {
     width: '100%',
     boxSizing: 'border-box',
-    border: '1px solid #d9c8ad',
-    borderRadius: 20,
-    padding: '16px 17px',
-    fontSize: 16,
+    border: '1px solid #cbd5e1',
+    borderRadius: 15,
+    padding: '11px 12px',
+    fontSize: 15,
     fontWeight: 750,
     outline: 'none',
-    background: 'linear-gradient(180deg, #ffffff 0%, #fffdf8 100%)',
+    background: '#ffffff',
   },
-  notice: {
-    background: 'linear-gradient(135deg, #fff8e8 0%, #fffdf7 100%)',
-    border: '1px solid #efd2a0',
-    color: '#7c3f05',
-    borderRadius: 22,
-    padding: '14px 16px',
+  compactNotice: {
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    color: '#9a3412',
+    borderRadius: 15,
+    padding: '10px 12px',
     fontWeight: 850,
-    margin: '4px 0 22px',
-  },
-  mealGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(330px, 100%), 1fr))',
-    gap: 12,
-    marginBottom: 18,
-  },
-  dayCard: {
-    display: 'grid',
-    gridTemplateColumns: '1fr',
-    gap: 12,
-    border: '1px solid #e4d5bc',
-    borderRadius: 26,
-    padding: 16,
-    background: 'linear-gradient(180deg, #ffffff 0%, #fffaf2 100%)',
-    boxShadow: '0 16px 34px rgba(71, 55, 33, 0.08)',
-  },
-  dayInfo: {
-    display: 'flex',
-    gap: 12,
-    alignItems: 'center',
-  },
-  dayBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    display: 'grid',
-    placeItems: 'center',
-    background: '#f8ead0',
-    color: '#9a5b0b',
-    fontWeight: 950,
-    fontSize: 12,
-    textTransform: 'uppercase',
-  },
-  dayTitle: {
-    fontWeight: 950,
-    fontSize: 16,
-  },
-  dayChoice: {
-    color: '#6b7280',
     fontSize: 13,
-    fontWeight: 850,
-    marginTop: 2,
+    lineHeight: 1.35,
+    margin: '2px 0 10px',
   },
-  choiceGrid: {
+  summaryStrip: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 8,
+    marginBottom: 12,
   },
-  choiceBtn: {
-    border: '1px solid #dfcfb3',
-    background: 'rgba(255,255,255,0.9)',
-    borderRadius: 18,
-    padding: '12px 11px',
-    fontWeight: 900,
-    color: '#16243b',
-    cursor: 'pointer',
+  summaryMetric: {
     display: 'grid',
     gap: 3,
-    textAlign: 'left',
+    border: '1px solid #dbeafe',
+    borderRadius: 15,
+    background: '#f8fbff',
+    padding: '10px 12px',
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  orderPill: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: 999,
+    padding: '7px 10px',
+    fontWeight: 950,
+    whiteSpace: 'nowrap',
+    fontSize: 13,
+  },
+  mealList: {
+    display: 'grid',
+    gap: 8,
+  },
+  dayRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(230px, 100%), 1fr))',
+    gap: 10,
+    alignItems: 'center',
+    border: '1px solid #e2e8f0',
+    borderRadius: 16,
+    padding: 10,
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+  },
+  dayInfo: {
+    display: 'flex',
+    gap: 10,
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  dayBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    display: 'grid',
+    placeItems: 'center',
+    background: '#eff6ff',
+    color: '#2563eb',
+    fontWeight: 950,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    flex: '0 0 auto',
+  },
+  dayTitle: {
+    fontWeight: 950,
+    fontSize: 15,
+  },
+  dayChoice: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: 850,
+    marginTop: 1,
+  },
+  choiceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(66px, 1fr))',
+    gap: 6,
+  },
+  choiceBtn: {
+    border: '1px solid #dbe4ef',
+    background: '#ffffff',
+    borderRadius: 12,
+    padding: '9px 8px',
+    fontWeight: 950,
+    color: '#172033',
+    cursor: 'pointer',
+    textAlign: 'center',
+    fontSize: 13,
+    minHeight: 38,
   },
   choiceBtnActive: {
-    background: 'linear-gradient(135deg, #17110b 0%, #2f2419 100%)',
-    borderColor: '#17110b',
-    color: '#fff',
-    boxShadow: '0 12px 26px rgba(47, 36, 25, 0.25)',
-  },
-  footerBar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 16,
-    alignItems: 'center',
-    background: 'linear-gradient(135deg, #17110b 0%, #24304c 100%)',
-    border: '1px solid rgba(246, 217, 139, 0.28)',
-    borderRadius: 26,
-    padding: 16,
-    flexWrap: 'wrap',
-    color: '#fff',
-  },
-  footerTotal: {
-    fontSize: 22,
-    fontWeight: 950,
-  },
-  footerHint: {
-    color: '#cbd5e1',
-    fontWeight: 800,
+    background: 'linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)',
+    borderColor: '#1d4ed8',
+    color: '#ffffff',
+    boxShadow: '0 10px 22px rgba(29, 78, 216, 0.2)',
   },
   primaryBtn: {
+    width: '100%',
     border: 0,
-    borderRadius: 20,
-    padding: '15px 22px',
+    borderRadius: 15,
+    padding: '13px 18px',
     background: 'linear-gradient(135deg, #f4d27b 0%, #d59a2c 100%)',
     color: '#17110b',
     fontWeight: 950,
     fontSize: 15,
     cursor: 'pointer',
-    boxShadow: '0 16px 34px rgba(213, 154, 44, 0.25)',
+    boxShadow: '0 12px 28px rgba(213, 154, 44, 0.22)',
   },
   errorBox: {
     background: '#fff1f2',
     border: '1px solid #fecdd3',
     color: '#be123c',
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 16,
+    padding: 12,
     fontWeight: 900,
-    marginBottom: 16,
-    maxWidth: 1180,
-    marginLeft: 'auto',
-    marginRight: 'auto',
+    margin: '0 auto 12px',
+    maxWidth: 1120,
   },
   emptyState: {
-    padding: 24,
+    padding: 18,
     textAlign: 'center',
     color: '#64748b',
     fontWeight: 900,
     border: '1px dashed #cbd5e1',
-    borderRadius: 18,
+    borderRadius: 16,
   },
   confirmCard: {
-    maxWidth: 880,
+    maxWidth: 820,
     margin: '0 auto',
     background: 'linear-gradient(180deg, #ffffff 0%, #fffaf1 100%)',
     border: '1px solid #e4d5bc',
-    borderRadius: 32,
-    padding: 'clamp(22px, 4vw, 42px)',
-    boxShadow: '0 24px 70px rgba(71, 55, 33, 0.14)',
+    borderRadius: 26,
+    padding: 'clamp(18px, 3vw, 30px)',
+    boxShadow: '0 20px 60px rgba(71, 55, 33, 0.13)',
   },
   successIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 26,
+    width: 58,
+    height: 58,
+    borderRadius: 20,
     background: '#dcfce7',
     color: '#047857',
     display: 'grid',
     placeItems: 'center',
     fontWeight: 950,
-    fontSize: 34,
-    marginBottom: 18,
+    fontSize: 20,
+    marginBottom: 14,
   },
   confirmTitle: {
-    fontSize: 'clamp(32px, 5vw, 56px)',
+    fontSize: 'clamp(28px, 4vw, 44px)',
     margin: '8px 0',
     lineHeight: 1,
   },
   confirmGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
-    gap: 12,
-    margin: '22px 0',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))',
+    gap: 10,
+    margin: '18px 0',
   },
   summaryBox: {
     border: '1px solid #d9e5f3',
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 16,
+    padding: 13,
     display: 'grid',
-    gap: 8,
+    gap: 6,
+    background: '#ffffff',
   },
   summaryLabel: {
     color: '#64748b',
     fontWeight: 900,
     textTransform: 'uppercase',
-    fontSize: 12,
+    fontSize: 11,
   },
   orderList: {
     display: 'grid',
-    gap: 8,
-    marginBottom: 22,
+    gap: 7,
+    marginBottom: 18,
   },
   confirmRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: 12,
-    padding: 14,
-    borderRadius: 14,
+    padding: 12,
+    borderRadius: 13,
     background: '#f8fbff',
     border: '1px solid #e2eaf5',
   },
