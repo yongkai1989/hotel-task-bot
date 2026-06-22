@@ -111,7 +111,11 @@ function canManageStaffMeal(user: any) {
 }
 
 async function cleanupOldOrders() {
-  await supabaseAdmin.rpc('cleanup_staff_meal_orders').catch(() => null);
+  try {
+    await supabaseAdmin.rpc('cleanup_staff_meal_orders');
+  } catch {
+    // Cleanup should never block normal staff meal ordering.
+  }
 }
 
 export async function GET(req: NextRequest) {
