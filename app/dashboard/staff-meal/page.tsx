@@ -65,6 +65,13 @@ function mealText(choice: MealChoice) {
   return '-';
 }
 
+function printMealText(choice: MealChoice) {
+  if (choice === 'lunch') return 'L';
+  if (choice === 'dinner') return 'D';
+  if (choice === 'both') return 'L + D';
+  return '-';
+}
+
 function countMeals(meals: Record<string, MealChoice>) {
   return Object.values(meals || {}).reduce(
     (acc, choice) => {
@@ -249,16 +256,19 @@ export default function StaffMealAdminPage() {
       .map((order, index) => {
         const totals = countMeals(order.meals);
         const dayCells = dates
-          .map((date) => `<td>${escapeHtml(mealText(order.meals?.[date] || 'none'))}</td>`)
+          .map((date) => {
+            const choice = order.meals?.[date] || 'none';
+            return `<td class="meal meal-${choice}">${escapeHtml(printMealText(choice))}</td>`;
+          })
           .join('');
         return `
           <tr>
-            <td>${index + 1}</td>
+            <td class="index">${index + 1}</td>
             <td><strong>${escapeHtml(order.staff_name)}</strong><br><span>${escapeHtml(order.branch)}</span></td>
             ${dayCells}
             <td class="num">${totals.lunch}</td>
             <td class="num">${totals.dinner}</td>
-            <td>${escapeHtml(order.notes || '')}</td>
+            <td class="notes">${escapeHtml(order.notes || '')}</td>
           </tr>
         `;
       })
@@ -282,53 +292,60 @@ export default function StaffMealAdminPage() {
         <head>
           <title>${escapeHtml(title)}</title>
           <style>
-            * { box-sizing: border-box; }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
             body {
               margin: 0;
-              padding: 22px;
+              padding: 14px;
               color: #07142d;
               font-family: Arial, sans-serif;
               background: #fff;
+              font-size: 11px;
             }
             .header {
               display: flex;
               justify-content: space-between;
-              gap: 16px;
+              gap: 12px;
               align-items: flex-end;
               border-bottom: 2px solid #0f172a;
-              padding-bottom: 14px;
-              margin-bottom: 14px;
+              padding-bottom: 8px;
+              margin-bottom: 8px;
             }
             .kicker {
               color: #1d4ed8;
-              font-size: 11px;
+              font-size: 9px;
               font-weight: 800;
-              letter-spacing: 1.4px;
+              letter-spacing: 1.1px;
               text-transform: uppercase;
             }
             h1 {
-              margin: 4px 0;
-              font-size: 28px;
+              margin: 3px 0;
+              font-size: 22px;
               line-height: 1;
             }
             .meta {
               text-align: right;
-              font-size: 12px;
+              font-size: 10px;
               color: #334155;
               font-weight: 700;
             }
             .summary {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
-              gap: 8px;
-              margin-bottom: 14px;
+              gap: 6px;
+              margin-bottom: 8px;
             }
             .summary-card {
-              border: 1px solid #cbd5e1;
-              border-radius: 10px;
-              padding: 10px;
-              display: grid;
-              gap: 2px;
+              border: 1px solid #d7e1ec;
+              border-radius: 8px;
+              padding: 7px 8px;
+              display: flex;
+              justify-content: space-between;
+              gap: 8px;
+              align-items: center;
             }
             .summary-card span,
             .summary-card small {
@@ -336,51 +353,104 @@ export default function StaffMealAdminPage() {
               font-weight: 700;
             }
             .summary-card strong {
-              font-size: 22px;
+              font-size: 18px;
             }
+            .legend {
+              display: flex;
+              gap: 8px;
+              align-items: center;
+              margin: 0 0 8px;
+              color: #334155;
+              font-size: 10px;
+              font-weight: 800;
+            }
+            .legend span {
+              display: inline-flex;
+              align-items: center;
+              gap: 4px;
+            }
+            .dot {
+              width: 12px;
+              height: 12px;
+              border-radius: 4px;
+              border: 1px solid #cbd5e1;
+              display: inline-block;
+            }
+            .dot-lunch { background: #e0f2fe; }
+            .dot-dinner { background: #fef3c7; }
+            .dot-both { background: #dcfce7; }
             table {
               width: 100%;
               border-collapse: collapse;
               table-layout: fixed;
-              font-size: 11px;
+              font-size: 9.8px;
+              line-height: 1.15;
             }
             th, td {
-              border: 1px solid #cbd5e1;
-              padding: 7px 6px;
-              vertical-align: top;
+              border: 1px solid #d9e2ec;
+              padding: 4px 5px;
+              vertical-align: middle;
               word-break: break-word;
             }
             th {
-              background: #eff6ff;
+              background: #edf4ff;
               color: #1e3a8a;
               text-transform: uppercase;
-              font-size: 10px;
-              letter-spacing: .5px;
+              font-size: 8.5px;
+              letter-spacing: .35px;
+              text-align: center;
+              white-space: nowrap;
             }
+            th.staff-head { text-align: left; }
             td span {
               color: #64748b;
-              font-size: 10px;
+              font-size: 8.5px;
               font-weight: 700;
             }
+            .index {
+              text-align: center;
+              color: #64748b;
+              font-weight: 800;
+            }
+            .meal {
+              text-align: center;
+              font-weight: 900;
+              white-space: nowrap;
+            }
+            .meal-lunch { background: #e0f2fe; color: #075985; }
+            .meal-dinner { background: #fef3c7; color: #92400e; }
+            .meal-both { background: #dcfce7; color: #166534; }
+            .meal-none { color: #94a3b8; }
             .num {
               text-align: center;
               font-weight: 900;
-              font-size: 14px;
+              font-size: 12px;
+            }
+            .notes {
+              color: #334155;
+              font-size: 8.8px;
             }
             .footer {
               display: flex;
               justify-content: flex-end;
-              gap: 18px;
-              margin-top: 14px;
-              font-size: 18px;
+              gap: 8px;
+              margin-top: 8px;
+              font-size: 14px;
               font-weight: 900;
             }
+            .footer div {
+              border: 1px solid #cbd5e1;
+              border-radius: 8px;
+              padding: 7px 10px;
+              background: #f8fafc;
+            }
+            thead { display: table-header-group; }
+            tr { break-inside: avoid; }
             @page { size: A4 landscape; margin: 8mm; }
             @media print {
               body { padding: 0; }
               .summary-card { break-inside: avoid; }
-              table { font-size: 10px; }
-              th, td { padding: 5px; }
+              th, td { padding: 3.5px 4px; }
             }
           </style>
         </head>
@@ -397,15 +467,20 @@ export default function StaffMealAdminPage() {
             </div>
           </section>
           <section class="summary">${branchSummary}</section>
+          <section class="legend">
+            <span><i class="dot dot-lunch"></i>L = Lunch</span>
+            <span><i class="dot dot-dinner"></i>D = Dinner</span>
+            <span><i class="dot dot-both"></i>L + D = Lunch and Dinner</span>
+          </section>
           <table>
             <thead>
               <tr>
-                <th style="width: 36px;">#</th>
-                <th style="width: 140px;">Staff</th>
+                <th style="width: 30px;">#</th>
+                <th class="staff-head" style="width: 118px;">Staff</th>
                 ${dateHeaders}
-                <th style="width: 56px;">Lunch</th>
-                <th style="width: 56px;">Dinner</th>
-                <th style="width: 130px;">Notes</th>
+                <th style="width: 45px;">Lunch</th>
+                <th style="width: 45px;">Dinner</th>
+                <th style="width: 100px;">Notes</th>
               </tr>
             </thead>
             <tbody>
