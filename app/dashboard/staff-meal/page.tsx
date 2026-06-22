@@ -80,6 +80,15 @@ function countMeals(meals: Record<string, MealChoice>) {
   );
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function emptyMeals(start: string) {
   return weekDates(start).reduce<Record<string, MealChoice>>((acc, date) => {
     acc[date] = 'none';
@@ -133,6 +142,8 @@ export default function StaffMealAdminPage() {
   }, []);
 
   const dates = useMemo(() => weekDates(weekStart || cycle?.order_week_start || ''), [weekStart, cycle]);
+  const displayWeekStart = weekStart || cycle?.order_week_start || '';
+  const displayWeekEnd = displayWeekStart ? addDays(displayWeekStart, 6) : '';
   const filteredOrders = useMemo(
     () => orders.filter((order) => branch === 'All' || order.branch === branch),
     [orders, branch]
@@ -232,11 +243,192 @@ export default function StaffMealAdminPage() {
     });
   }
 
+  function printStaffMealReport() {
+    const title = `Staff Meal - ${branch} - ${formatLong(displayWeekStart)}`;
+    const rows = filteredOrders
+      .map((order, index) => {
+        const totals = countMeals(order.meals);
+        const dayCells = dates
+          .map((date) => `<td>${escapeHtml(mealText(order.meals?.[date] || 'none'))}</td>`)
+          .join('');
+        return `
+          <tr>
+            <td>${index + 1}</td>
+            <td><strong>${escapeHtml(order.staff_name)}</strong><br><span>${escapeHtml(order.branch)}</span></td>
+            ${dayCells}
+            <td class="num">${totals.lunch}</td>
+            <td class="num">${totals.dinner}</td>
+            <td>${escapeHtml(order.notes || '')}</td>
+          </tr>
+        `;
+      })
+      .join('');
+    const branchSummary = branchTotals
+      .map((item) => `
+        <div class="summary-card">
+          <span>${escapeHtml(item.branch)}</span>
+          <strong>${item.staff}</strong>
+          <small>${item.lunch} lunch / ${item.dinner} dinner</small>
+        </div>
+      `)
+      .join('');
+    const dateHeaders = dates.map((date) => `<th>${escapeHtml(formatShort(date))}</th>`).join('');
+    const popup = window.open('', '_blank', 'width=1200,height=800');
+    if (!popup) return;
+
+    popup.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(title)}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 22px;
+              color: #07142d;
+              font-family: Arial, sans-serif;
+              background: #fff;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              gap: 16px;
+              align-items: flex-end;
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 14px;
+              margin-bottom: 14px;
+            }
+            .kicker {
+              color: #1d4ed8;
+              font-size: 11px;
+              font-weight: 800;
+              letter-spacing: 1.4px;
+              text-transform: uppercase;
+            }
+            h1 {
+              margin: 4px 0;
+              font-size: 28px;
+              line-height: 1;
+            }
+            .meta {
+              text-align: right;
+              font-size: 12px;
+              color: #334155;
+              font-weight: 700;
+            }
+            .summary {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 8px;
+              margin-bottom: 14px;
+            }
+            .summary-card {
+              border: 1px solid #cbd5e1;
+              border-radius: 10px;
+              padding: 10px;
+              display: grid;
+              gap: 2px;
+            }
+            .summary-card span,
+            .summary-card small {
+              color: #475569;
+              font-weight: 700;
+            }
+            .summary-card strong {
+              font-size: 22px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              table-layout: fixed;
+              font-size: 11px;
+            }
+            th, td {
+              border: 1px solid #cbd5e1;
+              padding: 7px 6px;
+              vertical-align: top;
+              word-break: break-word;
+            }
+            th {
+              background: #eff6ff;
+              color: #1e3a8a;
+              text-transform: uppercase;
+              font-size: 10px;
+              letter-spacing: .5px;
+            }
+            td span {
+              color: #64748b;
+              font-size: 10px;
+              font-weight: 700;
+            }
+            .num {
+              text-align: center;
+              font-weight: 900;
+              font-size: 14px;
+            }
+            .footer {
+              display: flex;
+              justify-content: flex-end;
+              gap: 18px;
+              margin-top: 14px;
+              font-size: 18px;
+              font-weight: 900;
+            }
+            @page { size: A4 landscape; margin: 8mm; }
+            @media print {
+              body { padding: 0; }
+              .summary-card { break-inside: avoid; }
+              table { font-size: 10px; }
+              th, td { padding: 5px; }
+            }
+          </style>
+        </head>
+        <body>
+          <section class="header">
+            <div>
+              <div class="kicker">Hallmark Crown Hotel | F&B Staff Meal</div>
+              <h1>${escapeHtml(title)}</h1>
+              <div>${escapeHtml(formatLong(displayWeekStart))} to ${escapeHtml(formatLong(displayWeekEnd))}</div>
+            </div>
+            <div class="meta">
+              Printed ${escapeHtml(new Date().toLocaleString('en-GB'))}<br>
+              ${filteredOrders.length} order(s)
+            </div>
+          </section>
+          <section class="summary">${branchSummary}</section>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 36px;">#</th>
+                <th style="width: 140px;">Staff</th>
+                ${dateHeaders}
+                <th style="width: 56px;">Lunch</th>
+                <th style="width: 56px;">Dinner</th>
+                <th style="width: 130px;">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || '<tr><td colspan="12" class="num">No staff meal orders for this branch and week.</td></tr>'}
+            </tbody>
+          </table>
+          <section class="footer">
+            <div>Total lunch: ${filteredTotals.lunch}</div>
+            <div>Total dinner: ${filteredTotals.dinner}</div>
+          </section>
+        </body>
+      </html>
+    `);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  }
+
   return (
     <main style={styles.page}>
       <section style={styles.hero}>
         <div>
-          <div style={styles.kicker}>Management Workspace</div>
+          <div style={styles.kicker}>F&B Workspace</div>
           <h1 style={styles.title}>Staff Meal</h1>
           <p style={styles.subtitle}>
             Weekly meal orders by branch, with clear totals for kitchen and packing.
@@ -260,7 +452,7 @@ export default function StaffMealAdminPage() {
           <div>
             <div style={styles.kicker}>Order Week</div>
             <h2 style={styles.sectionTitle}>
-              {formatLong(weekStart || cycle?.order_week_start || '')} to {formatLong(cycle?.order_week_end || '')}
+              {formatLong(displayWeekStart)} to {formatLong(displayWeekEnd)}
             </h2>
             <p style={styles.muted}>Public submission page: <Link href="/staff-meal">/staff-meal</Link></p>
           </div>
@@ -306,8 +498,8 @@ export default function StaffMealAdminPage() {
               {item}
             </button>
           ))}
-          <button type="button" onClick={() => window.print()} style={styles.printBtn}>
-            Print
+          <button type="button" onClick={printStaffMealReport} style={styles.printBtn}>
+            Print Report
           </button>
         </div>
 
@@ -471,7 +663,7 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
   },
   panel: {
-    background: 'rgba(255,255,255,0.94)',
+    background: 'rgba(255,255,255,0.96)',
     border: '1px solid #d8e5f4',
     borderRadius: 24,
     padding: 'clamp(16px, 3vw, 28px)',
@@ -524,7 +716,8 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #dce8f6',
     borderRadius: 18,
     padding: 16,
-    background: '#f8fbff',
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    boxShadow: '0 10px 28px rgba(16, 48, 90, 0.06)',
   },
   summaryBranch: {
     fontWeight: 950,
@@ -595,7 +788,8 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #dbe7f5',
     borderRadius: 20,
     padding: 16,
-    background: '#fff',
+    background: 'linear-gradient(135deg, #ffffff 0%, #fbfdff 100%)',
+    boxShadow: '0 10px 28px rgba(16, 48, 90, 0.06)',
   },
   orderTop: {
     display: 'flex',
