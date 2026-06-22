@@ -696,6 +696,7 @@ export default function DashboardSidebar({
   const [frontOfficeOpen, setFrontOfficeOpen] = useState(false);
   const [fnbOpen, setFnbOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(true);
   const [timeGateTick, setTimeGateTick] = useState(Date.now());
 
   useEffect(() => {
@@ -1552,6 +1553,33 @@ export default function DashboardSidebar({
                   <SidebarNavContent icon="settings" sub>Admin Settings</SidebarNavContent>
                 </Link>
               ) : null}
+            </GroupSection>
+          ) : null}
+
+          {currentProfile ? (
+            <GroupSection
+              title="Links"
+              icon="list"
+              open={linksOpen}
+              setOpen={setLinksOpen}
+            >
+              <Link
+                href="/guest-shop"
+                prefetch={false}
+                onClick={closeSidebar}
+                style={styles.subNavBtn}
+              >
+                <SidebarNavContent icon="package" sub>Guest Shop</SidebarNavContent>
+              </Link>
+
+              <Link
+                href="/staff-meal"
+                prefetch={false}
+                onClick={closeSidebar}
+                style={styles.subNavBtn}
+              >
+                <SidebarNavContent icon="fnb" sub>Staff Meal Public</SidebarNavContent>
+              </Link>
             </GroupSection>
           ) : null}
         </nav>
