@@ -15,6 +15,7 @@ export type DashboardUser = {
   name: string;
   role: DashboardRole;
   can_create_task: boolean;
+  can_update_task_status: boolean;
   can_edit_task: boolean;
   can_delete_task: boolean;
   can_access_preventive_maintenance: boolean;
@@ -49,6 +50,7 @@ export type DashboardUser = {
   can_access_pa_linen_entry: boolean;
   permissions: {
     can_create_task: boolean;
+    can_update_task_status: boolean;
     can_edit_task: boolean;
     can_delete_task: boolean;
     can_access_preventive_maintenance: boolean;
@@ -158,6 +160,7 @@ export async function getDashboardUserFromRequest(
         name,
         role,
         can_create_task,
+        can_update_task_status,
         can_edit_task,
         can_delete_task,
         can_access_preventive_maintenance,
@@ -206,6 +209,7 @@ export async function getDashboardUserFromRequest(
     const role = profile.role as DashboardRole;
     const permissions = {
       can_create_task: effectiveBoolean(role, profile.can_create_task),
+      can_update_task_status: effectiveBoolean(role, profile.can_update_task_status),
       can_edit_task: effectiveBoolean(role, profile.can_edit_task),
       can_delete_task: effectiveBoolean(role, profile.can_delete_task),
       can_access_preventive_maintenance:
