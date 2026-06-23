@@ -116,9 +116,9 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Task not found' }, 404);
     }
 
-    if (!user.can_edit_task) {
+    if (!user.can_update_task_status) {
       return jsonNoCache(
-        { ok: false, error: 'You do not have permission to update this task' },
+        { ok: false, error: 'You do not have permission to update this task status' },
         403
       );
     }
