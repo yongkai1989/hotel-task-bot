@@ -596,37 +596,42 @@ export default function BreakfastVouchersPage() {
 
   const paidCount = vouchers.filter((voucher) => voucher.status === 'PAID' || voucher.status === 'FULFILLED').length;
   const redeemedCount = vouchers.filter(isRedeemed).length;
+  const pendingCount = Math.max(0, paidCount - redeemedCount);
+  const manualSelectedCount = manualLines.reduce((sum, line) => sum + line.quantity, 0);
 
   return (
     <main className="page">
       <section className="hero">
         <div>
-          <p>Restaurant Kiosk</p>
+          <p>Restaurant Kiosk Control</p>
           <h1>Breakfast Vouchers</h1>
-          <span>Scan, redeem, or manually verify paid breakfast tickets.</span>
+          <span>Redeem QR tickets, issue counter-paid vouchers, and review breakfast sales from one counter workspace.</span>
         </div>
         <div className="heroActions">
           <button type="button" onClick={load}>Refresh</button>
-          <Link href="/dashboard">Back</Link>
+          <Link href="/dashboard">Back to Dashboard</Link>
         </div>
       </section>
 
       <section className="stats">
-        <div><span>Paid</span><strong>{paidCount}</strong></div>
-        <div><span>Redeemed</span><strong>{redeemedCount}</strong></div>
-        <div><span>Pending use</span><strong>{Math.max(0, paidCount - redeemedCount)}</strong></div>
+        <div><span>Paid Today</span><strong>{paidCount}</strong><small>Verified tickets</small></div>
+        <div><span>Redeemed</span><strong>{redeemedCount}</strong><small>Used at restaurant</small></div>
+        <div><span>Pending Use</span><strong>{pendingCount}</strong><small>Still valid</small></div>
       </section>
 
       <section className="tabBar">
         <button className={activeTab === 'redeem' ? 'active' : ''} type="button" onClick={() => setActiveTab('redeem')}>
-          Scan & Redeem
+          <strong>Scan & Redeem</strong>
+          <span>Restaurant entry</span>
         </button>
         <button className={activeTab === 'manual' ? 'active' : ''} type="button" onClick={() => setActiveTab('manual')}>
-          Manual Issue
+          <strong>Manual Issue</strong>
+          <span>Counter payment</span>
         </button>
         {isSuperuser ? (
           <button className={activeTab === 'types' ? 'active' : ''} type="button" onClick={() => setActiveTab('types')}>
-            Voucher Types
+            <strong>Voucher Types</strong>
+            <span>Superuser setup</span>
           </button>
         ) : null}
       </section>
@@ -719,84 +724,118 @@ export default function BreakfastVouchersPage() {
             <div>
               <p>Front office sale</p>
               <h2>Issue paid breakfast ticket</h2>
-              <span>Use only after payment has been collected. The sale is recorded for audit.</span>
+              <span>Use only after payment has been collected. Every manual ticket is saved with selling staff, payment type, and amount received.</span>
             </div>
-            <strong>{money(manualTotal)}</strong>
+            <div className="totalBadge">
+              <span>Total</span>
+              <strong>{money(manualTotal)}</strong>
+            </div>
           </div>
 
           {message ? <div className={`message ${tone}`}>{message}</div> : null}
 
-          <div className="manualIssueGrid">
-            <label>
-              Room Number
-              <input
-                value={manualForm.room_number}
-                onChange={(event) => setManualForm((form) => ({ ...form, room_number: event.target.value }))}
-                placeholder="Example: 1522"
-              />
-            </label>
-            <label>
-              Payment Type
-              <select
-                value={manualForm.manual_payment_type}
-                onChange={(event) => setManualForm((form) => ({ ...form, manual_payment_type: event.target.value }))}
-              >
-                <option value="CASH">Cash</option>
-                <option value="CARD_TERMINAL">Card Terminal</option>
-                <option value="MANUAL_QR">Manual QR / TNG</option>
-                {isSuperuser ? <option value="COMPLIMENTARY">Complimentary</option> : null}
-              </select>
-            </label>
-            <label>
-              Selling Staff Name
-              <input
-                value={manualForm.manual_sold_by_name}
-                onChange={(event) => setManualForm((form) => ({ ...form, manual_sold_by_name: event.target.value }))}
-                placeholder="Name written by FO"
-              />
-            </label>
-            <label>
-              Amount Received
-              <input
-                inputMode="decimal"
-                value={manualForm.manual_amount_received}
-                onChange={(event) => setManualForm((form) => ({ ...form, manual_amount_received: event.target.value }))}
-                placeholder={manualForm.manual_payment_type === 'COMPLIMENTARY' ? '0.00' : money(manualTotal).replace('RM', '')}
-                disabled={manualForm.manual_payment_type === 'COMPLIMENTARY'}
-              />
-            </label>
-          </div>
+          <div className="manualWorkflow">
+            <div className="manualPanel">
+              <div className="panelHead">
+                <span>1</span>
+                <div>
+                  <p>Voucher selection</p>
+                  <h3>Choose quantity</h3>
+                </div>
+              </div>
 
-          <div className="manualVoucherPicker">
-            {typesLoading ? <div className="empty">Loading voucher types...</div> : null}
-            {!typesLoading && !voucherTypes.length ? <div className="empty">No active voucher types found.</div> : null}
-            {voucherTypes.map((type) => {
-              const quantity = Math.max(0, Number(manualQuantities[type.id] || 0));
-              return (
-                <article className={quantity ? 'manualType selected' : 'manualType'} key={type.id}>
-                  <div>
-                    <p>{type.is_active ? 'Available' : 'Hidden'}</p>
-                    <h3>{type.name}</h3>
-                    <span>{type.description || 'Breakfast voucher'} - {money(type.price_myr)}</span>
-                  </div>
-                  <div className="qtyStepper">
-                    <button type="button" onClick={() => setManualQuantity(type.id, quantity - 1)}>-</button>
-                    <strong>{quantity}</strong>
-                    <button type="button" onClick={() => setManualQuantity(type.id, quantity + 1)}>+</button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="manualSummary">
-            <div>
-              <p>Audit note</p>
-              <span>Daily cash/card totals can be checked from the paid voucher history by date and selling staff.</span>
+              <div className="manualVoucherPicker">
+                {typesLoading ? <div className="empty">Loading voucher types...</div> : null}
+                {!typesLoading && !voucherTypes.length ? <div className="empty">No active voucher types found.</div> : null}
+                {voucherTypes.map((type) => {
+                  const quantity = Math.max(0, Number(manualQuantities[type.id] || 0));
+                  return (
+                    <article className={quantity ? 'manualType selected' : 'manualType'} key={type.id}>
+                      <div className="voucherMeta">
+                        <p>{type.is_active ? 'Available' : 'Hidden'}</p>
+                        <h3>{type.name}</h3>
+                        <span>{type.description || 'Breakfast voucher'}</span>
+                      </div>
+                      <strong>{money(type.price_myr)}</strong>
+                      <div className="qtyStepper" aria-label={`${type.name} quantity`}>
+                        <button type="button" onClick={() => setManualQuantity(type.id, quantity - 1)}>-</button>
+                        <b>{quantity}</b>
+                        <button type="button" onClick={() => setManualQuantity(type.id, quantity + 1)}>+</button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-            <button type="button" onClick={issueManualVoucher} disabled={manualSaving}>
-              {manualSaving ? 'Issuing...' : 'Issue Breakfast Ticket'}
-            </button>
+
+            <div className="manualPanel">
+              <div className="panelHead">
+                <span>2</span>
+                <div>
+                  <p>Sale details</p>
+                  <h3>Record payment</h3>
+                </div>
+              </div>
+
+              <div className="manualIssueGrid">
+                <label>
+                  Room Number
+                  <input
+                    value={manualForm.room_number}
+                    onChange={(event) => setManualForm((form) => ({ ...form, room_number: event.target.value }))}
+                    placeholder="Example: 1522"
+                  />
+                </label>
+                <label>
+                  Selling Staff Name
+                  <input
+                    value={manualForm.manual_sold_by_name}
+                    onChange={(event) => setManualForm((form) => ({ ...form, manual_sold_by_name: event.target.value }))}
+                    placeholder="Name written by FO"
+                  />
+                </label>
+                <label>
+                  Payment Type
+                  <select
+                    value={manualForm.manual_payment_type}
+                    onChange={(event) => setManualForm((form) => ({ ...form, manual_payment_type: event.target.value }))}
+                  >
+                    <option value="CASH">Cash</option>
+                    <option value="CARD_TERMINAL">Card Terminal</option>
+                    <option value="MANUAL_QR">Manual QR / TNG</option>
+                    {isSuperuser ? <option value="COMPLIMENTARY">Complimentary</option> : null}
+                  </select>
+                </label>
+                <label>
+                  Amount Received
+                  <input
+                    inputMode="decimal"
+                    value={manualForm.manual_amount_received}
+                    onChange={(event) => setManualForm((form) => ({ ...form, manual_amount_received: event.target.value }))}
+                    placeholder={manualForm.manual_payment_type === 'COMPLIMENTARY' ? '0.00' : money(manualTotal).replace('RM', '')}
+                    disabled={manualForm.manual_payment_type === 'COMPLIMENTARY'}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <aside className="manualCheckout">
+              <p>Ready to issue</p>
+              <h3>{manualSelectedCount} ticket(s)</h3>
+              <strong>{money(manualTotal)}</strong>
+              <div className="checkoutLines">
+                {manualLines.length ? manualLines.map((line) => (
+                  <span key={line.type.id}>
+                    <b>{line.quantity}x {line.type.name}</b>
+                    <em>{money(line.lineTotal)}</em>
+                  </span>
+                )) : <span><b>No vouchers selected</b><em>-</em></span>}
+              </div>
+              <small>Audit trail: room, payment type, selling staff, amount received, and issuer are saved with this voucher.</small>
+              <button type="button" onClick={issueManualVoucher} disabled={manualSaving || !manualSelectedCount}>
+                {manualSaving ? 'Issuing...' : 'Issue & Print Ticket'}
+              </button>
+            </aside>
           </div>
         </section>
       ) : null}
@@ -960,23 +999,43 @@ export default function BreakfastVouchersPage() {
           margin-top: 6px;
           font-size: 32px;
         }
+        .stats small {
+          display: block;
+          margin-top: 2px;
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 800;
+        }
         .tabBar {
-          display: inline-flex;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, auto));
           gap: 8px;
           margin: 0 0 14px;
           padding: 6px;
           border: 1px solid #cfe0f6;
           border-radius: 18px;
           background: #eaf3ff;
+          width: fit-content;
         }
         .tabBar button {
           border: 0;
           background: transparent;
+          display: grid;
+          gap: 2px;
+          align-content: center;
+          min-width: 150px;
+          text-align: left;
         }
         .tabBar button.active {
           background: #245deb;
           color: #fff;
           box-shadow: 0 12px 26px rgba(36, 93, 235, 0.22);
+        }
+        .tabBar button span {
+          color: inherit;
+          opacity: 0.72;
+          font-size: 11px;
+          font-weight: 800;
         }
         .scannerCard,
         .listCard,
@@ -1103,13 +1162,27 @@ export default function BreakfastVouchersPage() {
             #fff;
           box-shadow: 0 22px 60px rgba(39, 73, 118, 0.12);
         }
-        .manualIssueCard .listHead strong {
+        .totalBadge {
           border-radius: 18px;
           padding: 14px 18px;
           background: #071225;
           color: #fff;
-          font-size: 28px;
+          min-width: 180px;
+          text-align: right;
           white-space: nowrap;
+        }
+        .totalBadge span {
+          display: block;
+          color: rgba(255, 255, 255, 0.68);
+          font-size: 11px;
+          font-weight: 950;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+        .totalBadge strong {
+          display: block;
+          margin-top: 4px;
+          font-size: 28px;
         }
         .manualIssueCard .listHead span {
           display: block;
@@ -1117,34 +1190,86 @@ export default function BreakfastVouchersPage() {
           color: #5d6b83;
           font-weight: 750;
         }
+        .manualIssueCard .listHead .totalBadge span {
+          margin-top: 0;
+          color: rgba(255, 255, 255, 0.68);
+          font-size: 11px;
+          font-weight: 950;
+        }
+        .manualIssueCard .listHead .totalBadge strong {
+          margin-top: 4px;
+          color: #fff;
+        }
+        .manualWorkflow {
+          display: grid;
+          grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+          grid-template-areas:
+            "pick checkout"
+            "details checkout";
+          gap: 14px;
+          margin-top: 16px;
+        }
+        .manualPanel {
+          border: 1px solid #d5e3f5;
+          border-radius: 22px;
+          background: #fbfdff;
+          padding: 16px;
+        }
+        .manualPanel:first-child {
+          grid-area: pick;
+        }
+        .manualPanel:nth-child(2) {
+          grid-area: details;
+        }
+        .panelHead {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .panelHead > span {
+          display: grid;
+          place-items: center;
+          width: 42px;
+          height: 42px;
+          border-radius: 14px;
+          background: #eaf3ff;
+          color: #245deb;
+          font-weight: 950;
+        }
+        .panelHead h3 {
+          font-size: 22px;
+        }
         .manualIssueGrid {
           display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 12px;
-          margin-top: 16px;
         }
         .manualVoucherPicker {
           display: grid;
           gap: 10px;
-          margin-top: 16px;
         }
         .manualType {
           display: grid;
-          grid-template-columns: 1fr auto;
-          gap: 14px;
+          grid-template-columns: minmax(0, 1fr) auto auto;
+          gap: 12px;
           align-items: center;
           border: 1px solid #d5e3f5;
           border-radius: 20px;
-          padding: 14px;
-          background: #fbfdff;
+          padding: 12px;
+          background: #fff;
         }
         .manualType.selected {
           border-color: #79a9ff;
           background: #f3f8ff;
         }
+        .manualType > strong {
+          font-size: 19px;
+          white-space: nowrap;
+        }
         .manualType h3 {
           margin: 4px 0;
-          font-size: 20px;
+          font-size: 18px;
         }
         .manualType span {
           color: #5d6b83;
@@ -1169,6 +1294,71 @@ export default function BreakfastVouchersPage() {
         }
         .qtyStepper strong {
           font-size: 20px;
+        }
+        .qtyStepper b {
+          font-size: 20px;
+        }
+        .manualCheckout {
+          grid-area: checkout;
+          position: sticky;
+          top: 16px;
+          align-self: start;
+          border: 1px solid #bbd5ff;
+          border-radius: 24px;
+          background:
+            linear-gradient(145deg, #071225 0%, #102655 48%, #245deb 100%);
+          color: #fff;
+          padding: 18px;
+          box-shadow: 0 24px 54px rgba(36, 93, 235, 0.2);
+        }
+        .manualCheckout p {
+          color: #bfdbfe;
+        }
+        .manualCheckout h3 {
+          font-size: 22px;
+        }
+        .manualCheckout > strong {
+          display: block;
+          margin: 8px 0 12px;
+          font-size: 40px;
+        }
+        .checkoutLines {
+          display: grid;
+          gap: 8px;
+          margin: 12px 0;
+        }
+        .checkoutLines span {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          border-radius: 14px;
+          padding: 10px 12px;
+          background: rgba(255, 255, 255, 0.1);
+          color: #fff;
+          font-size: 13px;
+          font-weight: 850;
+        }
+        .checkoutLines em {
+          font-style: normal;
+          white-space: nowrap;
+        }
+        .manualCheckout small {
+          display: block;
+          color: rgba(255, 255, 255, 0.72);
+          font-weight: 750;
+          line-height: 1.45;
+        }
+        .manualCheckout button {
+          width: 100%;
+          margin-top: 14px;
+          border: 0;
+          background: #f8d77a;
+          color: #071225;
+          box-shadow: 0 12px 28px rgba(248, 215, 122, 0.24);
+        }
+        .manualCheckout button:disabled {
+          cursor: not-allowed;
+          opacity: 0.55;
         }
         .manualSummary {
           display: flex;
@@ -1322,19 +1512,55 @@ export default function BreakfastVouchersPage() {
             flex-direction: column;
           }
           .stats {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+          }
+          .stats div {
+            padding: 12px;
+            border-radius: 16px;
+          }
+          .stats span {
+            font-size: 10px;
+          }
+          .stats strong {
+            font-size: 26px;
+          }
+          .stats small {
+            display: none;
           }
           .tabBar,
           .tabBar button {
             width: 100%;
           }
+          .tabBar {
+            grid-template-columns: 1fr;
+          }
+          .tabBar button {
+            min-width: 0;
+          }
           .typeEditor {
             grid-template-columns: 1fr;
+          }
+          .manualWorkflow {
+            grid-template-columns: 1fr;
+            grid-template-areas:
+              "pick"
+              "details"
+              "checkout";
+          }
+          .manualCheckout {
+            position: static;
           }
           .manualIssueGrid {
             grid-template-columns: 1fr;
           }
-          .manualType,
+          .manualType {
+            grid-template-columns: 1fr;
+            align-items: stretch;
+          }
+          .manualType > strong {
+            font-size: 20px;
+          }
           .manualSummary {
             grid-template-columns: 1fr;
             flex-direction: column;
