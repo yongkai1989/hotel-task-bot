@@ -40,6 +40,7 @@ type CreateBody = {
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
+  can_update_task_status?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
 };
@@ -142,6 +143,7 @@ function withPermissions(row: any) {
       email === 'hksup3@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_pa_linen_entry),
     can_create_task: toPermissionBoolean(row.can_create_task),
+    can_update_task_status: toPermissionBoolean(row.can_update_task_status),
     can_edit_task: toPermissionBoolean(row.can_edit_task),
     can_delete_task: toPermissionBoolean(row.can_delete_task),
   };
@@ -251,6 +253,7 @@ export async function POST(req: NextRequest) {
       can_access_pa_linen_entry:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_pa_linen_entry),
       can_create_task: toPermissionBoolean(body.can_create_task),
+      can_update_task_status: toPermissionBoolean(body.can_update_task_status),
       can_edit_task: toPermissionBoolean(body.can_edit_task),
       can_delete_task: toPermissionBoolean(body.can_delete_task),
       updated_at: new Date().toISOString(),
@@ -287,6 +290,7 @@ export async function POST(req: NextRequest) {
       payload.can_access_pa_checklist = true;
       payload.can_access_pa_linen_entry = true;
       payload.can_create_task = true;
+      payload.can_update_task_status = true;
       payload.can_edit_task = true;
       payload.can_delete_task = true;
     }
@@ -330,6 +334,7 @@ export async function POST(req: NextRequest) {
         can_access_pa_checklist,
         can_access_pa_linen_entry,
         can_create_task,
+        can_update_task_status,
         can_edit_task,
         can_delete_task
       `)
