@@ -42,6 +42,7 @@ type UserProfile = {
   can_access_pa_checklist: boolean;
   can_access_pa_linen_entry: boolean;
   can_create_task: boolean;
+  can_update_task_status: boolean;
   can_edit_task: boolean;
   can_delete_task: boolean;
 };
@@ -88,6 +89,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_fnb_menu_admin', label: 'F&B Menu Admin', group: 'F&B' },
   { key: 'can_access_fnb_orders', label: 'F&B Orders', group: 'F&B' },
   { key: 'can_create_task', label: 'Can Create', group: 'Actions' },
+  { key: 'can_update_task_status', label: 'Can Update Status', group: 'Actions' },
   { key: 'can_edit_task', label: 'Can Edit', group: 'Actions' },
   { key: 'can_delete_task', label: 'Can Delete', group: 'Actions' },
 ];
@@ -125,6 +127,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_pa_checklist: false,
     can_access_pa_linen_entry: false,
     can_create_task: false,
+    can_update_task_status: false,
     can_edit_task: false,
     can_delete_task: false,
   };
@@ -226,6 +229,7 @@ function normalizeUser(
     can_access_pa_linen_entry:
       toPermissionBoolean(permissionValue('can_access_pa_linen_entry')),
     can_create_task: toPermissionBoolean(permissionValue('can_create_task')),
+    can_update_task_status: toPermissionBoolean(permissionValue('can_update_task_status')),
     can_edit_task: toPermissionBoolean(permissionValue('can_edit_task')),
     can_delete_task: toPermissionBoolean(permissionValue('can_delete_task')),
   };
@@ -268,6 +272,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_pa_checklist: toPermissionBoolean(draft.can_access_pa_checklist),
     can_access_pa_linen_entry: toPermissionBoolean(draft.can_access_pa_linen_entry),
     can_create_task: toPermissionBoolean(draft.can_create_task),
+    can_update_task_status: toPermissionBoolean(draft.can_update_task_status),
     can_edit_task: toPermissionBoolean(draft.can_edit_task),
     can_delete_task: toPermissionBoolean(draft.can_delete_task),
   };
