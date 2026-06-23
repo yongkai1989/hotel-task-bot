@@ -51,6 +51,7 @@ type DashboardUser = {
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
   can_create_task?: boolean;
+  can_update_task_status?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
 };
@@ -1777,9 +1778,9 @@ export default function DashboardPage() {
     return !!profile?.can_create_task;
   }
 
-  function canEditTask(_task?: Task) {
+  function canUpdateTaskStatus(_task?: Task) {
     if (!profile) return false;
-    return !!profile.can_edit_task;
+    return !!profile.can_update_task_status;
   }
 
 function canEditTaskDetails(task: Task) {
@@ -3234,7 +3235,7 @@ async function handleDeleteTask(taskId: string) {
                                 <div style={styles.buttonRow}>
                                   <button
                                     style={actionBtn(task.status === 'OPEN', 'open')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task) || task.status === 'OPEN'}
+                                    disabled={busyTaskId === task.id || !canUpdateTaskStatus(task) || task.status === 'OPEN'}
                                     onClick={() => setTaskStatus(task.id, 'OPEN')}
                                   >
                                     Open
@@ -3242,7 +3243,7 @@ async function handleDeleteTask(taskId: string) {
 
                                   <button
                                     style={actionBtn(task.status === 'DONE', 'done')}
-                                    disabled={busyTaskId === task.id || !canEditTask(task) || task.status === 'DONE'}
+                                    disabled={busyTaskId === task.id || !canUpdateTaskStatus(task) || task.status === 'DONE'}
                                     onClick={() => setTaskStatus(task.id, 'DONE')}
                                   >
                                     Done
@@ -3267,9 +3268,9 @@ async function handleDeleteTask(taskId: string) {
 ) : null}
                                 </div>
 
-                                {!canEditTask(task) ? (
+                                {!canUpdateTaskStatus(task) ? (
                                   <div style={styles.permissionText}>
-                                    You do not have permission to edit this department’s task
+                                    You do not have permission to update this task status.
                                   </div>
                                 ) : null}
 
