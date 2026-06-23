@@ -161,9 +161,9 @@ function formatDateTime(value?: string | null) {
   }).format(new Date(value));
 }
 
-function sevenDaysAgoIso() {
+function thirtyDaysAgoIso() {
   const d = new Date();
-  d.setDate(d.getDate() - 6);
+  d.setDate(d.getDate() - 29);
   d.setHours(0, 0, 0, 0);
   return d.toISOString();
 }
@@ -322,7 +322,7 @@ export default function GuestLaundryPage() {
       const { data, error } = await supabase
         .from('guest_laundry_entries')
         .select('*')
-        .gte('created_at', sevenDaysAgoIso())
+        .gte('created_at', thirtyDaysAgoIso())
         .order('created_at', { ascending: false });
       if (error) throw error;
       setEntries((data || []) as GuestLaundryEntry[]);
@@ -680,7 +680,7 @@ export default function GuestLaundryPage() {
       <section style={styles.historyPanel}>
         <div style={styles.historyHead}>
           <div>
-            <div style={styles.cardLabel}>7 Days History</div>
+            <div style={styles.cardLabel}>30 Days History</div>
             <h2 style={styles.cardTitle}>Laundry entries</h2>
           </div>
           <div style={styles.filterPills}>
