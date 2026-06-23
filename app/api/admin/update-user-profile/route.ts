@@ -41,6 +41,7 @@ type UpdateBody = {
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   can_create_task?: boolean;
+  can_update_task_status?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
 };
@@ -76,6 +77,7 @@ const permissionKeys = [
   'can_access_pa_checklist',
   'can_access_pa_linen_entry',
   'can_create_task',
+  'can_update_task_status',
   'can_edit_task',
   'can_delete_task',
 ] as const;
@@ -118,6 +120,7 @@ const profileSelect = `
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   can_create_task,
+  can_update_task_status,
   can_edit_task,
   can_delete_task,
   updated_at
@@ -251,6 +254,8 @@ function withPermissions(row: any) {
       toPermissionBoolean(row.can_access_pa_linen_entry),
     can_create_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_create_task),
+    can_update_task_status:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_update_task_status),
     can_edit_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_edit_task),
     can_delete_task:
