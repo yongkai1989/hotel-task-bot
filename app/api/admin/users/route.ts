@@ -70,6 +70,7 @@ function enabledCount(row: any) {
         (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
       ),
     row?.can_create_task,
+    row?.can_update_task_status,
     row?.can_edit_task,
     row?.can_delete_task,
   ].filter(toPermissionBoolean).length;
@@ -172,6 +173,8 @@ function normalizeProfileRow(row: any) {
       toPermissionBoolean(row.can_access_pa_linen_entry),
     can_create_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_create_task),
+    can_update_task_status:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_update_task_status),
     can_edit_task:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_edit_task),
     can_delete_task:
@@ -299,6 +302,7 @@ const profileSelect = `
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   can_create_task,
+  can_update_task_status,
   can_edit_task,
   can_delete_task,
   updated_at
