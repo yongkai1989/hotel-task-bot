@@ -48,14 +48,15 @@ function staffMealCycle(now = new Date()) {
   const todaySgMidnightUtcMs = Date.UTC(parts.year, parts.month, parts.date);
   const mondayUtcMs = todaySgMidnightUtcMs - dayOffsetFromMonday * DAY_MS;
   const minutes = parts.hour * 60 + parts.minute;
-  const afterMondayCutoff = parts.day === 1 && minutes > 9 * 60;
-  const weekStartMs = mondayUtcMs + (afterMondayCutoff ? 7 * DAY_MS : 0);
+  const beforeThisMondayCutoff = parts.day === 1 && minutes < 9 * 60;
+  const afterWeeklyCutoff = !beforeThisMondayCutoff;
+  const weekStartMs = mondayUtcMs + (afterWeeklyCutoff ? 7 * DAY_MS : 0);
   const weekEndMs = weekStartMs + 6 * DAY_MS;
 
   return {
     order_week_start: toDateStringFromUtcMs(weekStartMs),
     order_week_end: toDateStringFromUtcMs(weekEndMs),
-    closes_at_label: `${toDateStringFromUtcMs(weekStartMs + 7 * DAY_MS)} 9:00 AM`,
+    closes_at_label: `${toDateStringFromUtcMs(weekStartMs)} 9:00 AM`,
   };
 }
 
