@@ -13,6 +13,7 @@ const PROFILE_SELECT = `
   name,
   role,
   can_create_task,
+  can_update_task_status,
   can_edit_task,
   can_delete_task,
   can_access_preventive_maintenance,
@@ -93,6 +94,7 @@ function effectiveFoChecklist(role: DashboardRole, email: unknown, value: unknow
 
 const permissionKeys = [
   'can_create_task',
+  'can_update_task_status',
   'can_edit_task',
   'can_delete_task',
   'can_access_preventive_maintenance',
@@ -156,6 +158,7 @@ function buildUser(profile: any, authEmail: string) {
   const role = String(profile.role || 'FO') as DashboardRole;
   const permissions = {
     can_create_task: effectiveBoolean(role, profile.can_create_task),
+    can_update_task_status: effectiveBoolean(role, profile.can_update_task_status),
     can_edit_task: effectiveBoolean(role, profile.can_edit_task),
     can_delete_task: effectiveBoolean(role, profile.can_delete_task),
     can_access_preventive_maintenance:
