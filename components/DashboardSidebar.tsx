@@ -11,6 +11,7 @@ type SidebarProfile = {
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
   can_create_task?: boolean;
+  can_update_task_status?: boolean;
   can_edit_task?: boolean;
   can_delete_task?: boolean;
   can_access_preventive_maintenance?: boolean;
@@ -46,6 +47,7 @@ type SidebarProfile = {
   can_access_pa_linen_entry?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
+    | 'can_update_task_status'
     | 'can_edit_task'
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
@@ -124,6 +126,7 @@ type EffectiveProfile = Required<
     | 'name'
     | 'role'
     | 'can_create_task'
+    | 'can_update_task_status'
     | 'can_edit_task'
     | 'can_delete_task'
     | 'can_access_preventive_maintenance'
@@ -192,6 +195,7 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
     name: String(profile.name || ''),
     role,
     can_create_task: isSuperuser || hasAccess(permissionValue('can_create_task')),
+    can_update_task_status: isSuperuser || hasAccess(permissionValue('can_update_task_status')),
     can_edit_task: isSuperuser || hasAccess(permissionValue('can_edit_task')),
     can_delete_task: isSuperuser || hasAccess(permissionValue('can_delete_task')),
     can_access_preventive_maintenance:
@@ -857,6 +861,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_fnb_orders,
     effectiveProfile?.can_access_fo_checklist,
     effectiveProfile?.can_create_task,
+    effectiveProfile?.can_update_task_status,
     effectiveProfile?.can_edit_task,
     effectiveProfile?.can_delete_task,
   ];
