@@ -831,11 +831,14 @@ const styles: Record<string, any> = {
 
 const displayStyles: Record<string, any> = {
   displayPage: {
+    position: 'fixed',
+    inset: 0,
     minHeight: '100vh',
     height: '100vh',
-    width: '100vw',
+    width: '100%',
     overflow: 'hidden',
     padding: 4,
+    boxSizing: 'border-box',
     background:
       'radial-gradient(circle at 10% 0%, rgba(255,245,224,.72), transparent 28%), radial-gradient(circle at 98% 92%, rgba(255,249,236,.82), transparent 34%), linear-gradient(135deg, #fffaf0, #f8fbff)',
     color: '#172033',
@@ -858,10 +861,12 @@ const displayStyles: Record<string, any> = {
     opacity: 0.62,
   },
   sheet: {
-    height: 'calc(100vh - 8px)',
-    maxWidth: 1280,
+    height: '100%',
+    maxHeight: '100%',
+    maxWidth: 1260,
     margin: '0 auto',
     padding: 5,
+    boxSizing: 'border-box',
     border: '1px solid #d8c29d',
     borderRadius: 14,
     background: 'rgba(255,253,248,.96)',
@@ -875,7 +880,7 @@ const displayStyles: Record<string, any> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
-    padding: '4px 8px',
+    padding: '3px 7px',
     border: '1px solid #ead7b6',
     borderRadius: 11,
     background: '#fffdf7',
@@ -888,8 +893,8 @@ const displayStyles: Record<string, any> = {
     minWidth: 0,
   },
   logo: {
-    width: 30,
-    height: 30,
+    width: 26,
+    height: 26,
     display: 'grid',
     placeItems: 'center',
     borderRadius: 9,
@@ -915,7 +920,7 @@ const displayStyles: Record<string, any> = {
   },
   title: {
     fontFamily: 'Georgia, serif',
-    fontSize: 'clamp(18px, 2.2vw, 28px)',
+    fontSize: 'clamp(16px, 2vw, 25px)',
     lineHeight: 1,
     color: '#172033',
     whiteSpace: 'nowrap',
@@ -942,7 +947,7 @@ const displayStyles: Record<string, any> = {
     display: 'grid',
     gridTemplateColumns: '1.4fr repeat(4, 1fr)',
     alignItems: 'center',
-    minHeight: 20,
+    minHeight: 18,
     borderBottom: '1px solid #dfd2bc',
     flex: '0 0 auto',
   },
@@ -958,11 +963,11 @@ const displayStyles: Record<string, any> = {
     gridTemplateColumns: '1.4fr repeat(4, 1fr)',
     alignItems: 'center',
     minHeight: 0,
-    borderBottom: '1px solid #ece3d4',
+    borderBottom: '1px solid #eee5d8',
     flex: '1 1 0',
   },
   roomCell: {
-    padding: '1px 7px',
+    padding: '1px 6px',
     minWidth: 0,
   },
   roomName: {
@@ -981,7 +986,7 @@ const displayStyles: Record<string, any> = {
     lineHeight: .95,
   },
   rateCell: {
-    padding: '1px 5px',
+    padding: '1px 4px',
     textAlign: 'center',
     color: '#03152d',
     fontSize: 'clamp(9px, .94vw, 12px)',
@@ -996,8 +1001,8 @@ const displayStyles: Record<string, any> = {
     flex: '0 0 auto',
   },
   infoCard: {
-    minHeight: 32,
-    padding: '4px 5px',
+    minHeight: 28,
+    padding: '3px 5px',
     border: '1px solid #dfd2bc',
     borderRadius: 9,
     background: '#fffdf9',
@@ -1016,7 +1021,7 @@ const displayStyles: Record<string, any> = {
     lineHeight: 1,
   },
   policy: {
-    marginTop: 3,
+    marginTop: 2,
     color: '#66758a',
     textAlign: 'center',
     fontSize: 'clamp(6px, .58vw, 8px)',
