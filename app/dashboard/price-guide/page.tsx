@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
 type UserRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 
