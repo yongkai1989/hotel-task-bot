@@ -172,9 +172,17 @@ export default function PriceGuidePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
 
   const canView = canViewPriceGuide(profile);
   const canEdit = canEditPriceGuide(profile);
+
+  useEffect(() => {
+    const updateMobile = () => setIsMobile(window.innerWidth <= 760);
+    updateMobile();
+    window.addEventListener('resize', updateMobile);
+    return () => window.removeEventListener('resize', updateMobile);
+  }, []);
 
   async function loadGuide() {
     if (!supabase) return;
@@ -388,16 +396,16 @@ function updateDraftField(
 
   if (mode === 'EDIT') {
     return (
-      <main style={styles.appPage}>
-        <section style={styles.pageHero}>
+      <main style={{ ...styles.appPage, ...(isMobile ? styles.mobileAppPage : null) }}>
+        <section style={{ ...styles.pageHero, ...(isMobile ? styles.mobilePageHero : null) }}>
           <div>
             <div style={styles.eyebrow}>Front Office</div>
-            <h1 style={styles.pageTitle}>Edit Price Guide</h1>
+            <h1 style={{ ...styles.pageTitle, ...(isMobile ? styles.mobilePageTitle : null) }}>Edit Price Guide</h1>
             <p style={styles.pageSubtitle}>Update the guest-facing display prices and information cards.</p>
           </div>
-          <div style={styles.heroActions}>
-            <button type="button" onClick={() => void backToMenu()} style={styles.lightButton}>Back</button>
-            <button type="button" onClick={() => void saveGuide()} disabled={saving || !canEdit} style={styles.darkButton}>
+          <div style={{ ...styles.heroActions, ...(isMobile ? styles.mobileHeroActions : null) }}>
+            <button type="button" onClick={() => void backToMenu()} style={{ ...styles.lightButton, ...(isMobile ? styles.mobileActionButton : null) }}>Back</button>
+            <button type="button" onClick={() => void saveGuide()} disabled={saving || !canEdit} style={{ ...styles.darkButton, ...(isMobile ? styles.mobileActionButton : null) }}>
               {saving ? 'Saving...' : 'Save Price Guide'}
             </button>
           </div>
@@ -410,8 +418,8 @@ function updateDraftField(
           <div style={styles.errorBox}>Only Superuser and fenny@hotelhallmark.com can edit this guide.</div>
         ) : null}
 
-        <section style={styles.editorPanel}>
-          <div style={styles.editorGrid}>
+        <section style={{ ...styles.editorPanel, ...(isMobile ? styles.mobileEditorPanel : null) }}>
+          <div style={{ ...styles.editorGrid, ...(isMobile ? styles.mobileEditorGrid : null) }}>
             <label style={styles.label}>
               Hotel Name
               <input value={draft.hotelName} onChange={(e) => updateDraftField('hotelName', e.target.value)} style={styles.input} />
@@ -431,43 +439,74 @@ function updateDraftField(
           </div>
 
           <div style={styles.sectionTitle}>Room Prices</div>
-          <div style={styles.editTableWrap}>
-            <table style={styles.editTable}>
-              <thead>
-                <tr>
-                  <th style={styles.editTh}>Room Category</th>
-                  <th style={styles.editTh}>Description</th>
-                  {RATE_KEYS.map((rate) => <th key={rate.key} style={styles.editTh}>{rate.label}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {draft.rooms.map((room, index) => (
-                  <tr key={room.id}>
-                    <td style={styles.editTd}>
-                      <input value={room.category} onChange={(e) => updateDraftRoom(index, 'category', e.target.value)} style={styles.tableInput} />
-                    </td>
-                    <td style={styles.editTd}>
-                      <input value={room.description} onChange={(e) => updateDraftRoom(index, 'description', e.target.value)} style={styles.tableInput} />
-                    </td>
+          {isMobile ? (
+            <div style={styles.mobileRoomList}>
+              {draft.rooms.map((room, index) => (
+                <div key={room.id} style={styles.mobileRoomCard}>
+                  <label style={styles.label}>
+                    Room Category
+                    <input value={room.category} onChange={(e) => updateDraftRoom(index, 'category', e.target.value)} style={styles.input} />
+                  </label>
+                  <label style={styles.label}>
+                    Description
+                    <input value={room.description} onChange={(e) => updateDraftRoom(index, 'description', e.target.value)} style={styles.input} />
+                  </label>
+                  <div style={styles.mobileRateGrid}>
                     {RATE_KEYS.map((rate) => (
-                      <td key={rate.key} style={styles.editTd}>
+                      <label key={rate.key} style={styles.mobileRateLabel}>
+                        {rate.label}
                         <input
                           type="number"
                           min="0"
                           value={room[rate.key]}
                           onChange={(e) => updateDraftRoom(index, rate.key, e.target.value)}
-                          style={styles.priceInput}
+                          style={styles.mobilePriceInput}
                         />
-                      </td>
+                      </label>
                     ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={styles.editTableWrap}>
+              <table style={styles.editTable}>
+                <thead>
+                  <tr>
+                    <th style={styles.editTh}>Room Category</th>
+                    <th style={styles.editTh}>Description</th>
+                    {RATE_KEYS.map((rate) => <th key={rate.key} style={styles.editTh}>{rate.label}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {draft.rooms.map((room, index) => (
+                    <tr key={room.id}>
+                      <td style={styles.editTd}>
+                        <input value={room.category} onChange={(e) => updateDraftRoom(index, 'category', e.target.value)} style={styles.tableInput} />
+                      </td>
+                      <td style={styles.editTd}>
+                        <input value={room.description} onChange={(e) => updateDraftRoom(index, 'description', e.target.value)} style={styles.tableInput} />
+                      </td>
+                      {RATE_KEYS.map((rate) => (
+                        <td key={rate.key} style={styles.editTd}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={room[rate.key]}
+                            onChange={(e) => updateDraftRoom(index, rate.key, e.target.value)}
+                            style={styles.priceInput}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div style={styles.sectionTitle}>Guest Information Cards</div>
-          <div style={styles.infoEditGrid}>
+          <div style={{ ...styles.infoEditGrid, ...(isMobile ? styles.mobileInfoEditGrid : null) }}>
             {draft.infoCards.map((card, index) => (
               <div key={card.id} style={styles.infoEditCard}>
                 <input value={card.title} onChange={(e) => updateDraftInfo(index, 'title', e.target.value)} style={styles.input} />
@@ -587,6 +626,9 @@ const styles: Record<string, any> = {
     color: '#0f172a',
     fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
+  mobileAppPage: {
+    padding: 12,
+  },
   pageHero: {
     display: 'flex',
     alignItems: 'center',
@@ -599,6 +641,11 @@ const styles: Record<string, any> = {
     background: 'rgba(255,255,255,.92)',
     boxShadow: '0 20px 50px rgba(15,23,42,.08)',
     marginBottom: 18,
+  },
+  mobilePageHero: {
+    padding: 16,
+    borderRadius: 20,
+    gap: 14,
   },
   eyebrow: {
     color: '#9a6a2f',
@@ -613,6 +660,10 @@ const styles: Record<string, any> = {
     letterSpacing: '-.04em',
     lineHeight: 1,
   },
+  mobilePageTitle: {
+    fontSize: 34,
+    letterSpacing: '-.035em',
+  },
   pageSubtitle: {
     margin: 0,
     color: '#64748b',
@@ -623,6 +674,16 @@ const styles: Record<string, any> = {
     display: 'flex',
     gap: 10,
     flexWrap: 'wrap',
+  },
+  mobileHeroActions: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    width: '100%',
+  },
+  mobileActionButton: {
+    width: '100%',
+    textAlign: 'center',
+    padding: '13px 10px',
   },
   darkButton: {
     appearance: 'none',
@@ -700,11 +761,20 @@ const styles: Record<string, any> = {
     background: '#fff',
     boxShadow: '0 20px 50px rgba(15,23,42,.08)',
   },
+  mobileEditorPanel: {
+    padding: 14,
+    borderRadius: 20,
+  },
   editorGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gap: 14,
     marginBottom: 24,
+  },
+  mobileEditorGrid: {
+    gridTemplateColumns: '1fr',
+    gap: 12,
+    marginBottom: 18,
   },
   label: {
     display: 'grid',
@@ -715,6 +785,7 @@ const styles: Record<string, any> = {
   },
   input: {
     width: '100%',
+    boxSizing: 'border-box',
     border: '1px solid #cbd5e1',
     borderRadius: 14,
     padding: '13px 14px',
@@ -724,6 +795,7 @@ const styles: Record<string, any> = {
   },
   textarea: {
     width: '100%',
+    boxSizing: 'border-box',
     minHeight: 76,
     border: '1px solid #cbd5e1',
     borderRadius: 14,
@@ -763,6 +835,7 @@ const styles: Record<string, any> = {
   },
   tableInput: {
     width: '100%',
+    boxSizing: 'border-box',
     minWidth: 160,
     border: '1px solid #dbe3ee',
     borderRadius: 11,
@@ -771,6 +844,7 @@ const styles: Record<string, any> = {
   },
   priceInput: {
     width: 110,
+    boxSizing: 'border-box',
     border: '1px solid #dbe3ee',
     borderRadius: 11,
     padding: '10px 11px',
@@ -783,6 +857,9 @@ const styles: Record<string, any> = {
     gap: 12,
     marginBottom: 20,
   },
+  mobileInfoEditGrid: {
+    gridTemplateColumns: '1fr',
+  },
   infoEditCard: {
     display: 'grid',
     gap: 10,
@@ -790,6 +867,43 @@ const styles: Record<string, any> = {
     border: '1px solid #e2e8f0',
     borderRadius: 18,
     background: '#f8fafc',
+  },
+  mobileRoomList: {
+    display: 'grid',
+    gap: 14,
+  },
+  mobileRoomCard: {
+    display: 'grid',
+    gap: 12,
+    padding: 14,
+    border: '1px solid #d8e2ef',
+    borderRadius: 18,
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    boxShadow: '0 12px 26px rgba(15,23,42,.06)',
+  },
+  mobileRateGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 10,
+  },
+  mobileRateLabel: {
+    display: 'grid',
+    gap: 7,
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: 950,
+    lineHeight: 1.15,
+  },
+  mobilePriceInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #dbe3ee',
+    borderRadius: 12,
+    padding: '12px 10px',
+    fontSize: 16,
+    fontWeight: 900,
+    color: '#0f172a',
+    background: '#fff',
   },
   successBox: {
     padding: 15,
