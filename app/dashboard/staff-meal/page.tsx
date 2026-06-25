@@ -12,6 +12,8 @@ type MealChoice = 'none' | 'lunch' | 'dinner' | 'both';
 type Cycle = {
   order_week_start: string;
   order_week_end: string;
+  service_week_start?: string;
+  service_week_end?: string;
   closes_at_label: string;
 };
 
@@ -37,6 +39,32 @@ function addDays(value: string, days: number) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function dateParts(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function formatDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function mondayForDate(value: string) {
+  const parts = dateParts(value);
+  if (!parts) return value;
+  const date = new Date(parts.year, parts.month - 1, parts.day);
+  const offset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - offset);
+  return formatDateInput(date);
 }
 
 function weekDates(start: string) {
@@ -124,7 +152,8 @@ export default function StaffMealAdminPage() {
       if (!token) throw new Error('Missing login session.');
 
       const params = new URLSearchParams({ admin: '1' });
-      if (targetWeek) params.set('week_start', targetWeek);
+      params.set('mode', 'report');
+      if (targetWeek) params.set('week_start', mondayForDate(targetWeek));
 
       const res = await fetch(`/api/staff-meal/orders?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -135,7 +164,7 @@ export default function StaffMealAdminPage() {
 
       setOrders(json.orders || []);
       setCycle(json.cycle || null);
-      setWeekStart(json.week_start || json.cycle?.order_week_start || '');
+      setWeekStart(json.week_start || json.cycle?.service_week_start || json.cycle?.order_week_start || '');
       setCanManage(!!json.can_manage);
     } catch (err: any) {
       setError(err?.message || 'Unable to load staff meal orders.');
@@ -536,12 +565,31 @@ export default function StaffMealAdminPage() {
             <input
               type="date"
               value={weekStart}
+              min="2026-01-05"
+              step={7}
               onChange={(event) => {
-                setWeekStart(event.target.value);
-                loadOrders(event.target.value);
+                const monday = mondayForDate(event.target.value);
+                setWeekStart(monday);
+                loadOrders(monday);
               }}
               style={styles.input}
             />
+            <div style={styles.weekQuickActions}>
+              <button
+                type="button"
+                onClick={() => loadOrders(cycle?.service_week_start || weekStart)}
+                style={styles.smallGhostBtn}
+              >
+                Current Week
+              </button>
+              <button
+                type="button"
+                onClick={() => loadOrders(cycle?.order_week_start || weekStart)}
+                style={styles.smallGhostBtn}
+              >
+                Ordering Week
+              </button>
+            </div>
           </div>
         </div>
 
@@ -764,6 +812,22 @@ const styles: Record<string, CSSProperties> = {
   },
   weekPicker: {
     minWidth: 220,
+  },
+  weekQuickActions: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 8,
+    marginTop: 8,
+  },
+  smallGhostBtn: {
+    border: '1px solid #cbd8e8',
+    borderRadius: 999,
+    padding: '9px 12px',
+    background: '#f8fbff',
+    color: '#0b1730',
+    fontWeight: 950,
+    cursor: 'pointer',
+    fontSize: 12,
   },
   label: {
     display: 'block',
