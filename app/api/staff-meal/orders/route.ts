@@ -9,6 +9,7 @@ export const fetchCache = 'force-no-store';
 const BRANCHES = ['Crown', 'Leisure', 'View', 'Express'] as const;
 const SG_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKLY_CUTOFF_MINUTES = 7 * 60;
 
 type Branch = (typeof BRANCHES)[number];
 type MealChoice = 'none' | 'lunch' | 'dinner' | 'both';
@@ -48,15 +49,19 @@ function staffMealCycle(now = new Date()) {
   const todaySgMidnightUtcMs = Date.UTC(parts.year, parts.month, parts.date);
   const mondayUtcMs = todaySgMidnightUtcMs - dayOffsetFromMonday * DAY_MS;
   const minutes = parts.hour * 60 + parts.minute;
-  const beforeThisMondayCutoff = parts.day === 1 && minutes < 9 * 60;
+  const beforeThisMondayCutoff = parts.day === 1 && minutes < WEEKLY_CUTOFF_MINUTES;
   const afterWeeklyCutoff = !beforeThisMondayCutoff;
   const weekStartMs = mondayUtcMs + (afterWeeklyCutoff ? 7 * DAY_MS : 0);
   const weekEndMs = weekStartMs + 6 * DAY_MS;
+  const serviceWeekStartMs = mondayUtcMs;
+  const serviceWeekEndMs = mondayUtcMs + 6 * DAY_MS;
 
   return {
     order_week_start: toDateStringFromUtcMs(weekStartMs),
     order_week_end: toDateStringFromUtcMs(weekEndMs),
-    closes_at_label: `${toDateStringFromUtcMs(weekStartMs)} 9:00 AM`,
+    service_week_start: toDateStringFromUtcMs(serviceWeekStartMs),
+    service_week_end: toDateStringFromUtcMs(serviceWeekEndMs),
+    closes_at_label: `${toDateStringFromUtcMs(weekStartMs)} 7:00 AM`,
   };
 }
 
@@ -128,6 +133,7 @@ async function cleanupOldOrders() {
 export async function GET(req: NextRequest) {
   const cycle = staffMealCycle();
   const adminMode = req.nextUrl.searchParams.get('admin') === '1';
+  const reportMode = req.nextUrl.searchParams.get('mode') === 'report';
 
   if (!adminMode) {
     return jsonNoCache({ ok: true, cycle, branches: BRANCHES });
@@ -139,7 +145,7 @@ export async function GET(req: NextRequest) {
 
   await cleanupOldOrders();
 
-  const weekStart = req.nextUrl.searchParams.get('week_start') || cycle.order_week_start;
+  const weekStart = req.nextUrl.searchParams.get('week_start') || (reportMode ? cycle.service_week_start : cycle.order_week_start);
   const { data, error: listError } = await supabaseAdmin
     .from('staff_meal_orders')
     .select('*')
