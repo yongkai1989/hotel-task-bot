@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,27 @@ function siteBaseUrl(req: NextRequest) {
 
 function cleanText(value: unknown, fallback = '') {
   return String(value ?? fallback).trim();
+}
+
+function todayIso() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function normalizeEntryDate(value: unknown) {
+  const text = cleanText(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : todayIso();
+}
+
+function breakfastTicketCode() {
+  const day = todayIso().replace(/-/g, '');
+  return `BF-${day}-${randomBytes(5).toString('hex').toUpperCase()}`;
 }
 
 function billplzErrorMessage(status: number, raw: any) {
@@ -80,6 +102,7 @@ async function buildVoucherItems(body: any) {
   const requestedItems = rawItems
     .map((item: any) => ({
       voucherTypeId: cleanText(item?.voucherTypeId),
+      entryDate: normalizeEntryDate(item?.entryDate),
       quantity: Math.max(0, Math.min(20, Math.floor(Number(item?.quantity || 0)))),
     }))
     .filter((item: any) => item.voucherTypeId && item.quantity > 0);
@@ -88,28 +111,47 @@ async function buildVoucherItems(body: any) {
     const quantity = Math.max(1, Math.min(20, Math.floor(Number(body?.quantity || 1))));
     requestedItems.push({
       voucherTypeId: cleanText(body?.voucherTypeId),
+      entryDate: normalizeEntryDate(body?.entryDate),
       quantity,
     });
   }
 
-  const merged = new Map<string, number>();
+  const merged = new Map<string, { voucherTypeId: string; entryDate: string; quantity: number }>();
   for (const item of requestedItems) {
-    merged.set(item.voucherTypeId, Math.min(20, (merged.get(item.voucherTypeId) || 0) + item.quantity));
+    const key = `${item.entryDate}__${item.voucherTypeId}`;
+    const current = merged.get(key);
+    merged.set(key, {
+      voucherTypeId: item.voucherTypeId,
+      entryDate: item.entryDate,
+      quantity: Math.min(20, (current?.quantity || 0) + item.quantity),
+    });
   }
 
   const lines = [];
-  for (const [voucherTypeId, quantity] of merged.entries()) {
+  for (const item of merged.values()) {
+    const { voucherTypeId, entryDate, quantity } = item;
     const voucherType = await resolveVoucherType(voucherTypeId);
     const unitPrice = Number.isFinite(voucherType.price_myr) && voucherType.price_myr > 0 ? voucherType.price_myr : 20;
-    lines.push({
-      id: `breakfast-voucher-${voucherType.id}`,
+    const tickets = Array.from({ length: quantity }, () => ({
+      code: breakfastTicketCode(),
+      entry_date: entryDate,
       voucher_type_id: voucherType.id,
+      name: voucherType.name,
+      status: 'ACTIVE',
+      redeemed_at: null,
+      redeemed_by: '',
+    }));
+    lines.push({
+      id: `breakfast-voucher-${entryDate}-${voucherType.id}`,
+      voucher_type_id: voucherType.id,
+      entry_date: entryDate,
       name: voucherType.name,
       description: voucherType.description,
       category: 'Breakfast',
       quantity,
       price_myr: unitPrice,
       line_total_myr: Number((unitPrice * quantity).toFixed(2)),
+      tickets,
     });
   }
 
@@ -143,8 +185,11 @@ export async function POST(req: NextRequest) {
     const totalMyr = Number(orderItems.reduce((sum, item) => sum + Number(item.line_total_myr || 0), 0).toFixed(2));
     const shouldPrintTicket = body?.printTicket === true;
     const descriptionSummary = orderItems
-      .map((item) => `${item.quantity}x ${item.name}`)
+      .map((item) => `${item.quantity}x ${item.name} (${item.entry_date})`)
       .join(', ');
+    const firstTicketCode =
+      orderItems.flatMap((item: any) => (Array.isArray(item.tickets) ? item.tickets : []))[0]?.code ||
+      breakfastTicketCode();
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
@@ -157,6 +202,7 @@ export async function POST(req: NextRequest) {
         payment_provider: `BILLPLZ_${String(process.env.BILLPLZ_MODE || 'sandbox').toUpperCase()}`,
         total_myr: totalMyr,
         items_json: orderItems,
+        voucher_code: firstTicketCode,
         voucher_quantity: quantity,
         voucher_redeemed_quantity: 0,
         voucher_status: 'PENDING_PAYMENT',
@@ -175,7 +221,9 @@ export async function POST(req: NextRequest) {
     const baseUrl = siteBaseUrl(req);
     const orderId = String(order.id);
     const callbackUrl = `${baseUrl}/api/guest-shop/billplz-callback`;
-    const redirectUrl = `${baseUrl}/restaurant-kiosk/payment-status?order_id=${encodeURIComponent(orderId)}`;
+    const redirectUrl = `${baseUrl}/restaurant-kiosk/payment-status?order_id=${encodeURIComponent(orderId)}${
+      shouldPrintTicket ? '&mode=kiosk' : ''
+    }`;
 
     const billBody = new URLSearchParams();
     billBody.set('collection_id', collectionId);
