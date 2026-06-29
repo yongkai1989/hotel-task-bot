@@ -20,6 +20,15 @@ type Voucher = {
   voucher_status: string;
   voucher_redeemed_at: string | null;
   voucher_redeemed_by: string;
+  tickets?: Array<{
+    code: string;
+    entry_date: string;
+    voucher_type_id?: string;
+    name: string;
+    status?: string;
+    redeemed_at?: string | null;
+    redeemed_by?: string;
+  }>;
   manual_sale_channel?: string;
   manual_payment_type?: string;
   manual_amount_received?: number | null;
@@ -49,6 +58,7 @@ const blankTypeForm = {
 
 const blankManualForm = {
   room_number: '',
+  entry_date: todayIso(),
   manual_payment_type: 'CASH',
   manual_amount_received: '',
   manual_sold_by_name: '',
@@ -84,6 +94,53 @@ function qrUrl(value: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=14&data=${encodeURIComponent(value)}`;
 }
 
+function formatEntryDate(value: string | null | undefined) {
+  if (!value) return '-';
+  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return String(value);
+  return new Date(year, month - 1, day).toLocaleDateString('en-MY', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function voucherTickets(voucher: Voucher) {
+  if (Array.isArray(voucher.tickets) && voucher.tickets.length) return voucher.tickets;
+
+  const tickets: Voucher['tickets'] = [];
+  if (Array.isArray(voucher.items_json)) {
+    voucher.items_json.forEach((item: any) => {
+      if (Array.isArray(item?.tickets)) {
+        item.tickets.forEach((ticket: any) => {
+          tickets.push({
+            code: String(ticket?.code || ''),
+            entry_date: String(ticket?.entry_date || item?.entry_date || ''),
+            voucher_type_id: String(ticket?.voucher_type_id || item?.voucher_type_id || ''),
+            name: String(ticket?.name || item?.name || 'Breakfast Voucher'),
+            status: String(ticket?.status || 'ACTIVE'),
+            redeemed_at: ticket?.redeemed_at || null,
+            redeemed_by: String(ticket?.redeemed_by || ''),
+          });
+        });
+      }
+    });
+  }
+
+  if (!tickets.length && voucher.voucher_code) {
+    tickets.push({
+      code: voucher.voucher_code,
+      entry_date: '',
+      name: 'Breakfast Voucher',
+      status: isRedeemed(voucher) ? 'REDEEMED' : 'ACTIVE',
+      redeemed_at: voucher.voucher_redeemed_at,
+      redeemed_by: voucher.voucher_redeemed_by,
+    });
+  }
+
+  return tickets.filter((ticket) => ticket.code);
+}
+
 function escapeHtml(value: unknown) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -96,7 +153,10 @@ function escapeHtml(value: unknown) {
 function voucherItemText(voucher: Voucher) {
   if (Array.isArray(voucher.items_json) && voucher.items_json.length) {
     return voucher.items_json
-      .map((item: any) => `${Number(item?.quantity || 1)}x ${String(item?.name || 'Breakfast Voucher')}`)
+      .map((item: any) => {
+        const entryDate = item?.entry_date ? ` - ${formatEntryDate(item.entry_date)}` : '';
+        return `${Number(item?.quantity || 1)}x ${String(item?.name || 'Breakfast Voucher')}${entryDate}`;
+      })
       .join(' | ');
   }
 
@@ -308,7 +368,8 @@ export default function BreakfastVouchersPage() {
   }
 
   function reprintTicket(voucher: Voucher) {
-    if (!voucher.voucher_code) {
+    const tickets = voucherTickets(voucher);
+    if (!tickets.length) {
       setMessage('Voucher code is not ready yet.');
       setTone('danger');
       return;
@@ -320,6 +381,21 @@ export default function BreakfastVouchersPage() {
           .join('<br />')
       : `${voucher.voucher_quantity || 1}x Breakfast Voucher`;
 
+    const ticketCards = tickets
+      .map(
+        (ticket) => `
+          <section class="ticketBlock">
+            <img src="${qrUrl(ticket.code)}" alt="Breakfast voucher QR" />
+            <div class="code">${escapeHtml(ticket.code)}</div>
+            <div class="grid">
+              <div class="box"><small>Entry Date</small><b>${escapeHtml(formatEntryDate(ticket.entry_date))}</b></div>
+              <div class="box"><small>Ticket Type</small><b>${escapeHtml(ticket.name)}</b></div>
+            </div>
+          </section>
+        `
+      )
+      .join('');
+
     const printWindow = window.open('', '_blank', 'width=760,height=920');
     if (!printWindow) {
       setMessage('Popup blocked. Please allow popups to reprint ticket.');
@@ -330,13 +406,14 @@ export default function BreakfastVouchersPage() {
     printWindow.document.write(`<!doctype html>
       <html>
         <head>
-          <title>Breakfast Voucher ${escapeHtml(voucher.voucher_code)}</title>
+          <title>Breakfast Voucher ${escapeHtml(tickets[0]?.code || voucher.voucher_code)}</title>
           <style>
             body { margin: 0; background: #f7f2ea; color: #15120e; font-family: Arial, sans-serif; }
             .ticket { max-width: 680px; margin: 28px auto; padding: 34px; border: 1px solid #d9bd8c; border-radius: 28px; background: #fffdf8; text-align: center; }
             .brand { color: #9b6428; font-size: 12px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
             h1 { margin: 10px 0 18px; font-size: 42px; }
-            img { width: 260px; height: 260px; border: 1px dashed #d9bd8c; border-radius: 24px; padding: 16px; background: #fffaf1; }
+            .ticketBlock { break-inside: avoid; border: 1px solid #ead9bd; border-radius: 22px; padding: 18px; margin-top: 16px; }
+            img { width: 220px; height: 220px; border: 1px dashed #d9bd8c; border-radius: 24px; padding: 16px; background: #fffaf1; }
             .code { margin: 18px 0; font-size: 26px; font-weight: 900; overflow-wrap: anywhere; }
             .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; text-align: left; }
             .box { border: 1px solid #ead9bd; border-radius: 16px; padding: 14px; background: #fffaf1; }
@@ -350,15 +427,14 @@ export default function BreakfastVouchersPage() {
           <main class="ticket">
             <div class="brand">Hallmark Crown Hotel</div>
             <h1>Breakfast Voucher</h1>
-            <img src="${qrUrl(voucher.voucher_code)}" alt="Breakfast voucher QR" />
-            <div class="code">${escapeHtml(voucher.voucher_code)}</div>
             <div class="grid">
               <div class="box"><small>Room</small><b>${escapeHtml(voucher.room_number || '-')}</b></div>
-              <div class="box"><small>Quantity</small><b>${voucher.voucher_quantity || 1}</b></div>
+              <div class="box"><small>Tickets</small><b>${tickets.length}</b></div>
               <div class="box"><small>Total</small><b>${money(voucher.total_myr)}</b></div>
               <div class="box"><small>Paid</small><b>${escapeHtml(formatTime(voucher.paid_at))}</b></div>
             </div>
             <div class="items">${itemLines}</div>
+            ${ticketCards}
           </main>
           <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
         </body>
@@ -398,7 +474,10 @@ export default function BreakfastVouchersPage() {
         return;
       }
 
-      setMessage(`Voucher redeemed for ${json.voucher?.guest_name || 'guest'} (${json.voucher?.voucher_code || voucherCode})`);
+      const ticketLabel = json?.ticket
+        ? `${json.ticket.name || 'Breakfast Voucher'} for ${formatEntryDate(json.ticket.entry_date)}`
+        : json.voucher?.voucher_code || voucherCode;
+      setMessage(`Voucher redeemed: ${ticketLabel}`);
       setTone('success');
       setCode('');
       setVouchers((rows) => {
@@ -493,6 +572,7 @@ export default function BreakfastVouchersPage() {
           manual_sold_by_name: manualForm.manual_sold_by_name.trim(),
           items: manualLines.map((line) => ({
             voucherTypeId: line.type.id,
+            entryDate: manualForm.entry_date,
             quantity: line.quantity,
           })),
         }),
@@ -501,7 +581,7 @@ export default function BreakfastVouchersPage() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to issue manual voucher');
 
       setVouchers((rows) => [json.voucher, ...rows]);
-      setManualForm(blankManualForm);
+      setManualForm({ ...blankManualForm, entry_date: todayIso() });
       setManualQuantities({});
       setMessage(`Manual breakfast voucher issued for Room ${json.voucher?.room_number || manualForm.room_number}.`);
       setTone('success');
@@ -690,6 +770,13 @@ export default function BreakfastVouchersPage() {
                 <h3>Room {voucher.room_number || '-'} - {voucher.guest_name || '-'}</h3>
                 <span>{voucher.voucher_quantity || 1} voucher(s) - {money(voucher.total_myr)} - Paid {formatTime(voucher.paid_at)}</span>
                 <small className="itemBreakdown">{voucherItemText(voucher)}</small>
+                <div className="ticketChips">
+                  {voucherTickets(voucher).map((ticket) => (
+                    <span className={String(ticket.status || '').toUpperCase() === 'REDEEMED' ? 'used' : ''} key={ticket.code}>
+                      {formatEntryDate(ticket.entry_date)} - {ticket.name}
+                    </span>
+                  ))}
+                </div>
                 {voucher.manual_sale_channel === 'FRONT_OFFICE' ? (
                   <small className="auditBreakdown">
                     Manual sale - {String(voucher.manual_payment_type || '').replace(/_/g, ' ') || '-'} - Sold by {voucher.manual_sold_by_name || '-'} - Amount received {money(voucher.manual_amount_received ?? voucher.total_myr)}
@@ -784,6 +871,15 @@ export default function BreakfastVouchersPage() {
                     value={manualForm.room_number}
                     onChange={(event) => setManualForm((form) => ({ ...form, room_number: event.target.value }))}
                     placeholder="Example: 1522"
+                  />
+                </label>
+                <label>
+                  Breakfast Date
+                  <input
+                    type="date"
+                    min={todayIso()}
+                    value={manualForm.entry_date}
+                    onChange={(event) => setManualForm((form) => ({ ...form, entry_date: event.target.value || todayIso() }))}
                   />
                 </label>
                 <label>
@@ -1476,6 +1572,26 @@ export default function BreakfastVouchersPage() {
           border-radius: 12px;
           padding: 10px;
           line-height: 1.45;
+        }
+        .ticketChips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .ticketChips span {
+          border-radius: 999px;
+          border: 1px solid #bfd5f5;
+          background: #eef5ff;
+          color: #0d3d91;
+          padding: 7px 10px;
+          font-size: 12px;
+          font-weight: 950;
+        }
+        .ticketChips span.used {
+          border-color: #bdeacb;
+          background: #eafff1;
+          color: #04703a;
         }
         .rowActions {
           display: grid;
