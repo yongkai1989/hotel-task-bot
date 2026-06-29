@@ -28,25 +28,59 @@ function initials(name: string) {
     .toUpperCase() || 'BV';
 }
 
+function todayIso() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function formatEntryDate(value: string) {
+  if (!value) return '-';
+  return new Date(`${value}T00:00:00+08:00`).toLocaleDateString('en-MY', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function cartKey(entryDate: string, typeId: string) {
+  return `${entryDate}__${typeId}`;
+}
+
 export default function RestaurantKioskPage() {
   const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
   const [cart, setCart] = useState<CartMap>({});
+  const [entryDate, setEntryDate] = useState(todayIso());
   const [roomNumber, setRoomNumber] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
   const [printMode, setPrintMode] = useState(false);
 
-  const cartLines = useMemo(
-    () =>
-      voucherTypes
-        .map((type) => ({
-          type,
-          quantity: Math.max(0, Math.floor(Number(cart[type.id] || 0))),
-        }))
-        .filter((line) => line.quantity > 0),
-    [cart, voucherTypes]
-  );
+  const cartLines = useMemo(() => {
+    const lines: Array<{ key: string; entryDate: string; type: VoucherType; quantity: number }> = [];
+
+    Object.entries(cart).forEach(([key, quantity]) => {
+      const [date, typeId] = key.split('__');
+      const type = voucherTypes.find((row) => row.id === typeId);
+      const cleanQuantity = Math.max(0, Math.floor(Number(quantity || 0)));
+      if (!type || !cleanQuantity) return;
+
+      lines.push({
+        key,
+        entryDate: date,
+        type,
+        quantity: cleanQuantity,
+      });
+    });
+
+    return lines;
+  }, [cart, voucherTypes]);
   const totalQuantity = cartLines.reduce((sum, line) => sum + line.quantity, 0);
   const total = cartLines.reduce(
     (sum, line) => sum + line.quantity * Number(line.type.price_myr || 0),
@@ -90,12 +124,17 @@ export default function RestaurantKioskPage() {
     };
   }, []);
 
-  function setTypeQuantity(typeId: string, nextQuantity: number) {
+  function typeQuantity(typeId: string, date = entryDate) {
+    return Math.max(0, Number(cart[cartKey(date, typeId)] || 0));
+  }
+
+  function setTypeQuantity(typeId: string, nextQuantity: number, date = entryDate) {
     setCart((current) => {
       const quantity = Math.max(0, Math.min(20, Math.floor(nextQuantity)));
+      const key = cartKey(date, typeId);
       const next = { ...current };
-      if (quantity <= 0) delete next[typeId];
-      else next[typeId] = quantity;
+      if (quantity <= 0) delete next[key];
+      else next[key] = quantity;
       return next;
     });
   }
@@ -121,6 +160,7 @@ export default function RestaurantKioskPage() {
         body: JSON.stringify({
           items: cartLines.map((line) => ({
             voucherTypeId: line.type.id,
+            entryDate: line.entryDate,
             quantity: line.quantity,
           })),
           roomNumber: roomNumber.trim(),
@@ -163,10 +203,20 @@ export default function RestaurantKioskPage() {
               <p className="eyebrow">Voucher Menu</p>
               <h2>Choose quantity</h2>
             </div>
+            <label className="dateCard">
+              Breakfast date
+              <input
+                type="date"
+                min={todayIso()}
+                value={entryDate}
+                onChange={(event) => setEntryDate(event.target.value || todayIso())}
+              />
+              <span>Tickets are valid only on the selected date.</span>
+            </label>
 
             <div className="typeGrid">
               {voucherTypes.map((type) => {
-                const quantity = Math.max(0, Number(cart[type.id] || 0));
+                const quantity = typeQuantity(type.id);
                 return (
                   <article className={quantity > 0 ? 'typeCard active' : 'typeCard'} key={type.id}>
                     <div className="typeBadge">{initials(type.name)}</div>
@@ -198,9 +248,10 @@ export default function RestaurantKioskPage() {
           <div className="cartList">
             {cartLines.length ? (
               cartLines.map((line) => (
-                <div className="cartLine" key={line.type.id}>
+                <div className="cartLine" key={line.key}>
                   <div>
                     <strong>{line.quantity}x {line.type.name}</strong>
+                    <em>{formatEntryDate(line.entryDate)}</em>
                     <span>{money(line.type.price_myr)} each</span>
                   </div>
                   <b>{money(line.quantity * Number(line.type.price_myr || 0))}</b>
@@ -407,6 +458,20 @@ export default function RestaurantKioskPage() {
           margin: 0;
           font-size: 30px;
         }
+        .dateCard {
+          margin-top: 0;
+          padding: 14px;
+          border: 1px solid #d8e2ef;
+          border-radius: 18px;
+          background: linear-gradient(135deg, #ffffff, #f8fbff);
+          color: #0f172a;
+          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        }
+        .dateCard span {
+          color: #64748b;
+          font-size: 13px;
+          font-weight: 800;
+        }
         .typeGrid {
           display: grid;
           gap: 12px;
@@ -512,8 +577,18 @@ export default function RestaurantKioskPage() {
           align-items: center;
         }
         .cartLine strong,
-        .cartLine span {
+        .cartLine span,
+        .cartLine em {
           display: block;
+        }
+        .cartLine em {
+          margin: 3px 0;
+          color: #9a6a22;
+          font-style: normal;
+          font-size: 12px;
+          font-weight: 950;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
         }
         .cartLine span,
         .emptyCart {
