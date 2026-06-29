@@ -27,7 +27,14 @@ type DamageRow = {
   updated_at?: string | null;
 };
 
-const FLOOR_OPTIONS = [
+type FloorOption = {
+  key: string;
+  block: number | null;
+  floor: number | null;
+  label: string;
+};
+
+const FLOOR_OPTIONS: FloorOption[] = [
   { key: 'B1F1', block: 1, floor: 1, label: 'Block 1 Floor 1' },
   { key: 'B1F2', block: 1, floor: 2, label: 'Block 1 Floor 2' },
   { key: 'B1F3', block: 1, floor: 3, label: 'Block 1 Floor 3' },
@@ -36,7 +43,8 @@ const FLOOR_OPTIONS = [
   { key: 'B2F5', block: 2, floor: 5, label: 'Block 2 Floor 5' },
   { key: 'B2F6', block: 2, floor: 6, label: 'Block 2 Floor 6' },
   { key: 'B2F7', block: 2, floor: 7, label: 'Block 2 Floor 7' },
-] as const;
+  { key: 'SUPERVISOR_STORE', block: null, floor: null, label: 'Supervisor Store' },
+];
 
 const LINEN_TYPES = [
   'Bedsheet King',
@@ -82,11 +90,12 @@ function safeNumber(value: unknown) {
 }
 
 function floorKey(blockNo?: number | null, floorNo?: number | null) {
-  if (!blockNo || !floorNo) return FLOOR_OPTIONS[0].key;
+  if (blockNo == null || floorNo == null) return 'SUPERVISOR_STORE';
   return `B${blockNo}F${floorNo}`;
 }
 
 function floorLabel(blockNo?: number | null, floorNo?: number | null) {
+  if (blockNo == null || floorNo == null) return 'Supervisor Store';
   return FLOOR_OPTIONS.find((floor) => floor.block === blockNo && floor.floor === floorNo)?.label || '-';
 }
 
@@ -341,6 +350,7 @@ export default function DamagedPage() {
     const targetFloor = FLOOR_OPTIONS.find(
       (floor) => floor.block === row.block_no && floor.floor === row.floor_no
     );
+    const isSupervisorStoreDamage = targetFloor?.key === 'SUPERVISOR_STORE';
 
     if (nextReplaced && !targetFloor) {
       setErrorMsg('Please edit this damage entry and select the floor before marking it replaced.');
@@ -349,7 +359,9 @@ export default function DamagedPage() {
 
     if (nextReplaced) {
       const ok = window.confirm(
-        `Confirm replacement?\n\n${row.qty} ${row.linen_type} will be deducted from Supervisor Store and placed back into ${targetFloor?.label}.`
+        isSupervisorStoreDamage
+          ? `Confirm replacement?\n\n${row.qty} ${row.linen_type} will be marked as replaced from Supervisor Store. Floor stock will not be adjusted.`
+          : `Confirm replacement?\n\n${row.qty} ${row.linen_type} will be deducted from Supervisor Store and placed back into ${targetFloor?.label}.`
       );
 
       if (!ok) return;
@@ -360,7 +372,7 @@ export default function DamagedPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      if (nextReplaced) {
+      if (nextReplaced && !isSupervisorStoreDamage) {
         const { data: stockRow, error: stockError } = await supabase
           .from('linen_stock')
           .select('linen_type, in_room_par, floor_store_stock, contractor_stock')
