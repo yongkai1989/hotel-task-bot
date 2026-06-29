@@ -118,6 +118,65 @@ function breakfastVoucherCode() {
   return `BF-${day}-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
+function todayIsoSingapore() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function normalizeEntryDate(value: unknown) {
+  const text = cleanText(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : todayIsoSingapore();
+}
+
+function breakfastTicketCode() {
+  const day = todayIsoSingapore().replace(/-/g, '');
+  return `BF-${day}-${randomBytes(5).toString('hex').toUpperCase()}`;
+}
+
+function voucherTickets(row: any) {
+  const items = Array.isArray(row?.items_json) ? row.items_json : [];
+  return items.flatMap((item: any) => {
+    const tickets = Array.isArray(item?.tickets) ? item.tickets : [];
+    return tickets.map((ticket: any) => ({
+      ...ticket,
+      code: String(ticket?.code || ''),
+      entry_date: normalizeEntryDate(ticket?.entry_date || item?.entry_date),
+      name: String(ticket?.name || item?.name || 'Breakfast Voucher'),
+      voucher_type_id: String(ticket?.voucher_type_id || item?.voucher_type_id || ''),
+      status: String(ticket?.status || 'ACTIVE').toUpperCase(),
+      redeemed_at: ticket?.redeemed_at || null,
+      redeemed_by: String(ticket?.redeemed_by || ''),
+    }));
+  });
+}
+
+function attachTicketsToVoucher(row: any) {
+  return {
+    ...normalizeVoucher(row),
+    tickets: voucherTickets(row),
+  };
+}
+
+function ticketCount(items: any[]) {
+  return items.reduce((sum, item: any) => {
+    const tickets = Array.isArray(item?.tickets) ? item.tickets.length : 0;
+    return sum + (tickets || Math.max(0, Math.floor(Number(item?.quantity || 0))));
+  }, 0);
+}
+
+function redeemedTicketCount(items: any[]) {
+  return items.reduce((sum, item: any) => {
+    const tickets = Array.isArray(item?.tickets) ? item.tickets : [];
+    return sum + tickets.filter((ticket: any) => String(ticket?.status || '').toUpperCase() === 'REDEEMED').length;
+  }, 0);
+}
+
 async function resolveVoucherType(typeId: string) {
   if (typeId && typeId !== 'default-breakfast') {
     const result: any = await supabaseAdmin
@@ -151,30 +210,49 @@ async function buildManualVoucherItems(rawItems: any[]) {
   const requested = (Array.isArray(rawItems) ? rawItems : [])
     .map((item: any) => ({
       voucherTypeId: cleanText(item?.voucherTypeId),
+      entryDate: normalizeEntryDate(item?.entryDate),
       quantity: Math.max(0, Math.min(20, Math.floor(Number(item?.quantity || 0)))),
     }))
     .filter((item: any) => item.voucherTypeId && item.quantity > 0);
 
   if (!requested.length) throw new Error('Please add at least one breakfast voucher.');
 
-  const merged = new Map<string, number>();
+  const merged = new Map<string, { voucherTypeId: string; entryDate: string; quantity: number }>();
   requested.forEach((item: any) => {
-    merged.set(item.voucherTypeId, Math.min(20, (merged.get(item.voucherTypeId) || 0) + item.quantity));
+    const key = `${item.entryDate}__${item.voucherTypeId}`;
+    const current = merged.get(key);
+    merged.set(key, {
+      voucherTypeId: item.voucherTypeId,
+      entryDate: item.entryDate,
+      quantity: Math.min(20, (current?.quantity || 0) + item.quantity),
+    });
   });
 
   const lines = [];
-  for (const [voucherTypeId, quantity] of merged.entries()) {
+  for (const item of merged.values()) {
+    const { voucherTypeId, entryDate, quantity } = item;
     const voucherType = await resolveVoucherType(voucherTypeId);
     const unitPrice = Number.isFinite(voucherType.price_myr) && voucherType.price_myr > 0 ? voucherType.price_myr : 20;
-    lines.push({
-      id: `breakfast-voucher-${voucherType.id}`,
+    const tickets = Array.from({ length: quantity }, () => ({
+      code: breakfastTicketCode(),
+      entry_date: entryDate,
       voucher_type_id: voucherType.id,
+      name: voucherType.name,
+      status: 'ACTIVE',
+      redeemed_at: null,
+      redeemed_by: '',
+    }));
+    lines.push({
+      id: `breakfast-voucher-${entryDate}-${voucherType.id}`,
+      voucher_type_id: voucherType.id,
+      entry_date: entryDate,
       name: voucherType.name,
       description: voucherType.description,
       category: 'Breakfast',
       quantity,
       price_myr: unitPrice,
       line_total_myr: Number((unitPrice * quantity).toFixed(2)),
+      tickets,
     });
   }
 
@@ -198,7 +276,7 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (code) {
-      query = query.eq('voucher_code', code);
+      query = query.or(`voucher_code.eq.${code}`);
     } else {
       const range = singaporeDayRange(date);
       query = query.gte('created_at', range.start).lt('created_at', range.end);
@@ -208,7 +286,7 @@ export async function GET(req: NextRequest) {
     const { data, error: loadError } = await query;
     if (loadError) throw loadError;
 
-    return jsonNoCache({ ok: true, vouchers: (data || []).map(normalizeVoucher) });
+    return jsonNoCache({ ok: true, vouchers: (data || []).map(attachTicketsToVoucher) });
   } catch (err: any) {
     return jsonNoCache({ ok: false, error: err?.message || 'Failed to load vouchers' }, 500);
   }
@@ -242,7 +320,9 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
-    const voucherCode = breakfastVoucherCode();
+    const voucherCode =
+      items.flatMap((item: any) => (Array.isArray(item.tickets) ? item.tickets : []))[0]?.code ||
+      breakfastVoucherCode();
     const { data, error: insertError } = await supabaseAdmin
       .from('guest_shop_orders')
       .insert({
@@ -277,7 +357,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (insertError) throw insertError;
-    return jsonNoCache({ ok: true, voucher: normalizeVoucher(data) });
+    return jsonNoCache({ ok: true, voucher: attachTicketsToVoucher(data) });
   } catch (err: any) {
     return jsonNoCache({ ok: false, error: err?.message || 'Failed to issue manual breakfast voucher' }, 500);
   }
@@ -300,45 +380,94 @@ export async function PUT(req: NextRequest) {
       .eq('order_type', 'BREAKFAST')
       .limit(1);
 
-    lookup = code ? lookup.eq('voucher_code', code) : lookup.eq('id', orderId);
-    const result: any = await lookup;
-    const rows: any[] = Array.isArray(result?.data) ? result.data : [];
-    const loadError = result?.error;
+    if (orderId) lookup = lookup.eq('id', orderId);
+    else lookup = lookup.eq('voucher_code', code);
+    let result: any = await lookup;
+    let rows: any[] = Array.isArray(result?.data) ? result.data : [];
+    let loadError = result?.error;
     if (loadError) throw loadError;
+
+    if (code && !rows.length) {
+      const recentResult: any = await supabaseAdmin
+        .from('guest_shop_orders')
+        .select(voucherSelect())
+        .eq('order_type', 'BREAKFAST')
+        .in('status', ['PAID', 'FULFILLED'])
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (recentResult?.error) throw recentResult.error;
+      rows = (recentResult?.data || []).filter((row: any) =>
+        voucherTickets(row).some((ticket) => ticket.code === code)
+      );
+    }
 
     const voucher: any = rows[0] || null;
     if (!voucher) return jsonNoCache({ ok: false, error: 'Voucher not found', tone: 'danger' }, 404);
     if (voucher.status !== 'PAID' && voucher.status !== 'FULFILLED') {
-      return jsonNoCache({ ok: false, error: 'Payment is not verified', voucher: normalizeVoucher(voucher), tone: 'danger' }, 400);
+      return jsonNoCache({ ok: false, error: 'Payment is not verified', voucher: attachTicketsToVoucher(voucher), tone: 'danger' }, 400);
     }
-    if (String(voucher.voucher_status || '').toUpperCase() === 'REDEEMED' || voucher.fulfilled_at) {
-      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: normalizeVoucher(voucher), tone: 'danger' }, 409);
+
+    const items = Array.isArray(voucher.items_json) ? voucher.items_json : [];
+    const allTickets = voucherTickets(voucher);
+    const selectedCode = code || String(voucher.voucher_code || '');
+    const selectedTicket = allTickets.find((ticket) => ticket.code === selectedCode);
+    if (selectedTicket) {
+      const today = todayIsoSingapore();
+      if (selectedTicket.status === 'REDEEMED') {
+        return jsonNoCache({ ok: false, error: 'Ticket already redeemed', voucher: attachTicketsToVoucher(voucher), ticket: selectedTicket, tone: 'danger' }, 409);
+      }
+      if (selectedTicket.entry_date && selectedTicket.entry_date < today) {
+        return jsonNoCache({ ok: false, error: `Ticket expired. Entry date was ${selectedTicket.entry_date}.`, voucher: attachTicketsToVoucher(voucher), ticket: selectedTicket, tone: 'danger' }, 400);
+      }
+      if (selectedTicket.entry_date && selectedTicket.entry_date > today) {
+        return jsonNoCache({ ok: false, error: `Ticket is not valid today. Entry date is ${selectedTicket.entry_date}.`, voucher: attachTicketsToVoucher(voucher), ticket: selectedTicket, tone: 'danger' }, 400);
+      }
+    } else if (String(voucher.voucher_status || '').toUpperCase() === 'REDEEMED' || voucher.fulfilled_at) {
+      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: attachTicketsToVoucher(voucher), tone: 'danger' }, 409);
     }
 
     const now = new Date().toISOString();
     const redeemedBy = String(user?.name || user?.email || 'Staff');
-    const quantity = Math.max(1, Number(voucher.voucher_quantity || 1));
+    const updatedItems = selectedTicket
+      ? items.map((item: any) => ({
+          ...item,
+          tickets: Array.isArray(item?.tickets)
+            ? item.tickets.map((ticket: any) =>
+                String(ticket?.code || '') === selectedTicket.code
+                  ? { ...ticket, status: 'REDEEMED', redeemed_at: now, redeemed_by: redeemedBy }
+                  : ticket
+              )
+            : item?.tickets,
+        }))
+      : items;
+    const totalTickets = Math.max(1, ticketCount(updatedItems) || Number(voucher.voucher_quantity || 1));
+    const redeemedCount = selectedTicket ? redeemedTicketCount(updatedItems) : totalTickets;
+    const fullyRedeemed = redeemedCount >= totalTickets;
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('guest_shop_orders')
       .update({
-        status: 'FULFILLED',
-        fulfilled_at: now,
-        voucher_status: 'REDEEMED',
-        voucher_redeemed_quantity: quantity,
+        status: fullyRedeemed ? 'FULFILLED' : 'PAID',
+        fulfilled_at: fullyRedeemed ? now : null,
+        items_json: updatedItems,
+        voucher_status: fullyRedeemed ? 'REDEEMED' : 'PARTIAL',
+        voucher_redeemed_quantity: redeemedCount,
         voucher_redeemed_at: now,
         voucher_redeemed_by: redeemedBy,
       })
       .eq('id', voucher.id)
-      .neq('voucher_status', 'REDEEMED')
       .select(voucherSelect())
       .maybeSingle();
 
     if (updateError) throw updateError;
     if (!updated) {
-      return jsonNoCache({ ok: false, error: 'Voucher already redeemed', voucher: normalizeVoucher(voucher), tone: 'danger' }, 409);
+      return jsonNoCache({ ok: false, error: 'Ticket already redeemed', voucher: attachTicketsToVoucher(voucher), tone: 'danger' }, 409);
     }
 
-    return jsonNoCache({ ok: true, voucher: normalizeVoucher(updated), tone: 'success' });
+    const updatedVoucher = attachTicketsToVoucher(updated);
+    const updatedTicket = selectedTicket
+      ? voucherTickets(updatedVoucher).find((ticket) => ticket.code === selectedTicket.code) || selectedTicket
+      : selectedTicket;
+    return jsonNoCache({ ok: true, voucher: updatedVoucher, ticket: updatedTicket, tone: 'success' });
   } catch (err: any) {
     return jsonNoCache({ ok: false, error: err?.message || 'Failed to redeem voucher' }, 500);
   }
