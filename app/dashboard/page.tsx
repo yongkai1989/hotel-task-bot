@@ -681,6 +681,43 @@ function OverviewMetricCard({
   );
 }
 
+function DashboardBootLoader() {
+  return (
+    <div style={styles.bootLoader} role="status" aria-live="polite">
+      <style>
+        {`
+          @keyframes dashboardBootBar {
+            0% { transform: translateX(-80%); }
+            100% { transform: translateX(220%); }
+          }
+          @keyframes dashboardBootPulse {
+            0%, 100% { opacity: 0.48; }
+            50% { opacity: 1; }
+          }
+        `}
+      </style>
+      <div style={styles.bootLoaderCard}>
+        <div style={styles.bootLoaderIcon}>
+          <DashboardIcon name="clipboard" size={22} />
+        </div>
+        <div style={styles.bootLoaderEyebrow}>Hallmark Crown Hotel</div>
+        <div style={styles.bootLoaderTitle}>Preparing dashboard</div>
+        <div style={styles.bootLoaderText}>
+          Checking access and loading the latest task data.
+        </div>
+        <div style={styles.bootLoaderTrack}>
+          <div style={styles.bootLoaderBar} />
+        </div>
+        <div style={styles.bootSkeletonGrid}>
+          <div style={styles.bootSkeletonTile} />
+          <div style={styles.bootSkeletonTile} />
+          <div style={styles.bootSkeletonTile} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
@@ -978,59 +1015,18 @@ export default function DashboardPage() {
     return null;
   }
 
-  function saveInsightsToCache(nextInsights: DashboardInsights) {
+  function saveInsightsToCache(_nextInsights: DashboardInsights) {
     if (typeof window === 'undefined') return;
 
     try {
-      sessionStorage.setItem(
-        DASHBOARD_INSIGHTS_CACHE_KEY,
-        JSON.stringify({
-          insights: nextInsights,
-          savedAt: Date.now(),
-        })
-      );
+      sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
     } catch {
       // ignore cache write failure
     }
   }
 
-  function readInsightsFromCache(maxAgeMs = INSIGHTS_REFRESH_MIN_MS): DashboardInsights | null {
-    if (typeof window === 'undefined') return null;
-
-    try {
-      const raw = sessionStorage.getItem(DASHBOARD_INSIGHTS_CACHE_KEY);
-      if (!raw) return null;
-
-      const parsed = JSON.parse(raw);
-      if (!parsed?.insights || typeof parsed.savedAt !== 'number') return null;
-      if (Date.now() - parsed.savedAt > maxAgeMs) return null;
-
-      return {
-        roomPendingSave: Number(parsed.insights.roomPendingSave || 0),
-        specialProjectCompletion: Number(parsed.insights.specialProjectCompletion || 0),
-        specialProjectDoneRooms: Number(parsed.insights.specialProjectDoneRooms || 0),
-        overduePm: Number(parsed.insights.overduePm || 0),
-        foChecklistSubmitted: Number(parsed.insights.foChecklistSubmitted || 0),
-        foChecklistHasNoAnswer: parsed.insights.foChecklistHasNoAnswer === true,
-        supervisorChecklistSubmitted: Number(parsed.insights.supervisorChecklistSubmitted || 0),
-        paChecklistSubmitted: Number(parsed.insights.paChecklistSubmitted || 0),
-        fnbChecklistSubmitted: Number(parsed.insights.fnbChecklistSubmitted || 0),
-        managerRoomCheck: {
-          HK: {
-            completed: Number(parsed.insights.managerRoomCheck?.HK?.completed || 0),
-            total: Number(parsed.insights.managerRoomCheck?.HK?.total || 0),
-          },
-          MT: {
-            completed: Number(parsed.insights.managerRoomCheck?.MT?.completed || 0),
-            total: Number(parsed.insights.managerRoomCheck?.MT?.total || 0),
-          },
-        },
-        laundryReceivedSaved: parsed.insights.laundryReceivedSaved === true,
-        laundryReceivedBlocks: Number(parsed.insights.laundryReceivedBlocks || 0),
-      };
-    } catch {
-      return null;
-    }
+  function readInsightsFromCache(_maxAgeMs = INSIGHTS_REFRESH_MIN_MS): DashboardInsights | null {
+    return null;
   }
 
   useEffect(() => {
@@ -2647,6 +2643,9 @@ async function handleDeleteTask(taskId: string) {
       : 'Browse previously completed tasks by completed date';
 
   const taskMainRowStyle: React.CSSProperties = styles.taskMainRow;
+  const showInitialDashboardLoader =
+    (authLoading && !profile) ||
+    (!!profile && sidebarView === 'DASHBOARD' && loading && tasks.length === 0);
 
   return (
     <main style={styles.page}>
@@ -2802,8 +2801,8 @@ async function handleDeleteTask(taskId: string) {
             </div>
           ) : null}
 
-          {authLoading && !profile ? (
-            <div style={styles.emptyState}>Checking login...</div>
+          {showInitialDashboardLoader ? (
+            <DashboardBootLoader />
           ) : !profile ? (
             <div style={styles.emptyState}>
               Please log in from the sidebar to use the dashboard.
@@ -5909,6 +5908,87 @@ deleteTaskBtn: {
     marginBottom: 14,
     fontSize: 13,
     fontWeight: 700,
+  },
+  bootLoader: {
+    minHeight: 360,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '18px 0 28px',
+  },
+  bootLoaderCard: {
+    width: 'min(560px, 100%)',
+    borderRadius: 26,
+    border: '1px solid rgba(191, 219, 254, 0.95)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,251,255,0.96) 100%)',
+    boxShadow: '0 24px 70px rgba(15, 23, 42, 0.09), inset 0 1px 0 rgba(255,255,255,0.98)',
+    padding: 28,
+    textAlign: 'center',
+    overflow: 'hidden',
+  },
+  bootLoaderIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#eff6ff',
+    color: '#2563eb',
+    boxShadow: 'inset 0 0 0 1px rgba(37,99,235,0.1)',
+    animation: 'dashboardBootPulse 1.3s ease-in-out infinite',
+  },
+  bootLoaderEyebrow: {
+    marginTop: 16,
+    color: '#2563eb',
+    fontSize: 11,
+    fontWeight: 900,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  bootLoaderTitle: {
+    marginTop: 8,
+    color: '#0f172a',
+    fontSize: 28,
+    lineHeight: 1.05,
+    fontWeight: 950,
+  },
+  bootLoaderText: {
+    margin: '10px auto 0',
+    maxWidth: 360,
+    color: '#64748b',
+    fontSize: 14,
+    lineHeight: 1.45,
+    fontWeight: 700,
+  },
+  bootLoaderTrack: {
+    position: 'relative',
+    height: 7,
+    margin: '22px auto 0',
+    borderRadius: 999,
+    overflow: 'hidden',
+    background: '#e8f0fb',
+  },
+  bootLoaderBar: {
+    position: 'absolute',
+    inset: 0,
+    width: '42%',
+    borderRadius: 999,
+    background: 'linear-gradient(90deg, rgba(37,99,235,0) 0%, #2563eb 50%, rgba(37,99,235,0) 100%)',
+    animation: 'dashboardBootBar 1.2s ease-in-out infinite',
+  },
+  bootSkeletonGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: 10,
+    marginTop: 20,
+  },
+  bootSkeletonTile: {
+    height: 64,
+    borderRadius: 16,
+    background: 'linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%)',
+    border: '1px solid #e3edf9',
+    animation: 'dashboardBootPulse 1.4s ease-in-out infinite',
   },
   emptyState: {
     background: '#ffffff',
