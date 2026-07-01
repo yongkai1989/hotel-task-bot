@@ -711,6 +711,51 @@ function parseTotals(raw: any): LinenTotals {
   };
 }
 
+const MONTHLY_REPORT_PAGE_SIZE = 1000;
+const MONTHLY_ENTRY_COLUMNS =
+  'service_date, room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
+const MONTHLY_PA_ENTRY_COLUMNS =
+  'service_date, room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
+const MONTHLY_BILL_COLUMNS =
+  'service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
+const MONTHLY_RECEIVED_COLUMNS =
+  'service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
+
+async function fetchMonthlyRows<T>(
+  supabase: any,
+  table: string,
+  columns: string,
+  monthStart: string,
+  monthEnd: string,
+  orderColumns: string[] = ['service_date']
+) {
+  const rows: T[] = [];
+  let from = 0;
+
+  while (true) {
+    let query: any = supabase
+      .from(table)
+      .select(columns)
+      .gte('service_date', monthStart)
+      .lte('service_date', monthEnd);
+
+    orderColumns.forEach((column) => {
+      query = query.order(column, { ascending: true });
+    });
+
+    const { data, error } = await query.range(from, from + MONTHLY_REPORT_PAGE_SIZE - 1);
+    if (error) throw error;
+
+    const pageRows = (data || []) as T[];
+    rows.push(...pageRows);
+
+    if (pageRows.length < MONTHLY_REPORT_PAGE_SIZE) break;
+    from += MONTHLY_REPORT_PAGE_SIZE;
+  }
+
+  return rows;
+}
+
 function formatDiff(value: number) {
   if (value > 0) return `+${value}`;
   return `${value}`;
@@ -997,44 +1042,50 @@ export default function LinenHistoryPage() {
       const monthStart = getMonthStart(selectedMonth);
       const monthEnd = selectedMonth === currentMonth ? yesterday : getMonthEnd(selectedMonth);
 
-      const [entryRes, paEntryRes, billRes, receivedRes] = await Promise.all([
-        supabase
-          .from('linen_room_entry')
-          .select('service_date, room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-          .gte('service_date', monthStart)
-          .lte('service_date', monthEnd)
-          .order('service_date', { ascending: true }),
-        supabase
-          .from('linen_pa_entry')
-          .select('service_date, room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-          .gte('service_date', monthStart)
-          .lte('service_date', monthEnd),
-        supabase
-          .from('linen_laundry_bill')
-          .select('service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-          .gte('service_date', monthStart)
-          .lte('service_date', monthEnd),
-        supabase
-          .from('linen_laundry_received')
-          .select('service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-          .gte('service_date', monthStart)
-          .lte('service_date', monthEnd),
+      const [entryRows, paEntryRows, billRows, receivedRows] = await Promise.all([
+        fetchMonthlyRows<MonthlyEntryRow>(
+          supabase,
+          'linen_room_entry',
+          MONTHLY_ENTRY_COLUMNS,
+          monthStart,
+          monthEnd,
+          ['service_date', 'room_number']
+        ),
+        fetchMonthlyRows<PaEntryRow>(
+          supabase,
+          'linen_pa_entry',
+          MONTHLY_PA_ENTRY_COLUMNS,
+          monthStart,
+          monthEnd,
+          ['service_date', 'room_number']
+        ),
+        fetchMonthlyRows<LinenBillRow>(
+          supabase,
+          'linen_laundry_bill',
+          MONTHLY_BILL_COLUMNS,
+          monthStart,
+          monthEnd,
+          ['service_date', 'block_no', 'floor_no']
+        ),
+        fetchMonthlyRows<LinenReceivedRow>(
+          supabase,
+          'linen_laundry_received',
+          MONTHLY_RECEIVED_COLUMNS,
+          monthStart,
+          monthEnd,
+          ['service_date', 'block_no']
+        ),
       ]);
 
-      if (entryRes.error) throw entryRes.error;
-      if (paEntryRes.error) throw paEntryRes.error;
-      if (billRes.error) throw billRes.error;
-      if (receivedRes.error) throw receivedRes.error;
-
       const actual = zeroTotals();
-      const entryRowsForReport = getEntryRowsForReport((entryRes.data || []) as MonthlyEntryRow[]);
+      const entryRowsForReport = getEntryRowsForReport(entryRows);
       entryRowsForReport.forEach((row) => {
         if (row.is_dnd) return;
         addTotals(actual, parseTotals(row));
       });
 
       const paUsed = zeroTotals();
-      const paRowsForReport = getPaRowsForReport((paEntryRes.data || []) as PaEntryRow[]);
+      const paRowsForReport = getPaRowsForReport(paEntryRows);
       paRowsForReport.forEach((row) => {
         addTotals(paUsed, parseTotals(row));
       });
@@ -1044,13 +1095,13 @@ export default function LinenHistoryPage() {
       addTotals(totalUsed, paUsed);
 
       const inBill = zeroTotals();
-      const billRowsForReport = getBillRowsForReport((billRes.data || []) as LinenBillRow[]);
+      const billRowsForReport = getBillRowsForReport(billRows);
       billRowsForReport.forEach((row) => {
         addTotals(inBill, parseTotals(row));
       });
 
       const returned = zeroTotals();
-      const receivedRowsForReport = getReceivedRowsForReport((receivedRes.data || []) as LinenReceivedRow[]);
+      const receivedRowsForReport = getReceivedRowsForReport(receivedRows);
       receivedRowsForReport.forEach((row) => {
         addTotals(returned, parseTotals(row));
       });
