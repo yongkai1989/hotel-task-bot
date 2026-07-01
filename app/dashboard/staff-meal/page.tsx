@@ -670,10 +670,14 @@ export default function StaffMealAdminPage() {
             <div key={item.date} style={styles.summaryCard}>
               <div style={styles.summaryBranch}>{formatShort(item.date)}</div>
               <div style={styles.summaryNumbers}>
-                <strong>{item.lunch}</strong>
-                <span>Lunch</span>
-                <strong>{item.dinner}</strong>
-                <span>Dinner</span>
+                <div style={styles.mealCountBox}>
+                  <span style={styles.mealCountLabel}>Lunch</span>
+                  <strong style={styles.mealCountNumber}>{item.lunch}</strong>
+                </div>
+                <div style={styles.mealCountBox}>
+                  <span style={styles.mealCountLabel}>Dinner</span>
+                  <strong style={styles.mealCountNumber}>{item.dinner}</strong>
+                </div>
               </div>
             </div>
           ))}
@@ -918,28 +922,47 @@ const styles: Record<string, CSSProperties> = {
   },
   summaryGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(210px, 100%), 1fr))',
     gap: 12,
   },
   summaryCard: {
     border: '1px solid #dce8f6',
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
     background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
     boxShadow: '0 10px 28px rgba(16, 48, 90, 0.06)',
   },
   summaryBranch: {
     fontWeight: 950,
     fontSize: 18,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   summaryNumbers: {
     display: 'grid',
-    gridTemplateColumns: '1fr auto auto auto auto',
-    gap: 8,
-    alignItems: 'baseline',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  mealCountBox: {
+    minWidth: 0,
+    border: '1px solid #dbe7f5',
+    borderRadius: 14,
+    padding: '10px 12px',
+    background: '#fff',
+    display: 'grid',
+    gap: 4,
+  },
+  mealCountLabel: {
     color: '#536985',
-    fontWeight: 800,
+    fontSize: 12,
+    fontWeight: 950,
+    textTransform: 'uppercase',
+    letterSpacing: '.04em',
+  },
+  mealCountNumber: {
+    color: '#07142d',
+    fontSize: 'clamp(24px, 5vw, 32px)',
+    lineHeight: 1,
+    fontWeight: 950,
   },
   tabs: {
     display: 'flex',
