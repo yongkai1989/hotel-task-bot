@@ -319,12 +319,13 @@ export default function LaundryCountPage() {
   const [savingBill, setSavingBill] = useState(false);
   const [savingReceived, setSavingReceived] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1200);
+  const [receivedDateOverride, setReceivedDateOverride] = useState('');
 
   const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
   const [receivedEntryMap, setReceivedEntryMap] = useState<Record<BlockKey, LinenTotals>>(emptyBlockEntryMap());
 
   const serviceDate = getTodayLocalDateString();
-  const receivedServiceDate = shiftDateString(serviceDate, -1);
+  const receivedServiceDate = receivedDateOverride || shiftDateString(serviceDate, -1);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -334,6 +335,22 @@ export default function LaundryCountPage() {
     window.addEventListener('resize', onResize);
 
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const tab = (params.get('tab') || '').trim().toLowerCase();
+    const receivedDate = (params.get('receivedDate') || '').trim();
+
+    if (tab === 'received') {
+      setPageTab('RECEIVED');
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(receivedDate)) {
+      setReceivedDateOverride(receivedDate);
+    }
   }, []);
 
   useEffect(() => {
@@ -535,7 +552,7 @@ export default function LaundryCountPage() {
 
   useEffect(() => {
     void loadData();
-  }, [profile, canAccess, serviceDate]);
+  }, [profile, canAccess, serviceDate, receivedServiceDate]);
 
   useEffect(() => {
     if (isLaundryOnlyUser) {
@@ -1123,7 +1140,7 @@ export default function LaundryCountPage() {
             {pageTab === 'RECEIVED' ? (
               <>
                 <div style={styles.groupMeta}>
-                  Enter clean linen returned for yesterday ({receivedServiceDate}), separated by Block 1 and Block 2.
+                  Enter clean linen returned for {receivedServiceDate}, separated by Block 1 and Block 2.
                 </div>
                 {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
                 {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
@@ -1254,7 +1271,7 @@ export default function LaundryCountPage() {
           <section style={responsiveStyles.panel}>
             <div style={responsiveStyles.sectionTitle}>Laundry Received</div>
             <div style={styles.groupMeta}>
-              Enter clean linen returned for yesterday ({receivedServiceDate}). These returned totals appear in Linen History for yesterday.
+              Enter clean linen returned for {receivedServiceDate}. These returned totals appear in Linen History for that date.
             </div>
 
             {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
