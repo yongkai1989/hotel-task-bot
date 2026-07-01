@@ -292,7 +292,12 @@ function buildDateRange(startDate: string, endDate: string) {
 
 function formatCalendarDay(value: string) {
   const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
+  if (Number.isNaN(d.getTime())) {
+    return {
+      day: value,
+      weekday: '',
+    };
+  }
 
   return {
     day: String(d.getDate()),
