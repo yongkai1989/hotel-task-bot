@@ -186,7 +186,7 @@ async function validateVideoFile(file: File) {
   }
 }
 
-async function compressImageFile(file: File, maxSide = 1280, quality = 0.72) {
+async function compressImageFile(file: File, maxSide = 1920, quality = 0.86) {
   const img = await fileToImage(file);
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
   const width = Math.max(1, Math.round(img.width * scale));
@@ -257,6 +257,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [mediaChoiceOpen, setMediaChoiceOpen] = useState(false);
   const [markupIndex, setMarkupIndex] = useState<number | null>(null);
   const [existingMarkupMedia, setExistingMarkupMedia] = useState<CheckMedia | null>(null);
+  const [fullMedia, setFullMedia] = useState<CheckMedia | null>(null);
   const [markupDrawMode, setMarkupDrawMode] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1567,8 +1568,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           <p>Upload room photos or videos, complete each item, and close the room check once the work is done.</p>
         </div>
         <div className="mrc-actions">
-          <button className="mrc-secondary" type="button" onClick={() => void loadChecks()}>
-            Refresh
+          <button className="mrc-secondary" type="button" disabled={loading} onClick={() => void loadChecks()}>
+            {loading ? 'Refreshing...' : 'Refresh'}
           </button>
           {canManageContent ? (
             <button className="mrc-primary" type="button" onClick={() => setShowCreate(true)}>
@@ -1765,9 +1766,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               <h3>Room {selectedCheck.room_number}</h3>
               <p>{selectedCheck.description || 'No notes'}</p>
             </div>
-            <span className={`mrc-status mrc-status-${statusClass(selectedCheck.status)}`}>
-              {statusLabel(selectedCheck.status)}
-            </span>
+            <div className="mrc-detail-tools">
+              <button type="button" className="mrc-secondary" disabled={loading} onClick={() => void loadChecks()}>
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <span className={`mrc-status mrc-status-${statusClass(selectedCheck.status)}`}>
+                {statusLabel(selectedCheck.status)}
+              </span>
+            </div>
           </div>
           <div className="mrc-meta-grid">
             <span>Created by <strong>{selectedCheck.created_by_name || '-'}</strong></span>
@@ -1783,9 +1789,25 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               return (
               <div key={item.id} className={`mrc-media-card ${isUploading ? 'is-uploading' : ''}`}>
                 {item.media_type === 'video' ? (
-                  <video src={item.media_url} controls preload="metadata" />
+                  <button
+                    type="button"
+                    className="mrc-media-preview"
+                    onClick={() => setFullMedia(item)}
+                    aria-label={`Open video issue ${item.position}`}
+                  >
+                    <video src={item.media_url} preload="metadata" />
+                    <span>Open Video</span>
+                  </button>
                 ) : (
-                  <img src={item.media_url} alt={remark || 'Room check media'} loading="lazy" decoding="async" />
+                  <button
+                    type="button"
+                    className="mrc-media-preview"
+                    onClick={() => setFullMedia(item)}
+                    aria-label={`Open image issue ${item.position}`}
+                  >
+                    <img src={item.media_url} alt={remark || 'Room check media'} loading="lazy" decoding="async" />
+                    <span>Open Image</span>
+                  </button>
                 )}
                 <div className="mrc-media-info">
                   <strong>Issue {item.position}</strong>
@@ -1926,6 +1948,26 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             ) : null}
           </div>
           ) : null}
+        </Modal>
+      ) : null}
+
+      {fullMedia ? (
+        <Modal
+          title={`Issue ${fullMedia.position}`}
+          onClose={() => setFullMedia(null)}
+          wide
+          mediaViewer
+        >
+          <div className="mrc-full-media">
+            {fullMedia.media_type === 'video' ? (
+              <video src={fullMedia.media_url} controls autoPlay preload="metadata" />
+            ) : (
+              <img src={fullMedia.media_url} alt={mediaRemark(fullMedia.caption) || 'Full room check image'} />
+            )}
+            {mediaRemark(fullMedia.caption) ? (
+              <p>{mediaRemark(fullMedia.caption)}</p>
+            ) : null}
+          </div>
         </Modal>
       ) : null}
 
@@ -2153,16 +2195,18 @@ function Modal({
   onClose,
   wide = false,
   markup = false,
+  mediaViewer = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
   markup?: boolean;
+  mediaViewer?: boolean;
 }) {
   return (
     <div className="mrc-modal-backdrop">
-      <div className={`mrc-modal ${wide ? 'is-wide' : ''} ${markup ? 'is-markup-modal' : ''}`}>
+      <div className={`mrc-modal ${wide ? 'is-wide' : ''} ${markup ? 'is-markup-modal' : ''} ${mediaViewer ? 'is-media-viewer' : ''}`}>
         <div className="mrc-modal-head">
           <h2>{title}</h2>
           <button type="button" onClick={onClose}>x</button>
@@ -2494,6 +2538,16 @@ function StyleBlock() {
         padding: 0;
         overflow: hidden;
       }
+      .mrc-modal.is-media-viewer {
+        width: min(1180px, 100%);
+        height: calc(100dvh - 28px);
+        max-height: calc(100dvh - 28px);
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        overflow: hidden;
+        background: #020617;
+      }
       .mrc-modal-head {
         position: sticky;
         top: -18px;
@@ -2526,11 +2580,29 @@ function StyleBlock() {
         margin: 0;
         padding: 12px 14px;
       }
+      .mrc-modal.is-media-viewer .mrc-modal-head {
+        position: static;
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 12px 14px;
+        background: #020617;
+        border-bottom-color: rgba(255,255,255,.14);
+        color: #fff;
+      }
       .mrc-modal.is-markup-modal .mrc-modal-head h2 {
         min-width: 0;
         overflow-wrap: anywhere;
         font-size: clamp(18px, 4.8vw, 24px);
         line-height: 1.12;
+      }
+      .mrc-modal.is-media-viewer .mrc-modal-head h2 {
+        font-size: clamp(18px, 4.8vw, 24px);
+        line-height: 1.12;
+      }
+      .mrc-modal.is-media-viewer .mrc-modal-head button {
+        border-color: rgba(255,255,255,.22);
+        background: rgba(255,255,255,.1);
+        color: #fff;
       }
       .mrc-form-grid,
       .mrc-meta-grid {
@@ -2687,6 +2759,75 @@ function StyleBlock() {
         background: #0f172a;
         display: block;
       }
+      .mrc-media-preview {
+        position: relative;
+        width: 100%;
+        border: 0;
+        padding: 0;
+        background: #0f172a;
+        cursor: zoom-in;
+        display: block;
+        text-align: inherit;
+      }
+      .mrc-media-preview::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(15,23,42,0) 54%, rgba(15,23,42,.5));
+        opacity: 0;
+        transition: opacity .16s ease;
+        pointer-events: none;
+      }
+      .mrc-media-preview span {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        z-index: 1;
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: rgba(255,255,255,.92);
+        color: #0f172a;
+        font-size: 12px;
+        font-weight: 950;
+        opacity: 0;
+        transform: translateY(4px);
+        transition: opacity .16s ease, transform .16s ease;
+        pointer-events: none;
+      }
+      .mrc-media-preview:hover::after,
+      .mrc-media-preview:focus-visible::after,
+      .mrc-media-preview:hover span,
+      .mrc-media-preview:focus-visible span {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .mrc-full-media {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 12px;
+        padding: 14px;
+      }
+      .mrc-full-media img,
+      .mrc-full-media video {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        object-fit: contain;
+        background: #020617;
+        border-radius: 16px;
+      }
+      .mrc-full-media p {
+        margin: 0;
+        border: 1px solid rgba(255,255,255,.16);
+        border-radius: 14px;
+        padding: 10px 12px;
+        color: #e2e8f0;
+        background: rgba(15,23,42,.82);
+        font-weight: 800;
+        overflow-wrap: anywhere;
+      }
       .mrc-draft-remark {
         display: grid;
         gap: 6px;
@@ -2770,6 +2911,17 @@ function StyleBlock() {
         justify-content: space-between;
         gap: 14px;
         margin-bottom: 12px;
+      }
+      .mrc-detail-tools {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .mrc-detail-tools .mrc-secondary {
+        min-height: 38px;
+        padding: 0 14px;
       }
       .mrc-detail-head h3 {
         margin: 0 0 4px;
