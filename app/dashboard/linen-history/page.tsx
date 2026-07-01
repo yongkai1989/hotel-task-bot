@@ -12,7 +12,7 @@ type DashboardUser = {
 };
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
-type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND' | 'MONTHLY';
+type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND' | 'MONTHLY' | 'RECEIVED_STATUS';
 
 type RoomMasterRow = {
   room_number: string;
@@ -147,6 +147,22 @@ type MonthlyReportData = {
   returnedRows: number;
 };
 
+type ReceivedStatusDay = {
+  date: string;
+  blockCount: number;
+  isSaved: boolean;
+  missingBlocks: string[];
+};
+
+type ReceivedStatusReport = {
+  month: string;
+  monthStart: string;
+  monthEnd: string;
+  savedCount: number;
+  missingCount: number;
+  rows: ReceivedStatusDay[];
+};
+
 const FLOOR_OPTIONS = [
   { key: 'B1F1', label: 'Block 1 Floor 1' },
   { key: 'B1F2', label: 'Block 1 Floor 2' },
@@ -241,6 +257,14 @@ function getMonthStart(value: string) {
   return `${value}-01`;
 }
 
+function getPreviousMonth(value: string) {
+  const [yearRaw, monthRaw] = value.split('-');
+  const d = new Date(Number(yearRaw), Number(monthRaw) - 2, 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
 function getMonthEnd(value: string) {
   const [yearRaw, monthRaw] = value.split('-');
   const year = Number(yearRaw);
@@ -248,6 +272,32 @@ function getMonthEnd(value: string) {
   const d = new Date(year, month, 0);
   const day = String(d.getDate()).padStart(2, '0');
   return `${yearRaw}-${monthRaw}-${day}`;
+}
+
+function buildDateRange(startDate: string, endDate: string) {
+  const dates: string[] = [];
+  const cursor = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  while (!Number.isNaN(cursor.getTime()) && cursor <= end) {
+    const year = cursor.getFullYear();
+    const month = String(cursor.getMonth() + 1).padStart(2, '0');
+    const day = String(cursor.getDate()).padStart(2, '0');
+    dates.push(`${year}-${month}-${day}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dates;
+}
+
+function formatCalendarDay(value: string) {
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+
+  return {
+    day: String(d.getDate()),
+    weekday: d.toLocaleDateString(undefined, { weekday: 'short' }),
+  };
 }
 
 function safeNumber(value: unknown) {
@@ -788,10 +838,12 @@ export default function LinenHistoryPage() {
   const yesterday = shiftDateString(today, -1);
   const oldestAllowedDate = shiftDateString(today, -7);
   const currentMonth = yesterday.slice(0, 7);
+  const previousMonth = getPreviousMonth(currentMonth);
   const [selectedDate, setSelectedDate] = useState(yesterday);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [historyData, setHistoryData] = useState<HistoryData | null>(null);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyReportData | null>(null);
+  const [receivedStatusReport, setReceivedStatusReport] = useState<ReceivedStatusReport | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
   const [pageTab, setPageTab] = useState<PageTab>('COUNT');
@@ -1128,6 +1180,70 @@ export default function LinenHistoryPage() {
     }
   }
 
+  async function loadReceivedStatusReport() {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setErrorMsg('');
+
+      const monthStart = getMonthStart(selectedMonth);
+      const monthEnd = selectedMonth === currentMonth ? yesterday : getMonthEnd(selectedMonth);
+      const rows = await fetchMonthlyRows<LinenReceivedRow>(
+        supabase,
+        'linen_laundry_received',
+        MONTHLY_RECEIVED_COLUMNS,
+        monthStart,
+        monthEnd,
+        ['service_date', 'block_no']
+      );
+
+      const latestRows = getReceivedRowsForReport(rows);
+      const blocksByDate = new Map<string, Set<number>>();
+
+      latestRows.forEach((row) => {
+        const date = row.service_date || '';
+        if (!date) return;
+
+        const blocks = blocksByDate.get(date) || new Set<number>();
+        blocks.add(Number(row.block_no));
+        blocksByDate.set(date, blocks);
+      });
+
+      const statusRows = buildDateRange(monthStart, monthEnd).map((date) => {
+        const blocks = blocksByDate.get(date) || new Set<number>();
+        const missingBlocks = BLOCK_OPTIONS
+          .filter((block) => !blocks.has(Number(block.key.replace('B', ''))))
+          .map((block) => block.label);
+
+        return {
+          date,
+          blockCount: blocks.size,
+          isSaved: missingBlocks.length === 0,
+          missingBlocks,
+        };
+      });
+
+      setReceivedStatusReport({
+        month: selectedMonth,
+        monthStart,
+        monthEnd,
+        savedCount: statusRows.filter((row) => row.isSaved).length,
+        missingCount: statusRows.filter((row) => !row.isSaved).length,
+        rows: statusRows,
+      });
+    } catch (err: any) {
+      setReceivedStatusReport(null);
+      setErrorMsg(err?.message || 'Failed to load laundry received status');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!profile || !canAccess) {
       setLoading(false);
@@ -1136,6 +1252,11 @@ export default function LinenHistoryPage() {
 
     if (pageTab === 'MONTHLY') {
       void loadMonthlyReport();
+      return;
+    }
+
+    if (pageTab === 'RECEIVED_STATUS') {
+      void loadReceivedStatusReport();
       return;
     }
 
@@ -1318,22 +1439,31 @@ export default function LinenHistoryPage() {
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
         <section style={styles.panel}>
-          <div style={styles.sectionTitle}>{pageTab === 'MONTHLY' ? 'Month' : 'Date'}</div>
+          <div style={styles.sectionTitle}>
+            {pageTab === 'MONTHLY' || pageTab === 'RECEIVED_STATUS' ? 'Month' : 'Date'}
+          </div>
           <div style={styles.historyHint}>
             {pageTab === 'MONTHLY'
               ? 'Monthly Report totals Actual chambermaid entry, In Bill, and Returned linen for the selected month.'
+              : pageTab === 'RECEIVED_STATUS'
+                ? 'Laundry Received Status shows which dates have both Block 1 and Block 2 returned linen saved. Red dates can be opened for correction.'
               : "Linen History shows yesterday and the previous 6 days. Today is kept out because returned laundry belongs to yesterday's sent-out linen."}
           </div>
 
-          {pageTab === 'MONTHLY' ? (
+          {pageTab === 'MONTHLY' || pageTab === 'RECEIVED_STATUS' ? (
             <div style={styles.monthControlRow}>
               <input
                 type="month"
                 value={selectedMonth}
+                min={previousMonth}
+                max={currentMonth}
                 onChange={(event) => setSelectedMonth(event.target.value || currentMonth)}
                 style={styles.monthInput}
               />
               <div style={styles.monthLabel}>{formatMonthLabel(selectedMonth)}</div>
+              {pageTab === 'RECEIVED_STATUS' ? (
+                <div style={styles.monthNote}>Current month + previous month only</div>
+              ) : null}
             </div>
           ) : (
             <div style={styles.selectorRow}>
@@ -1390,6 +1520,13 @@ export default function LinenHistoryPage() {
               style={{ ...styles.modeBtn, ...(pageTab === 'MONTHLY' ? styles.modeBtnActive : {}) }}
             >
               Monthly Report
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab('RECEIVED_STATUS')}
+              style={{ ...styles.modeBtn, ...(pageTab === 'RECEIVED_STATUS' ? styles.modeBtnActive : {}) }}
+            >
+              Laundry Received Status
             </button>
           </div>
         </section>
@@ -1458,7 +1595,7 @@ export default function LinenHistoryPage() {
               </div>
             ) : null}
           </section>
-        ) : pageTab === 'MONTHLY' ? null : (
+        ) : pageTab === 'MONTHLY' || pageTab === 'RECEIVED_STATUS' ? null : (
           <section style={styles.panel}>
             <div style={styles.sectionTitle}>
               {pageTab === 'BILL_ENTRY' ? 'Laundry Bill Entry History' : 'Laundry Bill Grand Total History'}
@@ -1538,6 +1675,47 @@ export default function LinenHistoryPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </section>
+        ) : pageTab === 'RECEIVED_STATUS' ? (
+          <section style={styles.panel}>
+            <div style={styles.sectionTitle}>Laundry Received Status</div>
+            <div style={styles.groupMeta}>
+              {receivedStatusReport
+                ? `${formatMonthLabel(receivedStatusReport.month)} | ${receivedStatusReport.monthStart} to ${receivedStatusReport.monthEnd} | ${receivedStatusReport.savedCount} saved, ${receivedStatusReport.missingCount} missing`
+                : formatMonthLabel(selectedMonth)}
+            </div>
+
+            {!receivedStatusReport ? (
+              <div style={styles.emptyState}>No laundry received status found.</div>
+            ) : (
+              <div style={styles.calendarGrid}>
+                {receivedStatusReport.rows.map((row) => {
+                  const label = formatCalendarDay(row.date);
+                  const cardStyle = row.isSaved ? styles.calendarDaySaved : styles.calendarDayMissing;
+
+                  return (
+                    <div key={row.date} style={{ ...styles.calendarDay, ...cardStyle }}>
+                      <div style={styles.calendarTopLine}>
+                        <span style={styles.calendarWeekday}>{label.weekday}</span>
+                        <span style={styles.calendarBlockCount}>{row.blockCount}/2 blocks</span>
+                      </div>
+                      <div style={styles.calendarDayNumber}>{label.day}</div>
+                      <div style={styles.calendarStatusText}>
+                        {row.isSaved ? 'Saved' : `Missing ${row.missingBlocks.join(', ')}`}
+                      </div>
+                      {!row.isSaved ? (
+                        <Link
+                          href={`/dashboard/laundry-count?tab=received&receivedDate=${row.date}`}
+                          style={styles.calendarUpdateLink}
+                        >
+                          Update
+                        </Link>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -1751,6 +1929,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     fontWeight: 800,
   },
+  monthNote: {
+    color: '#64748b',
+    fontSize: '13px',
+    fontWeight: 800,
+  },
   modeRow: {
     display: 'flex',
     gap: '10px',
@@ -1840,6 +2023,73 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '20px',
     fontWeight: 900,
     textAlign: 'left',
+  },
+  calendarGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(135px, 1fr))',
+    gap: '12px',
+  },
+  calendarDay: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    padding: '12px',
+    minHeight: '132px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  calendarDaySaved: {
+    background: '#f0fdf4',
+    borderColor: '#bbf7d0',
+    color: '#14532d',
+  },
+  calendarDayMissing: {
+    background: '#fef2f2',
+    borderColor: '#fecaca',
+    color: '#7f1d1d',
+  },
+  calendarTopLine: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  calendarWeekday: {
+    fontSize: '12px',
+    fontWeight: 900,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+  },
+  calendarBlockCount: {
+    borderRadius: '999px',
+    background: 'rgba(255,255,255,0.72)',
+    padding: '4px 8px',
+    fontSize: '11px',
+    fontWeight: 900,
+  },
+  calendarDayNumber: {
+    color: '#0f172a',
+    fontSize: '30px',
+    fontWeight: 900,
+    lineHeight: 1,
+  },
+  calendarStatusText: {
+    flex: 1,
+    fontSize: '13px',
+    fontWeight: 800,
+    lineHeight: 1.35,
+  },
+  calendarUpdateLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '999px',
+    padding: '8px 10px',
+    fontSize: '12px',
+    fontWeight: 900,
   },
   itemTitle: {
     fontSize: '20px',
