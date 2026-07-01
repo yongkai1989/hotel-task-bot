@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
-type Branch = 'All' | 'Crown' | 'Leisure' | 'View' | 'Express';
+type Branch = 'All' | 'Crown' | 'Leisure' | 'Express' | 'View';
 type RealBranch = Exclude<Branch, 'All'>;
 type MealChoice = 'none' | 'lunch' | 'dinner' | 'both';
 
@@ -29,8 +29,8 @@ type StaffMealOrder = {
   updated_by_name?: string | null;
 };
 
-const BRANCHES: Branch[] = ['All', 'Crown', 'Leisure', 'View', 'Express'];
-const REAL_BRANCHES: RealBranch[] = ['Crown', 'Leisure', 'View', 'Express'];
+const BRANCHES: Branch[] = ['All', 'Crown', 'Leisure', 'Express', 'View'];
+const REAL_BRANCHES: RealBranch[] = ['Crown', 'Leisure', 'Express', 'View'];
 
 function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00`);
@@ -93,13 +93,6 @@ function mealText(choice: MealChoice) {
   return '-';
 }
 
-function printMealText(choice: MealChoice) {
-  if (choice === 'lunch') return 'L';
-  if (choice === 'dinner') return 'D';
-  if (choice === 'both') return 'L + D';
-  return '-';
-}
-
 function countMeals(meals: Record<string, MealChoice>) {
   return Object.values(meals || {}).reduce(
     (acc, choice) => {
@@ -113,6 +106,37 @@ function countMeals(meals: Record<string, MealChoice>) {
     },
     { lunch: 0, dinner: 0 }
   );
+}
+
+function hasLunch(choice: MealChoice) {
+  return choice === 'lunch' || choice === 'both';
+}
+
+function hasDinner(choice: MealChoice) {
+  return choice === 'dinner' || choice === 'both';
+}
+
+function countDayMeals(orders: StaffMealOrder[], date: string) {
+  return orders.reduce(
+    (acc, order) => {
+      const choice = order.meals?.[date] || 'none';
+      if (hasLunch(choice)) acc.lunch += 1;
+      if (hasDinner(choice)) acc.dinner += 1;
+      return acc;
+    },
+    { lunch: 0, dinner: 0 }
+  );
+}
+
+function branchSortValue(branch: RealBranch) {
+  const index = REAL_BRANCHES.indexOf(branch);
+  return index === -1 ? REAL_BRANCHES.length : index;
+}
+
+function sortMealOrders(a: StaffMealOrder, b: StaffMealOrder) {
+  const branchDiff = branchSortValue(a.branch) - branchSortValue(b.branch);
+  if (branchDiff !== 0) return branchDiff;
+  return a.staff_name.localeCompare(b.staff_name, undefined, { sensitivity: 'base' });
 }
 
 function escapeHtml(value: unknown) {
@@ -162,7 +186,7 @@ export default function StaffMealAdminPage() {
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to load staff meal orders.');
 
-      setOrders(json.orders || []);
+      setOrders([...(json.orders || [])].sort(sortMealOrders));
       setCycle(json.cycle || null);
       setWeekStart(json.week_start || json.cycle?.service_week_start || json.cycle?.order_week_start || '');
       setCanManage(!!json.can_manage);
@@ -185,34 +209,12 @@ export default function StaffMealAdminPage() {
     [orders, branch]
   );
 
-  const branchTotals = useMemo(() => {
-    return REAL_BRANCHES.map((branchName) => {
-      const branchOrders = orders.filter((order) => order.branch === branchName);
-      const totals = branchOrders.reduce(
-        (acc, order) => {
-          const counts = countMeals(order.meals);
-          acc.lunch += counts.lunch;
-          acc.dinner += counts.dinner;
-          acc.staff += 1;
-          return acc;
-        },
-        { staff: 0, lunch: 0, dinner: 0 }
-      );
-      return { branch: branchName, ...totals };
-    });
-  }, [orders]);
-
-  const filteredTotals = useMemo(() => {
-    return filteredOrders.reduce(
-      (acc, order) => {
-        const counts = countMeals(order.meals);
-        acc.lunch += counts.lunch;
-        acc.dinner += counts.dinner;
-        return acc;
-      },
-      { lunch: 0, dinner: 0 }
-    );
-  }, [filteredOrders]);
+  const dailyTotals = useMemo(() => {
+    return dates.map((date) => ({
+      date,
+      ...countDayMeals(filteredOrders, date),
+    }));
+  }, [dates, filteredOrders]);
 
   async function saveEdit() {
     if (!editing) return;
@@ -281,37 +283,90 @@ export default function StaffMealAdminPage() {
 
   function printStaffMealReport() {
     const title = `Staff Meal - ${branch} - ${formatLong(displayWeekStart)}`;
-    const rows = filteredOrders
-      .map((order, index) => {
-        const totals = countMeals(order.meals);
-        const dayCells = dates
-          .map((date) => {
-            const choice = order.meals?.[date] || 'none';
-            return `<td class="meal meal-${choice}">${escapeHtml(printMealText(choice))}</td>`;
-          })
-          .join('');
+    const reportOrders = [...filteredOrders].sort(sortMealOrders);
+    const reportBranches = branch === 'All' ? REAL_BRANCHES : [branch as RealBranch];
+    const dailySummary = dates
+      .map((date) => {
+        const totals = countDayMeals(reportOrders, date);
         return `
-          <tr>
-            <td class="index">${index + 1}</td>
-            <td><strong>${escapeHtml(order.staff_name)}</strong><br><span>${escapeHtml(order.branch)}</span></td>
-            ${dayCells}
-            <td class="num">${totals.lunch}</td>
-            <td class="num">${totals.dinner}</td>
-            <td class="notes">${escapeHtml(order.notes || '')}</td>
-          </tr>
+          <div class="daily-total-card">
+            <strong>${escapeHtml(formatShort(date))}</strong>
+            <span>Lunch ${totals.lunch}</span>
+            <span>Dinner ${totals.dinner}</span>
+          </div>
         `;
       })
       .join('');
-    const branchSummary = branchTotals
-      .map((item) => `
-        <div class="summary-card">
-          <span>${escapeHtml(item.branch)}</span>
-          <strong>${item.staff}</strong>
-          <small>${item.lunch} lunch / ${item.dinner} dinner</small>
-        </div>
-      `)
+    const daySections = dates
+      .map((date) => {
+        const dayTotals = countDayMeals(reportOrders, date);
+        const branchSections = reportBranches
+          .map((branchName) => {
+            const branchDayOrders = reportOrders.filter((order) => {
+              const choice = order.meals?.[date] || 'none';
+              return order.branch === branchName && choice !== 'none';
+            });
+            const branchDayTotals = countDayMeals(branchDayOrders, date);
+            const rows = branchDayOrders
+              .map((order, index) => {
+                const choice = order.meals?.[date] || 'none';
+                return `
+                  <tr>
+                    <td class="index">${index + 1}</td>
+                    <td><strong>${escapeHtml(order.staff_name)}</strong></td>
+                    <td class="tick ${hasLunch(choice) ? 'tick-on' : ''}">${hasLunch(choice) ? 'Yes' : '-'}</td>
+                    <td class="tick ${hasDinner(choice) ? 'tick-on' : ''}">${hasDinner(choice) ? 'Yes' : '-'}</td>
+                    <td class="notes">${escapeHtml(order.notes || '')}</td>
+                  </tr>
+                `;
+              })
+              .join('');
+
+            return `
+              <section class="branch-block">
+                <div class="branch-head">
+                  <h3>${escapeHtml(branchName)}</h3>
+                  <div>
+                    <strong>Lunch ${branchDayTotals.lunch}</strong>
+                    <strong>Dinner ${branchDayTotals.dinner}</strong>
+                  </div>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width: 28px;">#</th>
+                      <th class="staff-head">Staff</th>
+                      <th style="width: 72px;">Lunch</th>
+                      <th style="width: 72px;">Dinner</th>
+                      <th style="width: 180px;">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rows || '<tr><td colspan="5" class="empty">No meals ordered for this branch.</td></tr>'}
+                  </tbody>
+                </table>
+              </section>
+            `;
+          })
+          .join('');
+
+        return `
+          <section class="day-block">
+            <div class="day-head">
+              <div>
+                <span>Meal packing date</span>
+                <h2>${escapeHtml(formatLong(date))}</h2>
+              </div>
+              <div class="day-total">
+                <strong>Grand Lunch ${dayTotals.lunch}</strong>
+                <strong>Grand Dinner ${dayTotals.dinner}</strong>
+              </div>
+            </div>
+            ${branchSections}
+          </section>
+        `;
+      })
       .join('');
-    const dateHeaders = dates.map((date) => `<th>${escapeHtml(formatShort(date))}</th>`).join('');
     const popup = window.open('', '_blank', 'width=1200,height=800');
     if (!popup) return;
 
@@ -328,11 +383,11 @@ export default function StaffMealAdminPage() {
             }
             body {
               margin: 0;
-              padding: 14px;
+              padding: 12px;
               color: #07142d;
               font-family: Arial, sans-serif;
               background: #fff;
-              font-size: 11px;
+              font-size: 10.5px;
             }
             .header {
               display: flex;
@@ -352,7 +407,7 @@ export default function StaffMealAdminPage() {
             }
             h1 {
               margin: 3px 0;
-              font-size: 22px;
+              font-size: 21px;
               line-height: 1;
             }
             .meta {
@@ -363,51 +418,96 @@ export default function StaffMealAdminPage() {
             }
             .summary {
               display: grid;
-              grid-template-columns: repeat(4, 1fr);
+              grid-template-columns: repeat(7, 1fr);
               gap: 6px;
-              margin-bottom: 8px;
+              margin-bottom: 10px;
             }
-            .summary-card {
-              border: 1px solid #d7e1ec;
+            .daily-total-card {
+              border: 1px solid #bfdbfe;
               border-radius: 8px;
-              padding: 7px 8px;
+              padding: 6px 7px;
               display: flex;
-              justify-content: space-between;
-              gap: 8px;
-              align-items: center;
+              flex-direction: column;
+              gap: 2px;
+              background: #f8fbff;
             }
-            .summary-card span,
-            .summary-card small {
-              color: #475569;
-              font-weight: 700;
+            .daily-total-card strong {
+              font-size: 11px;
+              color: #1e3a8a;
             }
-            .summary-card strong {
-              font-size: 18px;
-            }
-            .legend {
-              display: flex;
-              gap: 8px;
-              align-items: center;
-              margin: 0 0 8px;
-              color: #334155;
-              font-size: 10px;
+            .daily-total-card span {
+              color: #0f172a;
               font-weight: 800;
             }
-            .legend span {
-              display: inline-flex;
+            .legend {
+              margin: 0 0 8px;
+              color: #475569;
+              font-size: 9.5px;
+              font-weight: 700;
+            }
+            .day-block {
+              border: 1px solid #d9e2ec;
+              border-radius: 10px;
+              padding: 8px;
+              margin-bottom: 9px;
+              break-inside: avoid;
+            }
+            .day-head {
+              display: flex;
+              justify-content: space-between;
+              gap: 10px;
               align-items: center;
-              gap: 4px;
+              padding-bottom: 6px;
+              margin-bottom: 6px;
+              border-bottom: 1px solid #e2e8f0;
             }
-            .dot {
-              width: 12px;
-              height: 12px;
-              border-radius: 4px;
+            .day-head span {
+              color: #1d4ed8;
+              font-size: 8px;
+              font-weight: 900;
+              letter-spacing: .9px;
+              text-transform: uppercase;
+            }
+            h2 {
+              margin: 2px 0 0;
+              font-size: 16px;
+              line-height: 1.1;
+            }
+            .day-total {
+              display: flex;
+              gap: 6px;
+              font-size: 13px;
+            }
+            .day-total strong {
               border: 1px solid #cbd5e1;
-              display: inline-block;
+              border-radius: 8px;
+              padding: 6px 8px;
+              background: #f8fafc;
             }
-            .dot-lunch { background: #e0f2fe; }
-            .dot-dinner { background: #fef3c7; }
-            .dot-both { background: #dcfce7; }
+            .branch-block {
+              margin-top: 7px;
+              break-inside: avoid;
+            }
+            .branch-head {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 8px;
+              background: #eff6ff;
+              border: 1px solid #bfdbfe;
+              border-bottom: 0;
+              border-radius: 8px 8px 0 0;
+              padding: 5px 7px;
+            }
+            .branch-head h3 {
+              margin: 0;
+              font-size: 12px;
+            }
+            .branch-head div {
+              display: flex;
+              gap: 8px;
+              font-size: 11px;
+            }
             table {
               width: 100%;
               border-collapse: collapse;
@@ -431,54 +531,38 @@ export default function StaffMealAdminPage() {
               white-space: nowrap;
             }
             th.staff-head { text-align: left; }
-            td span {
-              color: #64748b;
-              font-size: 8.5px;
-              font-weight: 700;
-            }
             .index {
               text-align: center;
               color: #64748b;
               font-weight: 800;
             }
-            .meal {
+            .tick {
               text-align: center;
               font-weight: 900;
-              white-space: nowrap;
+              color: #94a3b8;
             }
-            .meal-lunch { background: #e0f2fe; color: #075985; }
-            .meal-dinner { background: #fef3c7; color: #92400e; }
-            .meal-both { background: #dcfce7; color: #166534; }
-            .meal-none { color: #94a3b8; }
-            .num {
-              text-align: center;
-              font-weight: 900;
-              font-size: 12px;
+            .tick-on {
+              color: #166534;
+              background: #dcfce7;
             }
             .notes {
               color: #334155;
               font-size: 8.8px;
             }
-            .footer {
-              display: flex;
-              justify-content: flex-end;
-              gap: 8px;
-              margin-top: 8px;
-              font-size: 14px;
-              font-weight: 900;
-            }
-            .footer div {
-              border: 1px solid #cbd5e1;
-              border-radius: 8px;
-              padding: 7px 10px;
-              background: #f8fafc;
+            .empty {
+              text-align: center;
+              color: #64748b;
+              font-weight: 800;
+              padding: 8px;
             }
             thead { display: table-header-group; }
             tr { break-inside: avoid; }
             @page { size: A4 landscape; margin: 8mm; }
             @media print {
               body { padding: 0; }
-              .summary-card { break-inside: avoid; }
+              .daily-total-card,
+              .branch-block,
+              .day-block { break-inside: avoid; }
               th, td { padding: 3.5px 4px; }
             }
           </style>
@@ -495,31 +579,12 @@ export default function StaffMealAdminPage() {
               ${filteredOrders.length} order(s)
             </div>
           </section>
-          <section class="summary">${branchSummary}</section>
+          <section class="summary">${dailySummary}</section>
           <section class="legend">
-            <span><i class="dot dot-lunch"></i>L = Lunch</span>
-            <span><i class="dot dot-dinner"></i>D = Dinner</span>
-            <span><i class="dot dot-both"></i>L + D = Lunch and Dinner</span>
+            Daily grand totals are shown above. Each meal date below is grouped by branch in packing order:
+            Crown, Leisure, Express, View.
           </section>
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 30px;">#</th>
-                <th class="staff-head" style="width: 118px;">Staff</th>
-                ${dateHeaders}
-                <th style="width: 45px;">Lunch</th>
-                <th style="width: 45px;">Dinner</th>
-                <th style="width: 100px;">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows || '<tr><td colspan="12" class="num">No staff meal orders for this branch and week.</td></tr>'}
-            </tbody>
-          </table>
-          <section class="footer">
-            <div>Total lunch: ${filteredTotals.lunch}</div>
-            <div>Total dinner: ${filteredTotals.dinner}</div>
-          </section>
+          ${daySections || '<section class="day-block"><div class="empty">No staff meal orders for this week.</div></section>'}
         </body>
       </html>
     `);
@@ -594,11 +659,10 @@ export default function StaffMealAdminPage() {
         </div>
 
         <div style={styles.summaryGrid}>
-          {branchTotals.map((item) => (
-            <div key={item.branch} style={styles.summaryCard}>
-              <div style={styles.summaryBranch}>{item.branch}</div>
+          {dailyTotals.map((item) => (
+            <div key={item.date} style={styles.summaryCard}>
+              <div style={styles.summaryBranch}>{formatShort(item.date)}</div>
               <div style={styles.summaryNumbers}>
-                <span>{item.staff} staff</span>
                 <strong>{item.lunch}</strong>
                 <span>Lunch</span>
                 <strong>{item.dinner}</strong>
@@ -628,8 +692,7 @@ export default function StaffMealAdminPage() {
 
         <div style={styles.totalBar}>
           <span>{filteredOrders.length} order(s)</span>
-          <strong>{filteredTotals.lunch} lunch</strong>
-          <strong>{filteredTotals.dinner} dinner</strong>
+          <strong>Report groups each day by Crown, Leisure, Express, View</strong>
         </div>
 
         {loading ? (
