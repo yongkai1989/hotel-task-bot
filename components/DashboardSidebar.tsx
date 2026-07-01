@@ -791,6 +791,7 @@ export default function DashboardSidebar({
     !!effectiveProfile?.can_access_fnb_orders ||
     effectiveEmail === 'fnb@hotelhallmark.com' ||
     effectiveEmail === 'fenny@hotelhallmark.com';
+  const canSeeBreakfastPublicLinks = effectiveRole === 'SUPERUSER';
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
     (
@@ -828,7 +829,12 @@ export default function DashboardSidebar({
     canSeePriceGuide ||
     canSeeGuestLaundry ||
     canSeeFoGuestShopAdmin;
-  const showFnbGroup = canSeeFnbChecklist || canSeeFnbMenuAdmin || canSeeFnbOrders || canSeeStaffMeal;
+  const showFnbGroup =
+    canSeeFnbChecklist ||
+    canSeeFnbMenuAdmin ||
+    canSeeFnbOrders ||
+    canSeeStaffMeal ||
+    canSeeBreakfastPublicLinks;
 
   const sidebarAccessFlags = [
     effectiveProfile?.can_access_preventive_maintenance,
@@ -1484,6 +1490,28 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeBreakfastPublicLinks ? (
+                <Link
+                  href="/restaurant-kiosk"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Breakfast Guest Link</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeBreakfastPublicLinks ? (
+                <Link
+                  href="/restaurant-kiosk?mode=kiosk"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="clipboard" sub>Breakfast Kiosk Link</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeStaffMeal ? (
                 <Link
                   href="/dashboard/staff-meal"
@@ -2131,4 +2159,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
   },
 };
+
 
