@@ -314,13 +314,13 @@ export default function StaffMealAdminPage() {
                   <tr>
                     <td class="index">${index + 1}</td>
                     <td><strong>${escapeHtml(order.staff_name)}</strong></td>
-                    <td class="tick ${hasLunch(choice) ? 'tick-on' : ''}">${hasLunch(choice) ? 'Yes' : '-'}</td>
-                    <td class="tick ${hasDinner(choice) ? 'tick-on' : ''}">${hasDinner(choice) ? 'Yes' : '-'}</td>
+                    <td class="meal meal-${choice}">${escapeHtml(mealText(choice))}</td>
                     <td class="notes">${escapeHtml(order.notes || '')}</td>
                   </tr>
                 `;
               })
               .join('');
+            if (!rows) return '';
 
             return `
               <section class="branch-block">
@@ -334,15 +334,14 @@ export default function StaffMealAdminPage() {
                 <table>
                   <thead>
                     <tr>
-                      <th style="width: 28px;">#</th>
+                      <th style="width: 24px;">#</th>
                       <th class="staff-head">Staff</th>
-                      <th style="width: 72px;">Lunch</th>
-                      <th style="width: 72px;">Dinner</th>
-                      <th style="width: 180px;">Notes</th>
+                      <th style="width: 86px;">Meal</th>
+                      <th style="width: 138px;">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${rows || '<tr><td colspan="5" class="empty">No meals ordered for this branch.</td></tr>'}
+                    ${rows}
                   </tbody>
                 </table>
               </section>
@@ -354,15 +353,15 @@ export default function StaffMealAdminPage() {
           <section class="day-block">
             <div class="day-head">
               <div>
-                <span>Meal packing date</span>
+                <span>Meal date</span>
                 <h2>${escapeHtml(formatLong(date))}</h2>
               </div>
               <div class="day-total">
-                <strong>Grand Lunch ${dayTotals.lunch}</strong>
-                <strong>Grand Dinner ${dayTotals.dinner}</strong>
+                <strong>L ${dayTotals.lunch}</strong>
+                <strong>D ${dayTotals.dinner}</strong>
               </div>
             </div>
-            ${branchSections}
+            ${branchSections || '<div class="empty">No meals ordered for this date.</div>'}
           </section>
         `;
       })
@@ -383,141 +382,148 @@ export default function StaffMealAdminPage() {
             }
             body {
               margin: 0;
-              padding: 12px;
+              padding: 8px;
               color: #07142d;
               font-family: Arial, sans-serif;
               background: #fff;
-              font-size: 10.5px;
+              font-size: 9.5px;
             }
             .header {
               display: flex;
               justify-content: space-between;
-              gap: 12px;
+              gap: 8px;
               align-items: flex-end;
               border-bottom: 2px solid #0f172a;
-              padding-bottom: 8px;
-              margin-bottom: 8px;
+              padding-bottom: 5px;
+              margin-bottom: 5px;
             }
             .kicker {
               color: #1d4ed8;
-              font-size: 9px;
+              font-size: 7.5px;
               font-weight: 800;
-              letter-spacing: 1.1px;
+              letter-spacing: .8px;
               text-transform: uppercase;
             }
             h1 {
-              margin: 3px 0;
-              font-size: 21px;
+              margin: 2px 0;
+              font-size: 17px;
               line-height: 1;
             }
             .meta {
               text-align: right;
-              font-size: 10px;
+              font-size: 8px;
               color: #334155;
               font-weight: 700;
             }
             .summary {
               display: grid;
-              grid-template-columns: repeat(7, 1fr);
-              gap: 6px;
-              margin-bottom: 10px;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 4px;
+              margin-bottom: 5px;
             }
             .daily-total-card {
               border: 1px solid #bfdbfe;
-              border-radius: 8px;
-              padding: 6px 7px;
-              display: flex;
-              flex-direction: column;
-              gap: 2px;
+              border-radius: 6px;
+              padding: 4px 5px;
+              display: grid;
+              grid-template-columns: 1fr auto auto;
+              gap: 5px;
+              align-items: center;
               background: #f8fbff;
             }
             .daily-total-card strong {
-              font-size: 11px;
+              font-size: 9px;
               color: #1e3a8a;
             }
             .daily-total-card span {
               color: #0f172a;
               font-weight: 800;
+              font-size: 8.5px;
             }
             .legend {
-              margin: 0 0 8px;
+              margin: 0 0 5px;
               color: #475569;
-              font-size: 9.5px;
+              font-size: 8px;
               font-weight: 700;
+            }
+            .report-grid {
+              display: grid;
+              grid-template-columns: 1fr;
+              gap: 5px;
             }
             .day-block {
               border: 1px solid #d9e2ec;
-              border-radius: 10px;
-              padding: 8px;
-              margin-bottom: 9px;
+              border-radius: 8px;
+              padding: 5px;
+              margin-bottom: 5px;
               break-inside: avoid;
             }
             .day-head {
               display: flex;
               justify-content: space-between;
-              gap: 10px;
+              gap: 7px;
               align-items: center;
-              padding-bottom: 6px;
-              margin-bottom: 6px;
+              padding-bottom: 4px;
+              margin-bottom: 4px;
               border-bottom: 1px solid #e2e8f0;
             }
             .day-head span {
               color: #1d4ed8;
-              font-size: 8px;
+              font-size: 6.8px;
               font-weight: 900;
-              letter-spacing: .9px;
+              letter-spacing: .7px;
               text-transform: uppercase;
             }
             h2 {
-              margin: 2px 0 0;
-              font-size: 16px;
+              margin: 1px 0 0;
+              font-size: 12px;
               line-height: 1.1;
             }
             .day-total {
               display: flex;
-              gap: 6px;
-              font-size: 13px;
+              gap: 4px;
+              font-size: 10px;
             }
             .day-total strong {
               border: 1px solid #cbd5e1;
-              border-radius: 8px;
-              padding: 6px 8px;
+              border-radius: 6px;
+              padding: 3px 5px;
               background: #f8fafc;
             }
             .branch-block {
-              margin-top: 7px;
+              margin-top: 4px;
               break-inside: avoid;
             }
             .branch-head {
               display: flex;
               justify-content: space-between;
               align-items: center;
-              gap: 8px;
+              gap: 6px;
               background: #eff6ff;
               border: 1px solid #bfdbfe;
               border-bottom: 0;
-              border-radius: 8px 8px 0 0;
-              padding: 5px 7px;
+              border-radius: 6px 6px 0 0;
+              padding: 3px 5px;
             }
             .branch-head h3 {
               margin: 0;
-              font-size: 12px;
+              font-size: 10px;
             }
             .branch-head div {
               display: flex;
-              gap: 8px;
-              font-size: 11px;
+              gap: 6px;
+              font-size: 9px;
             }
             table {
               width: 100%;
               border-collapse: collapse;
               table-layout: fixed;
-              font-size: 9.8px;
+              font-size: 8.7px;
               line-height: 1.15;
             }
             th, td {
               border: 1px solid #d9e2ec;
-              padding: 4px 5px;
+              padding: 2.5px 4px;
               vertical-align: middle;
               word-break: break-word;
             }
@@ -525,8 +531,8 @@ export default function StaffMealAdminPage() {
               background: #edf4ff;
               color: #1e3a8a;
               text-transform: uppercase;
-              font-size: 8.5px;
-              letter-spacing: .35px;
+              font-size: 7px;
+              letter-spacing: .25px;
               text-align: center;
               white-space: nowrap;
             }
@@ -536,34 +542,33 @@ export default function StaffMealAdminPage() {
               color: #64748b;
               font-weight: 800;
             }
-            .tick {
+            .meal {
               text-align: center;
               font-weight: 900;
-              color: #94a3b8;
+              white-space: nowrap;
             }
-            .tick-on {
-              color: #166534;
-              background: #dcfce7;
-            }
+            .meal-lunch { background: #e0f2fe; color: #075985; }
+            .meal-dinner { background: #fef3c7; color: #92400e; }
+            .meal-both { background: #dcfce7; color: #166534; }
             .notes {
               color: #334155;
-              font-size: 8.8px;
+              font-size: 7.8px;
             }
             .empty {
               text-align: center;
               color: #64748b;
               font-weight: 800;
-              padding: 8px;
+              padding: 5px;
             }
             thead { display: table-header-group; }
             tr { break-inside: avoid; }
-            @page { size: A4 landscape; margin: 8mm; }
+            @page { size: A4 portrait; margin: 6mm; }
             @media print {
               body { padding: 0; }
               .daily-total-card,
               .branch-block,
               .day-block { break-inside: avoid; }
-              th, td { padding: 3.5px 4px; }
+              th, td { padding: 2px 3px; }
             }
           </style>
         </head>
@@ -584,7 +589,9 @@ export default function StaffMealAdminPage() {
             Daily grand totals are shown above. Each meal date below is grouped by branch in packing order:
             Crown, Leisure, Express, View.
           </section>
-          ${daySections || '<section class="day-block"><div class="empty">No staff meal orders for this week.</div></section>'}
+          <section class="report-grid">
+            ${daySections || '<section class="day-block"><div class="empty">No staff meal orders for this week.</div></section>'}
+          </section>
         </body>
       </html>
     `);
