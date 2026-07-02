@@ -19,6 +19,8 @@ type SubmittedOrder = {
   meals: Record<string, MealChoice>;
   order_week_start: string;
   order_week_end: string;
+  notes?: string;
+  created_at?: string;
 };
 
 const BRANCHES: Branch[] = ['Crown', 'Leisure', 'View', 'Express'];
@@ -101,6 +103,11 @@ function countMeals(meals: Record<string, MealChoice>) {
   );
 }
 
+function orderHasMeal(order: SubmittedOrder) {
+  const totals = countMeals(order.meals || {});
+  return totals.lunch + totals.dinner > 0;
+}
+
 export default function StaffMealPage() {
   const [cycle, setCycle] = useState<Cycle>(EMPTY_CYCLE);
   const [branch, setBranch] = useState<Branch>('Crown');
@@ -111,6 +118,9 @@ export default function StaffMealPage() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [submitted, setSubmitted] = useState<SubmittedOrder | null>(null);
+  const [listingOpen, setListingOpen] = useState(false);
+  const [listingLoading, setListingLoading] = useState(false);
+  const [listingOrders, setListingOrders] = useState<SubmittedOrder[]>([]);
 
   const dates = useMemo(() => weekDates(cycle), [cycle]);
   const totals = useMemo(() => countMeals(meals), [meals]);
@@ -146,6 +156,23 @@ export default function StaffMealPage() {
 
   function updateMeal(date: string, choice: MealChoice) {
     setMeals((prev) => ({ ...prev, [date]: choice }));
+  }
+
+  async function loadOrderListing() {
+    try {
+      setListingOpen(true);
+      setListingLoading(true);
+      setErrorMsg('');
+      const res = await fetch('/api/staff-meal/orders?public_listing=1', { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Failed to load order listing.');
+      setCycle(json.cycle || cycle);
+      setListingOrders(json.orders || []);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to load order listing.');
+    } finally {
+      setListingLoading(false);
+    }
   }
 
   async function submitOrder() {
@@ -218,9 +245,49 @@ export default function StaffMealPage() {
             ))}
           </div>
 
-          <button type="button" style={styles.primaryBtn} onClick={() => window.location.reload()}>
-            Submit Another Order
-          </button>
+          <div style={styles.confirmActions}>
+            <button type="button" style={styles.primaryBtn} onClick={() => window.location.reload()}>
+              Submit Another Order
+            </button>
+            <button type="button" style={styles.secondaryWideBtn} onClick={loadOrderListing}>
+              Order Listing
+            </button>
+          </div>
+
+          {listingOpen ? (
+            <div style={{ marginTop: 16 }}>
+              {listingLoading ? (
+                <div style={styles.emptyState}>Loading order listing...</div>
+              ) : (
+                <div style={styles.branchListingGrid}>
+                  {BRANCHES.map((branchName) => {
+                    const branchOrders = listingOrders
+                      .filter((order) => order.branch === branchName)
+                      .filter(orderHasMeal);
+                    return (
+                      <article key={branchName} style={styles.branchListingCard}>
+                        <div style={styles.branchName}>{branchName}</div>
+                        {branchOrders.length === 0 ? (
+                          <div style={styles.branchEmpty}>No orders yet.</div>
+                        ) : (
+                          <div style={styles.staffOrderList}>
+                            {branchOrders.map((order) => (
+                              <div key={order.id} style={styles.staffOrderCard}>
+                                <div style={styles.staffOrderTop}>
+                                  <strong>{order.staff_name}</strong>
+                                  <span>{countMeals(order.meals || {}).lunch}L / {countMeals(order.meals || {}).dinner}D</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : null}
         </section>
       </main>
     );
@@ -239,6 +306,9 @@ export default function StaffMealPage() {
           </div>
           <h1 style={styles.title}>Select your meals for the week</h1>
           <p style={styles.subText}>Choose lunch, dinner, or both. Please screenshot the confirmation after submitting.</p>
+          <button type="button" style={styles.secondaryHeroBtn} onClick={loadOrderListing}>
+            Order Listing
+          </button>
         </div>
 
         <aside style={styles.weekPanel}>
@@ -253,6 +323,100 @@ export default function StaffMealPage() {
       </section>
 
       {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+
+      {listingOpen ? (
+        <section style={styles.listingPanel}>
+          <div style={styles.listingHeader}>
+            <div>
+              <div style={styles.eyebrow}>Order Listing</div>
+              <h2 style={styles.sectionTitle}>All submitted staff meal orders</h2>
+              <p style={styles.listingSub}>
+                {formatLongDate(cycle.order_week_start)} - {formatLongDate(cycle.order_week_end)}
+              </p>
+            </div>
+            <div style={styles.listingActions}>
+              <button type="button" style={styles.smallGhostBtn} onClick={loadOrderListing}>
+                Refresh
+              </button>
+              <button type="button" style={styles.smallDarkBtn} onClick={() => setListingOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+
+          {listingLoading ? (
+            <div style={styles.emptyState}>Loading order listing...</div>
+          ) : listingOrders.filter(orderHasMeal).length === 0 ? (
+            <div style={styles.emptyState}>No staff meal orders submitted for this week yet.</div>
+          ) : (
+            <div style={styles.branchListingGrid}>
+              {BRANCHES.map((branchName) => {
+                const branchOrders = listingOrders
+                  .filter((order) => order.branch === branchName)
+                  .filter(orderHasMeal);
+                const branchTotals = branchOrders.reduce(
+                  (acc, order) => {
+                    const orderTotals = countMeals(order.meals || {});
+                    acc.lunch += orderTotals.lunch;
+                    acc.dinner += orderTotals.dinner;
+                    return acc;
+                  },
+                  { lunch: 0, dinner: 0 }
+                );
+
+                return (
+                  <article key={branchName} style={styles.branchListingCard}>
+                    <div style={styles.branchListingTop}>
+                      <div>
+                        <div style={styles.branchName}>{branchName}</div>
+                        <div style={styles.branchCount}>{branchOrders.length} order(s)</div>
+                      </div>
+                      <div style={styles.branchTotals}>
+                        <span>L {branchTotals.lunch}</span>
+                        <span>D {branchTotals.dinner}</span>
+                      </div>
+                    </div>
+
+                    {branchOrders.length === 0 ? (
+                      <div style={styles.branchEmpty}>No orders yet.</div>
+                    ) : (
+                      <div style={styles.staffOrderList}>
+                        {branchOrders.map((order) => {
+                          const orderTotals = countMeals(order.meals || {});
+                          return (
+                            <div key={order.id} style={styles.staffOrderCard}>
+                              <div style={styles.staffOrderTop}>
+                                <strong>{order.staff_name}</strong>
+                                <span>{orderTotals.lunch}L / {orderTotals.dinner}D</span>
+                              </div>
+                              <div style={styles.staffMealGrid}>
+                                {dates.map((date) => {
+                                  const choice = order.meals?.[date] || 'none';
+                                  return (
+                                    <span
+                                      key={`${order.id}-${date}`}
+                                      style={{
+                                        ...styles.staffMealPill,
+                                        ...(choice !== 'none' ? styles.staffMealPillActive : {}),
+                                      }}
+                                    >
+                                      {formatShortDate(date).slice(0, 6)}: {mealShortLabel(choice)}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section style={styles.orderShell}>
         <aside style={styles.sideCard}>
@@ -427,6 +591,18 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.45,
     margin: 0,
     maxWidth: 610,
+  },
+  secondaryHeroBtn: {
+    width: 'fit-content',
+    border: '1px solid #d8c3a3',
+    borderRadius: 999,
+    padding: '10px 15px',
+    background: 'rgba(255, 255, 255, 0.82)',
+    color: '#1f2937',
+    fontWeight: 950,
+    fontSize: 14,
+    cursor: 'pointer',
+    boxShadow: '0 10px 22px rgba(71, 55, 33, 0.08)',
   },
   weekPanel: {
     background: 'linear-gradient(145deg, #15110d 0%, #26314a 100%)',
@@ -648,6 +824,17 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     boxShadow: '0 12px 28px rgba(213, 154, 44, 0.22)',
   },
+  secondaryWideBtn: {
+    width: '100%',
+    border: '1px solid #cbd5e1',
+    borderRadius: 15,
+    padding: '13px 18px',
+    background: '#ffffff',
+    color: '#172033',
+    fontWeight: 950,
+    fontSize: 15,
+    cursor: 'pointer',
+  },
   errorBox: {
     background: '#fff1f2',
     border: '1px solid #fecdd3',
@@ -657,6 +844,132 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 900,
     margin: '0 auto 12px',
     maxWidth: 1120,
+  },
+  listingPanel: {
+    maxWidth: 1120,
+    margin: '0 auto 12px',
+    background: 'rgba(255, 255, 255, 0.95)',
+    border: '1px solid rgba(203, 213, 225, 0.95)',
+    borderRadius: 22,
+    padding: 'clamp(14px, 2vw, 18px)',
+    boxShadow: '0 16px 44px rgba(51, 65, 85, 0.1)',
+  },
+  listingHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  listingSub: {
+    margin: '5px 0 0',
+    color: '#64748b',
+    fontWeight: 850,
+    fontSize: 13,
+  },
+  listingActions: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  smallGhostBtn: {
+    border: '1px solid #cbd5e1',
+    borderRadius: 999,
+    background: '#ffffff',
+    color: '#172033',
+    padding: '9px 13px',
+    fontWeight: 950,
+    cursor: 'pointer',
+  },
+  smallDarkBtn: {
+    border: '1px solid #0f172a',
+    borderRadius: 999,
+    background: '#0f172a',
+    color: '#ffffff',
+    padding: '9px 13px',
+    fontWeight: 950,
+    cursor: 'pointer',
+  },
+  branchListingGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(250px, 100%), 1fr))',
+    gap: 10,
+  },
+  branchListingCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 18,
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
+    padding: 12,
+    display: 'grid',
+    gap: 10,
+  },
+  branchListingTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  branchName: {
+    fontWeight: 950,
+    fontSize: 18,
+  },
+  branchCount: {
+    color: '#64748b',
+    fontWeight: 850,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  branchTotals: {
+    display: 'flex',
+    gap: 6,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  branchEmpty: {
+    padding: 12,
+    borderRadius: 14,
+    background: '#f8fafc',
+    color: '#64748b',
+    fontWeight: 850,
+    textAlign: 'center',
+  },
+  staffOrderList: {
+    display: 'grid',
+    gap: 8,
+  },
+  staffOrderCard: {
+    border: '1px solid #dbeafe',
+    borderRadius: 15,
+    background: '#ffffff',
+    padding: 10,
+  },
+  staffOrderTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 8,
+    alignItems: 'center',
+    color: '#0f172a',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  staffMealGrid: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  staffMealPill: {
+    borderRadius: 999,
+    background: '#f1f5f9',
+    color: '#64748b',
+    padding: '5px 7px',
+    fontWeight: 900,
+    fontSize: 11,
+    lineHeight: 1,
+  },
+  staffMealPillActive: {
+    background: '#eff6ff',
+    color: '#1d4ed8',
   },
   emptyState: {
     padding: 18,
@@ -716,6 +1029,11 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: 7,
     marginBottom: 18,
+  },
+  confirmActions: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(190px, 100%), 1fr))',
+    gap: 10,
   },
   confirmRow: {
     display: 'flex',
