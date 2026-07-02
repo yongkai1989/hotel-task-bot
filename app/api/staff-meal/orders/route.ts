@@ -13,6 +13,14 @@ const WEEKLY_CUTOFF_MINUTES = 7 * 60;
 
 type Branch = (typeof BRANCHES)[number];
 type MealChoice = 'none' | 'lunch' | 'dinner' | 'both';
+type MenuSetName = 'A' | 'B';
+type MealMenuDay = {
+  day_index: number;
+  lunch_menu: string;
+  dinner_menu: string;
+};
+
+const MENU_ANCHOR_WEEK_START = '2026-07-06';
 
 function jsonNoCache(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -41,6 +49,20 @@ function toDateStringFromUtcMs(ms: number) {
   const month = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function utcMsFromDateString(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  if (!match) return 0;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function menuSetForWeek(weekStart: string): MenuSetName {
+  const anchor = utcMsFromDateString(MENU_ANCHOR_WEEK_START);
+  const target = utcMsFromDateString(weekStart);
+  if (!anchor || !target) return 'A';
+  const weekDiff = Math.max(0, Math.floor((target - anchor) / (7 * DAY_MS)));
+  return weekDiff % 2 === 0 ? 'A' : 'B';
 }
 
 function staffMealCycle(now = new Date()) {
@@ -111,6 +133,54 @@ function countMeals(meals: Record<string, MealChoice>) {
   );
 }
 
+function defaultMenuRows(setName: MenuSetName): MealMenuDay[] {
+  return Array.from({ length: 7 }, (_, dayIndex) => ({
+    day_index: dayIndex,
+    lunch_menu: '',
+    dinner_menu: '',
+  }));
+}
+
+async function loadStaffMealMenus() {
+  const { data, error } = await supabaseAdmin
+    .from('staff_meal_weekly_menus')
+    .select('set_name, day_index, lunch_menu, dinner_menu')
+    .order('set_name', { ascending: true })
+    .order('day_index', { ascending: true });
+
+  const menus: Record<MenuSetName, MealMenuDay[]> = {
+    A: defaultMenuRows('A'),
+    B: defaultMenuRows('B'),
+  };
+
+  if (!error) {
+    (data || []).forEach((row: any) => {
+      const setName = row?.set_name === 'B' ? 'B' : 'A';
+      const dayIndex = Number(row?.day_index);
+      if (dayIndex >= 0 && dayIndex <= 6) {
+        menus[setName][dayIndex] = {
+          day_index: dayIndex,
+          lunch_menu: normalizeName(row?.lunch_menu || ''),
+          dinner_menu: normalizeName(row?.dinner_menu || ''),
+        };
+      }
+    });
+  }
+
+  return menus;
+}
+
+function normalizeMenuPayload(value: any): MealMenuDay[] {
+  return defaultMenuRows('A').map((row) => {
+    const incoming = Array.isArray(value) ? value.find((item) => Number(item?.day_index) === row.day_index) : null;
+    return {
+      day_index: row.day_index,
+      lunch_menu: normalizeName(incoming?.lunch_menu || ''),
+      dinner_menu: normalizeName(incoming?.dinner_menu || ''),
+    };
+  });
+}
+
 function canViewStaffMeal(user: any) {
   const role = String(user?.role || '').trim().toUpperCase();
   const email = String(user?.email || '').trim().toLowerCase();
@@ -135,9 +205,17 @@ export async function GET(req: NextRequest) {
   const adminMode = req.nextUrl.searchParams.get('admin') === '1';
   const reportMode = req.nextUrl.searchParams.get('mode') === 'report';
   const publicListingMode = req.nextUrl.searchParams.get('public_listing') === '1';
+  const menus = await loadStaffMealMenus();
+  const assignedMenuSet = menuSetForWeek(cycle.order_week_start);
 
   if (!adminMode && !publicListingMode) {
-    return jsonNoCache({ ok: true, cycle, branches: BRANCHES });
+    return jsonNoCache({
+      ok: true,
+      cycle,
+      branches: BRANCHES,
+      menu_set: assignedMenuSet,
+      menu: menus[assignedMenuSet],
+    });
   }
 
   if (publicListingMode) {
@@ -158,6 +236,8 @@ export async function GET(req: NextRequest) {
       week_start: cycle.order_week_start,
       branches: BRANCHES,
       orders: data || [],
+      menu_set: assignedMenuSet,
+      menu: menus[assignedMenuSet],
     });
   }
 
@@ -184,6 +264,9 @@ export async function GET(req: NextRequest) {
     branches: BRANCHES,
     orders: data || [],
     can_manage: canManageStaffMeal(user),
+    menu_set: menuSetForWeek(weekStart),
+    menu: menus[menuSetForWeek(weekStart)],
+    menus,
   });
 }
 
@@ -236,9 +319,34 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
-  if (!canManageStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Only superusers can edit staff meal orders.' }, 403);
 
   const body = await req.json().catch(() => ({}));
+  if (body?.action === 'save_menu') {
+    if (!canViewStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Access denied.' }, 403);
+
+    const setName: MenuSetName = body?.set_name === 'B' ? 'B' : 'A';
+    const rows = normalizeMenuPayload(body?.menu).map((row) => ({
+      set_name: setName,
+      day_index: row.day_index,
+      lunch_menu: row.lunch_menu,
+      dinner_menu: row.dinner_menu,
+      updated_at: new Date().toISOString(),
+      updated_by_name: user.name,
+      updated_by_email: user.email,
+    }));
+
+    const { error: menuError } = await supabaseAdmin
+      .from('staff_meal_weekly_menus')
+      .upsert(rows, { onConflict: 'set_name,day_index' });
+
+    if (menuError) return jsonNoCache({ ok: false, error: menuError.message }, 500);
+
+    const menus = await loadStaffMealMenus();
+    return jsonNoCache({ ok: true, menus });
+  }
+
+  if (!canManageStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Only superusers can edit staff meal orders.' }, 403);
+
   const id = normalizeName(body?.id);
   const branch = normalizeBranch(body?.branch);
   const staffName = normalizeName(body?.staff_name);
