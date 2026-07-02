@@ -29,8 +29,16 @@ type StaffMealOrder = {
   updated_by_name?: string | null;
 };
 
+type MenuSetName = 'A' | 'B';
+type MealMenuDay = {
+  day_index: number;
+  lunch_menu: string;
+  dinner_menu: string;
+};
+
 const BRANCHES: Branch[] = ['All', 'Crown', 'Leisure', 'Express', 'View'];
 const REAL_BRANCHES: RealBranch[] = ['Crown', 'Leisure', 'Express', 'View'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00`);
@@ -155,6 +163,26 @@ function emptyMeals(start: string) {
   }, {});
 }
 
+function emptyMenuRows(): MealMenuDay[] {
+  return DAY_NAMES.map((_, dayIndex) => ({
+    day_index: dayIndex,
+    lunch_menu: '',
+    dinner_menu: '',
+  }));
+}
+
+function normalizeMenuRows(rows: any): MealMenuDay[] {
+  const incoming = Array.isArray(rows) ? rows : [];
+  return emptyMenuRows().map((row) => {
+    const match = incoming.find((item) => Number(item?.day_index) === row.day_index);
+    return {
+      day_index: row.day_index,
+      lunch_menu: String(match?.lunch_menu || ''),
+      dinner_menu: String(match?.dinner_menu || ''),
+    };
+  });
+}
+
 export default function StaffMealAdminPage() {
   const [orders, setOrders] = useState<StaffMealOrder[]>([]);
   const [cycle, setCycle] = useState<Cycle | null>(null);
@@ -165,6 +193,13 @@ export default function StaffMealAdminPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<StaffMealOrder | null>(null);
+  const [activeMenuSet, setActiveMenuSet] = useState<MenuSetName>('A');
+  const [assignedMenuSet, setAssignedMenuSet] = useState<MenuSetName>('A');
+  const [menus, setMenus] = useState<Record<MenuSetName, MealMenuDay[]>>({
+    A: emptyMenuRows(),
+    B: emptyMenuRows(),
+  });
+  const [savingMenu, setSavingMenu] = useState(false);
 
   async function loadOrders(targetWeek?: string) {
     setLoading(true);
@@ -190,6 +225,13 @@ export default function StaffMealAdminPage() {
       setCycle(json.cycle || null);
       setWeekStart(json.week_start || json.cycle?.service_week_start || json.cycle?.order_week_start || '');
       setCanManage(!!json.can_manage);
+      const nextMenuSet: MenuSetName = json.menu_set === 'B' ? 'B' : 'A';
+      setAssignedMenuSet(nextMenuSet);
+      setActiveMenuSet(nextMenuSet);
+      setMenus({
+        A: normalizeMenuRows(json.menus?.A),
+        B: normalizeMenuRows(json.menus?.B),
+      });
     } catch (err: any) {
       setError(err?.message || 'Unable to load staff meal orders.');
     } finally {
@@ -279,6 +321,52 @@ export default function StaffMealAdminPage() {
         [date]: choice,
       },
     });
+  }
+
+  function updateMenuRow(dayIndex: number, field: 'lunch_menu' | 'dinner_menu', value: string) {
+    setMenus((prev) => ({
+      ...prev,
+      [activeMenuSet]: prev[activeMenuSet].map((row) =>
+        row.day_index === dayIndex ? { ...row, [field]: value } : row
+      ),
+    }));
+  }
+
+  async function saveMenuSet() {
+    setSavingMenu(true);
+    setError('');
+    setMessage('');
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Missing login session.');
+
+      const res = await fetch('/api/staff-meal/orders', {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'save_menu',
+          set_name: activeMenuSet,
+          menu: menus[activeMenuSet],
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to save menu set.');
+
+      setMenus({
+        A: normalizeMenuRows(json.menus?.A),
+        B: normalizeMenuRows(json.menus?.B),
+      });
+      setMessage(`Set ${activeMenuSet} menu saved.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to save menu set.');
+    } finally {
+      setSavingMenu(false);
+    }
   }
 
   function printStaffMealReport() {
@@ -685,6 +773,71 @@ export default function StaffMealAdminPage() {
       </section>
 
       <section style={styles.panel}>
+        <div style={styles.panelHead}>
+          <div>
+            <div style={styles.kicker}>Weekly Menu</div>
+            <h2 style={styles.sectionTitle}>Set {assignedMenuSet} is assigned for this order week</h2>
+            <p style={styles.muted}>Set A and Set B alternate automatically every week. Edit both sets here before staff place orders.</p>
+          </div>
+          <div style={styles.menuSetTabs}>
+            {(['A', 'B'] as MenuSetName[]).map((setName) => (
+              <button
+                key={setName}
+                type="button"
+                onClick={() => setActiveMenuSet(setName)}
+                style={{ ...styles.tab, ...(activeMenuSet === setName ? styles.tabActive : null) }}
+              >
+                Set {setName}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={styles.menuEditorGrid}>
+          {DAY_NAMES.map((dayName, dayIndex) => {
+            const row = menus[activeMenuSet][dayIndex] || {
+              day_index: dayIndex,
+              lunch_menu: '',
+              dinner_menu: '',
+            };
+            return (
+              <article key={dayName} style={styles.menuEditorCard}>
+                <div style={styles.menuDayHead}>
+                  <span>{dayName}</span>
+                  <strong>Set {activeMenuSet}</strong>
+                </div>
+                <label style={styles.field}>
+                  <span style={styles.label}>Lunch</span>
+                  <textarea
+                    value={row.lunch_menu}
+                    onChange={(event) => updateMenuRow(dayIndex, 'lunch_menu', event.target.value)}
+                    placeholder="Example: Chicken rice, vegetable, soup"
+                    style={{ ...styles.input, minHeight: 76, resize: 'vertical' }}
+                  />
+                </label>
+                <label style={styles.field}>
+                  <span style={styles.label}>Dinner</span>
+                  <textarea
+                    value={row.dinner_menu}
+                    onChange={(event) => updateMenuRow(dayIndex, 'dinner_menu', event.target.value)}
+                    placeholder="Example: Fried mee, egg, fruit"
+                    style={{ ...styles.input, minHeight: 76, resize: 'vertical' }}
+                  />
+                </label>
+              </article>
+            );
+          })}
+        </div>
+
+        <div style={styles.menuSaveBar}>
+          <span>Staff will see Set {assignedMenuSet} on the public order page for the selected week.</span>
+          <button type="button" onClick={saveMenuSet} disabled={savingMenu} style={styles.primaryBtn}>
+            {savingMenu ? 'Saving...' : `Save Set ${activeMenuSet}`}
+          </button>
+        </div>
+      </section>
+
+      <section style={styles.panel}>
         <div style={styles.tabs}>
           {BRANCHES.map((item) => (
             <button
@@ -892,6 +1045,46 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: '1fr 1fr',
     gap: 8,
     marginTop: 8,
+  },
+  menuSetTabs: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  menuEditorGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(250px, 100%), 1fr))',
+    gap: 12,
+  },
+  menuEditorCard: {
+    border: '1px solid #dbe7f5',
+    borderRadius: 18,
+    padding: 14,
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    boxShadow: '0 10px 28px rgba(16, 48, 90, 0.05)',
+  },
+  menuDayHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 10,
+    alignItems: 'center',
+    marginBottom: 12,
+    color: '#07142d',
+    fontWeight: 950,
+  },
+  menuSaveBar: {
+    marginTop: 14,
+    border: '1px solid #d6e7ff',
+    borderRadius: 18,
+    padding: 14,
+    background: '#eff6ff',
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    color: '#1e3a8a',
+    fontWeight: 850,
   },
   smallGhostBtn: {
     border: '1px solid #cbd8e8',
