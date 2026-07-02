@@ -23,7 +23,14 @@ type SubmittedOrder = {
   created_at?: string;
 };
 
+type MealMenuDay = {
+  day_index: number;
+  lunch_menu: string;
+  dinner_menu: string;
+};
+
 const BRANCHES: Branch[] = ['Crown', 'Leisure', 'View', 'Express'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const EMPTY_CYCLE: Cycle = {
   order_week_start: '',
   order_week_end: '',
@@ -121,6 +128,9 @@ export default function StaffMealPage() {
   const [listingOpen, setListingOpen] = useState(false);
   const [listingLoading, setListingLoading] = useState(false);
   const [listingOrders, setListingOrders] = useState<SubmittedOrder[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuSet, setMenuSet] = useState<'A' | 'B'>('A');
+  const [weeklyMenu, setWeeklyMenu] = useState<MealMenuDay[]>([]);
 
   const dates = useMemo(() => weekDates(cycle), [cycle]);
   const totals = useMemo(() => countMeals(meals), [meals]);
@@ -136,6 +146,8 @@ export default function StaffMealPage() {
         if (!mounted) return;
         if (!json.ok) throw new Error(json.error || 'Failed to load order week.');
         setCycle(json.cycle);
+        setMenuSet(json.menu_set || 'A');
+        setWeeklyMenu(json.menu || []);
         const nextMeals: Record<string, MealChoice> = {};
         weekDates(json.cycle).forEach((date) => {
           nextMeals[date] = 'none';
@@ -168,6 +180,8 @@ export default function StaffMealPage() {
       if (!res.ok || !json.ok) throw new Error(json.error || 'Failed to load order listing.');
       setCycle(json.cycle || cycle);
       setListingOrders(json.orders || []);
+      setMenuSet(json.menu_set || 'A');
+      setWeeklyMenu(json.menu || []);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load order listing.');
     } finally {
@@ -275,7 +289,6 @@ export default function StaffMealPage() {
                               <div key={order.id} style={styles.staffOrderCard}>
                                 <div style={styles.staffOrderTop}>
                                   <strong>{order.staff_name}</strong>
-                                  <span>{countMeals(order.meals || {}).lunch}L / {countMeals(order.meals || {}).dinner}D</span>
                                 </div>
                               </div>
                             ))}
@@ -306,9 +319,14 @@ export default function StaffMealPage() {
           </div>
           <h1 style={styles.title}>Select your meals for the week</h1>
           <p style={styles.subText}>Choose lunch, dinner, or both. Please screenshot the confirmation after submitting.</p>
-          <button type="button" style={styles.secondaryHeroBtn} onClick={loadOrderListing}>
-            Order Listing
-          </button>
+          <div style={styles.heroButtonRow}>
+            <button type="button" style={styles.secondaryHeroBtn} onClick={loadOrderListing}>
+              Order Listing
+            </button>
+            <button type="button" style={styles.secondaryHeroBtn} onClick={() => setMenuOpen((value) => !value)}>
+              Weekly Menu
+            </button>
+          </div>
         </div>
 
         <aside style={styles.weekPanel}>
@@ -323,6 +341,41 @@ export default function StaffMealPage() {
       </section>
 
       {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+
+      {menuOpen ? (
+        <section style={styles.menuPanel}>
+          <div style={styles.listingHeader}>
+            <div>
+              <div style={styles.eyebrow}>Weekly Menu</div>
+              <h2 style={styles.sectionTitle}>Set {menuSet}</h2>
+              <p style={styles.listingSub}>
+                Assigned for {formatLongDate(cycle.order_week_start)} - {formatLongDate(cycle.order_week_end)}
+              </p>
+            </div>
+            <button type="button" style={styles.smallDarkBtn} onClick={() => setMenuOpen(false)}>
+              Close
+            </button>
+          </div>
+          <div style={styles.menuGrid}>
+            {DAY_NAMES.map((dayName, index) => {
+              const item = weeklyMenu.find((row) => Number(row.day_index) === index);
+              return (
+                <article key={dayName} style={styles.menuDayCard}>
+                  <div style={styles.menuDayName}>{dayName}</div>
+                  <div style={styles.menuLine}>
+                    <span>Lunch</span>
+                    <strong>{item?.lunch_menu || 'Menu not set'}</strong>
+                  </div>
+                  <div style={styles.menuLine}>
+                    <span>Dinner</span>
+                    <strong>{item?.dinner_menu || 'Menu not set'}</strong>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {listingOpen ? (
         <section style={styles.listingPanel}>
@@ -354,16 +407,6 @@ export default function StaffMealPage() {
                 const branchOrders = listingOrders
                   .filter((order) => order.branch === branchName)
                   .filter(orderHasMeal);
-                const branchTotals = branchOrders.reduce(
-                  (acc, order) => {
-                    const orderTotals = countMeals(order.meals || {});
-                    acc.lunch += orderTotals.lunch;
-                    acc.dinner += orderTotals.dinner;
-                    return acc;
-                  },
-                  { lunch: 0, dinner: 0 }
-                );
-
                 return (
                   <article key={branchName} style={styles.branchListingCard}>
                     <div style={styles.branchListingTop}>
@@ -371,43 +414,19 @@ export default function StaffMealPage() {
                         <div style={styles.branchName}>{branchName}</div>
                         <div style={styles.branchCount}>{branchOrders.length} order(s)</div>
                       </div>
-                      <div style={styles.branchTotals}>
-                        <span>L {branchTotals.lunch}</span>
-                        <span>D {branchTotals.dinner}</span>
-                      </div>
                     </div>
 
                     {branchOrders.length === 0 ? (
                       <div style={styles.branchEmpty}>No orders yet.</div>
                     ) : (
                       <div style={styles.staffOrderList}>
-                        {branchOrders.map((order) => {
-                          const orderTotals = countMeals(order.meals || {});
-                          return (
-                            <div key={order.id} style={styles.staffOrderCard}>
-                              <div style={styles.staffOrderTop}>
-                                <strong>{order.staff_name}</strong>
-                                <span>{orderTotals.lunch}L / {orderTotals.dinner}D</span>
-                              </div>
-                              <div style={styles.staffMealGrid}>
-                                {dates.map((date) => {
-                                  const choice = order.meals?.[date] || 'none';
-                                  return (
-                                    <span
-                                      key={`${order.id}-${date}`}
-                                      style={{
-                                        ...styles.staffMealPill,
-                                        ...(choice !== 'none' ? styles.staffMealPillActive : {}),
-                                      }}
-                                    >
-                                      {formatShortDate(date).slice(0, 6)}: {mealShortLabel(choice)}
-                                    </span>
-                                  );
-                                })}
-                              </div>
+                        {branchOrders.map((order) => (
+                          <div key={order.id} style={styles.staffOrderCard}>
+                            <div style={styles.staffOrderTop}>
+                              <strong>{order.staff_name}</strong>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </article>
@@ -603,6 +622,46 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 14,
     cursor: 'pointer',
     boxShadow: '0 10px 22px rgba(71, 55, 33, 0.08)',
+  },
+  heroButtonRow: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: 2,
+  },
+  menuPanel: {
+    maxWidth: 1120,
+    margin: '0 auto 12px',
+    background: 'linear-gradient(135deg, #fffaf3 0%, #ffffff 62%, #f4f8ff 100%)',
+    border: '1px solid rgba(216, 195, 163, 0.9)',
+    borderRadius: 22,
+    padding: 'clamp(14px, 2vw, 18px)',
+    boxShadow: '0 16px 44px rgba(71, 55, 33, 0.1)',
+  },
+  menuGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
+    gap: 10,
+  },
+  menuDayCard: {
+    border: '1px solid #e8d8bf',
+    borderRadius: 18,
+    background: 'rgba(255, 255, 255, 0.9)',
+    padding: 12,
+    display: 'grid',
+    gap: 9,
+  },
+  menuDayName: {
+    color: '#9a5b0b',
+    fontWeight: 950,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontSize: 11,
+  },
+  menuLine: {
+    display: 'grid',
+    gap: 3,
+    color: '#0f172a',
   },
   weekPanel: {
     background: 'linear-gradient(145deg, #15110d 0%, #26314a 100%)',
