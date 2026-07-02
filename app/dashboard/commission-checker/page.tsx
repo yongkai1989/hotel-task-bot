@@ -12,7 +12,7 @@ type ParsedCsv = {
   targetColumn: string;
   ids: Array<{ raw: string; normalized: string; rowNumber: number; row: CsvRow }>;
   blankRows: number[];
-  ignoredCancelledRows: number[];
+  noCommissionRows: number[];
   duplicateIds: string[];
   error?: string;
 };
@@ -51,6 +51,8 @@ const STATUS_COLUMN = 'status';
 const COMMISSION_AMOUNT_COLUMN = 'Commission amount';
 const DISPUTE_BASE_HEADERS = ['Dispute Reason', 'Reservation Number', 'CSV Row'];
 const DISPUTE_HIDDEN_HEADERS = new Set([
+  'reservation number',
+  'guest request',
   'invoice number',
   'persons',
   'commission%',
@@ -160,8 +162,7 @@ function findColumn(headers: string[], wanted: string) {
 function buildDisputeHeaders(headers: string[]) {
   const guestNameColumn = findColumn(headers, COMMISSION_GUEST_NAME_COLUMN);
   const statusColumn = findColumn(headers, STATUS_COLUMN);
-  const guestRequestColumn = findColumn(headers, 'guest request');
-  const frontColumns = [statusColumn, guestRequestColumn].filter(Boolean);
+  const frontColumns = [statusColumn].filter(Boolean);
   const frontColumnSet = new Set(frontColumns.map((header) => normalizeHeader(header)));
 
   const cleanedHeaders = headers.filter((header) => {
@@ -193,21 +194,23 @@ function duplicateValues(values: string[]) {
     .sort();
 }
 
-function isCancelledStatus(value: string) {
-  return normalizeHeader(value) === 'cancelled' || normalizeHeader(value) === 'canceled';
-}
-
 function parseMoneyAmount(value: string) {
-  const cleaned = String(value || '')
+  const text = String(value || '')
     .replace(/^\uFEFF/, '')
-    .replace(/[^\d.,()-]/g, '')
+    .trim();
+
+  if (!text) return null;
+
+  const isNegative = text.startsWith('(') && text.endsWith(')');
+  const cleaned = text
     .replace(/,/g, '')
+    .replace(/[()]/g, '')
+    .replace(/[^\d.+\-eE]/g, '')
     .trim();
 
   if (!cleaned) return null;
 
-  const isNegative = cleaned.startsWith('(') && cleaned.endsWith(')');
-  const numeric = Number(cleaned.replace(/[()]/g, ''));
+  const numeric = Number(cleaned);
   if (!Number.isFinite(numeric)) return null;
 
   return isNegative ? -numeric : numeric;
@@ -292,7 +295,7 @@ function findReservationGuestName2Matches(
 async function readCsvFile(
   file: File,
   targetColumn: string,
-  options: { ignoreCancelledStatus?: boolean } = {}
+  options: { ignoreZeroCommission?: boolean } = {}
 ): Promise<ParsedCsv> {
   const text = await file.text();
   const matrix = parseCsvText(text);
@@ -305,7 +308,7 @@ async function readCsvFile(
       targetColumn,
       ids: [],
       blankRows: [],
-      ignoredCancelledRows: [],
+      noCommissionRows: [],
       duplicateIds: [],
       error: 'CSV file is empty.',
     };
@@ -313,7 +316,6 @@ async function readCsvFile(
 
   const headers = matrix[0].map((header) => header.trim());
   const matchedColumn = findColumn(headers, targetColumn);
-  const statusColumn = findColumn(headers, STATUS_COLUMN);
   const commissionAmountColumn = findColumn(headers, COMMISSION_AMOUNT_COLUMN);
 
   if (!matchedColumn) {
@@ -324,7 +326,7 @@ async function readCsvFile(
       targetColumn,
       ids: [],
       blankRows: [],
-      ignoredCancelledRows: [],
+      noCommissionRows: [],
       duplicateIds: [],
       error: `Column "${targetColumn}" was not found.`,
     };
@@ -340,21 +342,10 @@ async function readCsvFile(
 
   const ids: ParsedCsv['ids'] = [];
   const blankRows: number[] = [];
-  const ignoredCancelledRows: number[] = [];
+  const noCommissionRows: number[] = [];
 
   rows.forEach((row, index) => {
     const rowNumber = index + 2;
-
-    const commissionAmount = commissionAmountColumn ? parseMoneyAmount(row[commissionAmountColumn]) : null;
-    if (
-      options.ignoreCancelledStatus &&
-      statusColumn &&
-      isCancelledStatus(row[statusColumn]) &&
-      commissionAmount === 0
-    ) {
-      ignoredCancelledRows.push(rowNumber);
-      return;
-    }
 
     const raw = String(row[matchedColumn] || '').trim();
     const normalized = normalizeBookingId(raw);
@@ -362,6 +353,13 @@ async function readCsvFile(
       blankRows.push(rowNumber);
       return;
     }
+
+    const commissionAmount = commissionAmountColumn ? parseMoneyAmount(row[commissionAmountColumn]) : null;
+    if (options.ignoreZeroCommission && commissionAmount === 0) {
+      noCommissionRows.push(rowNumber);
+      return;
+    }
+
     ids.push({ raw, normalized, rowNumber, row });
   });
 
@@ -372,7 +370,7 @@ async function readCsvFile(
     targetColumn: matchedColumn,
     ids,
     blankRows,
-    ignoredCancelledRows,
+    noCommissionRows,
     duplicateIds: duplicateValues(ids.map((item) => item.normalized)),
   };
 }
@@ -491,7 +489,7 @@ function FileBox({
           <span>
             {parsed.error
             ? parsed.error
-              : `${parsed.ids.length} usable IDs, ${parsed.blankRows.length} blank row${parsed.blankRows.length === 1 ? '' : 's'}${parsed.ignoredCancelledRows.length ? `, ${parsed.ignoredCancelledRows.length} cancelled RM0 ignored` : ''}`}
+              : `${parsed.ids.length} payable IDs, ${parsed.blankRows.length} blank row${parsed.blankRows.length === 1 ? '' : 's'}${parsed.noCommissionRows.length ? `, ${parsed.noCommissionRows.length} no commission` : ''}`}
           </span>
         </div>
       ) : null}
@@ -545,7 +543,7 @@ export default function CommissionCheckerPage() {
       const parsed = await readCsvFile(
         file,
         type === 'commission' ? COMMISSION_COLUMN : PMS_COLUMN,
-        { ignoreCancelledStatus: type === 'commission' }
+        { ignoreZeroCommission: type === 'commission' }
       );
       if (type === 'commission') setCommissionCsv(parsed);
       else setPmsCsv(parsed);
@@ -647,9 +645,10 @@ export default function CommissionCheckerPage() {
         {result ? (
           <>
             <div className="cc-stats">
-              <StatCard label="Commission IDs" value={commissionCsv?.ids.length || 0} tone="blue" />
+              <StatCard label="Payable IDs" value={commissionCsv?.ids.length || 0} tone="blue" />
               <StatCard label="Matched PMS" value={result.matches.length} tone="green" />
               <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
+              <StatCard label="No Commission" value={commissionCsv?.noCommissionRows.length || 0} tone="amber" />
               <StatCard label="Name Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
               <StatCard label="Guest Name 2 ID Matches" value={reservationGuestName2Matches.length} tone={reservationGuestName2Matches.length ? 'blue' : 'green'} />
             </div>
