@@ -25,8 +25,7 @@ type SubmittedOrder = {
 
 type MealMenuDay = {
   day_index: number;
-  lunch_menu: string;
-  dinner_menu: string;
+  menu_text: string;
 };
 
 const BRANCHES: Branch[] = ['Crown', 'Leisure', 'View', 'Express'];
@@ -363,12 +362,7 @@ export default function StaffMealPage() {
                 <article key={dayName} style={styles.menuDayCard}>
                   <div style={styles.menuDayName}>{dayName}</div>
                   <div style={styles.menuLine}>
-                    <span>Lunch</span>
-                    <strong>{item?.lunch_menu || 'Menu not set'}</strong>
-                  </div>
-                  <div style={styles.menuLine}>
-                    <span>Dinner</span>
-                    <strong>{item?.dinner_menu || 'Menu not set'}</strong>
+                    <strong>{item?.menu_text || 'Menu not set'}</strong>
                   </div>
                 </article>
               );
