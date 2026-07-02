@@ -134,9 +134,31 @@ export async function GET(req: NextRequest) {
   const cycle = staffMealCycle();
   const adminMode = req.nextUrl.searchParams.get('admin') === '1';
   const reportMode = req.nextUrl.searchParams.get('mode') === 'report';
+  const publicListingMode = req.nextUrl.searchParams.get('public_listing') === '1';
 
-  if (!adminMode) {
+  if (!adminMode && !publicListingMode) {
     return jsonNoCache({ ok: true, cycle, branches: BRANCHES });
+  }
+
+  if (publicListingMode) {
+    await cleanupOldOrders();
+
+    const { data, error: listError } = await supabaseAdmin
+      .from('staff_meal_orders')
+      .select('id, order_week_start, order_week_end, branch, staff_name, meals, notes, created_at')
+      .eq('order_week_start', cycle.order_week_start)
+      .order('branch', { ascending: true })
+      .order('staff_name_normalized', { ascending: true });
+
+    if (listError) return jsonNoCache({ ok: false, error: listError.message }, 500);
+
+    return jsonNoCache({
+      ok: true,
+      cycle,
+      week_start: cycle.order_week_start,
+      branches: BRANCHES,
+      orders: data || [],
+    });
   }
 
   const { user, error } = await getDashboardUserFromRequest(req);
