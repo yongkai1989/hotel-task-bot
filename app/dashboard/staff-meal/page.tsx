@@ -32,8 +32,7 @@ type StaffMealOrder = {
 type MenuSetName = 'A' | 'B';
 type MealMenuDay = {
   day_index: number;
-  lunch_menu: string;
-  dinner_menu: string;
+  menu_text: string;
 };
 
 const BRANCHES: Branch[] = ['All', 'Crown', 'Leisure', 'Express', 'View'];
@@ -166,8 +165,7 @@ function emptyMeals(start: string) {
 function emptyMenuRows(): MealMenuDay[] {
   return DAY_NAMES.map((_, dayIndex) => ({
     day_index: dayIndex,
-    lunch_menu: '',
-    dinner_menu: '',
+    menu_text: '',
   }));
 }
 
@@ -177,8 +175,7 @@ function normalizeMenuRows(rows: any): MealMenuDay[] {
     const match = incoming.find((item) => Number(item?.day_index) === row.day_index);
     return {
       day_index: row.day_index,
-      lunch_menu: String(match?.lunch_menu || ''),
-      dinner_menu: String(match?.dinner_menu || ''),
+      menu_text: String(match?.menu_text || match?.lunch_menu || match?.dinner_menu || ''),
     };
   });
 }
@@ -323,11 +320,11 @@ export default function StaffMealAdminPage() {
     });
   }
 
-  function updateMenuRow(dayIndex: number, field: 'lunch_menu' | 'dinner_menu', value: string) {
+  function updateMenuRow(dayIndex: number, value: string) {
     setMenus((prev) => ({
       ...prev,
       [activeMenuSet]: prev[activeMenuSet].map((row) =>
-        row.day_index === dayIndex ? { ...row, [field]: value } : row
+        row.day_index === dayIndex ? { ...row, menu_text: value } : row
       ),
     }));
   }
@@ -797,8 +794,7 @@ export default function StaffMealAdminPage() {
           {DAY_NAMES.map((dayName, dayIndex) => {
             const row = menus[activeMenuSet][dayIndex] || {
               day_index: dayIndex,
-              lunch_menu: '',
-              dinner_menu: '',
+              menu_text: '',
             };
             return (
               <article key={dayName} style={styles.menuEditorCard}>
@@ -807,21 +803,12 @@ export default function StaffMealAdminPage() {
                   <strong>Set {activeMenuSet}</strong>
                 </div>
                 <label style={styles.field}>
-                  <span style={styles.label}>Lunch</span>
+                  <span style={styles.label}>Menu</span>
                   <textarea
-                    value={row.lunch_menu}
-                    onChange={(event) => updateMenuRow(dayIndex, 'lunch_menu', event.target.value)}
+                    value={row.menu_text}
+                    onChange={(event) => updateMenuRow(dayIndex, event.target.value)}
                     placeholder="Example: Chicken rice, vegetable, soup"
-                    style={{ ...styles.input, minHeight: 76, resize: 'vertical' }}
-                  />
-                </label>
-                <label style={styles.field}>
-                  <span style={styles.label}>Dinner</span>
-                  <textarea
-                    value={row.dinner_menu}
-                    onChange={(event) => updateMenuRow(dayIndex, 'dinner_menu', event.target.value)}
-                    placeholder="Example: Fried mee, egg, fruit"
-                    style={{ ...styles.input, minHeight: 76, resize: 'vertical' }}
+                    style={{ ...styles.input, minHeight: 96, resize: 'vertical' }}
                   />
                 </label>
               </article>
