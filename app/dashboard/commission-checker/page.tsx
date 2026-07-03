@@ -282,24 +282,6 @@ function bookingStatusRank(status: string) {
   return 3;
 }
 
-function buildPmsNameSet(pmsCsv: ParsedCsv | null) {
-  if (!pmsCsv) return new Set<string>();
-
-  const guestColumns = [
-    findColumn(pmsCsv.headers, PMS_GUEST_NAME_COLUMN),
-    findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN),
-  ].filter(Boolean);
-
-  const names = new Set<string>();
-  pmsCsv.rows.forEach((row) => {
-    guestColumns.forEach((column) => {
-      const normalized = normalizeGuestName(row[column] || '');
-      if (normalized) names.add(normalized);
-    });
-  });
-  return names;
-}
-
 function buildCommissionReportRows(
   commissionCsv: ParsedCsv | null,
   pmsCsv: ParsedCsv | null,
@@ -308,11 +290,23 @@ function buildCommissionReportRows(
   if (!commissionCsv || !pmsCsv) return [];
 
   const pmsOtaSet = new Set(pmsCsv.ids.map((item) => item.normalized));
-  const pmsNameSet = buildPmsNameSet(pmsCsv);
   const pmsGuestName2Values = pmsCsv.rows
     .map((row) => normalizeBookingId(row[findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN)] || ''))
     .filter(Boolean);
   const noCommissionSet = new Set(commissionCsv.noCommissionIds.map((item) => item.normalized));
+  const guestName2MatchedSet = new Set(
+    commissionCsv.ids
+      .filter((item) => pmsGuestName2Values.some((value) => value.includes(item.normalized)))
+      .map((item) => item.normalized)
+  );
+  const guestName1Candidates = commissionCsv.ids.filter(
+    (item) => !pmsOtaSet.has(item.normalized) && !guestName2MatchedSet.has(item.normalized)
+  );
+  const guestName1MatchedSet = new Set(
+    findGuestNameMatches(guestName1Candidates, commissionCsv, pmsCsv)
+      .map((match) => normalizeBookingId(match.reservationNumber))
+      .filter(Boolean)
+  );
 
   return commissionCsv.allIds
     .map((item) => {
@@ -328,12 +322,11 @@ function buildCommissionReportRows(
       const numberOfNights = getCell(row, commissionCsv.headers, ['Number of nights', 'Room nights', 'Nights']);
       const commissionAmount = getCell(row, commissionCsv.headers, [COMMISSION_AMOUNT_COLUMN]);
       const bookingStatus = getCell(row, commissionCsv.headers, [STATUS_COLUMN, 'Booking status']);
-      const normalizedGuestName = normalizeGuestName(guestName);
 
       const isNoCommission = noCommissionSet.has(normalizedReservation);
       const otaMatched = pmsOtaSet.has(normalizedReservation);
-      const guestNameMatched = normalizedGuestName ? pmsNameSet.has(normalizedGuestName) : false;
-      const guestName2IdMatched = pmsGuestName2Values.some((value) => value.includes(normalizedReservation));
+      const guestName2IdMatched = guestName2MatchedSet.has(normalizedReservation);
+      const guestNameMatched = guestName1MatchedSet.has(normalizedReservation);
       const isMatched = otaMatched || guestNameMatched || guestName2IdMatched;
       const folio = folioByReservation[normalizedReservation] || '';
 
@@ -341,11 +334,11 @@ function buildCommissionReportRows(
         ? 'no-commission'
         : otaMatched
           ? 'ota'
-          : guestNameMatched
-            ? 'guest-name'
-            : guestName2IdMatched
+          : guestName2IdMatched
               ? 'guest-name-2-id'
-              : 'none';
+              : guestNameMatched
+                ? 'guest-name'
+                : 'none';
 
       return {
         normalizedReservation,
@@ -701,21 +694,25 @@ export default function CommissionCheckerPage() {
     [commissionCsv, pmsCsv, folioByReservation]
   );
 
-  const nameMatches = useMemo(
-    () => findGuestNameMatches(result?.missing || [], commissionCsv, pmsCsv),
-    [commissionCsv, pmsCsv, result]
-  );
   const reservationGuestName2Matches = useMemo(
     () => findReservationGuestName2Matches(result?.missing || [], pmsCsv),
     [pmsCsv, result]
   );
-  const nameMatchSet = useMemo(
-    () => new Set(nameMatches.map((match) => normalizeBookingId(match.reservationNumber))),
-    [nameMatches]
-  );
   const guestName2MatchSet = useMemo(
     () => new Set(reservationGuestName2Matches.map((match) => normalizeBookingId(match.reservationNumber))),
     [reservationGuestName2Matches]
+  );
+  const guestName1Candidates = useMemo(
+    () => (result?.missing || []).filter((item) => !guestName2MatchSet.has(item.normalized)),
+    [guestName2MatchSet, result]
+  );
+  const nameMatches = useMemo(
+    () => findGuestNameMatches(guestName1Candidates, commissionCsv, pmsCsv),
+    [commissionCsv, guestName1Candidates, pmsCsv]
+  );
+  const nameMatchSet = useMemo(
+    () => new Set(nameMatches.map((match) => normalizeBookingId(match.reservationNumber))),
+    [nameMatches]
   );
   const visibleDisputeHeaders = useMemo(
     () => (commissionCsv ? buildDisputeHeaders(commissionCsv.headers) : DISPUTE_BASE_HEADERS),
@@ -1058,7 +1055,13 @@ export default function CommissionCheckerPage() {
           max-width: 1180px;
           margin: 0 auto 16px;
         }
-        .cc-card { max-width: 1180px; margin: 0 auto; padding: clamp(16px, 2.3vw, 24px); }
+        .cc-hero,
+        .cc-grid,
+        .cc-card {
+          width: min(100%, 1760px);
+          max-width: 1760px;
+        }
+        .cc-card { margin: 0 auto; padding: clamp(16px, 2.3vw, 24px); }
         .cc-file-card { margin: 0; position: relative; overflow: hidden; }
         .cc-file-card {
           padding: clamp(16px, 2.2vw, 24px);
