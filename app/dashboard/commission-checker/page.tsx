@@ -70,6 +70,44 @@ const REPORT_HEADERS = [
   'PMS Match',
   'Non-match Reason',
 ];
+const DISPUTE_HIDDEN_HEADERS = new Set([
+  'reservation number',
+  'invoice number',
+  'persons',
+  'commission%',
+  'currency',
+  'hotel id',
+  'property name',
+  'city',
+  'country',
+  'original amount',
+  'booked on',
+  'room nights',
+  'guest request',
+]);
+const DISPUTE_BASE_HEADERS = [
+  'Dispute Reason',
+  'Reservation Number',
+  'Folio Number',
+  'CSV Row',
+];
+const NAME_MATCH_HEADERS = [
+  'Match Type',
+  'Reservation Number',
+  'Booking.com Guest Name',
+  'Booking.com CSV Row',
+  'PMS Guest Name 1',
+  'PMS CSV Row',
+  'PMS OTA Ref. No',
+];
+const GUEST_NAME_2_MATCH_HEADERS = [
+  'Match Type',
+  'Reservation Number',
+  'Booking.com CSV Row',
+  'PMS Guest Name 2',
+  'PMS CSV Row',
+  'PMS OTA Ref. No',
+];
 
 function normalizeHeader(value: string) {
   return String(value || '')
@@ -170,6 +208,20 @@ function findAnyColumn(headers: string[], wanted: string[]) {
 function getCell(row: CsvRow, headers: string[], wanted: string[]) {
   const column = findAnyColumn(headers, wanted);
   return column ? String(row[column] || '').trim() : '';
+}
+
+function buildDisputeHeaders(headers: string[]) {
+  const guestNameHeader = findColumn(headers, COMMISSION_GUEST_NAME_COLUMN);
+  const statusHeader = findColumn(headers, STATUS_COLUMN);
+  const priorityHeaders = [guestNameHeader, statusHeader].filter(Boolean);
+  const extraHeaders = headers.filter((header) => {
+    const normalized = normalizeHeader(header);
+    if (!normalized || DISPUTE_HIDDEN_HEADERS.has(normalized)) return false;
+    if (priorityHeaders.includes(header)) return false;
+    return true;
+  });
+
+  return [...DISPUTE_BASE_HEADERS, ...priorityHeaders, ...extraHeaders];
 }
 
 function duplicateValues(values: string[]) {
@@ -323,6 +375,8 @@ function buildCommissionReportRows(
       };
     })
     .sort((left, right) => {
+      const noMatchDiff = (left.matchKind === 'none' ? 0 : 1) - (right.matchKind === 'none' ? 0 : 1);
+      if (noMatchDiff !== 0) return noMatchDiff;
       const statusDiff = bookingStatusRank(left['Booking Status']) - bookingStatusRank(right['Booking Status']);
       if (statusDiff !== 0) return statusDiff;
       return parseSortableDate(left['Arrival Date']) - parseSortableDate(right['Arrival Date']);
@@ -647,8 +701,72 @@ export default function CommissionCheckerPage() {
     [commissionCsv, pmsCsv, folioByReservation]
   );
 
-  const matchedReportRows = reportRows.filter((row) => row.matchKind === 'ota' || row.matchKind === 'guest-name' || row.matchKind === 'guest-name-2-id');
-  const noMatchReportRows = reportRows.filter((row) => row.matchKind === 'none');
+  const nameMatches = useMemo(
+    () => findGuestNameMatches(result?.missing || [], commissionCsv, pmsCsv),
+    [commissionCsv, pmsCsv, result]
+  );
+  const reservationGuestName2Matches = useMemo(
+    () => findReservationGuestName2Matches(result?.missing || [], pmsCsv),
+    [pmsCsv, result]
+  );
+  const nameMatchSet = useMemo(
+    () => new Set(nameMatches.map((match) => normalizeBookingId(match.reservationNumber))),
+    [nameMatches]
+  );
+  const guestName2MatchSet = useMemo(
+    () => new Set(reservationGuestName2Matches.map((match) => normalizeBookingId(match.reservationNumber))),
+    [reservationGuestName2Matches]
+  );
+  const visibleDisputeHeaders = useMemo(
+    () => (commissionCsv ? buildDisputeHeaders(commissionCsv.headers) : DISPUTE_BASE_HEADERS),
+    [commissionCsv]
+  );
+  const disputeRows = useMemo(() => {
+    if (!result) return [];
+
+    return result.missing
+      .map((item) => ({
+        'Dispute Reason': 'Reservation number not found in PMS OTA Ref. No',
+        'Reservation Number': item.raw,
+        'Folio Number': folioByReservation[item.normalized] || '',
+        'CSV Row': String(item.rowNumber),
+        ...item.row,
+      }))
+      .sort((left, right) => {
+        const leftId = normalizeBookingId(left['Reservation Number']);
+        const rightId = normalizeBookingId(right['Reservation Number']);
+        const leftNoMatch = !nameMatchSet.has(leftId) && !guestName2MatchSet.has(leftId);
+        const rightNoMatch = !nameMatchSet.has(rightId) && !guestName2MatchSet.has(rightId);
+        if (leftNoMatch !== rightNoMatch) return leftNoMatch ? -1 : 1;
+
+        const leftArrival = getCell(left, commissionCsv?.headers || [], ['Arrival date', 'Check-in', 'Check in', 'Arrival']);
+        const rightArrival = getCell(right, commissionCsv?.headers || [], ['Arrival date', 'Check-in', 'Check in', 'Arrival']);
+        return parseSortableDate(leftArrival) - parseSortableDate(rightArrival);
+      });
+  }, [commissionCsv, folioByReservation, guestName2MatchSet, nameMatchSet, result]);
+  const nameMatchRows = useMemo(
+    () => nameMatches.map((match) => ({
+      'Match Type': match.matchType,
+      'Reservation Number': match.reservationNumber,
+      'Booking.com Guest Name': match.commissionGuestName,
+      'Booking.com CSV Row': String(match.commissionRow),
+      'PMS Guest Name 1': match.pmsGuestName,
+      'PMS CSV Row': String(match.pmsRow),
+      'PMS OTA Ref. No': match.pmsOtaRef || '-',
+    })),
+    [nameMatches]
+  );
+  const guestName2MatchRows = useMemo(
+    () => reservationGuestName2Matches.map((match) => ({
+      'Match Type': 'Reservation number found in PMS Guest Name 2',
+      'Reservation Number': match.reservationNumber,
+      'Booking.com CSV Row': String(match.commissionRow),
+      'PMS Guest Name 2': match.pmsGuestName2,
+      'PMS CSV Row': String(match.pmsRow),
+      'PMS OTA Ref. No': match.pmsOtaRef || '-',
+    })),
+    [reservationGuestName2Matches]
+  );
 
   async function handleFile(file: File, type: 'commission' | 'pms') {
     setBusy(true);
@@ -712,10 +830,11 @@ export default function CommissionCheckerPage() {
         {result ? (
           <>
             <div className="cc-stats">
-              <StatCard label="Statement IDs" value={commissionCsv?.allIds.length || 0} tone="blue" />
               <StatCard label="Payable IDs" value={commissionCsv?.ids.length || 0} tone="blue" />
-              <StatCard label="Matched PMS" value={matchedReportRows.length} tone="green" />
-              <StatCard label="No Match" value={noMatchReportRows.length} tone={noMatchReportRows.length ? 'red' : 'green'} />
+              <StatCard label="Matched IDs" value={result.matches.length} tone="green" />
+              <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
+              <StatCard label="Name Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
+              <StatCard label="Guest Name 2 Matches" value={reservationGuestName2Matches.length} tone={reservationGuestName2Matches.length ? 'blue' : 'green'} />
               <StatCard label="No Commission" value={commissionCsv?.noCommissionRows.length || 0} tone="amber" />
             </div>
 
@@ -744,26 +863,88 @@ export default function CommissionCheckerPage() {
             <section className="cc-subsection">
               <div className="cc-subhead">
                 <div>
-                  <div className="cc-eyebrow">Full Report</div>
-                  <h3>Booking.com Commission Statement Audit</h3>
+                  <div className="cc-eyebrow">Possible Name Matches</div>
+                  <h3>Guest Name Cross-Check</h3>
                 </div>
-                <span className="cc-soft-badge">{reportRows.length} row(s)</span>
+                <span className="cc-soft-badge">{nameMatchRows.length} match(es)</span>
               </div>
               <div className="cc-table-wrap">
-                <table className="cc-table cc-report-table">
+                <table className="cc-table cc-name-table">
                   <thead>
-                    <tr>{REPORT_HEADERS.map((header) => <th key={header}>{header}</th>)}</tr>
+                    <tr>{NAME_MATCH_HEADERS.map((header) => <th key={header}>{header}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {reportRows.length ? (
-                      reportRows.slice(0, 500).map((row, index) => {
-                        const isNoMatch = row.matchKind === 'none';
-                        const rowClassName =
-                          row.matchKind === 'none'
-                            ? 'cc-report-row-no-match'
-                            : row.matchKind === 'no-commission'
-                              ? 'cc-report-row-no-commission'
-                              : 'cc-report-row-matched';
+                    {nameMatchRows.length ? (
+                      nameMatchRows.map((row, index) => (
+                        <tr key={`${row['Reservation Number']}-${index}`} className="cc-dispute-row-name-match">
+                          {NAME_MATCH_HEADERS.map((header) => <td key={header}>{row[header] || '-'}</td>)}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={NAME_MATCH_HEADERS.length}>No guest-name matches found among possible disputes.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="cc-subsection cc-subsection-purple">
+              <div className="cc-subhead">
+                <div>
+                  <div className="cc-eyebrow">Guest Name 2 Cross-Check</div>
+                  <h3>Reservation Number Found in PMS Guest Name 2</h3>
+                </div>
+                <span className="cc-soft-badge cc-soft-badge-purple">{guestName2MatchRows.length} match(es)</span>
+              </div>
+              <div className="cc-table-wrap">
+                <table className="cc-table cc-name-table">
+                  <thead>
+                    <tr>{GUEST_NAME_2_MATCH_HEADERS.map((header) => <th key={header}>{header}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {guestName2MatchRows.length ? (
+                      guestName2MatchRows.map((row, index) => (
+                        <tr key={`${row['Reservation Number']}-${index}`} className="cc-dispute-row-guest-name-2-match">
+                          {GUEST_NAME_2_MATCH_HEADERS.map((header) => <td key={header}>{row[header] || '-'}</td>)}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={GUEST_NAME_2_MATCH_HEADERS.length}>No reservation numbers were found inside PMS Guest Name 2.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="cc-subsection">
+              <div className="cc-subhead">
+                <div>
+                  <div className="cc-eyebrow">Dispute Review</div>
+                  <h3>Possible Disputes</h3>
+                </div>
+                <span className="cc-soft-badge">{disputeRows.length} row(s)</span>
+              </div>
+              <div className="cc-table-wrap">
+                <table className="cc-table cc-dispute-table">
+                  <thead>
+                    <tr>{visibleDisputeHeaders.map((header) => <th key={header}>{header}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {disputeRows.length ? (
+                      disputeRows.map((row, index) => {
+                        const reservationId = normalizeBookingId(row['Reservation Number']);
+                        const hasNameMatch = nameMatchSet.has(reservationId);
+                        const hasGuestName2Match = guestName2MatchSet.has(reservationId);
+                        const isNoMatch = !hasNameMatch && !hasGuestName2Match;
+                        const rowClassName = isNoMatch
+                          ? 'cc-dispute-row-no-match'
+                          : hasGuestName2Match
+                            ? 'cc-dispute-row-guest-name-2-match'
+                            : 'cc-dispute-row-name-match';
 
                         return (
                           <tr
@@ -771,32 +952,24 @@ export default function CommissionCheckerPage() {
                             className={rowClassName}
                             onClick={() => {
                               if (!isNoMatch) return;
-                              const currentFolio = folioByReservation[row.normalizedReservation] || '';
+                              const currentFolio = folioByReservation[reservationId] || '';
                               const folio = window.prompt(`Enter folio number for reservation ${row['Reservation Number']}`, currentFolio);
                               if (folio === null) return;
                               setFolioByReservation((current) => ({
                                 ...current,
-                                [row.normalizedReservation]: folio.trim(),
+                                [reservationId]: folio.trim(),
                               }));
                             }}
                           >
-                            {REPORT_HEADERS.map((header) => (
+                            {visibleDisputeHeaders.map((header) => (
                               <td key={header}>
-                                {header === 'PMS Match' ? (
-                                  <span
-                                    className={
-                                      row.matchKind === 'none'
-                                        ? 'cc-match-pill cc-match-pill-no-match'
-                                        : row.matchKind === 'no-commission'
-                                          ? 'cc-match-pill cc-match-pill-muted'
-                                          : 'cc-match-pill cc-match-pill-matched'
-                                    }
-                                  >
-                                    {row[header] || '-'}
-                                  </span>
-                                ) : (
-                                  row[header] || '-'
-                                )}
+                                {header === 'Dispute Reason'
+                                  ? isNoMatch
+                                    ? 'No match found anywhere in PMS'
+                                    : hasGuestName2Match
+                                      ? 'Reservation found in PMS Guest Name 2'
+                                      : 'Guest name matched PMS Guest Name 1'
+                                  : row[header] || '-'}
                               </td>
                             ))}
                           </tr>
@@ -804,14 +977,13 @@ export default function CommissionCheckerPage() {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={REPORT_HEADERS.length}>Upload both CSV files to build the commission audit report.</td>
+                        <td colSpan={visibleDisputeHeaders.length}>No payable disputes found.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              {reportRows.length > 500 ? <div className="cc-footnote">Showing first 500 report rows. Export CSV for the full list.</div> : null}
-              <div className="cc-footnote">Tip: click a red No Match row to key in the folio number after checking PMS manually.</div>
+              <div className="cc-footnote">Red rows have no PMS match and can be clicked to key in a folio number. Blue rows are possible PMS matches by guest name or Guest Name 2.</div>
             </section>
           </>
         ) : (
@@ -1195,6 +1367,39 @@ export default function CommissionCheckerPage() {
         }
         .cc-report-table {
           min-width: 1180px;
+        }
+        .cc-dispute-table {
+          min-width: 980px;
+        }
+        .cc-name-table th {
+          background: #f0f7ff;
+        }
+        .cc-dispute-row-name-match td {
+          background: #eff6ff;
+          color: #0f2f6e;
+        }
+        .cc-dispute-row-name-match td:first-child {
+          border-left: 4px solid #2563eb;
+        }
+        .cc-dispute-row-guest-name-2-match td {
+          background: #f5f3ff;
+          color: #4c1d95;
+        }
+        .cc-dispute-row-guest-name-2-match td:first-child {
+          border-left: 4px solid #7c3aed;
+        }
+        .cc-dispute-row-no-match {
+          cursor: pointer;
+        }
+        .cc-dispute-row-no-match td {
+          background: #fff1f2;
+          color: #7f1d1d;
+        }
+        .cc-dispute-row-no-match:hover td {
+          background: #ffe4e6;
+        }
+        .cc-dispute-row-no-match td:first-child {
+          border-left: 4px solid #e11d48;
         }
         .cc-report-row-matched td {
           background: #f0fdf4;
