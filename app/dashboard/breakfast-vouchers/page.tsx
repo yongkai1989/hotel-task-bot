@@ -750,8 +750,9 @@ export default function BreakfastVouchersPage() {
       <section className="listCard">
         <div className="listHead">
           <div>
-            <p>Paid voucher records</p>
-            <h2>Lookup by date or room</h2>
+            <p>Staff breakfast report</p>
+            <h2>Voucher records</h2>
+            <span>Readable sales, redemption, and reprint view for the selected date.</span>
           </div>
           <div className="filters">
             <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
@@ -760,15 +761,45 @@ export default function BreakfastVouchersPage() {
           </div>
         </div>
 
+        <div className="reportStrip">
+          <div>
+            <span>Records</span>
+            <strong>{vouchers.length}</strong>
+          </div>
+          <div>
+            <span>Paid</span>
+            <strong>{paidCount}</strong>
+          </div>
+          <div>
+            <span>Redeemed</span>
+            <strong>{redeemedCount}</strong>
+          </div>
+          <div>
+            <span>Pending</span>
+            <strong>{pendingCount}</strong>
+          </div>
+        </div>
+
         <div className="voucherList">
           {loading ? <div className="empty">Loading vouchers...</div> : null}
           {!loading && !vouchers.length ? <div className="empty">No breakfast vouchers found for this date.</div> : null}
+          {!loading && vouchers.length ? (
+            <div className="reportHeader" aria-hidden="true">
+              <span>Guest / Room</span>
+              <span>Ticket Details</span>
+              <span>Payment / Audit</span>
+              <span>Status</span>
+            </div>
+          ) : null}
           {vouchers.map((voucher) => (
             <article className={`voucherRow ${isRedeemed(voucher) ? 'redeemed' : ''}`} key={voucher.id}>
-              <div>
-                <p>{voucher.voucher_code || 'Code pending'}</p>
-                <h3>Room {voucher.room_number || '-'} - {voucher.guest_name || '-'}</h3>
-                <span>{voucher.voucher_quantity || 1} voucher(s) - {money(voucher.total_myr)} - Paid {formatTime(voucher.paid_at)}</span>
+              <div className="guestCell">
+                <p>Room {voucher.room_number || '-'}</p>
+                <h3>{voucher.guest_name || 'Guest name not recorded'}</h3>
+                <span>Ref {voucher.payment_reference || voucher.voucher_code || 'Pending'}</span>
+              </div>
+              <div className="ticketCell">
+                <strong>{voucher.voucher_quantity || 1} ticket(s)</strong>
                 <small className="itemBreakdown">{voucherItemText(voucher)}</small>
                 <div className="ticketChips">
                   {voucherTickets(voucher).map((ticket) => (
@@ -777,9 +808,15 @@ export default function BreakfastVouchersPage() {
                     </span>
                   ))}
                 </div>
+              </div>
+              <div className="auditCell">
+                <strong>{money(voucher.total_myr)}</strong>
+                <span>Paid {formatTime(voucher.paid_at)}</span>
                 {voucher.manual_sale_channel === 'FRONT_OFFICE' ? (
                   <small className="auditBreakdown">
-                    Manual sale - {String(voucher.manual_payment_type || '').replace(/_/g, ' ') || '-'} - Sold by {voucher.manual_sold_by_name || '-'} - Amount received {money(voucher.manual_amount_received ?? voucher.total_myr)}
+                    Manual sale - {String(voucher.manual_payment_type || '').replace(/_/g, ' ') || '-'}
+                    <br />
+                    Sold by {voucher.manual_sold_by_name || '-'} - Received {money(voucher.manual_amount_received ?? voucher.total_myr)}
                     <br />
                     Issued by {voucher.manual_issued_by_name || voucher.manual_issued_by_email || '-'} on {formatTime(voucher.manual_issued_at || null)}
                   </small>
@@ -1148,6 +1185,12 @@ export default function BreakfastVouchersPage() {
           margin-top: 6px;
           color: #5d6b83;
           font-weight: 750;
+        }
+        .listHead span {
+          display: block;
+          margin-top: 6px;
+          color: #5d6b83;
+          font-weight: 800;
         }
         .cameraFrame {
           position: relative;
@@ -1534,36 +1577,97 @@ export default function BreakfastVouchersPage() {
           background: #fff0f0 !important;
           color: #b6121b !important;
         }
+        .reportStrip {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 16px;
+        }
+        .reportStrip div {
+          border: 1px solid #d5e3f5;
+          border-radius: 18px;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+          padding: 14px 16px;
+        }
+        .reportStrip span,
+        .reportHeader span {
+          display: block;
+          color: #5d6b83;
+          font-size: 11px;
+          font-weight: 950;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .reportStrip strong {
+          display: block;
+          margin-top: 4px;
+          color: #071225;
+          font-size: 28px;
+          line-height: 1;
+        }
         .voucherList {
           display: grid;
           gap: 12px;
           margin-top: 14px;
         }
-        .voucherRow {
-          display: flex;
-          justify-content: space-between;
+        .reportHeader {
+          display: grid;
+          grid-template-columns: 1.05fr 1.45fr 1.25fr 0.86fr;
           gap: 14px;
+          padding: 0 8px;
+        }
+        .voucherRow {
+          display: grid;
+          grid-template-columns: 1.05fr 1.45fr 1.25fr 0.86fr;
+          gap: 14px;
+          align-items: start;
           border: 1px solid #d5e3f5;
-          border-radius: 18px;
-          padding: 16px;
+          border-radius: 20px;
+          padding: 18px;
           background: #fbfdff;
+          box-shadow: 0 12px 28px rgba(39, 73, 118, 0.08);
         }
         .voucherRow.redeemed {
           border-color: #bdeacb;
           background: #f1fff6;
         }
+        .guestCell,
+        .ticketCell,
+        .auditCell {
+          min-width: 0;
+        }
+        .guestCell p {
+          margin-bottom: 8px;
+        }
         .voucherRow h3 {
           margin: 4px 0;
-          font-size: 19px;
+          color: #071225;
+          font-size: 22px;
+          line-height: 1.15;
+        }
+        .voucherRow strong {
+          display: block;
+          color: #071225;
+          font-size: 22px;
+          line-height: 1.15;
+        }
+        .voucherRow span {
+          display: block;
+          margin-top: 6px;
+          font-size: 14px;
+          line-height: 1.35;
         }
         .voucherRow small {
           display: block;
           margin-top: 8px;
           color: #08733d;
+          font-size: 13px;
+          line-height: 1.4;
         }
         .voucherRow small.itemBreakdown {
           color: #245deb;
           font-weight: 950;
+          font-size: 14px;
         }
         .voucherRow small.auditBreakdown {
           color: #9b6428;
@@ -1597,7 +1701,7 @@ export default function BreakfastVouchersPage() {
           display: grid;
           justify-items: end;
           gap: 10px;
-          align-content: center;
+          align-content: start;
         }
         .rowActions span {
           border-radius: 999px;
@@ -1607,6 +1711,7 @@ export default function BreakfastVouchersPage() {
           font-size: 12px;
           font-weight: 950;
           text-transform: uppercase;
+          margin-top: 0;
         }
         .redeemed .rowActions span {
           background: #dff9e8;
@@ -1622,10 +1727,38 @@ export default function BreakfastVouchersPage() {
         }
         @media (max-width: 760px) {
           .hero,
-          .voucherRow,
           .listHead {
             align-items: stretch;
             flex-direction: column;
+          }
+          .voucherRow {
+            grid-template-columns: 1fr;
+            gap: 12px;
+            padding: 14px;
+            border-radius: 18px;
+          }
+          .reportHeader {
+            display: none;
+          }
+          .reportStrip {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
+          .reportStrip div {
+            padding: 12px;
+            border-radius: 16px;
+          }
+          .reportStrip strong {
+            font-size: 24px;
+          }
+          .voucherRow h3,
+          .voucherRow strong {
+            font-size: 20px;
+          }
+          .voucherRow span,
+          .voucherRow small,
+          .voucherRow small.itemBreakdown {
+            font-size: 13px;
           }
           .stats {
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1695,6 +1828,9 @@ export default function BreakfastVouchersPage() {
           }
           .rowActions {
             justify-items: stretch;
+          }
+          .rowActions button {
+            width: 100%;
           }
           .scannerCard {
             padding: 12px;
