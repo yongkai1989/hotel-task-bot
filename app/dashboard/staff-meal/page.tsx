@@ -196,6 +196,7 @@ export default function StaffMealAdminPage() {
     A: emptyMenuRows(),
     B: emptyMenuRows(),
   });
+  const [menuEditorOpen, setMenuEditorOpen] = useState(false);
   const [savingMenu, setSavingMenu] = useState(false);
 
   async function loadOrders(targetWeek?: string) {
@@ -774,54 +775,70 @@ export default function StaffMealAdminPage() {
           <div>
             <div style={styles.kicker}>Weekly Menu</div>
             <h2 style={styles.sectionTitle}>Set {assignedMenuSet} is assigned for this order week</h2>
-            <p style={styles.muted}>Set A and Set B alternate automatically every week. Edit both sets here before staff place orders.</p>
+            <p style={styles.muted}>Set A and Set B alternate automatically every week. Open Menu only when you need to update the weekly dishes.</p>
           </div>
-          <div style={styles.menuSetTabs}>
-            {(['A', 'B'] as MenuSetName[]).map((setName) => (
-              <button
-                key={setName}
-                type="button"
-                onClick={() => setActiveMenuSet(setName)}
-                style={{ ...styles.tab, ...(activeMenuSet === setName ? styles.tabActive : null) }}
-              >
-                Set {setName}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={styles.menuEditorGrid}>
-          {DAY_NAMES.map((dayName, dayIndex) => {
-            const row = menus[activeMenuSet][dayIndex] || {
-              day_index: dayIndex,
-              menu_text: '',
-            };
-            return (
-              <article key={dayName} style={styles.menuEditorCard}>
-                <div style={styles.menuDayHead}>
-                  <span>{dayName}</span>
-                  <strong>Set {activeMenuSet}</strong>
-                </div>
-                <label style={styles.field}>
-                  <span style={styles.label}>Menu</span>
-                  <textarea
-                    value={row.menu_text}
-                    onChange={(event) => updateMenuRow(dayIndex, event.target.value)}
-                    placeholder="Example: Chicken rice, vegetable, soup"
-                    style={{ ...styles.input, minHeight: 96, resize: 'vertical' }}
-                  />
-                </label>
-              </article>
-            );
-          })}
-        </div>
-
-        <div style={styles.menuSaveBar}>
-          <span>Staff will see Set {assignedMenuSet} on the public order page for the selected week.</span>
-          <button type="button" onClick={saveMenuSet} disabled={savingMenu} style={styles.primaryBtn}>
-            {savingMenu ? 'Saving...' : `Save Set ${activeMenuSet}`}
+          <button
+            type="button"
+            onClick={() => setMenuEditorOpen((value) => !value)}
+            style={{ ...styles.secondaryBtn, ...(menuEditorOpen ? styles.secondaryBtnActive : null) }}
+          >
+            {menuEditorOpen ? 'Hide Menu' : 'Menu'}
           </button>
         </div>
+
+        {menuEditorOpen ? (
+          <>
+            <div style={styles.menuSetTabs}>
+              {(['A', 'B'] as MenuSetName[]).map((setName) => (
+                <button
+                  key={setName}
+                  type="button"
+                  onClick={() => setActiveMenuSet(setName)}
+                  style={{ ...styles.tab, ...(activeMenuSet === setName ? styles.tabActive : null) }}
+                >
+                  Set {setName}
+                </button>
+              ))}
+            </div>
+
+            <div style={styles.menuEditorGrid}>
+              {DAY_NAMES.map((dayName, dayIndex) => {
+                const row = menus[activeMenuSet][dayIndex] || {
+                  day_index: dayIndex,
+                  menu_text: '',
+                };
+                return (
+                  <article key={dayName} style={styles.menuEditorCard}>
+                    <div style={styles.menuDayHead}>
+                      <span>{dayName}</span>
+                      <strong>Set {activeMenuSet}</strong>
+                    </div>
+                    <label style={styles.field}>
+                      <span style={styles.label}>Menu</span>
+                      <textarea
+                        value={row.menu_text}
+                        onChange={(event) => updateMenuRow(dayIndex, event.target.value)}
+                        placeholder="Example: Chicken rice, vegetable, soup"
+                        style={{ ...styles.input, minHeight: 84, resize: 'vertical' }}
+                      />
+                    </label>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div style={styles.menuSaveBar}>
+              <span>Staff will see Set {assignedMenuSet} on the public order page for the selected week.</span>
+              <button type="button" onClick={saveMenuSet} disabled={savingMenu} style={styles.primaryBtn}>
+                {savingMenu ? 'Saving...' : `Save Set ${activeMenuSet}`}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={styles.collapsedMenuNote}>
+            Menu editor is hidden to keep this page compact. Tap Menu to edit Set A or Set B.
+          </div>
+        )}
       </section>
 
       <section style={styles.panel}>
@@ -1037,6 +1054,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     gap: 8,
     flexWrap: 'wrap',
+    marginBottom: 12,
   },
   menuEditorGrid: {
     display: 'grid',
@@ -1072,6 +1090,15 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
     color: '#1e3a8a',
     fontWeight: 850,
+  },
+  collapsedMenuNote: {
+    border: '1px dashed #bfdbfe',
+    borderRadius: 18,
+    padding: '14px 16px',
+    background: 'linear-gradient(135deg, #f8fbff 0%, #eff6ff 100%)',
+    color: '#35537a',
+    fontWeight: 850,
+    lineHeight: 1.45,
   },
   smallGhostBtn: {
     border: '1px solid #cbd8e8',
@@ -1356,6 +1383,11 @@ const styles: Record<string, CSSProperties> = {
     color: '#07142d',
     fontWeight: 950,
     cursor: 'pointer',
+  },
+  secondaryBtnActive: {
+    background: '#0f172a',
+    borderColor: '#0f172a',
+    color: '#ffffff',
   },
   errorBox: {
     background: '#fff1f2',
