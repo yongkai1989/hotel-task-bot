@@ -11,6 +11,7 @@ const SG_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 type Branch = (typeof BRANCHES)[number];
 type MealChoice = 'none' | 'lunch' | 'dinner' | 'both';
+type PrinterRole = 'FNB' | 'STAFF_MEAL';
 
 function jsonNoCache(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -36,6 +37,13 @@ function getBridgeKeyStatus(req: NextRequest) {
   if (!expected) return { ok: false, error: 'PRINTER_BRIDGE_KEY is missing on Vercel.' };
   if (provided !== expected) return { ok: false, error: 'Invalid printer bridge key' };
   return { ok: true, error: '' };
+}
+
+function getPrinterRole(req: NextRequest): PrinterRole {
+  const role = String(req.nextUrl.searchParams.get('printer_role') || req.headers.get('x-printer-role') || 'STAFF_MEAL')
+    .trim()
+    .toUpperCase();
+  return role === 'FNB' ? 'FNB' : 'STAFF_MEAL';
 }
 
 function formatIsoFromUtcMs(ms: number) {
@@ -141,6 +149,28 @@ function buildReportPayload(orders: any[], weekStart: string) {
   const dates = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const weekEnd = addDays(weekStart, 6);
   const lines: string[] = [];
+  const reportDays = dates.map((date) => {
+    const dayTotals = countDayMeals(sortedOrders, date);
+    return {
+      date,
+      label: shortDate(date),
+      totals: dayTotals,
+      branches: BRANCHES.map((branch) => {
+        const branchOrders = sortedOrders.filter((order) => order.branch === branch && getMeal(order, date) !== 'none');
+        const branchTotals = countDayMeals(branchOrders, date);
+        return {
+          branch,
+          totals: branchTotals,
+          staff: branchOrders.map((order) => ({
+            name: cleanText(order.staff_name),
+            meal: mealLabel(getMeal(order, date)),
+            meal_code: getMeal(order, date) === 'both' ? 'L+D' : getMeal(order, date) === 'lunch' ? 'L' : 'D',
+            notes: cleanText(order.notes),
+          })),
+        };
+      }).filter((branch) => branch.staff.length > 0),
+    };
+  });
 
   lines.push('STAFF MEAL REPORT');
   lines.push(`${shortDate(weekStart)} - ${shortDate(weekEnd)}`);
@@ -184,11 +214,12 @@ function buildReportPayload(orders: any[], weekStart: string) {
     week_start: weekStart,
     week_end: weekEnd,
     order_count: sortedOrders.length,
+    days: reportDays,
     text_lines: lines,
   };
 }
 
-async function queueStaffMealReport(weekStart: string) {
+async function queueStaffMealReport(weekStart: string, printerRole: PrinterRole, forceReprint = false) {
   const weekEnd = addDays(weekStart, 6);
   const { data: orders, error: orderError } = await supabaseAdmin
     .from('staff_meal_orders')
@@ -204,12 +235,12 @@ async function queueStaffMealReport(weekStart: string) {
     .select('id, status, printed_at')
     .eq('job_type', 'WEEKLY_REPORT')
     .eq('week_start', weekStart)
-    .eq('printer_role', 'FNB')
+    .eq('printer_role', printerRole)
     .maybeSingle();
 
   if (existingError) throw existingError;
 
-  if (existing?.status === 'PRINTED') {
+  if (existing?.status === 'PRINTED' && !forceReprint) {
     return { job: existing, queued: false, message: 'This staff meal report has already been printed.' };
   }
 
@@ -229,7 +260,7 @@ async function queueStaffMealReport(weekStart: string) {
       .single();
 
     if (error) throw error;
-    return { job: data, queued: true, message: 'Existing staff meal report re-queued.' };
+    return { job: data, queued: true, message: existing.status === 'PRINTED' ? 'Existing staff meal report reprinted.' : 'Existing staff meal report re-queued.' };
   }
 
   const { data, error } = await supabaseAdmin
@@ -238,7 +269,7 @@ async function queueStaffMealReport(weekStart: string) {
       job_type: 'WEEKLY_REPORT',
       week_start: weekStart,
       week_end: weekEnd,
-      printer_role: 'FNB',
+      printer_role: printerRole,
       status: 'QUEUED',
       payload,
     })
@@ -254,16 +285,12 @@ export async function GET(req: NextRequest) {
     const auth = getBridgeKeyStatus(req);
     if (!auth.ok) return jsonNoCache({ ok: false, error: auth.error, jobs: [] }, 401);
 
-    const role = String(req.nextUrl.searchParams.get('printer_role') || req.headers.get('x-printer-role') || 'FNB')
-      .trim()
-      .toUpperCase();
-
-    if (role !== 'FNB' && role !== 'STAFF_MEAL') return jsonNoCache({ ok: true, jobs: [] });
+    const role = getPrinterRole(req);
 
     const { data, error } = await supabaseAdmin
       .from('staff_meal_print_jobs')
       .select('*')
-      .eq('printer_role', 'FNB')
+      .eq('printer_role', role)
       .eq('status', 'QUEUED')
       .order('requested_at', { ascending: true })
       .limit(5);
@@ -285,9 +312,11 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const weekStart = String(body?.week_start || req.nextUrl.searchParams.get('week_start') || currentServiceWeekStart()).trim();
+    const forceReprint = body?.force_reprint === true || req.nextUrl.searchParams.get('force_reprint') === 'true';
+    const role = getPrinterRole(req);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return jsonNoCache({ ok: false, error: 'Invalid week_start.' }, 400);
 
-    const result = await queueStaffMealReport(weekStart);
+    const result = await queueStaffMealReport(weekStart, role, forceReprint);
     return jsonNoCache({ ok: true, ...result });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Failed to queue staff meal report' }, 500);
