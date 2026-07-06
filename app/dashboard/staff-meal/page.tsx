@@ -447,6 +447,7 @@ export default function StaffMealAdminPage() {
 
         return `
           <section class="print-page branch-page">
+            ${branchName === 'Crown' ? allBranchTotalsSection : ''}
             <div class="page-header">
               <div>
                 <div class="kicker">Branch packing page</div>
@@ -458,7 +459,6 @@ export default function StaffMealAdminPage() {
                 <span>staff order(s)</span>
               </div>
             </div>
-            ${branchName === 'Crown' ? allBranchTotalsSection : ''}
             <table class="weekly-table">
               <thead>
                 <tr>
