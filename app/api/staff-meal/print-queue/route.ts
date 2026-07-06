@@ -149,6 +149,27 @@ function buildReportPayload(orders: any[], weekStart: string) {
   const dates = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const weekEnd = addDays(weekStart, 6);
   const lines: string[] = [];
+  const summaryDates = dates.map((date) => ({
+    date,
+    label: shortDate(date),
+  }));
+  const summaryRows = sortedOrders.map((order) => ({
+    branch: cleanText(order.branch),
+    name: cleanText(order.staff_name),
+    meals: dates.map((date) => {
+      const choice = getMeal(order, date);
+      return {
+        date,
+        meal: mealLabel(choice),
+        meal_code: choice === 'both' ? 'L+D' : choice === 'lunch' ? 'L' : choice === 'dinner' ? 'D' : '',
+      };
+    }),
+  }));
+  const summaryTotals = dates.map((date) => ({
+    date,
+    label: shortDate(date),
+    ...countDayMeals(sortedOrders, date),
+  }));
   const reportDays = dates.map((date) => {
     const dayTotals = countDayMeals(sortedOrders, date);
     return {
@@ -214,6 +235,11 @@ function buildReportPayload(orders: any[], weekStart: string) {
     week_start: weekStart,
     week_end: weekEnd,
     order_count: sortedOrders.length,
+    summary: {
+      dates: summaryDates,
+      rows: summaryRows,
+      totals: summaryTotals,
+    },
     days: reportDays,
     text_lines: lines,
   };
