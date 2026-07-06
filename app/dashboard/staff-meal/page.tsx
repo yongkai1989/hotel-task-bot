@@ -248,6 +248,10 @@ export default function StaffMealAdminPage() {
     () => orders.filter((order) => branch === 'All' || order.branch === branch),
     [orders, branch]
   );
+  const displayedBranches = useMemo<RealBranch[]>(
+    () => (branch === 'All' ? REAL_BRANCHES : [branch as RealBranch]),
+    [branch]
+  );
 
   const dailyTotals = useMemo(() => {
     return dates.map((date) => ({
@@ -1065,32 +1069,91 @@ export default function StaffMealAdminPage() {
         ) : filteredOrders.length === 0 ? (
           <div style={styles.empty}>No staff meal orders for this branch and week.</div>
         ) : (
-          <div style={styles.orderList}>
-            {filteredOrders.map((order) => {
-              const totals = countMeals(order.meals);
+          <div style={styles.reportList}>
+            {displayedBranches.map((branchName) => {
+              const branchOrders = filteredOrders.filter((order) => order.branch === branchName);
+              const branchLunchTotals = dates.map((date) => countDayMeals(branchOrders, date).lunch);
+              const branchDinnerTotals = dates.map((date) => countDayMeals(branchOrders, date).dinner);
+              const branchLunchTotal = branchLunchTotals.reduce((sum, value) => sum + value, 0);
+              const branchDinnerTotal = branchDinnerTotals.reduce((sum, value) => sum + value, 0);
+              if (branch === 'All' && branchOrders.length === 0) return null;
+
               return (
-                <article key={order.id} style={styles.orderCard}>
-                  <div style={styles.orderTop}>
+                <article key={branchName} style={styles.branchReportCard}>
+                  <div style={styles.branchReportHead}>
                     <div>
-                      <div style={styles.staffName}>{order.staff_name}</div>
-                      <div style={styles.muted}>{order.branch} | {totals.lunch} lunch | {totals.dinner} dinner</div>
+                      <div style={styles.kicker}>Branch Report</div>
+                      <h3 style={styles.branchReportTitle}>{branchName} Staff Meal</h3>
+                      <p style={styles.muted}>
+                        {branchOrders.length} staff order(s) | {branchLunchTotal} lunch | {branchDinnerTotal} dinner
+                      </p>
                     </div>
-                    {canManage ? (
-                      <div style={styles.cardActions}>
-                        <button type="button" onClick={() => setEditing(order)} style={styles.smallBtn}>Edit</button>
-                        <button type="button" onClick={() => deleteOrder(order)} style={styles.dangerBtn}>Delete</button>
-                      </div>
-                    ) : null}
                   </div>
-                  <div style={styles.dayGrid}>
-                    {dates.map((date) => (
-                      <div key={date} style={styles.dayCell}>
-                        <span>{formatShort(date)}</span>
-                        <strong>{mealText(order.meals?.[date] || 'none')}</strong>
-                      </div>
-                    ))}
+
+                  <div style={styles.reportTableScroll}>
+                    <table style={styles.mealReportTable}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...styles.mealReportTh, ...styles.staffReportTh }}>Staff</th>
+                          {dates.map((date) => (
+                            <th key={date} style={styles.mealReportTh}>{formatShort(date)}</th>
+                          ))}
+                          <th style={styles.mealReportTh}>Remarks</th>
+                          {canManage ? <th style={styles.mealReportTh}>Action</th> : null}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {branchOrders.map((order) => {
+                          const totals = countMeals(order.meals);
+                          return (
+                            <tr key={order.id}>
+                              <td style={{ ...styles.mealReportTd, ...styles.staffReportCell }}>
+                                <strong>{order.staff_name}</strong>
+                                <span>{totals.lunch}L / {totals.dinner}D</span>
+                              </td>
+                              {dates.map((date) => (
+                                <td key={date} style={styles.mealReportTd}>
+                                  <span
+                                    style={{
+                                      ...styles.mealBadge,
+                                      ...((order.meals?.[date] || 'none') === 'none' ? styles.mealBadgeOff : null),
+                                    }}
+                                  >
+                                    {mealText(order.meals?.[date] || 'none')}
+                                  </span>
+                                </td>
+                              ))}
+                              <td style={{ ...styles.mealReportTd, ...styles.reportNoteCell }}>
+                                {order.notes || '-'}
+                              </td>
+                              {canManage ? (
+                                <td style={{ ...styles.mealReportTd, ...styles.reportActionsCell }}>
+                                  <button type="button" onClick={() => setEditing(order)} style={styles.smallBtn}>Edit</button>
+                                  <button type="button" onClick={() => deleteOrder(order)} style={styles.dangerBtn}>Delete</button>
+                                </td>
+                              ) : null}
+                            </tr>
+                          );
+                        })}
+                        <tr>
+                          <td style={{ ...styles.mealReportTd, ...styles.reportTotalsLabel }}>Total Lunch</td>
+                          {branchLunchTotals.map((value, index) => (
+                            <td key={`lunch-${dates[index]}`} style={{ ...styles.mealReportTd, ...styles.reportTotalsCell }}>{value}</td>
+                          ))}
+                          <td style={styles.mealReportTd}></td>
+                          {canManage ? <td style={styles.mealReportTd}></td> : null}
+                        </tr>
+                        <tr>
+                          <td style={{ ...styles.mealReportTd, ...styles.reportTotalsLabel }}>Total Dinner</td>
+                          {branchDinnerTotals.map((value, index) => (
+                            <td key={`dinner-${dates[index]}`} style={{ ...styles.mealReportTd, ...styles.reportTotalsCell }}>{value}</td>
+                          ))}
+                          <td style={styles.mealReportTd}></td>
+                          {canManage ? <td style={styles.mealReportTd}></td> : null}
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  {order.notes ? <div style={styles.note}>Note: {order.notes}</div> : null}
                 </article>
               );
             })}
@@ -1415,6 +1478,111 @@ const styles: Record<string, CSSProperties> = {
     textAlign: 'center',
     color: '#64748b',
     fontWeight: 900,
+  },
+  reportList: {
+    display: 'grid',
+    gap: 16,
+  },
+  branchReportCard: {
+    border: '1px solid #d6e3f2',
+    borderRadius: 20,
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8fbff 100%)',
+    boxShadow: '0 12px 34px rgba(16, 48, 90, 0.07)',
+    overflow: 'hidden',
+  },
+  branchReportHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 14,
+    alignItems: 'flex-start',
+    padding: '16px 18px',
+    borderBottom: '1px solid #dbe7f5',
+    background: 'linear-gradient(135deg, #ffffff 0%, #f3f8ff 100%)',
+  },
+  branchReportTitle: {
+    margin: '3px 0 5px',
+    fontSize: 'clamp(22px, 3vw, 30px)',
+    lineHeight: 1,
+  },
+  reportTableScroll: {
+    overflowX: 'auto',
+    WebkitOverflowScrolling: 'touch',
+  },
+  mealReportTable: {
+    width: '100%',
+    minWidth: 980,
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+  },
+  mealReportTh: {
+    padding: '12px 10px',
+    textAlign: 'center',
+    background: '#eef5ff',
+    borderBottom: '1px solid #d6e3f2',
+    color: '#233d63',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontSize: 11,
+    fontWeight: 950,
+    whiteSpace: 'nowrap',
+  },
+  staffReportTh: {
+    textAlign: 'left',
+    paddingLeft: 16,
+  },
+  mealReportTd: {
+    padding: '10px 10px',
+    borderBottom: '1px solid #e5eef8',
+    textAlign: 'center',
+    verticalAlign: 'middle',
+    color: '#0b1730',
+    fontWeight: 850,
+  },
+  staffReportCell: {
+    textAlign: 'left',
+    paddingLeft: 16,
+    minWidth: 170,
+  },
+  mealBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 54,
+    borderRadius: 999,
+    padding: '6px 9px',
+    background: '#eaf2ff',
+    color: '#1d4ed8',
+    fontSize: 12,
+    fontWeight: 950,
+    lineHeight: 1,
+    whiteSpace: 'nowrap',
+  },
+  mealBadgeOff: {
+    background: '#f1f5f9',
+    color: '#64748b',
+  },
+  reportNoteCell: {
+    minWidth: 180,
+    textAlign: 'left',
+    color: '#475569',
+    fontWeight: 750,
+  },
+  reportActionsCell: {
+    minWidth: 130,
+    whiteSpace: 'nowrap',
+  },
+  reportTotalsLabel: {
+    textAlign: 'left',
+    paddingLeft: 16,
+    background: '#fff7ed',
+    color: '#9a3412',
+    fontWeight: 950,
+  },
+  reportTotalsCell: {
+    background: '#fff7ed',
+    color: '#111827',
+    fontWeight: 950,
+    fontSize: 16,
   },
   orderList: {
     display: 'grid',
