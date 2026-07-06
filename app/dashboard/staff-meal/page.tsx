@@ -432,6 +432,14 @@ export default function StaffMealAdminPage() {
         const branchOrders = reportOrders.filter((order) => order.branch === branchName);
         const branchLunchTotals = dates.map((date) => countDayMeals(branchOrders, date).lunch);
         const branchDinnerTotals = dates.map((date) => countDayMeals(branchOrders, date).dinner);
+        const densityClass =
+          branchOrders.length > 44
+            ? 'fit-micro'
+            : branchOrders.length > 34
+              ? 'fit-ultra'
+              : branchOrders.length > 24
+                ? 'fit-tight'
+                : '';
         const rows = branchOrders
           .map(
             (order, index) => `
@@ -446,7 +454,7 @@ export default function StaffMealAdminPage() {
           .join('');
 
         return `
-          <section class="print-page branch-page">
+          <section class="print-page branch-page ${densityClass}">
             ${branchName === 'Crown' ? allBranchTotalsSection : ''}
             <div class="page-header">
               <div>
@@ -695,7 +703,173 @@ export default function StaffMealAdminPage() {
                 min-height: auto;
                 padding: 7mm;
               }
-              .branch-page { break-inside: avoid; }
+            .branch-page { break-inside: avoid; }
+              .fit-tight {
+                padding: 5mm;
+              }
+              .fit-tight .page-header {
+                padding: 6px 9px;
+                margin-bottom: 5px;
+              }
+              .fit-tight h1 {
+                font-size: 18px;
+              }
+              .fit-tight .page-meta strong {
+                font-size: 20px;
+              }
+              .fit-tight table {
+                font-size: 8.7px;
+                line-height: 1.08;
+              }
+              .fit-tight th,
+              .fit-tight td {
+                padding: 3px 4px;
+              }
+              .fit-tight .meal-pill {
+                min-height: 16px;
+                min-width: 22px;
+                padding: 1px 4px;
+              }
+              .fit-tight .notes-cell {
+                font-size: 8px;
+              }
+              .fit-tight .legend {
+                margin-top: 3px;
+                font-size: 8px;
+              }
+              .fit-ultra {
+                padding: 4mm;
+              }
+              .fit-ultra .page-header {
+                padding: 5px 8px;
+                margin-bottom: 4px;
+                border-radius: 10px;
+              }
+              .fit-ultra .kicker,
+              .fit-ultra p,
+              .fit-ultra .page-meta span {
+                font-size: 7px;
+              }
+              .fit-ultra h1 {
+                font-size: 15px;
+                margin: 1px 0;
+              }
+              .fit-ultra .page-meta strong {
+                font-size: 17px;
+              }
+              .fit-ultra .daily-total-panel {
+                padding: 4px;
+                margin-bottom: 4px;
+              }
+              .fit-ultra table {
+                font-size: 7.4px;
+                line-height: 1;
+              }
+              .fit-ultra th,
+              .fit-ultra td {
+                padding: 2px 3px;
+              }
+              .fit-ultra .date-head {
+                width: 45px;
+              }
+              .fit-ultra .number-head,
+              .fit-ultra .row-number {
+                width: 22px;
+              }
+              .fit-ultra th.staff-head,
+              .fit-ultra .staff-name {
+                width: 112px;
+              }
+              .fit-ultra .notes-head,
+              .fit-ultra .notes-cell {
+                width: 180px;
+              }
+              .fit-ultra .meal-pill {
+                min-height: 14px;
+                min-width: 20px;
+                padding: 0 3px;
+              }
+              .fit-ultra .notes-cell {
+                font-size: 7px;
+              }
+              .fit-ultra .legend {
+                display: none;
+              }
+              .fit-micro {
+                padding: 3mm;
+              }
+              .fit-micro .page-header {
+                padding: 4px 7px;
+                margin-bottom: 3px;
+                border-radius: 9px;
+              }
+              .fit-micro .kicker,
+              .fit-micro p,
+              .fit-micro .page-meta span {
+                font-size: 6.4px;
+              }
+              .fit-micro h1 {
+                font-size: 13px;
+                margin: 0;
+              }
+              .fit-micro .page-meta strong {
+                font-size: 15px;
+              }
+              .fit-micro .daily-total-panel {
+                padding: 3px;
+                margin-bottom: 3px;
+                border-radius: 8px;
+              }
+              .fit-micro .mini-section-title {
+                font-size: 7px;
+                margin-bottom: 2px;
+              }
+              .fit-micro table {
+                font-size: 6.4px;
+                line-height: .96;
+              }
+              .fit-micro th,
+              .fit-micro td {
+                padding: 1.5px 2px;
+              }
+              .fit-micro th {
+                font-size: 6px;
+                letter-spacing: .1px;
+              }
+              .fit-micro .date-head {
+                width: 39px;
+              }
+              .fit-micro .date-head span {
+                font-size: 5.5px;
+              }
+              .fit-micro .number-head,
+              .fit-micro .row-number {
+                width: 18px;
+              }
+              .fit-micro th.staff-head,
+              .fit-micro .staff-name {
+                width: 96px;
+              }
+              .fit-micro .notes-head,
+              .fit-micro .notes-cell {
+                width: 150px;
+              }
+              .fit-micro .meal-pill {
+                min-height: 12px;
+                min-width: 17px;
+                padding: 0 2px;
+                border-radius: 5px;
+              }
+              .fit-micro .notes-cell {
+                font-size: 6.2px;
+              }
+              .fit-micro .total-row td {
+                padding-top: 2px;
+                padding-bottom: 2px;
+              }
+              .fit-micro .legend {
+                display: none;
+              }
             }
           </style>
         </head>
