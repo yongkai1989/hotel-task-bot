@@ -399,6 +399,57 @@ export default function StaffMealAdminPage() {
         <td></td>
       </tr>
     `;
+    const allBranchLunchTotals = dates.map((date) => countDayMeals(reportOrders, date).lunch);
+    const allBranchDinnerTotals = dates.map((date) => countDayMeals(reportOrders, date).dinner);
+    const grandLunchTotal = allBranchLunchTotals.reduce((sum, value) => sum + value, 0);
+    const grandDinnerTotal = allBranchDinnerTotals.reduce((sum, value) => sum + value, 0);
+    const totalsPage = `
+      <section class="print-page totals-page">
+        <div class="page-header">
+          <div>
+            <div class="kicker">All branches total</div>
+            <h1>Staff Meal Daily Totals</h1>
+            <p>${escapeHtml(formatLong(displayWeekStart))} to ${escapeHtml(formatLong(displayWeekEnd))}</p>
+          </div>
+          <div class="page-meta">
+            <strong>${grandLunchTotal + grandDinnerTotal}</strong>
+            <span>total meal(s)</span>
+          </div>
+        </div>
+        <div class="totals-strip">
+          <div>
+            <span>Total Lunch</span>
+            <strong>${grandLunchTotal}</strong>
+          </div>
+          <div>
+            <span>Total Dinner</span>
+            <strong>${grandDinnerTotal}</strong>
+          </div>
+        </div>
+        <table class="totals-table">
+          <thead>
+            <tr>
+              <th class="total-label-head">Meal</th>
+              ${dates.map((date) => `<th class="date-head">${printDateLabel(date)}</th>`).join('')}
+              <th class="week-total-head">Week Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="total-label">Lunch</td>
+              ${allBranchLunchTotals.map((value) => `<td class="daily-total">${value}</td>`).join('')}
+              <td class="week-total">${grandLunchTotal}</td>
+            </tr>
+            <tr>
+              <td class="total-label">Dinner</td>
+              ${allBranchDinnerTotals.map((value) => `<td class="daily-total">${value}</td>`).join('')}
+              <td class="week-total">${grandDinnerTotal}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="legend">This first page combines Crown, Leisure, Express, and View for kitchen planning.</div>
+      </section>
+    `;
     const branchPages = printBranchOrder
       .map((branchName) => {
         const branchOrders = reportOrders.filter((order) => order.branch === branchName);
@@ -524,6 +575,33 @@ export default function StaffMealAdminPage() {
               font-size: 10px;
               font-weight: 700;
             }
+            .totals-strip {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 8px;
+              margin-bottom: 8px;
+            }
+            .totals-strip div {
+              border: 1px solid #cbd5e1;
+              border-radius: 12px;
+              padding: 10px 12px;
+              background: #f8fafc;
+            }
+            .totals-strip span {
+              display: block;
+              color: #475569;
+              font-size: 9px;
+              font-weight: 900;
+              letter-spacing: .55px;
+              text-transform: uppercase;
+            }
+            .totals-strip strong {
+              display: block;
+              margin-top: 3px;
+              font-size: 28px;
+              line-height: 1;
+              color: #0f172a;
+            }
             table {
               width: 100%;
               border-collapse: collapse;
@@ -612,6 +690,36 @@ export default function StaffMealAdminPage() {
               color: #0f172a;
               text-align: center;
             }
+            .totals-table {
+              font-size: 13px;
+            }
+            .totals-table th,
+            .totals-table td {
+              padding: 10px 8px;
+            }
+            .total-label-head,
+            .total-label {
+              width: 110px;
+              text-align: left;
+            }
+            .total-label {
+              font-size: 14px;
+              font-weight: 900;
+              color: #0f172a;
+              background: #f8fafc;
+            }
+            .daily-total,
+            .week-total {
+              text-align: center;
+              font-size: 22px;
+              font-weight: 900;
+              color: #0f172a;
+            }
+            .week-total-head,
+            .week-total {
+              width: 90px;
+              background: #fff7ed;
+            }
             thead { display: table-header-group; }
             tr { break-inside: avoid; }
             @page { size: A4 landscape; margin: 0; }
@@ -625,6 +733,7 @@ export default function StaffMealAdminPage() {
           </style>
         </head>
         <body>
+          ${totalsPage}
           ${branchPages}
         </body>
       </html>
