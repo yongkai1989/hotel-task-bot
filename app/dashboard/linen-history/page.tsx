@@ -290,7 +290,7 @@ function buildDateRange(startDate: string, endDate: string) {
   return dates;
 }
 
-function formatCalendarDay(value: string) {
+function formatCalendarDay(value: string): { day: string; weekday: string } {
   const d = new Date(`${value}T00:00:00`);
   if (Number.isNaN(d.getTime())) {
     return {
@@ -1665,6 +1665,7 @@ export default function LinenHistoryPage() {
                       <th style={styles.reportTh}>Total Used</th>
                       <th style={styles.reportTh}>In Bill</th>
                       <th style={styles.reportTh}>Returned</th>
+                      <th style={styles.reportTh}>Difference</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1676,6 +1677,9 @@ export default function LinenHistoryPage() {
                         <td style={styles.reportValueTd}>{monthlyReport.totalUsed[item.key]}</td>
                         <td style={styles.reportValueTd}>{monthlyReport.inBill[item.key]}</td>
                         <td style={styles.reportValueTd}>{monthlyReport.returned[item.key]}</td>
+                        <td style={styles.reportValueTd}>
+                          {monthlyReport.inBill[item.key] - monthlyReport.returned[item.key]}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
