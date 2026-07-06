@@ -370,7 +370,7 @@ export default function StaffMealAdminPage() {
   function printStaffMealReport() {
     const title = `Staff Meal Weekly Report - ${formatShort(displayWeekStart)} to ${formatShort(displayWeekEnd)}`;
     const reportOrders = [...orders].sort(sortMealOrders);
-    const printBranchOrder: RealBranch[] = ['Crown', 'Express', 'Leisure', 'View'];
+    const printBranchOrder: RealBranch[] = ['Crown', 'Leisure', 'Express', 'View'];
     const mealCode = (choice: MealChoice) => {
       if (choice === 'lunch') return 'L';
       if (choice === 'dinner') return 'D';
@@ -378,33 +378,27 @@ export default function StaffMealAdminPage() {
       return '-';
     };
     const dayClass = (choice: MealChoice) => (choice === 'none' ? 'meal-none' : `meal-${choice}`);
+    const printDateLabel = (date: string) => {
+      const parsed = new Date(`${date}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return escapeHtml(date);
+      const day = parsed.toLocaleDateString('en-GB', { weekday: 'short' });
+      const dateNo = parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      return `${escapeHtml(day)}<br /><span>${escapeHtml(dateNo)}</span>`;
+    };
     const renderMealCells = (order: StaffMealOrder) =>
       dates
         .map((date) => {
           const choice = order.meals?.[date] || 'none';
-          return `<td class="meal-cell ${dayClass(choice)}">${escapeHtml(mealCode(choice))}</td>`;
+          return `<td class="meal-cell"><span class="meal-pill ${dayClass(choice)}">${escapeHtml(mealCode(choice))}</span></td>`;
         })
         .join('');
-    const renderTotalsRow = (label: string, values: number[], trailingCells = 0) => `
+    const renderTotalsRow = (label: string, values: number[]) => `
       <tr class="total-row">
         <td colspan="2">${escapeHtml(label)}</td>
         ${values.map((value) => `<td>${value}</td>`).join('')}
-        ${Array.from({ length: trailingCells }).map(() => '<td></td>').join('')}
+        <td></td>
       </tr>
     `;
-    const weeklyLunchTotals = dates.map((date) => countDayMeals(reportOrders, date).lunch);
-    const weeklyDinnerTotals = dates.map((date) => countDayMeals(reportOrders, date).dinner);
-    const weeklySummaryRows = reportOrders
-      .map(
-        (order) => `
-          <tr>
-            <td class="branch-name">${escapeHtml(order.branch)}</td>
-            <td class="staff-name">${escapeHtml(order.staff_name)}</td>
-            ${renderMealCells(order)}
-          </tr>
-        `
-      )
-      .join('');
     const branchPages = printBranchOrder
       .map((branchName) => {
         const branchOrders = reportOrders.filter((order) => order.branch === branchName);
@@ -441,14 +435,14 @@ export default function StaffMealAdminPage() {
                 <tr>
                   <th class="number-head">#</th>
                   <th class="staff-head">Staff Name</th>
-                  ${dates.map((date) => `<th>${escapeHtml(formatShort(date))}</th>`).join('')}
-                  <th class="notes-head">Notes</th>
+                  ${dates.map((date) => `<th class="date-head">${printDateLabel(date)}</th>`).join('')}
+                  <th class="notes-head">Remarks</th>
                 </tr>
               </thead>
               <tbody>
                 ${rows || `<tr><td colspan="${dates.length + 3}" class="empty-cell">No orders for ${escapeHtml(branchName)}.</td></tr>`}
-                ${renderTotalsRow('Total Lunch', branchLunchTotals, 1)}
-                ${renderTotalsRow('Total Dinner', branchDinnerTotals, 1)}
+                ${renderTotalsRow('Total Lunch', branchLunchTotals)}
+                ${renderTotalsRow('Total Dinner', branchDinnerTotals)}
               </tbody>
             </table>
             <div class="legend">L = Lunch | D = Dinner | L+D = Lunch and Dinner | - = No meal</div>
@@ -480,7 +474,7 @@ export default function StaffMealAdminPage() {
             }
             .print-page {
               min-height: 100vh;
-              padding: 10mm;
+              padding: 8mm;
               page-break-after: always;
             }
             .print-page:last-child {
@@ -493,8 +487,8 @@ export default function StaffMealAdminPage() {
               align-items: center;
               border: 1px solid #cbd5e1;
               border-radius: 14px;
-              padding: 12px 14px;
-              margin-bottom: 10px;
+              padding: 9px 12px;
+              margin-bottom: 8px;
               background: linear-gradient(135deg, #f8fbff 0%, #ffffff 56%, #fef7ed 100%);
             }
             .kicker {
@@ -506,7 +500,7 @@ export default function StaffMealAdminPage() {
             }
             h1 {
               margin: 3px 0;
-              font-size: 24px;
+              font-size: 22px;
               line-height: 1.05;
             }
             p {
@@ -524,32 +518,8 @@ export default function StaffMealAdminPage() {
               font-size: 24px;
               line-height: 1;
             }
-            .summary-cards {
-              display: grid;
-              grid-template-columns: repeat(7, 1fr);
-              gap: 6px;
-              margin-bottom: 10px;
-            }
-            .daily-total-card {
-              border: 1px solid #bfdbfe;
-              border-radius: 10px;
-              padding: 7px 8px;
-              background: #f8fbff;
-            }
-            .daily-total-card strong {
-              display: block;
-              font-size: 10px;
-              color: #1e3a8a;
-              margin-bottom: 4px;
-            }
-            .daily-total-card span {
-              display: block;
-              color: #0f172a;
-              font-weight: 800;
-              font-size: 10px;
-            }
             .legend {
-              margin-top: 8px;
+              margin-top: 6px;
               color: #475569;
               font-size: 10px;
               font-weight: 700;
@@ -558,7 +528,7 @@ export default function StaffMealAdminPage() {
               width: 100%;
               border-collapse: collapse;
               table-layout: fixed;
-              font-size: 10.5px;
+              font-size: 10.2px;
               line-height: 1.2;
               border: 1px solid #dbe4f0;
               border-radius: 10px;
@@ -566,7 +536,7 @@ export default function StaffMealAdminPage() {
             }
             th, td {
               border: 1px solid #d9e2ec;
-              padding: 6px 7px;
+              padding: 5px 6px;
               vertical-align: middle;
               word-break: break-word;
             }
@@ -579,9 +549,20 @@ export default function StaffMealAdminPage() {
               text-align: center;
               white-space: nowrap;
             }
+            .date-head {
+              width: 52px;
+              line-height: 1.05;
+            }
+            .date-head span {
+              display: block;
+              font-size: 7px;
+              color: #475569;
+              letter-spacing: 0;
+              text-transform: none;
+            }
             .number-head,
             .row-number {
-              width: 32px;
+              width: 28px;
               text-align: center;
               color: #64748b;
               font-weight: 800;
@@ -589,29 +570,35 @@ export default function StaffMealAdminPage() {
             th.staff-head,
             .staff-name {
               text-align: left;
-              width: 180px;
-            }
-            .branch-name {
-              width: 76px;
-              font-weight: 900;
-              color: #1d4ed8;
+              width: 140px;
             }
             .notes-head,
             .notes-cell {
-              width: 150px;
+              width: 230px;
             }
             .meal-cell {
               text-align: center;
+              padding-left: 3px;
+              padding-right: 3px;
+            }
+            .meal-pill {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              min-width: 26px;
+              min-height: 20px;
+              padding: 2px 5px;
+              border-radius: 999px;
               font-weight: 900;
               white-space: nowrap;
             }
-            .meal-lunch { background: #e0f2fe; color: #075985; }
-            .meal-dinner { background: #fef3c7; color: #92400e; }
-            .meal-both { background: #dcfce7; color: #166534; }
-            .meal-none { color: #94a3b8; }
+            .meal-lunch { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
+            .meal-dinner { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+            .meal-both { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+            .meal-none { color: #94a3b8; background: #f8fafc; border: 1px solid #e2e8f0; }
             .notes-cell {
               color: #334155;
-              font-size: 9px;
+              font-size: 9.5px;
             }
             .empty-cell {
               text-align: center;
@@ -631,56 +618,13 @@ export default function StaffMealAdminPage() {
             @media print {
               .print-page {
                 min-height: auto;
-                padding: 8mm;
+                padding: 7mm;
               }
-              .daily-total-card,
               .branch-page { break-inside: avoid; }
             }
           </style>
         </head>
         <body>
-          <section class="print-page summary-page">
-            <div class="page-header">
-              <div>
-                <div class="kicker">Hallmark Crown Hotel | F&B Staff Meal</div>
-                <h1>${escapeHtml(title)}</h1>
-                <p>One-page weekly summary for kitchen and packing reference.</p>
-              </div>
-              <div class="page-meta">
-                <strong>${reportOrders.length}</strong>
-                <span>order(s)</span>
-              </div>
-            </div>
-            <section class="summary-cards">
-              ${dates
-                .map((date) => {
-                  const totals = countDayMeals(reportOrders, date);
-                  return `
-                    <div class="daily-total-card">
-                      <strong>${escapeHtml(formatShort(date))}</strong>
-                      <span>L ${totals.lunch}</span>
-                      <span>D ${totals.dinner}</span>
-                    </div>
-                  `;
-                })
-                .join('')}
-            </section>
-            <table class="weekly-table">
-              <thead>
-                <tr>
-                  <th class="branch-name">Branch</th>
-                  <th class="staff-head">Staff Name</th>
-                  ${dates.map((date) => `<th>${escapeHtml(formatShort(date))}</th>`).join('')}
-                </tr>
-              </thead>
-              <tbody>
-                ${weeklySummaryRows || `<tr><td colspan="${dates.length + 2}" class="empty-cell">No staff meal orders for this week.</td></tr>`}
-                ${renderTotalsRow('Grand Total Lunch', weeklyLunchTotals)}
-                ${renderTotalsRow('Grand Total Dinner', weeklyDinnerTotals)}
-              </tbody>
-            </table>
-            <div class="legend">L = Lunch | D = Dinner | L+D = Lunch and Dinner | - = No meal</div>
-          </section>
           ${branchPages}
         </body>
       </html>
