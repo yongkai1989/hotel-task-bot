@@ -17,6 +17,8 @@ type ChillerRecord = {
   updated_at: string;
 };
 
+const CHILLER_CLEANING_START_WEEK = '2026-07-20';
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -66,7 +68,7 @@ function mondayFor(date: Date) {
 
 function buildCompletedWeeks() {
   const currentMonday = mondayFor(new Date());
-  return Array.from({ length: 18 }, (_, index) => {
+  const weeks = Array.from({ length: 18 }, (_, index) => {
     const start = addDays(currentMonday, -7 * (index + 1));
     const end = addDays(start, 6);
     return {
@@ -74,6 +76,8 @@ function buildCompletedWeeks() {
       week_end: localDateKey(end),
     };
   });
+
+  return weeks.filter((week) => week.week_start >= CHILLER_CLEANING_START_WEEK);
 }
 
 function buildCurrentWeek() {
@@ -318,13 +322,15 @@ export default function ChillerCleaningAdminPage() {
         </div>
       </section>
 
-      <section style={styles.overduePanel}>
+      <section style={styles.recordsPanel}>
         <div style={styles.panelHeader}>
           <div>
-            <div style={styles.kicker}>Overdue tracker</div>
-            <h2 style={styles.sectionTitle}>Missing Weekly Submissions</h2>
+            <div style={styles.kicker}>History</div>
+            <h2 style={styles.sectionTitle}>
+              {viewMode === 'overdue' ? 'Overdue Weekly Submissions' : 'Weekly Submissions'}
+            </h2>
           </div>
-          <div style={styles.filterActions}>
+          <div style={styles.historyActions}>
             <button
               type="button"
               onClick={() => setViewMode('all')}
@@ -339,39 +345,12 @@ export default function ChillerCleaningAdminPage() {
             >
               Overdue only
             </button>
+            <span style={styles.pill}>
+              {loading
+                ? 'Loading'
+                : `${viewMode === 'overdue' ? overdueWeeks.length : visibleRecords.length} record(s)`}
+            </span>
           </div>
-        </div>
-
-        {overdueWeeks.length === 0 ? (
-          <div style={styles.emptyCompact}>No overdue weeks in the last 4 months.</div>
-        ) : (
-          <div style={styles.overdueList}>
-            {overdueWeeks.map((week) => (
-              <button
-                key={week.week_start}
-                type="button"
-                onClick={() => setViewMode('overdue')}
-                style={styles.overdueChip}
-              >
-                <strong>
-                  {formatDate(week.week_start)} - {formatDate(week.week_end)}
-                </strong>
-                <span>Missing {week.missingText}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section style={styles.recordsPanel}>
-        <div style={styles.panelHeader}>
-          <div>
-            <div style={styles.kicker}>History</div>
-            <h2 style={styles.sectionTitle}>
-              {viewMode === 'overdue' ? 'Overdue Weekly Submissions' : 'Weekly Submissions'}
-            </h2>
-          </div>
-          <span style={styles.pill}>{loading ? 'Loading' : `${visibleRecords.length} record(s)`}</span>
         </div>
 
         {loading ? (
@@ -681,17 +660,12 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 16,
     fontWeight: 800,
   },
-  overduePanel: {
-    marginTop: 18,
-    padding: 22,
-    borderRadius: 24,
-    border: '1px solid #d5e4f5',
-    background: 'rgba(255,255,255,0.92)',
-  },
-  filterActions: {
+  historyActions: {
     display: 'flex',
+    alignItems: 'center',
     gap: 10,
     flexWrap: 'wrap',
+    justifyContent: 'flex-end',
   },
   filterButton: {
     border: '1px solid #c5d6ea',
@@ -720,24 +694,6 @@ const styles: Record<string, CSSProperties> = {
     color: '#607692',
     fontWeight: 900,
     background: '#f8fbff',
-  },
-  overdueList: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 12,
-    marginTop: 16,
-  },
-  overdueChip: {
-    display: 'grid',
-    gap: 6,
-    textAlign: 'left',
-    padding: 14,
-    borderRadius: 18,
-    border: '1px solid #fecaca',
-    background: '#fff7f7',
-    color: '#8f1d2c',
-    cursor: 'pointer',
-    fontWeight: 800,
   },
   recordsPanel: {
     marginTop: 18,
