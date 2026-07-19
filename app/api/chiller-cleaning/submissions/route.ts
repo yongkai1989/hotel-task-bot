@@ -17,7 +17,7 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (file.size > MAX_IMAGE_BYTES) {
-      return jsonNoCache({ ok: false, error: 'Image must be 10MB or smaller' }, 400);
+      return jsonNoCache({ ok: false, error: 'Image must be 15MB or smaller' }, 400);
     }
 
     await cleanupOldChillerSubmissions();
