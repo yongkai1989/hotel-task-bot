@@ -44,6 +44,38 @@ function recordStatus(record: ChillerRecord) {
   return 'Missing';
 }
 
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function mondayFor(date: Date) {
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = monday.getDay();
+  monday.setDate(monday.getDate() + (day === 0 ? -6 : 1 - day));
+  return monday;
+}
+
+function buildCompletedWeeks() {
+  const currentMonday = mondayFor(new Date());
+  return Array.from({ length: 13 }, (_, index) => {
+    const start = addDays(currentMonday, -7 * (index + 1));
+    const end = addDays(start, 6);
+    return {
+      week_start: localDateKey(start),
+      week_end: localDateKey(end),
+    };
+  });
+}
+
 export default function ChillerCleaningAdminPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [records, setRecords] = useState<ChillerRecord[]>([]);
@@ -52,6 +84,8 @@ export default function ChillerCleaningAdminPage() {
   const [notice, setNotice] = useState('');
   const [passcode, setPasscode] = useState('');
   const [savingPasscode, setSavingPasscode] = useState(false);
+  const [viewMode, setViewMode] = useState<'all' | 'overdue'>('all');
+  const [expandedPhoto, setExpandedPhoto] = useState<{ label: string; url: string } | null>(null);
 
   async function authHeaders() {
     const {
@@ -125,6 +159,37 @@ export default function ChillerCleaningAdminPage() {
 
   const completeCount = records.filter((record) => recordStatus(record) === 'Complete').length;
   const partialCount = records.filter((record) => recordStatus(record) === 'Partial').length;
+  const recordsByWeek = useMemo(
+    () => new Map(records.map((record) => [record.week_start, record])),
+    [records]
+  );
+  const overdueWeeks = useMemo(
+    () =>
+      buildCompletedWeeks()
+        .map((week) => {
+          const record = recordsByWeek.get(week.week_start);
+          const missingBefore = !record?.before_submitted_at;
+          const missingAfter = !record?.after_submitted_at;
+
+          return {
+            ...week,
+            record,
+            missingBefore,
+            missingAfter,
+            missingText: [
+              missingBefore ? 'before photo' : '',
+              missingAfter ? 'after photo' : '',
+            ].filter(Boolean).join(' + '),
+          };
+        })
+        .filter((week) => week.missingBefore || week.missingAfter),
+    [recordsByWeek]
+  );
+  const visibleRecords =
+    viewMode === 'overdue'
+      ? (overdueWeeks.map((week) => week.record).filter(Boolean) as ChillerRecord[])
+      : records;
+  const overdueMissingRecordWeeks = overdueWeeks.filter((week) => !week.record);
 
   return (
     <main style={styles.page}>
@@ -165,6 +230,13 @@ export default function ChillerCleaningAdminPage() {
           <strong style={{ ...styles.metricValue, color: '#b45309' }}>{partialCount}</strong>
           <span style={styles.metricHint}>One photo missing</span>
         </div>
+        <button type="button" onClick={() => setViewMode('overdue')} style={styles.metricButton}>
+          <span style={styles.metricLabel}>Overdue Weeks</span>
+          <strong style={{ ...styles.metricValue, color: overdueWeeks.length ? '#be123c' : '#047857' }}>
+            {overdueWeeks.length}
+          </strong>
+          <span style={styles.metricHint}>Click to show overdue only</span>
+        </button>
       </section>
 
       <section style={styles.controlPanel}>
@@ -189,22 +261,88 @@ export default function ChillerCleaningAdminPage() {
         </form>
       </section>
 
+      <section style={styles.overduePanel}>
+        <div style={styles.panelHeader}>
+          <div>
+            <div style={styles.kicker}>Overdue tracker</div>
+            <h2 style={styles.sectionTitle}>Missing Weekly Submissions</h2>
+          </div>
+          <div style={styles.filterActions}>
+            <button
+              type="button"
+              onClick={() => setViewMode('all')}
+              style={viewMode === 'all' ? styles.activeFilterButton : styles.filterButton}
+            >
+              All history
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('overdue')}
+              style={viewMode === 'overdue' ? styles.activeFilterButton : styles.filterButton}
+            >
+              Overdue only
+            </button>
+          </div>
+        </div>
+
+        {overdueWeeks.length === 0 ? (
+          <div style={styles.emptyCompact}>No overdue weeks in the last 3 months.</div>
+        ) : (
+          <div style={styles.overdueList}>
+            {overdueWeeks.map((week) => (
+              <button
+                key={week.week_start}
+                type="button"
+                onClick={() => setViewMode('overdue')}
+                style={styles.overdueChip}
+              >
+                <strong>
+                  {formatDate(week.week_start)} - {formatDate(week.week_end)}
+                </strong>
+                <span>Missing {week.missingText}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section style={styles.recordsPanel}>
         <div style={styles.panelHeader}>
           <div>
             <div style={styles.kicker}>History</div>
-            <h2 style={styles.sectionTitle}>Weekly Submissions</h2>
+            <h2 style={styles.sectionTitle}>
+              {viewMode === 'overdue' ? 'Overdue Weekly Submissions' : 'Weekly Submissions'}
+            </h2>
           </div>
-          <span style={styles.pill}>{loading ? 'Loading' : `${records.length} record(s)`}</span>
+          <span style={styles.pill}>{loading ? 'Loading' : `${visibleRecords.length} record(s)`}</span>
         </div>
 
         {loading ? (
           <div style={styles.empty}>Loading chiller records...</div>
-        ) : records.length === 0 ? (
+        ) : viewMode === 'overdue' && overdueWeeks.length === 0 ? (
+          <div style={styles.empty}>No overdue chiller cleaning weeks.</div>
+        ) : viewMode === 'all' && records.length === 0 ? (
           <div style={styles.empty}>No chiller cleaning records yet.</div>
         ) : (
           <div style={styles.recordGrid}>
-            {records.map((record) => {
+            {viewMode === 'overdue'
+              ? overdueMissingRecordWeeks.map((week) => (
+                  <article key={week.week_start} style={styles.recordCard}>
+                    <div style={styles.recordTop}>
+                      <div>
+                        <div style={styles.weekText}>
+                          {formatDate(week.week_start)} - {formatDate(week.week_end)}
+                        </div>
+                        <div style={styles.staffText}>No submission record</div>
+                      </div>
+                      <span style={{ ...styles.statusPill, ...styles.statusMissing }}>Missing</span>
+                    </div>
+                    <div style={styles.emptyCompact}>Missing before photo + after photo</div>
+                  </article>
+                ))
+              : null}
+
+            {visibleRecords.map((record) => {
               const status = recordStatus(record);
               const statusStyle =
                 status === 'Complete'
@@ -230,11 +368,13 @@ export default function ChillerCleaningAdminPage() {
                       label="Before Cleaning"
                       url={record.before_url}
                       time={record.before_submitted_at}
+                      onExpand={(url) => setExpandedPhoto({ label: 'Before Cleaning', url })}
                     />
                     <PhotoPanel
                       label="After Cleaning"
                       url={record.after_url}
                       time={record.after_submitted_at}
+                      onExpand={(url) => setExpandedPhoto({ label: 'After Cleaning', url })}
                     />
                   </div>
                 </article>
@@ -243,6 +383,20 @@ export default function ChillerCleaningAdminPage() {
           </div>
         )}
       </section>
+
+      {expandedPhoto ? (
+        <div style={styles.lightboxBackdrop} onClick={() => setExpandedPhoto(null)}>
+          <div style={styles.lightbox} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.lightboxHeader}>
+              <strong>{expandedPhoto.label}</strong>
+              <button type="button" onClick={() => setExpandedPhoto(null)} style={styles.closeButton}>
+                Close
+              </button>
+            </div>
+            <img src={expandedPhoto.url} alt={expandedPhoto.label} style={styles.lightboxImage} />
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -251,10 +405,12 @@ function PhotoPanel({
   label,
   url,
   time,
+  onExpand,
 }: {
   label: string;
   url?: string | null;
   time: string | null;
+  onExpand: (url: string) => void;
 }) {
   return (
     <div style={styles.photoPanel}>
@@ -263,9 +419,9 @@ function PhotoPanel({
         <span>{formatTime(time)}</span>
       </div>
       {url ? (
-        <a href={url} target="_blank" rel="noreferrer" style={styles.photoLink}>
+        <button type="button" onClick={() => onExpand(url)} style={styles.photoButton}>
           <img src={url} alt={label} style={styles.photo} />
-        </a>
+        </button>
       ) : (
         <div style={styles.photoMissing}>No image</div>
       )}
@@ -368,6 +524,15 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #d7e4f4',
     background: 'rgba(255,255,255,0.9)',
   },
+  metricButton: {
+    padding: 20,
+    borderRadius: 22,
+    border: '1px solid #fecdd3',
+    background: 'rgba(255,255,255,0.94)',
+    textAlign: 'left',
+    cursor: 'pointer',
+    boxShadow: '0 18px 48px rgba(190, 18, 60, 0.08)',
+  },
   metricLabel: {
     display: 'block',
     color: '#4f6686',
@@ -420,6 +585,64 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 16,
     border: '1px solid #c8d8ec',
     fontSize: 16,
+    fontWeight: 800,
+  },
+  overduePanel: {
+    marginTop: 18,
+    padding: 22,
+    borderRadius: 24,
+    border: '1px solid #d5e4f5',
+    background: 'rgba(255,255,255,0.92)',
+  },
+  filterActions: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  filterButton: {
+    border: '1px solid #c5d6ea',
+    borderRadius: 999,
+    background: '#fff',
+    color: '#07152e',
+    fontWeight: 900,
+    padding: '10px 14px',
+    cursor: 'pointer',
+  },
+  activeFilterButton: {
+    border: '1px solid #0f2ee8',
+    borderRadius: 999,
+    background: '#0f2ee8',
+    color: '#fff',
+    fontWeight: 900,
+    padding: '10px 14px',
+    cursor: 'pointer',
+  },
+  emptyCompact: {
+    marginTop: 14,
+    padding: 16,
+    border: '1px dashed #bdd2ee',
+    borderRadius: 16,
+    textAlign: 'center',
+    color: '#607692',
+    fontWeight: 900,
+    background: '#f8fbff',
+  },
+  overdueList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: 12,
+    marginTop: 16,
+  },
+  overdueChip: {
+    display: 'grid',
+    gap: 6,
+    textAlign: 'left',
+    padding: 14,
+    borderRadius: 18,
+    border: '1px solid #fecaca',
+    background: '#fff7f7',
+    color: '#8f1d2c',
+    cursor: 'pointer',
     fontWeight: 800,
   },
   recordsPanel: {
@@ -516,12 +739,17 @@ const styles: Record<string, CSSProperties> = {
     gap: 4,
     color: '#07152e',
   },
-  photoLink: {
+  photoButton: {
     display: 'block',
+    width: '100%',
+    padding: 0,
+    border: 0,
+    background: 'transparent',
+    cursor: 'zoom-in',
   },
   photo: {
     width: '100%',
-    aspectRatio: '4 / 3',
+    height: 118,
     objectFit: 'contain',
     background: '#0f172a',
     display: 'block',
@@ -534,5 +762,47 @@ const styles: Record<string, CSSProperties> = {
     borderTop: '1px solid #d9e5f4',
     color: '#69809b',
     fontWeight: 900,
+  },
+  lightboxBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1000,
+    background: 'rgba(6, 21, 47, 0.78)',
+    display: 'grid',
+    placeItems: 'center',
+    padding: 18,
+  },
+  lightbox: {
+    width: 'min(980px, 96vw)',
+    maxHeight: '92vh',
+    borderRadius: 24,
+    background: '#fff',
+    border: '1px solid #d7e4f4',
+    overflow: 'hidden',
+    boxShadow: '0 30px 90px rgba(0,0,0,0.35)',
+  },
+  lightboxHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    padding: '14px 16px',
+    borderBottom: '1px solid #d9e5f4',
+  },
+  closeButton: {
+    border: '1px solid #c5d6ea',
+    borderRadius: 12,
+    background: '#fff',
+    color: '#07152e',
+    fontWeight: 900,
+    padding: '10px 12px',
+    cursor: 'pointer',
+  },
+  lightboxImage: {
+    width: '100%',
+    maxHeight: 'calc(92vh - 62px)',
+    objectFit: 'contain',
+    display: 'block',
+    background: '#0f172a',
   },
 };
