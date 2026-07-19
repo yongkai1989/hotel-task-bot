@@ -340,7 +340,12 @@ const styles = `
       radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 32rem),
       linear-gradient(135deg, #eef5ff 0%, #f8fbff 48%, #eef3f8 100%);
     color: #07142f;
-    font-family: Arial, sans-serif;
+    font-family: Inter, Aptos, "Segoe UI", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  button, input, textarea, select {
+    font: inherit;
   }
   .unlock, .hero, .formCard {
     max-width: 1040px;
@@ -505,10 +510,10 @@ const styles = `
   .preview, .emptyPreview {
     display: grid;
     place-items: center;
-    height: 260px;
+    height: 320px;
     border-radius: 18px;
     overflow: hidden;
-    background: #eef5ff;
+    background: #0f172a;
     border: 1px dashed #adc8ef;
     color: #516786;
     font-weight: 900;
@@ -516,7 +521,7 @@ const styles = `
   .preview img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
   }
   .sourceWrap {
     position: relative;
@@ -603,7 +608,7 @@ const styles = `
       grid-template-columns: 1fr;
     }
     .preview, .emptyPreview {
-      height: 220px;
+      height: 260px;
     }
     .cardTop {
       align-items: flex-start;
