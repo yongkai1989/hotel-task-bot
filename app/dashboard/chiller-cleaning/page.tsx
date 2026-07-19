@@ -66,7 +66,7 @@ function mondayFor(date: Date) {
 
 function buildCompletedWeeks() {
   const currentMonday = mondayFor(new Date());
-  return Array.from({ length: 13 }, (_, index) => {
+  return Array.from({ length: 18 }, (_, index) => {
     const start = addDays(currentMonday, -7 * (index + 1));
     const end = addDays(start, 6);
     return {
@@ -74,6 +74,15 @@ function buildCompletedWeeks() {
       week_end: localDateKey(end),
     };
   });
+}
+
+function buildCurrentWeek() {
+  const start = mondayFor(new Date());
+  const end = addDays(start, 6);
+  return {
+    week_start: localDateKey(start),
+    week_end: localDateKey(end),
+  };
 }
 
 export default function ChillerCleaningAdminPage() {
@@ -86,6 +95,9 @@ export default function ChillerCleaningAdminPage() {
   const [savingPasscode, setSavingPasscode] = useState(false);
   const [viewMode, setViewMode] = useState<'all' | 'overdue'>('all');
   const [expandedPhoto, setExpandedPhoto] = useState<{ label: string; url: string } | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resettingWeek, setResettingWeek] = useState(false);
+  const currentWeek = useMemo(() => buildCurrentWeek(), []);
 
   async function authHeaders() {
     const {
@@ -152,6 +164,38 @@ export default function ChillerCleaningAdminPage() {
     }
   }
 
+  async function resetCurrentWeek() {
+    setResettingWeek(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const headers = await authHeaders();
+      const res = await fetch('/api/chiller-cleaning/admin', {
+        method: 'DELETE',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify({ week_start: currentWeek.week_start }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'Unable to reset current week');
+      }
+
+      setShowResetConfirm(false);
+      setNotice(`Current week reset completed. ${json.removedFiles || 0} upload(s) removed.`);
+      await loadRecords();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to reset current week');
+    } finally {
+      setResettingWeek(false);
+    }
+  }
+
   useEffect(() => {
     loadRecords();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -198,7 +242,7 @@ export default function ChillerCleaningAdminPage() {
           <div style={styles.kicker}>Branch compliance</div>
           <h1 style={styles.title}>Chiller Cleaning Records</h1>
           <p style={styles.subtitle}>
-            Review weekly before-and-after cleaning submissions. Records older than 3 months are cleaned automatically.
+            Review weekly before-and-after cleaning submissions. Records older than 4 months are cleaned automatically.
           </p>
         </div>
         <div style={styles.heroActions}>
@@ -218,7 +262,7 @@ export default function ChillerCleaningAdminPage() {
         <div style={styles.metricCard}>
           <span style={styles.metricLabel}>Total Weeks</span>
           <strong style={styles.metricValue}>{records.length}</strong>
-          <span style={styles.metricHint}>Last 3 months</span>
+          <span style={styles.metricHint}>Last 4 months</span>
         </div>
         <div style={styles.metricCard}>
           <span style={styles.metricLabel}>Complete</span>
@@ -259,6 +303,19 @@ export default function ChillerCleaningAdminPage() {
             {savingPasscode ? 'Saving...' : 'Update Passcode'}
           </button>
         </form>
+        <div style={styles.resetBox}>
+          <div>
+            <div style={styles.dangerKicker}>Current week only</div>
+            <strong style={styles.resetTitle}>Reset Current Week Submission</strong>
+            <p style={styles.resetCopy}>
+              Deletes this week&apos;s before/after uploads and clears this week&apos;s submission record only.
+              Past weeks stay unchanged.
+            </p>
+          </div>
+          <button type="button" onClick={() => setShowResetConfirm(true)} style={styles.dangerButton}>
+            Reset Current Week
+          </button>
+        </div>
       </section>
 
       <section style={styles.overduePanel}>
@@ -286,7 +343,7 @@ export default function ChillerCleaningAdminPage() {
         </div>
 
         {overdueWeeks.length === 0 ? (
-          <div style={styles.emptyCompact}>No overdue weeks in the last 3 months.</div>
+          <div style={styles.emptyCompact}>No overdue weeks in the last 4 months.</div>
         ) : (
           <div style={styles.overdueList}>
             {overdueWeeks.map((week) => (
@@ -383,6 +440,43 @@ export default function ChillerCleaningAdminPage() {
           </div>
         )}
       </section>
+
+      {showResetConfirm ? (
+        <div
+          style={styles.lightboxBackdrop}
+          onClick={() => !resettingWeek && setShowResetConfirm(false)}
+        >
+          <div style={styles.confirmModal} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.dangerKicker}>Confirm reset</div>
+            <h2 style={styles.confirmTitle}>Reset current week?</h2>
+            <p style={styles.confirmCopy}>
+              This will erase before/after uploads and clear submission history for{' '}
+              <strong>
+                {formatDate(currentWeek.week_start)} - {formatDate(currentWeek.week_end)}
+              </strong>{' '}
+              only. Past weeks will not be changed.
+            </p>
+            <div style={styles.modalActions}>
+              <button
+                type="button"
+                disabled={resettingWeek}
+                onClick={() => setShowResetConfirm(false)}
+                style={styles.secondaryButton}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={resettingWeek}
+                onClick={resetCurrentWeek}
+                style={styles.confirmDangerButton}
+              >
+                {resettingWeek ? 'Resetting...' : 'Yes, Reset Current Week'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {expandedPhoto ? (
         <div style={styles.lightboxBackdrop} onClick={() => setExpandedPhoto(null)}>
