@@ -308,13 +308,20 @@ export default function ChillerCleaningAdminPage() {
           </button>
         </form>
         <div style={styles.resetBox}>
-          <div>
-            <div style={styles.dangerKicker}>Current week only</div>
+          <div style={styles.resetIcon}>!</div>
+          <div style={styles.resetContent}>
+            <div style={styles.dangerKicker}>Controlled reset</div>
             <strong style={styles.resetTitle}>Reset Current Week Submission</strong>
             <p style={styles.resetCopy}>
-              Deletes this week&apos;s before/after uploads and clears this week&apos;s submission record only.
-              Past weeks stay unchanged.
+              Use this only when the current week was uploaded wrongly. It removes this week&apos;s
+              before/after photos and clears the current submission record only.
             </p>
+            <div style={styles.resetScope}>
+              <span>This week</span>
+              <strong>
+                {formatDate(currentWeek.week_start)} - {formatDate(currentWeek.week_end)}
+              </strong>
+            </div>
           </div>
           <button type="button" onClick={() => setShowResetConfirm(true)} style={styles.dangerButton}>
             Reset Current Week
@@ -426,14 +433,32 @@ export default function ChillerCleaningAdminPage() {
           onClick={() => !resettingWeek && setShowResetConfirm(false)}
         >
           <div style={styles.confirmModal} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.dangerKicker}>Confirm reset</div>
-            <h2 style={styles.confirmTitle}>Reset current week?</h2>
-            <p style={styles.confirmCopy}>
-              This will erase before/after uploads and clear submission history for{' '}
+            <div style={styles.confirmHeader}>
+              <div style={styles.confirmIcon}>!</div>
+              <div>
+                <div style={styles.dangerKicker}>Final confirmation</div>
+                <h2 style={styles.confirmTitle}>Reset current week submission?</h2>
+              </div>
+            </div>
+            <div style={styles.confirmWeekCard}>
+              <span style={styles.confirmWeekLabel}>Week affected</span>
               <strong>
                 {formatDate(currentWeek.week_start)} - {formatDate(currentWeek.week_end)}
-              </strong>{' '}
-              only. Past weeks will not be changed.
+              </strong>
+            </div>
+            <div style={styles.confirmImpactGrid}>
+              <div style={styles.impactItem}>
+                <span>Will be removed</span>
+                <strong>Before photo, after photo, and this week&apos;s submission record</strong>
+              </div>
+              <div style={styles.impactItemSafe}>
+                <span>Will stay unchanged</span>
+                <strong>All past weeks and older history records</strong>
+              </div>
+            </div>
+            <p style={styles.confirmCopy}>
+              This action is meant for correcting the current week only. Once confirmed, staff must
+              upload the before and after photos again for this week.
             </p>
             <div style={styles.modalActions}>
               <button
@@ -660,6 +685,78 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 16,
     fontWeight: 800,
   },
+  resetBox: {
+    width: '100%',
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 16,
+    alignItems: 'center',
+    padding: 18,
+    borderRadius: 22,
+    border: '1px solid #fed7aa',
+    background: 'linear-gradient(135deg, #fff7ed 0%, #fff 58%, #fff1f2 100%)',
+    boxShadow: '0 18px 44px rgba(180, 83, 9, 0.08)',
+  },
+  resetIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    display: 'grid',
+    placeItems: 'center',
+    background: '#ffedd5',
+    color: '#c2410c',
+    border: '1px solid #fdba74',
+    fontSize: 22,
+    fontWeight: 1000,
+  },
+  resetContent: {
+    minWidth: 240,
+    flex: '1 1 360px',
+  },
+  dangerKicker: {
+    color: '#b45309',
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 1.7,
+    textTransform: 'uppercase',
+  },
+  resetTitle: {
+    display: 'block',
+    marginTop: 5,
+    color: '#07152e',
+    fontSize: 18,
+    fontWeight: 1000,
+  },
+  resetCopy: {
+    margin: '6px 0 0',
+    color: '#6b4f2b',
+    fontWeight: 800,
+    lineHeight: 1.45,
+  },
+  resetScope: {
+    marginTop: 12,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    padding: '9px 12px',
+    borderRadius: 14,
+    background: '#fff',
+    border: '1px solid #fed7aa',
+    color: '#7c2d12',
+    fontWeight: 900,
+  },
+  dangerButton: {
+    border: '1px solid #fca5a5',
+    borderRadius: 16,
+    background: '#b91c1c',
+    color: '#fff',
+    fontWeight: 1000,
+    padding: '14px 18px',
+    cursor: 'pointer',
+    boxShadow: '0 16px 34px rgba(185, 28, 28, 0.18)',
+    marginLeft: 'auto',
+  },
   historyActions: {
     display: 'flex',
     alignItems: 'center',
@@ -821,6 +918,104 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     placeItems: 'center',
     padding: 18,
+  },
+  confirmModal: {
+    width: 'min(560px, 96vw)',
+    borderRadius: 26,
+    background: '#fff',
+    border: '1px solid #fecaca',
+    padding: 22,
+    boxShadow: '0 30px 90px rgba(0,0,0,0.36)',
+  },
+  confirmHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  },
+  confirmIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    display: 'grid',
+    placeItems: 'center',
+    background: '#fee2e2',
+    color: '#b91c1c',
+    border: '1px solid #fecaca',
+    fontSize: 24,
+    fontWeight: 1000,
+    flex: '0 0 auto',
+  },
+  confirmTitle: {
+    margin: '5px 0 0',
+    fontSize: 'clamp(24px, 5vw, 34px)',
+    lineHeight: 1.08,
+    color: '#07152e',
+  },
+  confirmWeekCard: {
+    marginTop: 18,
+    padding: 16,
+    borderRadius: 18,
+    border: '1px solid #fed7aa',
+    background: '#fff7ed',
+    display: 'grid',
+    gap: 4,
+    color: '#7c2d12',
+  },
+  confirmWeekLabel: {
+    color: '#b45309',
+    fontSize: 11,
+    fontWeight: 1000,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  confirmImpactGrid: {
+    marginTop: 12,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+    gap: 10,
+  },
+  impactItem: {
+    padding: 14,
+    borderRadius: 16,
+    border: '1px solid #fecaca',
+    background: '#fff1f2',
+    color: '#991b1b',
+    display: 'grid',
+    gap: 5,
+    fontWeight: 900,
+  },
+  impactItemSafe: {
+    padding: 14,
+    borderRadius: 16,
+    border: '1px solid #bbf7d0',
+    background: '#ecfdf5',
+    color: '#047857',
+    display: 'grid',
+    gap: 5,
+    fontWeight: 900,
+  },
+  confirmCopy: {
+    margin: '14px 0 0',
+    color: '#536b89',
+    lineHeight: 1.55,
+    fontWeight: 800,
+  },
+  modalActions: {
+    marginTop: 18,
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  confirmDangerButton: {
+    border: '1px solid #991b1b',
+    borderRadius: 16,
+    background: '#991b1b',
+    color: '#fff',
+    fontWeight: 1000,
+    padding: '14px 18px',
+    cursor: 'pointer',
+    boxShadow: '0 16px 34px rgba(153, 27, 27, 0.2)',
   },
   lightbox: {
     width: 'min(980px, 96vw)',
