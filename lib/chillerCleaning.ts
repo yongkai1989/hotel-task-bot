@@ -159,7 +159,7 @@ export async function signChillerRecord(record: ChillerRecord | null) {
 export async function cleanupOldChillerSubmissions() {
   const week = getCurrentSingaporeWeek();
   const cutoffDate = new Date(`${week.weekStart}T00:00:00Z`);
-  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - 3);
+  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - 4);
   const cutoff = yyyyMmDd(cutoffDate);
 
   const { data: oldRows, error } = await supabaseAdmin
