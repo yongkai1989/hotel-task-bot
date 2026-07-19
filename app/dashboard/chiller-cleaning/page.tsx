@@ -279,6 +279,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '32px clamp(16px, 4vw, 56px)',
     background: 'linear-gradient(135deg, #eef5ff 0%, #f8fbff 48%, #f7fbf8 100%)',
     color: '#06152f',
+    fontFamily: 'Inter, Aptos, "Segoe UI", Arial, sans-serif',
   },
   hero: {
     display: 'flex',
@@ -521,7 +522,8 @@ const styles: Record<string, CSSProperties> = {
   photo: {
     width: '100%',
     aspectRatio: '4 / 3',
-    objectFit: 'cover',
+    objectFit: 'contain',
+    background: '#0f172a',
     display: 'block',
     borderTop: '1px solid #d9e5f4',
   },
