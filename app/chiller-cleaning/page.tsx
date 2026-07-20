@@ -2,9 +2,6 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
 type ChillerRecord = {
   id: string;
   week_start: string;
