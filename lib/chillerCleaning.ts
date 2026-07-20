@@ -109,31 +109,46 @@ export function canManageChillerCleaning(user: DashboardUser | null) {
 export const canManageChiller = canManageChillerCleaning;
 
 function localDateKey(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Singapore',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  });
-  return formatter.format(date);
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function dateKeyToUtc(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function utcDateKey(date: Date) {
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, '0'),
+    String(date.getUTCDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 function addDays(dateKey: string, days: number) {
-  const date = new Date(`${dateKey}T00:00:00+08:00`);
-  date.setDate(date.getDate() + days);
-  return localDateKey(date);
+  const date = dateKeyToUtc(dateKey);
+  date.setUTCDate(date.getUTCDate() + days);
+  return utcDateKey(date);
 }
 
 function mondayFor(dateKey: string) {
-  const date = new Date(`${dateKey}T00:00:00+08:00`);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  return localDateKey(date);
+  const date = dateKeyToUtc(dateKey);
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return utcDateKey(date);
 }
 
 export function getCurrentChillerWeek() {
-  const start = mondayFor(localDateKey());
+  const calculatedStart = mondayFor(localDateKey());
+  const start =
+    calculatedStart < CHILLER_TRACKING_START ? CHILLER_TRACKING_START : calculatedStart;
   return {
     start,
     end: addDays(start, 6),
@@ -154,9 +169,8 @@ export function enumerateChillerWeeks(startDate = CHILLER_TRACKING_START, months
   const currentWeek = getCurrentChillerWeek();
   const oldest = new Date();
   oldest.setMonth(oldest.getMonth() - months);
-  const trackingStartDate = new Date(`${startDate}T00:00:00+08:00`);
-  const firstSeed = trackingStartDate > oldest ? trackingStartDate : oldest;
-  const first = mondayFor(localDateKey(firstSeed));
+  const oldestWeek = mondayFor(localDateKey(oldest));
+  const first = startDate > oldestWeek ? startDate : oldestWeek;
   const weeks: Array<{ start: string; end: string }> = [];
   let cursor = first;
 
