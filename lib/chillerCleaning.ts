@@ -195,9 +195,40 @@ export async function signChillerRecord(record: any): Promise<ChillerRecord> {
   return signed;
 }
 
-export function chillerStoragePath(kind: ChillerKind, weekStart: string, chillerName: string) {
+export function chillerExtensionFor(value: unknown) {
+  const raw =
+    typeof value === 'string'
+      ? value
+      : String((value as any)?.name || (value as any)?.type || '');
+  const lower = raw.toLowerCase();
+
+  if (lower.includes('image/png') || lower.endsWith('.png')) return '.png';
+  if (lower.includes('image/webp') || lower.endsWith('.webp')) return '.webp';
+  if (lower.includes('image/heic') || lower.endsWith('.heic')) return '.heic';
+  if (lower.includes('image/heif') || lower.endsWith('.heif')) return '.heif';
+  if (lower.includes('image/gif') || lower.endsWith('.gif')) return '.gif';
+  if (
+    lower.includes('image/jpeg') ||
+    lower.includes('image/jpg') ||
+    lower.endsWith('.jpeg') ||
+    lower.endsWith('.jpg')
+  ) {
+    return '.jpg';
+  }
+
+  const match = lower.match(/\.[a-z0-9]+$/);
+  return match?.[0] || '.jpg';
+}
+
+export function chillerStoragePath(
+  kind: ChillerKind,
+  weekStart: string,
+  chillerName: string,
+  extension = '',
+) {
   const cleanChiller = normalizeChillerName(chillerName).toLowerCase().replace(/\s+/g, '-');
-  return `${weekStart}/${cleanChiller}/${kind}-${Date.now()}-${randomUUID()}`;
+  const ext = extension ? (extension.startsWith('.') ? extension : `.${extension}`) : '';
+  return `${weekStart}/${cleanChiller}/${kind}-${Date.now()}-${randomUUID()}${ext}`;
 }
 
 export async function cleanupOldChillerSubmissions() {
