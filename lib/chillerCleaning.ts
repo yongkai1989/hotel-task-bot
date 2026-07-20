@@ -140,6 +140,8 @@ export function getCurrentChillerWeek() {
   };
 }
 
+export const getCurrentSingaporeWeek = getCurrentChillerWeek;
+
 export function getChillerWeekFor(dateKey: string) {
   const start = mondayFor(dateKey);
   return {
