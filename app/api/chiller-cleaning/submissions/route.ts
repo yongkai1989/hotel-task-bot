@@ -1,23 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import {
   CHILLER_BUCKET,
+  CHILLER_NAMES,
   ChillerKind,
-  ChillerRecord,
-  chillerExtensionFor,
   chillerStoragePath,
   cleanupOldChillerSubmissions,
-  getCurrentSingaporeWeek,
+  getCurrentChillerWeek,
+  normalizeChillerName,
   signChillerRecord,
   verifyChillerToken,
 } from '../../../../lib/chillerCleaning';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
-
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -28,141 +26,125 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
-async function currentWeekRecord() {
-  const week = getCurrentSingaporeWeek();
+async function getCurrentWeekRows() {
+  const week = getCurrentChillerWeek();
+  const { start: weekStart, end: weekEnd } = week;
   const { data, error } = await supabaseAdmin
     .from('chiller_cleaning_submissions')
     .select('*')
-    .eq('week_start', week.weekStart)
-    .maybeSingle();
+    .eq('week_start', weekStart)
+    .order('chiller_name', { ascending: true });
 
-  if (error) throw error;
-  return { week, record: data as ChillerRecord | null };
+  if (error) throw new Error(error.message);
+  const records = await Promise.all((data || []).map((row: any) => signChillerRecord(row)));
+  return { week: { start: weekStart, end: weekEnd }, records };
 }
 
 export async function GET(req: NextRequest) {
   try {
-    if (!(await verifyChillerToken(req))) {
-      return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
-    }
+    const allowed = await verifyChillerToken(req, 'staff');
+    if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     await cleanupOldChillerSubmissions();
-
-    const { week, record } = await currentWeekRecord();
-    return jsonNoCache({
-      ok: true,
-      week,
-      record: await signChillerRecord(record),
-    });
+    const { week, records } = await getCurrentWeekRows();
+    return jsonNoCache({ ok: true, week, current_week: week, chillers: CHILLER_NAMES, records });
   } catch (error: any) {
-    return jsonNoCache(
-      { ok: false, error: error?.message || 'Unable to load submission' },
-      500
-    );
+    return jsonNoCache({ ok: false, error: error?.message || 'Unable to load submissions' }, 500);
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    if (!(await verifyChillerToken(req))) {
-      return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
-    }
+    const allowed = await verifyChillerToken(req, 'staff');
+    if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     const form = await req.formData();
+    const chillerName = normalizeChillerName(form.get('chiller_name'));
     const kind = String(form.get('kind') || '') as ChillerKind;
     const staffName = String(form.get('staff_name') || '').trim();
-    const file = form.get('file') as File | null;
+    const file = form.get('file');
 
     if (kind !== 'before' && kind !== 'after') {
-      return jsonNoCache({ ok: false, error: 'Invalid image type' }, 400);
+      return jsonNoCache({ ok: false, error: 'Please choose Before or After photo' }, 400);
     }
-
     if (!staffName) {
       return jsonNoCache({ ok: false, error: 'Staff name is required' }, 400);
     }
-
-    if (!file || typeof file.arrayBuffer !== 'function') {
-      return jsonNoCache({ ok: false, error: 'Image is required' }, 400);
+    if (!(file instanceof File)) {
+      return jsonNoCache({ ok: false, error: 'Photo is required' }, 400);
+    }
+    if (!file.type.startsWith('image/')) {
+      return jsonNoCache({ ok: false, error: 'Only image uploads are accepted' }, 400);
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      return jsonNoCache({ ok: false, error: 'Photo is too large. Please upload below 15MB.' }, 400);
     }
 
-    const type = file.type || 'image/jpeg';
-
-    if (!type.startsWith('image/')) {
-      return jsonNoCache({ ok: false, error: 'Only images are allowed' }, 400);
-    }
-
-    if (file.size > MAX_IMAGE_BYTES) {
-      return jsonNoCache({ ok: false, error: 'Image must be 15MB or smaller' }, 400);
-    }
-
-    await cleanupOldChillerSubmissions();
-
-    const { week, record } = await currentWeekRecord();
-    const ext = chillerExtensionFor(type);
-    const path = `${chillerStoragePath(kind, week.weekStart)}.${ext}`;
+    const week = getCurrentChillerWeek();
+    const path = chillerStoragePath(kind, week.start, chillerName);
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from(CHILLER_BUCKET)
-      .upload(path, buffer, {
-        contentType: type,
-        upsert: false,
-      });
+    const { error: uploadError } = await supabaseAdmin.storage.from(CHILLER_BUCKET).upload(path, buffer, {
+      contentType: file.type || 'image/jpeg',
+      upsert: true,
+    });
 
-    if (uploadError) throw uploadError;
+    if (uploadError) throw new Error(uploadError.message);
 
-    const timestampColumn =
-      kind === 'before' ? 'before_submitted_at' : 'after_submitted_at';
-    const pathColumn = kind === 'before' ? 'before_path' : 'after_path';
-    const oldPath =
-      kind === 'before' ? record?.before_path || null : record?.after_path || null;
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('chiller_cleaning_submissions')
+      .select('*')
+      .eq('week_start', week.start)
+      .eq('chiller_name', chillerName)
+      .maybeSingle();
 
-    let saved: ChillerRecord;
+    if (existingError) throw new Error(existingError.message);
 
-    if (record?.id) {
+    const now = new Date().toISOString();
+    const updateData: any = {
+      staff_name: staffName,
+      updated_at: now,
+      [`${kind}_path`]: path,
+      [`${kind}_submitted_at`]: now,
+    };
+
+    let saved: any;
+    if (existing) {
+      const oldPath = existing[`${kind}_path`];
+      if (oldPath && oldPath !== path) {
+        await supabaseAdmin.storage.from(CHILLER_BUCKET).remove([oldPath]);
+      }
+
       const { data, error } = await supabaseAdmin
         .from('chiller_cleaning_submissions')
-        .update({
-          staff_name: staffName,
-          [pathColumn]: path,
-          [timestampColumn]: new Date().toISOString(),
-        })
-        .eq('id', record.id)
+        .update(updateData)
+        .eq('id', existing.id)
         .select('*')
         .single();
 
-      if (error) throw error;
-      saved = data as ChillerRecord;
+      if (error) throw new Error(error.message);
+      saved = data;
     } else {
       const { data, error } = await supabaseAdmin
         .from('chiller_cleaning_submissions')
         .insert({
-          week_start: week.weekStart,
-          week_end: week.weekEnd,
+          week_start: week.start,
+          week_end: week.end,
+          chiller_name: chillerName,
           staff_name: staffName,
-          [pathColumn]: path,
-          [timestampColumn]: new Date().toISOString(),
+          ...updateData,
         })
         .select('*')
         .single();
 
-      if (error) throw error;
-      saved = data as ChillerRecord;
+      if (error) throw new Error(error.message);
+      saved = data;
     }
 
-    if (oldPath && oldPath !== path) {
-      await supabaseAdmin.storage.from(CHILLER_BUCKET).remove([oldPath]);
-    }
-
-    return jsonNoCache({
-      ok: true,
-      week,
-      record: await signChillerRecord(saved),
-    });
+    const signed = await signChillerRecord(saved);
+    const { records } = await getCurrentWeekRows();
+    return jsonNoCache({ ok: true, week, current_week: week, record: signed, records, chillers: CHILLER_NAMES });
   } catch (error: any) {
-    return jsonNoCache(
-      { ok: false, error: error?.message || 'Unable to save image' },
-      500
-    );
+    return jsonNoCache({ ok: false, error: error?.message || 'Unable to save submission' }, 500);
   }
 }
