@@ -10,6 +10,7 @@ import {
   hashPasscode,
   signChillerRecord,
   tokenForHash,
+  verifyChillerToken,
 } from '../../../../lib/chillerCleaning';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,18 @@ function jsonNoCache(body: any, status = 200) {
 }
 
 async function requireManager(req: NextRequest) {
+  if (await verifyChillerToken(req)) {
+    return {
+      user: {
+        user_id: 'chiller-standalone-admin',
+        email: 'chiller-admin@local',
+        name: 'Chiller Admin',
+        role: 'SUPERUSER',
+      } as any,
+      error: null,
+    };
+  }
+
   const { user, error } = await getDashboardUserFromRequest(req);
   if (!user) return { user: null, error: error || 'Unauthorized' };
   if (!canManageChiller(user)) return { user: null, error: 'Access denied' };
