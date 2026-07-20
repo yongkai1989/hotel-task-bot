@@ -6,13 +6,26 @@ import { DashboardUser } from './dashboardAuth';
 export const CHILLER_BUCKET = 'chiller-cleaning';
 export const DEFAULT_CHILLER_PASSCODE_HASH =
   '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
+export const CHILLER_TRACKING_START = '2026-07-20';
+export const CHILLER_NAMES = ['Chiller 1', 'Chiller 2', 'Chiller 3', 'Chiller 4', 'Chiller 5'] as const;
 
+export type ChillerName = (typeof CHILLER_NAMES)[number];
 export type ChillerKind = 'before' | 'after';
+export type ChillerTokenMode = 'staff' | 'admin' | 'either';
+
+export type ChillerSettings = {
+  id: string;
+  passcode_hash: string;
+  staff_passcode_hash: string;
+  admin_passcode_hash: string;
+  updated_at: string | null;
+};
 
 export type ChillerRecord = {
   id: string;
   week_start: string;
   week_end: string;
+  chiller_name: string;
   staff_name: string | null;
   before_path: string | null;
   before_submitted_at: string | null;
@@ -24,164 +37,179 @@ export type ChillerRecord = {
   after_url?: string | null;
 };
 
-export type ChillerWeek = {
-  today: string;
-  weekStart: string;
-  weekEnd: string;
-  label: string;
-};
-
-function yyyyMmDd(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function formatDisplayDate(value: string) {
-  const date = new Date(`${value}T00:00:00Z`);
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(date);
-}
-
 export function hashPasscode(passcode: string) {
-  return createHash('sha256').update(String(passcode || '')).digest('hex');
+  return createHash('sha256').update(passcode.trim()).digest('hex');
 }
 
-export function tokenForHash(passcodeHash: string) {
-  return createHash('sha256')
-    .update(`${passcodeHash}:chiller-cleaning-access`)
-    .digest('hex');
+export function tokenForHash(hash: string) {
+  return createHash('sha256').update(`chiller-cleaning:${hash}`).digest('hex');
 }
 
-export function getCurrentSingaporeWeek(): ChillerWeek {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+export function normalizeChillerName(value: unknown): ChillerName {
+  const text = String(value || '').trim().toLowerCase();
+  const found = CHILLER_NAMES.find((name) => name.toLowerCase() === text);
+  return found || 'Chiller 1';
+}
+
+function normalizeSettings(row: any): ChillerSettings {
+  const legacyHash = String(row?.passcode_hash || DEFAULT_CHILLER_PASSCODE_HASH);
+  return {
+    id: 'singleton',
+    passcode_hash: legacyHash,
+    staff_passcode_hash: String(row?.staff_passcode_hash || legacyHash),
+    admin_passcode_hash: String(row?.admin_passcode_hash || legacyHash),
+    updated_at: row?.updated_at || null,
+  };
+}
+
+export async function getChillerSettings(): Promise<ChillerSettings> {
+  const { data, error } = await supabaseAdmin
+    .from('chiller_cleaning_settings')
+    .select('*')
+    .eq('id', 'singleton')
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (data) return normalizeSettings(data);
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('chiller_cleaning_settings')
+    .insert({
+      id: 'singleton',
+      passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
+      staff_passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
+      admin_passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
+    } as any)
+    .select('*')
+    .single();
+
+  if (insertError) throw new Error(insertError.message);
+  return normalizeSettings(inserted);
+}
+
+export async function verifyChillerToken(req: NextRequest, mode: ChillerTokenMode = 'either') {
+  const token = req.headers.get('x-chiller-token') || '';
+  if (!token) return false;
+
+  const settings = await getChillerSettings();
+  const staffToken = tokenForHash(settings.staff_passcode_hash);
+  const adminToken = tokenForHash(settings.admin_passcode_hash);
+
+  if (mode === 'staff') return token === staffToken || token === adminToken;
+  if (mode === 'admin') return token === adminToken;
+  return token === staffToken || token === adminToken;
+}
+
+export function canManageChillerCleaning(user: DashboardUser | null) {
+  if (!user) return false;
+  const role = String(user.role || '').toUpperCase();
+  return role === 'SUPERUSER' || role === 'MANAGER';
+}
+
+function localDateKey(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Singapore',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(new Date());
+  });
+  return formatter.format(date);
+}
 
-  const year = Number(parts.find((part) => part.type === 'year')?.value);
-  const month = Number(parts.find((part) => part.type === 'month')?.value);
-  const day = Number(parts.find((part) => part.type === 'day')?.value);
-  const todayDate = new Date(Date.UTC(year, month - 1, day));
-  const dayOfWeek = todayDate.getUTCDay();
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  const weekStartDate = addDays(todayDate, mondayOffset);
-  const weekEndDate = addDays(weekStartDate, 6);
-  const weekStart = yyyyMmDd(weekStartDate);
-  const weekEnd = yyyyMmDd(weekEndDate);
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00+08:00`);
+  date.setDate(date.getDate() + days);
+  return localDateKey(date);
+}
 
+function mondayFor(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00+08:00`);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return localDateKey(date);
+}
+
+export function getCurrentChillerWeek() {
+  const start = mondayFor(localDateKey());
   return {
-    today: yyyyMmDd(todayDate),
-    weekStart,
-    weekEnd,
-    label: `${formatDisplayDate(weekStart)} - ${formatDisplayDate(weekEnd)}`,
+    start,
+    end: addDays(start, 6),
   };
 }
 
-export async function getChillerSettings() {
-  const { data, error } = await supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .select('id, passcode_hash, updated_at')
-    .eq('id', 'singleton')
-    .maybeSingle();
-
-  if (error) throw error;
-
-  if (data?.passcode_hash) return data;
-
-  const { data: inserted, error: insertError } = await supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .upsert(
-      {
-        id: 'singleton',
-        passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
-      },
-      { onConflict: 'id' }
-    )
-    .select('id, passcode_hash, updated_at')
-    .single();
-
-  if (insertError) throw insertError;
-  return inserted;
+export function getChillerWeekFor(dateKey: string) {
+  const start = mondayFor(dateKey);
+  return {
+    start,
+    end: addDays(start, 6),
+  };
 }
 
-export async function verifyChillerToken(req: NextRequest) {
-  const token = req.headers.get('x-chiller-token') || '';
-  const settings = await getChillerSettings();
-  return token && token === tokenForHash(settings.passcode_hash);
-}
+export function enumerateChillerWeeks(startDate = CHILLER_TRACKING_START, months = 4) {
+  const currentWeek = getCurrentChillerWeek();
+  const oldest = new Date();
+  oldest.setMonth(oldest.getMonth() - months);
+  const trackingStartDate = new Date(`${startDate}T00:00:00+08:00`);
+  const firstSeed = trackingStartDate > oldest ? trackingStartDate : oldest;
+  const first = mondayFor(localDateKey(firstSeed));
+  const weeks: Array<{ start: string; end: string }> = [];
+  let cursor = first;
 
-export function canManageChiller(user: DashboardUser | null) {
-  return user?.role === 'SUPERUSER';
-}
-
-export function chillerExtensionFor(type: string) {
-  if (type.includes('png')) return 'png';
-  if (type.includes('webp')) return 'webp';
-  return 'jpg';
-}
-
-export function chillerStoragePath(kind: ChillerKind, weekStart: string) {
-  return `${weekStart}/${kind}-${Date.now()}-${randomUUID()}`;
-}
-
-export async function signChillerRecord(record: ChillerRecord | null) {
-  if (!record) return null;
-
-  async function signedUrl(path: string | null) {
-    if (!path) return null;
-
-    const { data, error } = await supabaseAdmin.storage
-      .from(CHILLER_BUCKET)
-      .createSignedUrl(path, 60 * 60);
-
-    if (error) return null;
-    return data?.signedUrl || null;
+  while (cursor <= currentWeek.start) {
+    weeks.push({ start: cursor, end: addDays(cursor, 6) });
+    cursor = addDays(cursor, 7);
   }
 
-  return {
-    ...record,
-    before_url: await signedUrl(record.before_path),
-    after_url: await signedUrl(record.after_path),
+  return weeks;
+}
+
+export async function signChillerRecord(record: any): Promise<ChillerRecord> {
+  const signed: ChillerRecord = {
+    id: String(record.id),
+    week_start: String(record.week_start),
+    week_end: String(record.week_end),
+    chiller_name: normalizeChillerName(record.chiller_name),
+    staff_name: record.staff_name || null,
+    before_path: record.before_path || null,
+    before_submitted_at: record.before_submitted_at || null,
+    after_path: record.after_path || null,
+    after_submitted_at: record.after_submitted_at || null,
+    created_at: String(record.created_at || ''),
+    updated_at: String(record.updated_at || ''),
+    before_url: null,
+    after_url: null,
   };
+
+  for (const key of ['before', 'after'] as const) {
+    const path = signed[`${key}_path`];
+    if (!path) continue;
+    const { data } = await supabaseAdmin.storage.from(CHILLER_BUCKET).createSignedUrl(path, 60 * 60);
+    signed[`${key}_url`] = data?.signedUrl || null;
+  }
+
+  return signed;
+}
+
+export function chillerStoragePath(kind: ChillerKind, weekStart: string, chillerName: string) {
+  const cleanChiller = normalizeChillerName(chillerName).toLowerCase().replace(/\s+/g, '-');
+  return `${weekStart}/${cleanChiller}/${kind}-${Date.now()}-${randomUUID()}`;
 }
 
 export async function cleanupOldChillerSubmissions() {
-  const week = getCurrentSingaporeWeek();
-  const cutoffDate = new Date(`${week.weekStart}T00:00:00Z`);
-  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - 4);
-  const cutoff = yyyyMmDd(cutoffDate);
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 4);
+  const cutoffDate = localDateKey(cutoff);
 
-  const { data: oldRows, error } = await supabaseAdmin
+  const { data } = await supabaseAdmin
     .from('chiller_cleaning_submissions')
     .select('id, before_path, after_path')
-    .lt('week_start', cutoff);
+    .lt('week_start', cutoffDate);
 
-  if (error || !oldRows?.length) return;
-
-  const paths = oldRows
-    .flatMap((row: any) => [row.before_path, row.after_path])
-    .filter(Boolean);
-
+  const paths = (data || []).flatMap((row: any) => [row.before_path, row.after_path].filter(Boolean));
   if (paths.length) {
-    await supabaseAdmin.storage.from(CHILLER_BUCKET).remove(paths);
+    await supabaseAdmin.storage.from(CHILLER_BUCKET).remove(paths as string[]);
   }
 
-  await supabaseAdmin
-    .from('chiller_cleaning_submissions')
-    .delete()
-    .in(
-      'id',
-      oldRows.map((row: any) => row.id)
-    );
+  await supabaseAdmin.from('chiller_cleaning_submissions').delete().lt('week_start', cutoffDate);
 }
