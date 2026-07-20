@@ -187,22 +187,35 @@ export default function ChillerCleaningPage() {
   if (!token) {
     return (
       <main className="page">
-        <section className="loginCard">
-          <p className="eyebrow">Weekly Cleaning</p>
-          <h1>Chiller Cleaning</h1>
-          <p className="muted">Enter the staff passcode to submit this week&apos;s before and after photos.</p>
+      <section className="loginCard">
+        <div className="loginBadge">Staff access</div>
+        <p className="eyebrow">Weekly Cleaning</p>
+        <h1>Chiller Cleaning</h1>
+        <p className="muted loginIntro">
+          Enter the staff passcode to submit this week&apos;s before and after photos.
+        </p>
+        <div className="loginForm">
+          <label className="loginLabel" htmlFor="chiller-staff-passcode">
+            Staff passcode
+          </label>
           <input
+            id="chiller-staff-passcode"
+            className="loginInput"
             value={passcode}
             onChange={(event) => setPasscode(event.target.value)}
             type="password"
-            placeholder="Staff passcode"
+            autoComplete="current-password"
+            placeholder="Enter passcode"
             onKeyDown={(event) => {
               if (event.key === 'Enter') login();
             }}
           />
-          {error ? <div className="alert error">{error}</div> : null}
-          <button className="primaryBtn" onClick={login}>Continue</button>
-        </section>
+          {error ? <div className="alert error loginAlert">{error}</div> : null}
+          <button className="primaryBtn loginButton" onClick={login}>
+            Continue
+          </button>
+        </div>
+      </section>
         <style jsx>{styles}</style>
       </main>
     );
@@ -477,6 +490,45 @@ const styles = `
     background: #fff;
     color: #07152d;
   }
+  .loginBadge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    margin-bottom: 18px;
+    padding: 0 11px;
+    border: 1px solid #bed3fa;
+    border-radius: 999px;
+    background: #eef5ff;
+    color: #1249b8;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .loginIntro { max-width: 420px; }
+  .loginForm {
+    display: grid;
+    gap: 12px;
+    margin-top: 22px;
+  }
+  .loginLabel {
+    color: #253b59;
+    font-size: 13px;
+    font-weight: 900;
+  }
+  .loginInput {
+    min-width: 0;
+    min-height: 52px;
+  }
+  .loginButton {
+    width: 100%;
+    min-height: 52px;
+    margin: 0;
+  }
+  .loginAlert {
+    width: 100%;
+    margin: 0;
+  }
   .fieldLabel {
     display: block;
     color: #253b59;
@@ -570,6 +622,25 @@ const styles = `
     .photoGrid { grid-template-columns: 1fr; }
     .hero, .card, .uploadCard, .loginCard { border-radius: 20px; padding: 18px; }
     .ghostBtn { width: 100%; }
+  }
+  @media (max-width: 520px) {
+    .loginCard {
+      width: 100%;
+      max-width: none;
+      margin-top: max(18px, 5vh);
+      padding: 22px 18px;
+      border-radius: 20px;
+    }
+    .loginCard h1 {
+      font-size: 34px;
+      line-height: 1.04;
+    }
+    .loginBadge { margin-bottom: 14px; }
+    .loginForm {
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .loginInput, .loginButton { min-height: 50px; }
   }
   @media (max-width: 420px) {
     .chillerGrid { grid-template-columns: 1fr; }
