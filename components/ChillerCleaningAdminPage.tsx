@@ -857,7 +857,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 1000,
   },
   resetContent: {
-    minWidth: 240,
     flex: '1 1 360px',
     minWidth: 0,
   },
