@@ -65,9 +65,7 @@ export default function ChillerCleaningPage() {
   const [error, setError] = useState('');
 
   const beforeCameraRef = useRef<HTMLInputElement | null>(null);
-  const beforeLibraryRef = useRef<HTMLInputElement | null>(null);
   const afterCameraRef = useRef<HTMLInputElement | null>(null);
-  const afterLibraryRef = useRef<HTMLInputElement | null>(null);
 
   const recordMap = useMemo(() => {
     const map = new Map<string, ChillerRecord>();
@@ -290,7 +288,6 @@ export default function ChillerCleaningPage() {
               submittedAt={selectedRecord?.before_submitted_at}
               saving={saving === 'before'}
               onCamera={() => beforeCameraRef.current?.click()}
-              onLibrary={() => beforeLibraryRef.current?.click()}
             />
             <PhotoPanel
               title="After Cleaning"
@@ -298,14 +295,11 @@ export default function ChillerCleaningPage() {
               submittedAt={selectedRecord?.after_submitted_at}
               saving={saving === 'after'}
               onCamera={() => afterCameraRef.current?.click()}
-              onLibrary={() => afterLibraryRef.current?.click()}
             />
           </div>
 
           <input ref={beforeCameraRef} hidden type="file" accept="image/*" capture="environment" onChange={(event) => upload('before', event)} />
-          <input ref={beforeLibraryRef} hidden type="file" accept="image/*" onChange={(event) => upload('before', event)} />
           <input ref={afterCameraRef} hidden type="file" accept="image/*" capture="environment" onChange={(event) => upload('after', event)} />
-          <input ref={afterLibraryRef} hidden type="file" accept="image/*" onChange={(event) => upload('after', event)} />
         </section>
       ) : (
         <section className="uploadCard chooserPrompt">
@@ -326,14 +320,12 @@ function PhotoPanel({
   submittedAt,
   saving,
   onCamera,
-  onLibrary,
 }: {
   title: string;
   url?: string | null;
   submittedAt?: string | null;
   saving: boolean;
   onCamera: () => void;
-  onLibrary: () => void;
 }) {
   return (
     <div className="photoPanel">
@@ -351,7 +343,6 @@ function PhotoPanel({
       )}
       <div className="actionRow">
         <button type="button" onClick={onCamera} disabled={saving}>{saving ? 'Saving...' : 'Take Photo'}</button>
-        <button type="button" onClick={onLibrary} disabled={saving}>Choose File</button>
       </div>
     </div>
   );
@@ -579,7 +570,7 @@ const styles = `
   }
   .actionRow {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     gap: 10px;
     margin-top: 12px;
   }
@@ -595,12 +586,12 @@ const styles = `
     cursor: wait;
     opacity: 0.7;
   }
-  .primaryBtn, .actionRow button:first-child {
+  .primaryBtn, .actionRow button {
     background: #2563eb;
     color: white;
     box-shadow: 0 14px 30px rgba(37, 99, 235, 0.22);
   }
-  .ghostBtn, .actionRow button:last-child {
+  .ghostBtn {
     border: 1px solid #c9d8eb;
     background: #fff;
     color: #07152d;
