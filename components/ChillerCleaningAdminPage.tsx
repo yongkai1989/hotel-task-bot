@@ -1,1300 +1,868 @@
 'use client';
 
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 type ChillerRecord = {
   id: string;
   week_start: string;
   week_end: string;
+  chiller_name: string;
   staff_name: string | null;
   before_url?: string | null;
-  before_submitted_at: string | null;
+  before_submitted_at?: string | null;
   after_url?: string | null;
-  after_submitted_at: string | null;
-  created_at: string;
-  updated_at: string;
+  after_submitted_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
-const CHILLER_CLEANING_START_WEEK = '2026-07-20';
-const ADMIN_TOKEN_KEY = 'chiller-cleaning-admin-token';
+type Week = { start: string; end: string };
+type Tab = 'history' | 'settings' | 'reset';
+type HistoryMode = 'all' | 'overdue';
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en-GB', {
+const ADMIN_TOKEN_KEY = 'chiller_cleaning_admin_token_v2';
+const CHILLERS = ['Chiller 1', 'Chiller 2', 'Chiller 3', 'Chiller 4', 'Chiller 5'];
+const TRACKING_START = '2026-07-20';
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00+08:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDate(value?: string) {
+  if (!value) return '-';
+  return new Date(`${value}T00:00:00+08:00`).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${value}T00:00:00Z`));
+  });
 }
 
-function formatTime(value: string | null) {
+function formatTime(value?: string | null) {
   if (!value) return 'Not submitted';
-  return new Intl.DateTimeFormat('en-GB', {
+  return new Date(value).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'Asia/Singapore',
-  }).format(new Date(value));
+  });
 }
 
-function recordStatus(record: ChillerRecord) {
-  if (record.before_submitted_at && record.after_submitted_at) return 'Complete';
-  if (record.before_submitted_at || record.after_submitted_at) return 'Partial';
+function statusFor(record?: ChillerRecord) {
+  if (record?.before_url && record?.after_url) return 'complete';
+  if (record?.before_url || record?.after_url) return 'partial';
+  return 'missing';
+}
+
+function statusLabel(status: string) {
+  if (status === 'complete') return 'Complete';
+  if (status === 'partial') return 'Partial';
   return 'Missing';
 }
 
-function localDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function mondayFor(date: Date) {
-  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = monday.getDay();
-  monday.setDate(monday.getDate() + (day === 0 ? -6 : 1 - day));
-  return monday;
-}
-
-function buildCompletedWeeks() {
-  const currentMonday = mondayFor(new Date());
-  const weeks = Array.from({ length: 18 }, (_, index) => {
-    const start = addDays(currentMonday, -7 * (index + 1));
-    const end = addDays(start, 6);
-    return {
-      week_start: localDateKey(start),
-      week_end: localDateKey(end),
-    };
-  });
-
-  return weeks.filter((week) => week.week_start >= CHILLER_CLEANING_START_WEEK);
-}
-
-function buildCurrentWeek() {
-  const start = mondayFor(new Date());
-  const end = addDays(start, 6);
-  return {
-    week_start: localDateKey(start),
-    week_end: localDateKey(end),
-  };
+function buildPastWeeks(currentWeekStart?: string) {
+  if (!currentWeekStart) return [];
+  const weeks: Week[] = [];
+  let cursor = TRACKING_START;
+  while (cursor < currentWeekStart) {
+    weeks.push({ start: cursor, end: addDays(cursor, 6) });
+    cursor = addDays(cursor, 7);
+  }
+  return weeks.reverse();
 }
 
 export default function ChillerCleaningAdminPage() {
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const [records, setRecords] = useState<ChillerRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [token, setToken] = useState('');
   const [passcode, setPasscode] = useState('');
-  const [savingPasscode, setSavingPasscode] = useState(false);
-  const [viewMode, setViewMode] = useState<'all' | 'overdue'>('all');
-  const [expandedPhoto, setExpandedPhoto] = useState<{ label: string; url: string } | null>(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resettingWeek, setResettingWeek] = useState(false);
-  const currentWeek = useMemo(() => buildCurrentWeek(), []);
-  const [adminToken, setAdminToken] = useState('');
-  const [unlockPasscode, setUnlockPasscode] = useState('');
-  const [unlocking, setUnlocking] = useState(false);
-  const [needsUnlock, setNeedsUnlock] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [records, setRecords] = useState<ChillerRecord[]>([]);
+  const [currentWeek, setCurrentWeek] = useState<Week | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('history');
+  const [activeChiller, setActiveChiller] = useState('Chiller 1');
+  const [historyMode, setHistoryMode] = useState<HistoryMode>('all');
+  const [staffPasscode, setStaffPasscode] = useState('');
+  const [adminPasscode, setAdminPasscode] = useState('');
+  const [resetChiller, setResetChiller] = useState('Chiller 1');
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [lightbox, setLightbox] = useState<{ url: string; title: string } | null>(null);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
 
-  const sx = (base: CSSProperties, mobile?: CSSProperties): CSSProperties =>
-    isMobile && mobile ? { ...base, ...mobile } : base;
+  const recordMap = useMemo(() => {
+    const map = new Map<string, ChillerRecord>();
+    records.forEach((record) => map.set(`${record.week_start}|${record.chiller_name}`, record));
+    return map;
+  }, [records]);
 
-  useEffect(() => {
-    const updateMobile = () => setIsMobile(window.innerWidth <= 760);
-    updateMobile();
-    window.addEventListener('resize', updateMobile);
-    return () => window.removeEventListener('resize', updateMobile);
-  }, []);
+  const currentRecords = useMemo(
+    () => CHILLERS.map((chiller) => recordMap.get(`${currentWeek?.start}|${chiller}`)),
+    [currentWeek?.start, recordMap],
+  );
 
-  async function authHeaders(tokenOverride = adminToken): Promise<Record<string, string>> {
-    const headers: Record<string, string> = {};
+  const pastWeeks = useMemo(() => buildPastWeeks(currentWeek?.start), [currentWeek?.start]);
 
-    if (tokenOverride) {
-      headers['x-chiller-token'] = tokenOverride;
+  const overdueItems = useMemo(() => {
+    return pastWeeks.flatMap((week) =>
+      CHILLERS.map((chiller) => {
+        const record = recordMap.get(`${week.start}|${chiller}`);
+        return { week, chiller, record, status: statusFor(record) };
+      }).filter((item) => item.status !== 'complete'),
+    );
+  }, [pastWeeks, recordMap]);
+
+  const selectedHistory = useMemo(() => {
+    if (historyMode === 'overdue') {
+      return overdueItems.filter((item) => item.chiller === activeChiller);
     }
 
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    return records
+      .filter((record) => record.chiller_name === activeChiller)
+      .map((record) => ({
+        week: { start: record.week_start, end: record.week_end },
+        chiller: record.chiller_name,
+        record,
+        status: statusFor(record),
+      }))
+      .sort((a, b) => b.week.start.localeCompare(a.week.start));
+  }, [activeChiller, historyMode, overdueItems, records]);
 
-      if (session?.access_token) {
-        headers.Authorization = `Bearer ${session.access_token}`;
-      }
-    } catch {
-      // Standalone branch admin can use the chiller passcode without dashboard login.
+  async function load(nextToken = token) {
+    if (!nextToken) {
+      setLoading(false);
+      return;
     }
 
-    return headers;
-  }
-
-  async function loadRecords(tokenOverride = adminToken) {
     setLoading(true);
     setError('');
-
     try {
-      const headers = await authHeaders(tokenOverride);
       const res = await fetch('/api/chiller-cleaning/admin', {
-        headers,
         cache: 'no-store',
+        headers: { 'x-chiller-token': nextToken },
       });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json.ok) {
-        if (res.status === 401 || res.status === 403) {
-          setNeedsUnlock(true);
-        }
-        throw new Error(json.error || 'Unable to load chiller records');
-      }
-
-      setNeedsUnlock(false);
-      setRecords(json.records || []);
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to load chiller records');
+      setRecords(Array.isArray(json.records) ? json.records : []);
+      setCurrentWeek(json.week || json.current_week || null);
+      setToken(nextToken);
+      window.sessionStorage.setItem(ADMIN_TOKEN_KEY, nextToken);
     } catch (err: any) {
+      setToken('');
+      window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
       setError(err?.message || 'Unable to load chiller records');
     } finally {
       setLoading(false);
     }
   }
 
-  async function unlockAdmin(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    const saved = window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '';
+    if (saved) {
+      setToken(saved);
+      load(saved);
+    } else {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function login(event: FormEvent) {
     event.preventDefault();
-    setUnlocking(true);
+    setBusy(true);
     setError('');
     setNotice('');
-
     try {
       const res = await fetch('/api/chiller-cleaning/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ passcode: unlockPasscode }),
-      });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json.ok || !json.token) {
-        throw new Error(json.error || 'Unable to unlock admin page');
-      }
-
-      setAdminToken(json.token);
-      if (typeof window !== 'undefined') {
-        window.sessionStorage.setItem(ADMIN_TOKEN_KEY, json.token);
-      }
-      setNeedsUnlock(false);
-      setUnlockPasscode('');
-      await loadRecords(json.token);
-    } catch (err: any) {
-      setError(err?.message || 'Unable to unlock admin page');
-    } finally {
-      setUnlocking(false);
-    }
-  }
-
-  async function updatePasscode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingPasscode(true);
-    setError('');
-    setNotice('');
-
-    try {
-      const headers = await authHeaders(adminToken);
-      const res = await fetch('/api/chiller-cleaning/admin', {
-        method: 'PATCH',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ passcode }),
+        body: JSON.stringify({ mode: 'admin', passcode }),
       });
       const json = await res.json();
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || 'Unable to update passcode');
-      }
-
-      if (json.token) {
-        setAdminToken(json.token);
-        if (typeof window !== 'undefined') {
-          window.sessionStorage.setItem(ADMIN_TOKEN_KEY, json.token);
-        }
-      }
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Wrong admin passcode');
       setPasscode('');
-      setNotice('Chiller Cleaning passcode updated successfully.');
+      await load(json.token);
     } catch (err: any) {
-      setError(err?.message || 'Unable to update passcode');
+      setError(err?.message || 'Wrong admin passcode');
     } finally {
-      setSavingPasscode(false);
+      setBusy(false);
     }
   }
 
-  async function resetCurrentWeek() {
-    setResettingWeek(true);
+  async function savePasscodes(event: FormEvent) {
+    event.preventDefault();
+    if (!staffPasscode.trim() && !adminPasscode.trim()) {
+      setError('Enter at least one new passcode to update.');
+      return;
+    }
+
+    setBusy(true);
     setError('');
     setNotice('');
-
     try {
-      const headers = await authHeaders(adminToken);
       const res = await fetch('/api/chiller-cleaning/admin', {
-        method: 'DELETE',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        cache: 'no-store',
-        body: JSON.stringify({ week_start: currentWeek.week_start }),
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-chiller-token': token },
+        body: JSON.stringify({
+          staff_passcode: staffPasscode,
+          admin_passcode: adminPasscode,
+        }),
       });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || 'Unable to reset current week');
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to update passcodes');
+      if (json.token) {
+        setToken(json.token);
+        window.sessionStorage.setItem(ADMIN_TOKEN_KEY, json.token);
       }
-
-      setShowResetConfirm(false);
-      setNotice(`Current week reset completed. ${json.removedFiles || 0} upload(s) removed.`);
-      await loadRecords(adminToken);
+      setStaffPasscode('');
+      setAdminPasscode('');
+      setNotice('Passcodes updated successfully.');
+      await load(json.token || token);
     } catch (err: any) {
-      setError(err?.message || 'Unable to reset current week');
+      setError(err?.message || 'Unable to update passcodes');
     } finally {
-      setResettingWeek(false);
+      setBusy(false);
     }
   }
 
-  useEffect(() => {
-    const savedToken =
-      typeof window !== 'undefined' ? window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || '' : '';
-
-    if (savedToken) {
-      setAdminToken(savedToken);
+  async function resetSelectedChiller() {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await fetch('/api/chiller-cleaning/admin', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'x-chiller-token': token },
+        body: JSON.stringify({ chiller_name: resetChiller }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to reset chiller');
+      setRecords(Array.isArray(json.records) ? json.records : []);
+      setConfirmReset(false);
+      setNotice(`${resetChiller} reset for the current week. ${json.removedFiles || 0} upload(s) removed.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to reset chiller');
+    } finally {
+      setBusy(false);
     }
+  }
 
-    loadRecords(savedToken);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const completeCount = records.filter((record) => recordStatus(record) === 'Complete').length;
-  const partialCount = records.filter((record) => recordStatus(record) === 'Partial').length;
-  const recordsByWeek = useMemo(
-    () => new Map(records.map((record) => [record.week_start, record])),
-    [records]
-  );
-  const overdueWeeks = useMemo(
-    () =>
-      buildCompletedWeeks()
-        .map((week) => {
-          const record = recordsByWeek.get(week.week_start);
-          const missingBefore = !record?.before_submitted_at;
-          const missingAfter = !record?.after_submitted_at;
-
-          return {
-            ...week,
-            record,
-            missingBefore,
-            missingAfter,
-            missingText: [
-              missingBefore ? 'before photo' : '',
-              missingAfter ? 'after photo' : '',
-            ].filter(Boolean).join(' + '),
-          };
-        })
-        .filter((week) => week.missingBefore || week.missingAfter),
-    [recordsByWeek]
-  );
-  const visibleRecords =
-    viewMode === 'overdue'
-      ? (overdueWeeks.map((week) => week.record).filter(Boolean) as ChillerRecord[])
-      : records;
-  const overdueMissingRecordWeeks = overdueWeeks.filter((week) => !week.record);
-
-  if (needsUnlock && !loading) {
+  if (loading) {
     return (
-      <main style={sx(styles.page, styles.pageMobile)}>
-        <section style={sx(styles.unlockCard, styles.unlockCardMobile)}>
-          <div style={styles.kicker}>Branch compliance</div>
-          <h1 style={styles.title}>Chiller Cleaning Admin</h1>
-          <p style={styles.subtitle}>
-            Enter the chiller cleaning passcode to review records, update the passcode, and reset this week.
-          </p>
-          <form onSubmit={unlockAdmin} style={sx(styles.unlockForm, styles.unlockFormMobile)}>
-            <input
-              type="password"
-              value={unlockPasscode}
-              onChange={(event) => setUnlockPasscode(event.target.value)}
-              placeholder="Enter admin passcode"
-              style={styles.input}
-              minLength={4}
-            />
-            <button
-              type="submit"
-              disabled={unlocking || unlockPasscode.trim().length < 4}
-              style={{
-                ...sx(styles.primaryButton, styles.mobileButton),
-                opacity: unlocking || unlockPasscode.trim().length < 4 ? 0.6 : 1,
-              }}
-            >
-              {unlocking ? 'Unlocking...' : 'Open Admin'}
-            </button>
-          </form>
-          {error ? <div style={styles.error}>{error}</div> : null}
-          <Link href="/chiller-cleaning" style={sx(styles.secondaryButton, styles.mobileButton)}>
-            Open Staff Page
-          </Link>
-        </section>
+      <main className="adminPage">
+        <div className="loginCard">Loading chiller admin...</div>
+        <style jsx>{styles}</style>
       </main>
     );
   }
 
-  return (
-    <main style={sx(styles.page, styles.pageMobile)}>
-      <section style={sx(styles.hero, styles.heroMobile)}>
-        <div>
-          <div style={styles.kicker}>Branch compliance</div>
-          <h1 style={styles.title}>Chiller Cleaning Records</h1>
-          <p style={styles.subtitle}>
-            Review weekly before-and-after cleaning submissions. Records older than 4 months are cleaned automatically.
-          </p>
-        </div>
-        <div style={sx(styles.heroActions, styles.heroActionsMobile)}>
-          <Link href="/chiller-cleaning" style={sx(styles.secondaryButton, styles.mobileButton)}>
-            Staff Page
-          </Link>
-          <button type="button" onClick={() => loadRecords(adminToken)} style={sx(styles.primaryButton, styles.mobileButton)}>
-            Refresh
-          </button>
-        </div>
-      </section>
-
-      {error ? <div style={styles.error}>{error}</div> : null}
-      {notice ? <div style={styles.notice}>{notice}</div> : null}
-
-      <section style={sx(styles.metricsGrid, styles.metricsGridMobile)}>
-        <div style={sx(styles.metricCard, styles.metricCardMobile)}>
-          <span style={styles.metricLabel}>Total Weeks</span>
-          <strong style={styles.metricValue}>{records.length}</strong>
-          <span style={styles.metricHint}>Last 4 months</span>
-        </div>
-        <div style={sx(styles.metricCard, styles.metricCardMobile)}>
-          <span style={styles.metricLabel}>Complete</span>
-          <strong style={{ ...styles.metricValue, color: '#047857' }}>{completeCount}</strong>
-          <span style={styles.metricHint}>Before + after submitted</span>
-        </div>
-        <div style={sx(styles.metricCard, styles.metricCardMobile)}>
-          <span style={styles.metricLabel}>Partial</span>
-          <strong style={{ ...styles.metricValue, color: '#b45309' }}>{partialCount}</strong>
-          <span style={styles.metricHint}>One photo missing</span>
-        </div>
-        <button type="button" onClick={() => setViewMode('overdue')} style={sx(styles.metricButton, styles.metricCardMobile)}>
-          <span style={styles.metricLabel}>Overdue Weeks</span>
-          <strong style={{ ...styles.metricValue, color: overdueWeeks.length ? '#be123c' : '#047857' }}>
-            {overdueWeeks.length}
-          </strong>
-          <span style={styles.metricHint}>Click to show overdue only</span>
-        </button>
-      </section>
-
-      <section style={sx(styles.controlPanel, styles.controlPanelMobile)}>
-        <div>
-          <div style={styles.kicker}>Staff page</div>
-          <h2 style={styles.sectionTitle}>Passcode Control</h2>
-          <p style={styles.muted}>
-            Public URL: <Link href="/chiller-cleaning">/chiller-cleaning</Link>
-          </p>
-        </div>
-        <form onSubmit={updatePasscode} style={sx(styles.passcodeForm, styles.passcodeFormMobile)}>
+  if (!token) {
+    return (
+      <main className="adminPage">
+        <form className="loginCard" onSubmit={login}>
+          <span>Branch Admin</span>
+          <h1>Chiller Cleaning Admin</h1>
+          <p>Enter the admin passcode to review records, reset selected chillers, and manage passcodes.</p>
+          {error ? <div className="alert error">{error}</div> : null}
           <input
+            type="password"
             value={passcode}
             onChange={(event) => setPasscode(event.target.value)}
-            placeholder="New passcode"
-            style={styles.input}
-            minLength={4}
+            placeholder="Admin passcode"
+            required
           />
-          <button type="submit" disabled={savingPasscode} style={sx(styles.primaryButton, styles.mobileButton)}>
-            {savingPasscode ? 'Saving...' : 'Update Passcode'}
-          </button>
+          <button type="submit" disabled={busy}>{busy ? 'Checking...' : 'Unlock Admin'}</button>
         </form>
-        <div style={sx(styles.resetBox, styles.resetBoxMobile)}>
-          <div style={styles.resetIcon}>!</div>
-          <div style={sx(styles.resetContent, styles.resetContentMobile)}>
-            <div style={styles.dangerKicker}>Controlled reset</div>
-            <strong style={styles.resetTitle}>Reset Current Week Submission</strong>
-            <p style={styles.resetCopy}>
-              Use this only when the current week was uploaded wrongly. It removes this week&apos;s
-              before/after photos and clears the current submission record only.
-            </p>
-            <div style={styles.resetScope}>
-              <span>This week</span>
-              <strong>
-                {formatDate(currentWeek.week_start)} - {formatDate(currentWeek.week_end)}
-              </strong>
-            </div>
-          </div>
-          <button type="button" onClick={() => setShowResetConfirm(true)} style={sx(styles.dangerButton, styles.mobileButton)}>
-            Reset Current Week
+        <style jsx>{styles}</style>
+      </main>
+    );
+  }
+
+  const selectedCurrentRecord = recordMap.get(`${currentWeek?.start}|${resetChiller}`);
+
+  return (
+    <main className="adminPage">
+      <section className="hero">
+        <div>
+          <span>Chiller Workspace</span>
+          <h1>Chiller Cleaning Admin</h1>
+          <p>
+            Current week: {formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}
+          </p>
+        </div>
+        <div className="heroActions">
+          <button type="button" className="ghostBtn" onClick={() => load()} disabled={loading}>Refresh</button>
+          <button
+            type="button"
+            className={overdueItems.length ? 'dangerBtn' : 'softBtn'}
+            onClick={() => {
+              setActiveTab('history');
+              setHistoryMode('overdue');
+            }}
+          >
+            Overdue Weeks {overdueItems.length}
           </button>
         </div>
       </section>
 
-      <section style={sx(styles.recordsPanel, styles.recordsPanelMobile)}>
-        <div style={sx(styles.panelHeader, styles.panelHeaderMobile)}>
-          <div>
-            <div style={styles.kicker}>History</div>
-            <h2 style={styles.sectionTitle}>
-              {viewMode === 'overdue' ? 'Overdue Weekly Submissions' : 'Weekly Submissions'}
-            </h2>
-          </div>
-          <div style={sx(styles.historyActions, styles.historyActionsMobile)}>
+      {error ? <div className="alert error">{error}</div> : null}
+      {notice ? <div className="alert success">{notice}</div> : null}
+
+      <section className="statusGrid">
+        {CHILLERS.map((chiller) => {
+          const record = recordMap.get(`${currentWeek?.start}|${chiller}`);
+          const status = statusFor(record);
+          return (
             <button
+              key={chiller}
               type="button"
-              onClick={() => setViewMode('all')}
-              style={viewMode === 'all' ? styles.activeFilterButton : styles.filterButton}
+              className={`statusCard ${status}`}
+              onClick={() => {
+                setActiveTab('history');
+                setHistoryMode('all');
+                setActiveChiller(chiller);
+              }}
             >
-              All history
+              <span>{chiller}</span>
+              <strong>{statusLabel(status)}</strong>
+              <small>{record?.staff_name || 'No staff name yet'}</small>
             </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('overdue')}
-              style={viewMode === 'overdue' ? styles.activeFilterButton : styles.filterButton}
-            >
-              Overdue only
-            </button>
-            <span style={styles.pill}>
-              {loading
-                ? 'Loading'
-                : `${viewMode === 'overdue' ? overdueWeeks.length : visibleRecords.length} record(s)`}
-            </span>
+          );
+        })}
+      </section>
+
+      <nav className="tabs">
+        <button type="button" className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>
+          History
+        </button>
+        <button type="button" className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>
+          Passcodes
+        </button>
+        <button type="button" className={activeTab === 'reset' ? 'active' : ''} onClick={() => setActiveTab('reset')}>
+          Reset Options
+        </button>
+      </nav>
+
+      {activeTab === 'history' ? (
+        <section className="panel">
+          <div className="panelHead">
+            <div>
+              <span>History</span>
+              <h2>{activeChiller}</h2>
+            </div>
+            <div className="filterRow">
+              <button type="button" className={historyMode === 'all' ? 'active' : ''} onClick={() => setHistoryMode('all')}>
+                All history
+              </button>
+              <button type="button" className={historyMode === 'overdue' ? 'active danger' : ''} onClick={() => setHistoryMode('overdue')}>
+                Overdue only
+              </button>
+            </div>
           </div>
-        </div>
 
-        {loading ? (
-          <div style={styles.empty}>Loading chiller records...</div>
-        ) : viewMode === 'overdue' && overdueWeeks.length === 0 ? (
-          <div style={styles.empty}>No overdue chiller cleaning weeks.</div>
-        ) : viewMode === 'all' && records.length === 0 ? (
-          <div style={styles.empty}>No chiller cleaning records yet.</div>
-        ) : (
-          <div style={styles.recordGrid}>
-            {viewMode === 'overdue'
-              ? overdueMissingRecordWeeks.map((week) => (
-                  <article key={week.week_start} style={styles.recordCard}>
-                    <div style={sx(styles.recordTop, styles.recordTopMobile)}>
-                      <div>
-                        <div style={styles.weekText}>
-                          {formatDate(week.week_start)} - {formatDate(week.week_end)}
-                        </div>
-                        <div style={styles.staffText}>No submission record</div>
-                      </div>
-                      <span style={{ ...styles.statusPill, ...styles.statusMissing }}>Missing</span>
-                    </div>
-                    <div style={styles.emptyCompact}>Missing before photo + after photo</div>
-                  </article>
-                ))
-              : null}
+          <div className="chillerTabs">
+            {CHILLERS.map((chiller) => (
+              <button
+                key={chiller}
+                type="button"
+                className={activeChiller === chiller ? 'active' : ''}
+                onClick={() => setActiveChiller(chiller)}
+              >
+                {chiller}
+              </button>
+            ))}
+          </div>
 
-            {visibleRecords.map((record) => {
-              const status = recordStatus(record);
-              const statusStyle =
-                status === 'Complete'
-                  ? styles.statusComplete
-                  : status === 'Partial'
-                    ? styles.statusPartial
-                    : styles.statusMissing;
-
-              return (
-                <article key={record.id} style={styles.recordCard}>
-                  <div style={sx(styles.recordTop, styles.recordTopMobile)}>
+          {selectedHistory.length === 0 ? (
+            <div className="empty">No records found for this view.</div>
+          ) : (
+            <div className="historyList">
+              {selectedHistory.map((item) => (
+                <article key={`${item.week.start}-${item.chiller}`} className={`historyCard ${item.status}`}>
+                  <div className="recordHead">
                     <div>
-                      <div style={styles.weekText}>
-                        {formatDate(record.week_start)} - {formatDate(record.week_end)}
-                      </div>
-                      <div style={styles.staffText}>{record.staff_name || 'No staff name saved'}</div>
+                      <strong>{formatDate(item.week.start)} - {formatDate(item.week.end)}</strong>
+                      <span>{item.record?.staff_name || 'No submission yet'}</span>
                     </div>
-                    <span style={{ ...styles.statusPill, ...statusStyle }}>{status}</span>
+                    <b>{statusLabel(item.status)}</b>
                   </div>
-
-                  <div style={styles.photoGrid}>
-                    <PhotoPanel
-                      label="Before Cleaning"
-                      url={record.before_url}
-                      time={record.before_submitted_at}
-                      onExpand={(url) => setExpandedPhoto({ label: 'Before Cleaning', url })}
+                  <div className="thumbGrid">
+                    <PhotoTile
+                      label="Before"
+                      url={item.record?.before_url}
+                      time={item.record?.before_submitted_at}
+                      onOpen={(url) => setLightbox({ url, title: `${item.chiller} Before` })}
                     />
-                    <PhotoPanel
-                      label="After Cleaning"
-                      url={record.after_url}
-                      time={record.after_submitted_at}
-                      onExpand={(url) => setExpandedPhoto({ label: 'After Cleaning', url })}
+                    <PhotoTile
+                      label="After"
+                      url={item.record?.after_url}
+                      time={item.record?.after_submitted_at}
+                      onOpen={(url) => setLightbox({ url, title: `${item.chiller} After` })}
                     />
                   </div>
                 </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
-      {showResetConfirm ? (
-        <div
-          style={styles.lightboxBackdrop}
-          onClick={() => !resettingWeek && setShowResetConfirm(false)}
-        >
-          <div style={sx(styles.confirmModal, styles.confirmModalMobile)} onClick={(event) => event.stopPropagation()}>
-            <div style={sx(styles.confirmHeader, styles.confirmHeaderMobile)}>
-              <div style={styles.confirmIcon}>!</div>
-              <div>
-                <div style={styles.dangerKicker}>Final confirmation</div>
-                <h2 style={styles.confirmTitle}>Reset current week submission?</h2>
-              </div>
+      {activeTab === 'settings' ? (
+        <section className="panel">
+          <div className="panelHead">
+            <div>
+              <span>Access Control</span>
+              <h2>Separate Passcodes</h2>
             </div>
-            <div style={styles.confirmWeekCard}>
-              <span style={styles.confirmWeekLabel}>Week affected</span>
-              <strong>
-                {formatDate(currentWeek.week_start)} - {formatDate(currentWeek.week_end)}
-              </strong>
+          </div>
+          <form className="settingsGrid" onSubmit={savePasscodes}>
+            <label>
+              Staff page passcode
+              <input
+                type="password"
+                value={staffPasscode}
+                onChange={(event) => setStaffPasscode(event.target.value)}
+                placeholder="New staff passcode"
+              />
+              <small>Used only for `/chiller-cleaning` photo submission.</small>
+            </label>
+            <label>
+              Admin page passcode
+              <input
+                type="password"
+                value={adminPasscode}
+                onChange={(event) => setAdminPasscode(event.target.value)}
+                placeholder="New admin passcode"
+              />
+              <small>Used only for this admin page.</small>
+            </label>
+            <button type="submit" className="primaryBtn" disabled={busy}>
+              {busy ? 'Saving...' : 'Save Passcodes'}
+            </button>
+          </form>
+        </section>
+      ) : null}
+
+      {activeTab === 'reset' ? (
+        <section className="panel dangerPanel">
+          <div className="panelHead">
+            <div>
+              <span>Controlled Reset</span>
+              <h2>Reset Options</h2>
             </div>
-            <div style={sx(styles.confirmImpactGrid, styles.confirmImpactGridMobile)}>
-              <div style={styles.impactItem}>
-                <span>Will be removed</span>
-                <strong>Before photo, after photo, and this week&apos;s submission record</strong>
-              </div>
-              <div style={styles.impactItemSafe}>
-                <span>Will stay unchanged</span>
-                <strong>All past weeks and older history records</strong>
-              </div>
+          </div>
+          <div className="resetLayout">
+            <div className="resetChooser">
+              {CHILLERS.map((chiller) => (
+                <button
+                  key={chiller}
+                  type="button"
+                  className={resetChiller === chiller ? 'active' : ''}
+                  onClick={() => setResetChiller(chiller)}
+                >
+                  {chiller}
+                </button>
+              ))}
             </div>
-            <p style={styles.confirmCopy}>
-              This action is meant for correcting the current week only. Once confirmed, staff must
-              upload the before and after photos again for this week.
+            <div className="resetCard">
+              <span>Current week only</span>
+              <h3>{resetChiller}</h3>
+              <p>
+                This clears the selected chiller&apos;s before/after photos and submitted staff name for{' '}
+                {formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}. Past weeks are untouched.
+              </p>
+              <div className="resetMeta">
+                <b>Status: {statusLabel(statusFor(selectedCurrentRecord))}</b>
+                <small>{selectedCurrentRecord?.staff_name || 'No staff submitted yet'}</small>
+              </div>
+              <button type="button" className="dangerBtn" onClick={() => setConfirmReset(true)}>
+                Reset Selected Chiller
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {confirmReset ? (
+        <div className="modalBackdrop" role="dialog" aria-modal="true">
+          <div className="confirmModal">
+            <span>Confirm Reset</span>
+            <h2>Reset {resetChiller} for this week?</h2>
+            <p>
+              This action removes only the current-week uploads for {resetChiller}. It will not affect other chillers or past weeks.
             </p>
-            <div style={sx(styles.modalActions, styles.modalActionsMobile)}>
-              <button
-                type="button"
-                disabled={resettingWeek}
-                onClick={() => setShowResetConfirm(false)}
-                style={sx(styles.secondaryButton, styles.mobileButton)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={resettingWeek}
-                onClick={resetCurrentWeek}
-                style={sx(styles.confirmDangerButton, styles.mobileButton)}
-              >
-                {resettingWeek ? 'Resetting...' : 'Yes, Reset Current Week'}
+            <div className="modalActions">
+              <button type="button" className="ghostBtn" onClick={() => setConfirmReset(false)} disabled={busy}>Cancel</button>
+              <button type="button" className="dangerBtn" onClick={resetSelectedChiller} disabled={busy}>
+                {busy ? 'Resetting...' : 'Confirm Reset'}
               </button>
             </div>
           </div>
         </div>
       ) : null}
 
-      {expandedPhoto ? (
-        <div style={styles.lightboxBackdrop} onClick={() => setExpandedPhoto(null)}>
-          <div style={sx(styles.lightbox, styles.lightboxMobile)} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.lightboxHeader}>
-              <strong>{expandedPhoto.label}</strong>
-              <button type="button" onClick={() => setExpandedPhoto(null)} style={styles.closeButton}>
-                Close
-              </button>
+      {lightbox ? (
+        <div className="modalBackdrop" role="dialog" aria-modal="true" onClick={() => setLightbox(null)}>
+          <div className="lightbox" onClick={(event) => event.stopPropagation()}>
+            <div>
+              <strong>{lightbox.title}</strong>
+              <button type="button" onClick={() => setLightbox(null)}>Close</button>
             </div>
-            <img src={expandedPhoto.url} alt={expandedPhoto.label} style={styles.lightboxImage} />
+            <img src={lightbox.url} alt={lightbox.title} />
           </div>
         </div>
       ) : null}
+
+      <style jsx>{styles}</style>
     </main>
   );
 }
 
-function PhotoPanel({
+function PhotoTile({
   label,
   url,
   time,
-  onExpand,
+  onOpen,
 }: {
   label: string;
   url?: string | null;
-  time: string | null;
-  onExpand: (url: string) => void;
+  time?: string | null;
+  onOpen: (url: string) => void;
 }) {
   return (
-    <div style={styles.photoPanel}>
-      <div style={styles.photoMeta}>
+    <div className="photoTile">
+      <div>
         <strong>{label}</strong>
         <span>{formatTime(time)}</span>
       </div>
       {url ? (
-        <button type="button" onClick={() => onExpand(url)} style={styles.photoButton}>
-          <img src={url} alt={label} style={styles.photo} />
+        <button type="button" onClick={() => onOpen(url)}>
+          <img src={url} alt={`${label} submission`} />
         </button>
       ) : (
-        <div style={styles.photoMissing}>No image</div>
+        <div className="missingPhoto">No photo</div>
       )}
     </div>
   );
 }
 
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    padding: '32px clamp(16px, 4vw, 56px)',
-    background: 'linear-gradient(135deg, #eef5ff 0%, #f8fbff 48%, #f7fbf8 100%)',
-    color: '#06152f',
-    fontFamily: 'Inter, Aptos, "Segoe UI", Arial, sans-serif',
-    width: '100%',
-    overflowX: 'hidden',
-    boxSizing: 'border-box',
-  },
-  unlockCard: {
-    width: 'min(560px, 100%)',
-    margin: 'min(12vh, 80px) auto 0',
-    padding: 'clamp(22px, 5vw, 36px)',
-    border: '1px solid #c8dcf7',
-    borderRadius: 28,
-    background: 'rgba(255,255,255,0.94)',
-    boxShadow: '0 26px 80px rgba(18, 40, 80, 0.14)',
-    boxSizing: 'border-box',
-  },
-  unlockForm: {
-    display: 'grid',
-    gap: 12,
-    margin: '22px 0 14px',
-    width: '100%',
-  },
-  hero: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 20,
-    alignItems: 'center',
-    padding: '26px clamp(20px, 4vw, 38px)',
-    border: '1px solid #c8dcf7',
-    borderRadius: 26,
-    background: 'rgba(255,255,255,0.88)',
-    boxShadow: '0 24px 70px rgba(18, 40, 80, 0.12)',
-    flexWrap: 'wrap',
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  kicker: {
-    color: '#2563eb',
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  title: {
-    margin: '8px 0 6px',
-    fontSize: 'clamp(32px, 7vw, 56px)',
-    lineHeight: 1,
-  },
-  subtitle: {
-    margin: 0,
-    color: '#48607f',
-    fontSize: 16,
-    maxWidth: 720,
-    lineHeight: 1.5,
-  },
-  heroActions: {
-    display: 'flex',
-    gap: 12,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  primaryButton: {
-    border: 0,
-    borderRadius: 16,
-    background: '#0f2ee8',
-    color: '#fff',
-    fontWeight: 900,
-    padding: '14px 18px',
-    boxShadow: '0 14px 30px rgba(37, 99, 235, 0.22)',
-    cursor: 'pointer',
-    textDecoration: 'none',
-    whiteSpace: 'nowrap',
-  },
-  secondaryButton: {
-    border: '1px solid #c5d6ea',
-    borderRadius: 16,
-    background: '#fff',
-    color: '#07152e',
-    fontWeight: 900,
-    padding: '14px 18px',
-    cursor: 'pointer',
-    textDecoration: 'none',
-    whiteSpace: 'nowrap',
-  },
-  error: {
-    marginTop: 18,
-    padding: 16,
-    borderRadius: 16,
-    border: '1px solid #fecaca',
-    background: '#fff1f2',
-    color: '#be123c',
-    fontWeight: 900,
-  },
-  notice: {
-    marginTop: 18,
-    padding: 16,
-    borderRadius: 16,
-    border: '1px solid #bbf7d0',
-    background: '#ecfdf5',
-    color: '#047857',
-    fontWeight: 900,
-  },
-  metricsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
-    gap: 14,
-    marginTop: 18,
-  },
-  metricCard: {
-    padding: 20,
-    borderRadius: 22,
-    border: '1px solid #d7e4f4',
-    background: 'rgba(255,255,255,0.9)',
-    boxSizing: 'border-box',
-  },
-  metricButton: {
-    padding: 20,
-    borderRadius: 22,
-    border: '1px solid #fecdd3',
-    background: 'rgba(255,255,255,0.94)',
-    textAlign: 'left',
-    cursor: 'pointer',
-    boxShadow: '0 18px 48px rgba(190, 18, 60, 0.08)',
-    boxSizing: 'border-box',
-  },
-  metricLabel: {
-    display: 'block',
-    color: '#4f6686',
-    fontWeight: 900,
-    textTransform: 'uppercase',
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  metricValue: {
-    display: 'block',
-    fontSize: 36,
-    lineHeight: 1.1,
-    marginTop: 8,
-  },
-  metricHint: {
-    display: 'block',
-    color: '#58708e',
-    fontWeight: 700,
-    marginTop: 6,
-  },
-  controlPanel: {
-    marginTop: 18,
-    padding: 22,
-    borderRadius: 24,
-    border: '1px solid #d5e4f5',
-    background: 'rgba(255,255,255,0.92)',
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 18,
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    boxSizing: 'border-box',
-  },
-  sectionTitle: {
-    margin: '6px 0 4px',
-    fontSize: 26,
-  },
-  muted: {
-    margin: 0,
-    color: '#526987',
-    fontWeight: 700,
-  },
-  passcodeForm: {
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-    width: 'min(100%, 560px)',
-  },
-  input: {
-    width: '100%',
-    minWidth: 0,
-    padding: '14px 16px',
-    borderRadius: 16,
-    border: '1px solid #c8d8ec',
-    fontSize: 16,
-    fontWeight: 800,
-    boxSizing: 'border-box',
-  },
-  resetBox: {
-    width: '100%',
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 16,
-    alignItems: 'center',
-    padding: 18,
-    borderRadius: 22,
-    border: '1px solid #fed7aa',
-    background: 'linear-gradient(135deg, #fff7ed 0%, #fff 58%, #fff1f2 100%)',
-    boxShadow: '0 18px 44px rgba(180, 83, 9, 0.08)',
-    boxSizing: 'border-box',
-  },
-  resetIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
-    display: 'grid',
-    placeItems: 'center',
-    background: '#ffedd5',
-    color: '#c2410c',
-    border: '1px solid #fdba74',
-    fontSize: 22,
-    fontWeight: 1000,
-  },
-  resetContent: {
-    flex: '1 1 360px',
-    minWidth: 0,
-  },
-  dangerKicker: {
-    color: '#b45309',
-    fontSize: 11,
-    fontWeight: 1000,
-    letterSpacing: 1.7,
-    textTransform: 'uppercase',
-  },
-  resetTitle: {
-    display: 'block',
-    marginTop: 5,
-    color: '#07152e',
-    fontSize: 18,
-    fontWeight: 1000,
-  },
-  resetCopy: {
-    margin: '6px 0 0',
-    color: '#6b4f2b',
-    fontWeight: 800,
-    lineHeight: 1.45,
-  },
-  resetScope: {
-    marginTop: 12,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
-    padding: '9px 12px',
-    borderRadius: 14,
-    background: '#fff',
-    border: '1px solid #fed7aa',
-    color: '#7c2d12',
-    fontWeight: 900,
-  },
-  dangerButton: {
-    border: '1px solid #fca5a5',
-    borderRadius: 16,
-    background: '#b91c1c',
-    color: '#fff',
-    fontWeight: 1000,
-    padding: '14px 18px',
-    cursor: 'pointer',
-    boxShadow: '0 16px 34px rgba(185, 28, 28, 0.18)',
-    marginLeft: 'auto',
-    whiteSpace: 'normal',
-  },
-  historyActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
-  },
-  filterButton: {
-    border: '1px solid #c5d6ea',
-    borderRadius: 999,
-    background: '#fff',
-    color: '#07152e',
-    fontWeight: 900,
-    padding: '10px 14px',
-    cursor: 'pointer',
-  },
-  activeFilterButton: {
-    border: '1px solid #0f2ee8',
-    borderRadius: 999,
-    background: '#0f2ee8',
-    color: '#fff',
-    fontWeight: 900,
-    padding: '10px 14px',
-    cursor: 'pointer',
-  },
-  emptyCompact: {
-    marginTop: 14,
-    padding: 16,
-    border: '1px dashed #bdd2ee',
-    borderRadius: 16,
-    textAlign: 'center',
-    color: '#607692',
-    fontWeight: 900,
-    background: '#f8fbff',
-  },
-  recordsPanel: {
-    marginTop: 18,
-    padding: 22,
-    borderRadius: 24,
-    border: '1px solid #d5e4f5',
-    background: 'rgba(255,255,255,0.92)',
-    boxSizing: 'border-box',
-  },
-  panelHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  pill: {
-    padding: '10px 14px',
-    borderRadius: 999,
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    fontWeight: 900,
-  },
-  empty: {
-    marginTop: 16,
-    padding: 24,
-    border: '1px dashed #bdd2ee',
-    borderRadius: 18,
-    textAlign: 'center',
-    color: '#607692',
-    fontWeight: 900,
-  },
-  recordGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
-    gap: 16,
-    marginTop: 16,
-  },
-  recordCard: {
-    padding: 18,
-    borderRadius: 22,
-    border: '1px solid #d7e4f4',
-    background: '#fff',
-    boxSizing: 'border-box',
-  },
-  recordTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  weekText: {
-    fontWeight: 1000,
-    fontSize: 18,
-  },
-  staffText: {
-    marginTop: 4,
-    color: '#56708f',
-    fontWeight: 800,
-  },
-  statusPill: {
-    borderRadius: 999,
-    padding: '8px 12px',
-    fontSize: 12,
-    fontWeight: 1000,
-    whiteSpace: 'nowrap',
-  },
-  statusComplete: {
-    background: '#dcfce7',
-    color: '#047857',
-  },
-  statusPartial: {
-    background: '#fef3c7',
-    color: '#b45309',
-  },
-  statusMissing: {
-    background: '#fee2e2',
-    color: '#b91c1c',
-  },
-  photoGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: 12,
-    marginTop: 16,
-  },
-  photoPanel: {
-    border: '1px solid #d9e5f4',
-    borderRadius: 18,
-    overflow: 'hidden',
-    background: '#f8fbff',
-  },
-  photoMeta: {
-    padding: 12,
-    display: 'grid',
-    gap: 4,
-    color: '#07152e',
-  },
-  photoButton: {
-    display: 'block',
-    width: '100%',
-    padding: 0,
-    border: 0,
-    background: 'transparent',
-    cursor: 'zoom-in',
-  },
-  photo: {
-    width: '100%',
-    height: 118,
-    objectFit: 'contain',
-    background: '#0f172a',
-    display: 'block',
-    borderTop: '1px solid #d9e5f4',
-  },
-  photoMissing: {
-    minHeight: 150,
-    display: 'grid',
-    placeItems: 'center',
-    borderTop: '1px solid #d9e5f4',
-    color: '#69809b',
-    fontWeight: 900,
-  },
-  lightboxBackdrop: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 1000,
-    background: 'rgba(6, 21, 47, 0.78)',
-    display: 'grid',
-    placeItems: 'center',
-    padding: 18,
-  },
-  confirmModal: {
-    width: 'min(560px, 96vw)',
-    borderRadius: 26,
-    background: '#fff',
-    border: '1px solid #fecaca',
-    padding: 22,
-    boxShadow: '0 30px 90px rgba(0,0,0,0.36)',
-  },
-  confirmHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-  },
-  confirmIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 18,
-    display: 'grid',
-    placeItems: 'center',
-    background: '#fee2e2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    fontSize: 24,
-    fontWeight: 1000,
-    flex: '0 0 auto',
-  },
-  confirmTitle: {
-    margin: '5px 0 0',
-    fontSize: 'clamp(24px, 5vw, 34px)',
-    lineHeight: 1.08,
-    color: '#07152e',
-  },
-  confirmWeekCard: {
-    marginTop: 18,
-    padding: 16,
-    borderRadius: 18,
-    border: '1px solid #fed7aa',
-    background: '#fff7ed',
-    display: 'grid',
-    gap: 4,
-    color: '#7c2d12',
-  },
-  confirmWeekLabel: {
-    color: '#b45309',
-    fontSize: 11,
-    fontWeight: 1000,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-  confirmImpactGrid: {
-    marginTop: 12,
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-    gap: 10,
-  },
-  impactItem: {
-    padding: 14,
-    borderRadius: 16,
-    border: '1px solid #fecaca',
-    background: '#fff1f2',
-    color: '#991b1b',
-    display: 'grid',
-    gap: 5,
-    fontWeight: 900,
-  },
-  impactItemSafe: {
-    padding: 14,
-    borderRadius: 16,
-    border: '1px solid #bbf7d0',
-    background: '#ecfdf5',
-    color: '#047857',
-    display: 'grid',
-    gap: 5,
-    fontWeight: 900,
-  },
-  confirmCopy: {
-    margin: '14px 0 0',
-    color: '#536b89',
-    lineHeight: 1.55,
-    fontWeight: 800,
-  },
-  modalActions: {
-    marginTop: 18,
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  confirmDangerButton: {
-    border: '1px solid #991b1b',
-    borderRadius: 16,
-    background: '#991b1b',
-    color: '#fff',
-    fontWeight: 1000,
-    padding: '14px 18px',
-    cursor: 'pointer',
-    boxShadow: '0 16px 34px rgba(153, 27, 27, 0.2)',
-  },
-  lightbox: {
-    width: 'min(980px, 96vw)',
-    maxHeight: '92vh',
-    borderRadius: 24,
-    background: '#fff',
-    border: '1px solid #d7e4f4',
-    overflow: 'hidden',
-    boxShadow: '0 30px 90px rgba(0,0,0,0.35)',
-  },
-  lightboxHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    padding: '14px 16px',
-    borderBottom: '1px solid #d9e5f4',
-  },
-  closeButton: {
-    border: '1px solid #c5d6ea',
-    borderRadius: 12,
-    background: '#fff',
-    color: '#07152e',
-    fontWeight: 900,
-    padding: '10px 12px',
-    cursor: 'pointer',
-  },
-  lightboxImage: {
-    width: '100%',
-    maxHeight: 'calc(92vh - 62px)',
-    objectFit: 'contain',
-    display: 'block',
-    background: '#0f172a',
-  },
-  pageMobile: {
-    padding: 12,
-  },
-  unlockCardMobile: {
-    marginTop: 18,
-    padding: 18,
-    borderRadius: 22,
-  },
-  unlockFormMobile: {
-    gridTemplateColumns: '1fr',
-  },
-  heroMobile: {
-    alignItems: 'stretch',
-    padding: 18,
-    borderRadius: 22,
-  },
-  heroActionsMobile: {
-    width: '100%',
-    display: 'grid',
-    gridTemplateColumns: '1fr',
-    justifyContent: 'stretch',
-    gap: 10,
-  },
-  mobileButton: {
-    width: '100%',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-    boxSizing: 'border-box',
-  },
-  metricsGridMobile: {
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 10,
-  },
-  metricCardMobile: {
-    padding: 14,
-    borderRadius: 18,
-  },
-  controlPanelMobile: {
-    padding: 16,
-    alignItems: 'stretch',
-  },
-  passcodeFormMobile: {
-    width: '100%',
-    flexDirection: 'column',
-  },
-  resetBoxMobile: {
-    alignItems: 'flex-start',
-    padding: 14,
-    gap: 12,
-  },
-  resetContentMobile: {
-    flexBasis: '100%',
-  },
-  recordsPanelMobile: {
-    padding: 16,
-    borderRadius: 22,
-  },
-  panelHeaderMobile: {
-    alignItems: 'stretch',
-    gap: 12,
-  },
-  historyActionsMobile: {
-    width: '100%',
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    justifyContent: 'stretch',
-    gap: 8,
-  },
-  recordTopMobile: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-  },
-  confirmModalMobile: {
-    width: 'calc(100vw - 24px)',
-    maxHeight: 'calc(100vh - 24px)',
-    overflowY: 'auto',
-    padding: 18,
-    borderRadius: 22,
-  },
-  confirmHeaderMobile: {
-    alignItems: 'flex-start',
-  },
-  confirmImpactGridMobile: {
-    gridTemplateColumns: '1fr',
-  },
-  modalActionsMobile: {
-    display: 'grid',
-    gridTemplateColumns: '1fr',
-    width: '100%',
-  },
-  lightboxMobile: {
-    width: 'calc(100vw - 20px)',
-    maxHeight: 'calc(100vh - 20px)',
-    borderRadius: 20,
-  },
-};
+const styles = `
+  .adminPage {
+    min-height: 100vh;
+    box-sizing: border-box;
+    padding: 28px;
+    background:
+      radial-gradient(circle at 10% 0%, rgba(37, 99, 235, 0.1), transparent 36%),
+      linear-gradient(180deg, #eef5ff 0%, #f8fbff 46%, #ffffff 100%);
+    color: #07152d;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .hero, .panel, .loginCard, .statusCard {
+    border: 1px solid #cfe0f5;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 18px 46px rgba(15, 35, 75, 0.08);
+  }
+  .hero {
+    max-width: 1180px;
+    margin: 0 auto 16px;
+    border-radius: 26px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  span {
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 1000;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  h1, h2, h3, p { margin: 0; }
+  h1 { font-size: clamp(32px, 5vw, 48px); line-height: 0.95; }
+  h2 { font-size: 28px; }
+  p { color: #526983; font-weight: 700; }
+  .heroActions, .filterRow, .chillerTabs, .tabs, .modalActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .statusGrid {
+    max-width: 1180px;
+    margin: 0 auto 16px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .statusCard {
+    text-align: left;
+    border-radius: 20px;
+    padding: 16px;
+    min-height: 118px;
+    display: grid;
+    gap: 8px;
+  }
+  .statusCard strong { font-size: 24px; }
+  .statusCard small { color: #607997; font-weight: 800; }
+  .statusCard.complete { border-color: #86efac; background: #f0fdf4; }
+  .statusCard.partial { border-color: #fed7aa; background: #fff7ed; }
+  .statusCard.missing { border-color: #fecaca; background: #fff1f2; }
+  .tabs, .panel, .alert {
+    max-width: 1180px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .tabs { margin-bottom: 16px; }
+  button {
+    border: 0;
+    border-radius: 14px;
+    padding: 12px 16px;
+    font: inherit;
+    font-weight: 1000;
+    cursor: pointer;
+  }
+  button:disabled { cursor: wait; opacity: 0.7; }
+  .tabs button, .chillerTabs button, .filterRow button, .ghostBtn, .softBtn {
+    border: 1px solid #c9d8eb;
+    background: #fff;
+    color: #07152d;
+  }
+  .tabs .active, .chillerTabs .active, .filterRow .active, .primaryBtn {
+    background: #0f172a;
+    color: #fff;
+    border-color: #0f172a;
+  }
+  .primaryBtn {
+    box-shadow: 0 16px 34px rgba(37, 99, 235, 0.18);
+  }
+  .dangerBtn {
+    background: #be123c;
+    color: #fff;
+    box-shadow: 0 16px 34px rgba(190, 18, 60, 0.16);
+  }
+  .filterRow .danger {
+    background: #be123c;
+    border-color: #be123c;
+    color: #fff;
+  }
+  .panel {
+    border-radius: 24px;
+    padding: 22px;
+    margin-bottom: 22px;
+  }
+  .panelHead, .recordHead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .chillerTabs { margin-bottom: 16px; }
+  .historyList {
+    display: grid;
+    gap: 14px;
+  }
+  .historyCard {
+    border: 1px solid #d7e3f4;
+    border-radius: 20px;
+    padding: 16px;
+    background: #fff;
+  }
+  .historyCard.complete { border-color: #bbf7d0; }
+  .historyCard.partial { border-color: #fed7aa; }
+  .historyCard.missing { border-color: #fecaca; }
+  .recordHead strong { display: block; font-size: 18px; }
+  .recordHead span { letter-spacing: 0; text-transform: none; color: #607997; }
+  .recordHead b {
+    border-radius: 999px;
+    padding: 8px 12px;
+    background: #eef6ff;
+    color: #1d4ed8;
+    white-space: nowrap;
+  }
+  .thumbGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .photoTile {
+    border: 1px solid #e1eaf6;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #f8fbff;
+  }
+  .photoTile > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px;
+  }
+  .photoTile span {
+    letter-spacing: 0;
+    text-transform: none;
+    color: #607997;
+  }
+  .photoTile button, .missingPhoto {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #eef6ff;
+    color: #607997;
+  }
+  .photoTile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .empty {
+    border: 1px dashed #b8cff0;
+    border-radius: 18px;
+    padding: 28px;
+    text-align: center;
+    color: #607997;
+    font-weight: 900;
+  }
+  .settingsGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  label {
+    display: grid;
+    gap: 8px;
+    color: #263b58;
+    font-weight: 1000;
+  }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #c9d8eb;
+    border-radius: 14px;
+    padding: 14px 16px;
+    font: inherit;
+    font-weight: 800;
+    background: #fff;
+  }
+  label small {
+    color: #607997;
+    font-weight: 700;
+  }
+  .settingsGrid .primaryBtn {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+  .dangerPanel {
+    border-color: #fecaca;
+    background: linear-gradient(180deg, #fff 0%, #fff7f7 100%);
+  }
+  .resetLayout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 16px;
+  }
+  .resetChooser {
+    display: grid;
+    gap: 10px;
+  }
+  .resetChooser button {
+    border: 1px solid #fecaca;
+    background: #fff;
+    color: #991b1b;
+    text-align: left;
+  }
+  .resetChooser .active {
+    background: #991b1b;
+    color: #fff;
+  }
+  .resetCard {
+    border: 1px solid #fecaca;
+    border-radius: 22px;
+    padding: 20px;
+    background: #fff;
+  }
+  .resetCard h3 { font-size: 30px; margin: 8px 0; }
+  .resetMeta {
+    display: grid;
+    gap: 4px;
+    margin: 16px 0;
+    padding: 14px;
+    border-radius: 16px;
+    background: #fff1f2;
+    color: #991b1b;
+  }
+  .alert {
+    box-sizing: border-box;
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    font-weight: 900;
+  }
+  .alert.error { border: 1px solid #fecaca; background: #fff1f2; color: #be123c; }
+  .alert.success { border: 1px solid #bbf7d0; background: #ecfdf3; color: #047857; }
+  .loginCard {
+    width: min(620px, 100%);
+    box-sizing: border-box;
+    margin: 10vh auto;
+    border-radius: 26px;
+    padding: 28px;
+    display: grid;
+    gap: 14px;
+  }
+  .loginCard h1 { font-size: clamp(34px, 7vw, 56px); }
+  .modalBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(15, 23, 42, 0.55);
+  }
+  .confirmModal, .lightbox {
+    width: min(560px, 100%);
+    box-sizing: border-box;
+    border-radius: 24px;
+    padding: 24px;
+    background: #fff;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.22);
+  }
+  .confirmModal h2 { margin: 8px 0; }
+  .modalActions { justify-content: flex-end; margin-top: 18px; }
+  .lightbox {
+    width: min(980px, 100%);
+    max-height: calc(100vh - 36px);
+    overflow: auto;
+  }
+  .lightbox > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .lightbox img {
+    width: 100%;
+    height: auto;
+    border-radius: 16px;
+  }
+  @media (max-width: 900px) {
+    .adminPage { padding: 14px; }
+    .hero, .panelHead { flex-direction: column; align-items: stretch; }
+    .heroActions, .filterRow { display: grid; grid-template-columns: 1fr; }
+    .statusGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .settingsGrid, .resetLayout, .thumbGrid { grid-template-columns: 1fr; }
+    .settingsGrid .primaryBtn { justify-self: stretch; }
+  }
+  @media (max-width: 460px) {
+    .statusGrid { grid-template-columns: 1fr; }
+    .tabs, .chillerTabs { display: grid; grid-template-columns: 1fr; }
+    .modalActions { display: grid; grid-template-columns: 1fr; }
+    .hero, .panel, .loginCard { border-radius: 20px; padding: 18px; }
+  }
+`;
