@@ -343,11 +343,18 @@ const styles = `
     font-family: Inter, Aptos, "Segoe UI", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+  .page, .page * {
+    box-sizing: border-box;
   }
   button, input, textarea, select {
     font: inherit;
   }
   .unlock, .hero, .formCard {
+    width: min(1040px, 100%);
     max-width: 1040px;
     margin: 0 auto;
     border: 1px solid #cfe0f6;
@@ -546,7 +553,7 @@ const styles = `
   }
   .sourceMenu {
     position: absolute;
-    z-index: 5;
+    z-index: 20;
     left: 0;
     right: 0;
     bottom: calc(100% + 8px);
@@ -592,27 +599,85 @@ const styles = `
   }
   @media (max-width: 760px) {
     .page {
-      padding: 14px;
+      padding: 12px;
     }
     .unlock, .hero, .formCard {
-      border-radius: 22px;
+      width: 100%;
+      border-radius: 20px;
+    }
+    .unlock {
+      margin-top: 18px;
+      padding: 22px 16px;
     }
     .hero {
       grid-template-columns: 1fr;
-      padding: 22px;
+      padding: 20px;
+      gap: 14px;
+    }
+    h1 {
+      font-size: clamp(34px, 11vw, 48px);
+      line-height: 0.96;
+    }
+    .unlock p, .hero p {
+      font-size: 14px;
     }
     .weekCard {
       min-height: auto;
+      padding: 18px;
+    }
+    .weekCard strong {
+      font-size: 22px;
+    }
+    .formCard {
+      padding: 16px;
     }
     .photoGrid {
       grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .photoPanel {
+      min-width: 0;
+      padding: 14px;
+      border-radius: 20px;
     }
     .preview, .emptyPreview {
-      height: 260px;
+      height: 220px;
     }
     .cardTop {
       align-items: flex-start;
       flex-direction: column;
+      gap: 10px;
+    }
+    .pill {
+      align-self: flex-start;
+    }
+    .sourceWrap {
+      position: static;
+    }
+    .sourceMenu {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      top: auto;
+      z-index: 50;
+      margin-top: 0;
+      padding: 10px;
+      border-radius: 20px;
+      box-shadow: 0 26px 70px rgba(15, 23, 42, 0.22);
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+    }
+    .sourceMenu button {
+      min-height: 48px;
+      border-radius: 14px;
+    }
+    .sourceMenu button + button {
+      border-top: 0;
+      margin-top: 6px;
+    }
+    .submitButton {
+      width: 100%;
     }
   }
 `;
