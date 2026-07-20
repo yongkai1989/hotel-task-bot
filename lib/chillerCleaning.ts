@@ -106,6 +106,8 @@ export function canManageChillerCleaning(user: DashboardUser | null) {
   return role === 'SUPERUSER' || role === 'MANAGER';
 }
 
+export const canManageChiller = canManageChillerCleaning;
+
 function localDateKey(date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Singapore',
