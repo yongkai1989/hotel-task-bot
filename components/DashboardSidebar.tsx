@@ -1565,6 +1565,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {canSeeManagementTasks ? (
+                <Link
+                  href="/dashboard/bank-in-cash"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="file" sub>Bank In Cash</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeCommissionChecker ? (
                 <Link
                   href="/dashboard/commission-checker"
