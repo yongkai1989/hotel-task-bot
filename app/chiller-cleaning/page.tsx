@@ -19,7 +19,16 @@ type UploadKind = 'before' | 'after';
 type ChillerStatus = 'missing' | 'partial' | 'complete';
 
 const TOKEN_KEY = 'chiller_cleaning_staff_token_v2';
-const CHILLERS = ['Chiller 1', 'Chiller 2', 'Chiller 3', 'Chiller 4', 'Chiller 5'];
+const CHILLERS = [
+  'Chiller 1',
+  'Chiller 2',
+  'Chiller 3',
+  'Chiller 4',
+  'Chiller 5',
+  'Grease Trap 1',
+  'Grease Trap 2',
+  'Grease Trap 3',
+];
 
 function formatDate(value?: string) {
   if (!value) return '-';
@@ -146,7 +155,7 @@ export default function ChillerCleaningPage() {
       return;
     }
     if (!selectedChiller) {
-      setError('Please choose a chiller before uploading.');
+      setError('Please choose a routine duty before uploading.');
       return;
     }
 
@@ -178,7 +187,7 @@ export default function ChillerCleaningPage() {
   if (loading) {
     return (
       <main className="page">
-        <section className="centerCard">Loading chiller cleaning...</section>
+        <section className="centerCard">Loading F&amp;B routine duties...</section>
         <style jsx>{styles}</style>
       </main>
     );
@@ -190,7 +199,7 @@ export default function ChillerCleaningPage() {
       <section className="loginCard">
         <div className="loginBadge">Staff access</div>
         <p className="eyebrow">Weekly Cleaning</p>
-        <h1>Chiller Cleaning</h1>
+        <h1>F&amp;B Routine Duties</h1>
         <p className="muted loginIntro">
           Enter the staff passcode to submit this week&apos;s before and after photos.
         </p>
@@ -225,9 +234,9 @@ export default function ChillerCleaningPage() {
     <main className="page">
       <section className="hero">
         <div>
-          <p className="eyebrow">Weekly Chiller Cleaning</p>
+          <p className="eyebrow">Weekly F&amp;B Routine Duties</p>
           <h1>{week ? `${formatDate(week.start)} - ${formatDate(week.end)}` : 'Current Week'}</h1>
-          <p className="muted">Choose a chiller first, then submit before and after cleaning photos.</p>
+          <p className="muted">Choose a routine duty first, then submit before and after cleaning photos.</p>
         </div>
         <button className="ghostBtn" onClick={() => load()}>Refresh</button>
       </section>
@@ -239,7 +248,7 @@ export default function ChillerCleaningPage() {
         <div className="sectionHead">
           <div>
             <p className="eyebrow">Step 1</p>
-            <h2>Select chiller</h2>
+            <h2>Select routine duty</h2>
           </div>
           <div className="legend">
             <span><b className="dot missing" />Missing</span>
@@ -295,7 +304,7 @@ export default function ChillerCleaningPage() {
             <span className={`fieldHint ${lockedStaffName ? 'locked' : ''}`}>
               {lockedStaffName
                 ? `First submitted by ${lockedStaffName}. This name is locked for this chiller and week.`
-                : 'The first submitted name will be locked for this chiller and week.'}
+                : 'The first submitted name will be locked for this duty and week.'}
             </span>
           </label>
 
@@ -322,8 +331,8 @@ export default function ChillerCleaningPage() {
       ) : (
         <section className="uploadCard chooserPrompt">
           <p className="eyebrow">Step 2</p>
-          <h2>Choose a chiller above</h2>
-          <p className="muted">Each chiller keeps its own weekly before and after cleaning submission.</p>
+          <h2>Choose a routine duty above</h2>
+          <p className="muted">Each duty keeps its own weekly before and after cleaning submission.</p>
         </section>
       )}
 
