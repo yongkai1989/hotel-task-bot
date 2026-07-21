@@ -7,7 +7,16 @@ export const CHILLER_BUCKET = 'chiller-cleaning';
 export const DEFAULT_CHILLER_PASSCODE_HASH =
   '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
 export const CHILLER_TRACKING_START = '2026-07-20';
-export const CHILLER_NAMES = ['Chiller 1', 'Chiller 2', 'Chiller 3', 'Chiller 4', 'Chiller 5'] as const;
+export const CHILLER_NAMES = [
+  'Chiller 1',
+  'Chiller 2',
+  'Chiller 3',
+  'Chiller 4',
+  'Chiller 5',
+  'Grease Trap 1',
+  'Grease Trap 2',
+  'Grease Trap 3',
+] as const;
 
 export type ChillerName = (typeof CHILLER_NAMES)[number];
 export type ChillerKind = 'before' | 'after';
