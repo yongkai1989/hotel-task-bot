@@ -59,6 +59,27 @@ type DraftQuestion = {
   is_required: boolean;
 };
 
+type CashRowDraft = {
+  id?: string;
+  personName: string;
+  hasCash: boolean;
+  cashAmount: string;
+  excessAmount: string;
+  cashBankInId?: string | null;
+  excessBankInId?: string | null;
+};
+
+function emptyCashRow(): CashRowDraft {
+  return {
+    personName: '',
+    hasCash: false,
+    cashAmount: '',
+    excessAmount: '',
+    cashBankInId: null,
+    excessBankInId: null,
+  };
+}
+
 type ViewMode = 'LIST' | 'FORM' | 'HISTORY' | 'VIEW_SUBMISSION';
 
 function getTodayLocalDateString() {
@@ -132,6 +153,7 @@ export default function FoChecklistPage() {
   const [todaySubmission, setTodaySubmission] = useState<Submission | null>(null);
   const [todaySubmissionsByTemplateId, setTodaySubmissionsByTemplateId] = useState<Record<string, Submission>>({});
   const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
+  const [cashRows, setCashRows] = useState<CashRowDraft[]>([emptyCashRow()]);
   const [remarkOpenByQuestionId, setRemarkOpenByQuestionId] = useState<Record<string, boolean>>({});
   const [pastSubmissions, setPastSubmissions] = useState<Submission[]>([]);
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
@@ -364,16 +386,24 @@ export default function FoChecklistPage() {
       setPastSubmissions((pastRes.data || []) as Submission[]);
 
       if (currentSubmission) {
-        const { data: answerRows, error: answerError } = await supabase
-          .from('fo_checklist_answers')
-          .select('*')
-          .eq('submission_id', currentSubmission.id);
+        const [answerResult, cashResult] = await Promise.all([
+          supabase
+            .from('fo_checklist_answers')
+            .select('*')
+            .eq('submission_id', currentSubmission.id),
+          supabase
+            .from('fo_checklist_cash_entries')
+            .select('*')
+            .eq('submission_id', currentSubmission.id)
+            .order('line_number', { ascending: true }),
+        ]);
 
-        if (answerError) throw answerError;
+        if (answerResult.error) throw answerResult.error;
+        if (cashResult.error) throw cashResult.error;
 
         const nextAnswers: Record<string, AnswerRow> = {};
         const nextRemarkOpenByQuestionId: Record<string, boolean> = {};
-        (answerRows || []).forEach((row: any) => {
+        (answerResult.data || []).forEach((row: any) => {
           nextAnswers[row.question_id] = {
             id: row.id,
             submission_id: row.submission_id,
@@ -388,9 +418,25 @@ export default function FoChecklistPage() {
         });
         setAnswers(nextAnswers);
         setRemarkOpenByQuestionId(nextRemarkOpenByQuestionId);
+
+        const savedCashRows = cashResult.data || [];
+        setCashRows(
+          savedCashRows.length > 0
+            ? savedCashRows.map((row: any) => ({
+                id: row.id,
+                personName: String(row.person_name || ''),
+                hasCash: Boolean(row.has_cash),
+                cashAmount: Number(row.cash_amount || 0) > 0 ? String(row.cash_amount) : '',
+                excessAmount: Number(row.excess_amount || 0) > 0 ? String(row.excess_amount) : '',
+                cashBankInId: row.cash_bank_in_id || null,
+                excessBankInId: row.excess_bank_in_id || null,
+              }))
+            : [emptyCashRow()],
+        );
       } else {
         setAnswers({});
         setRemarkOpenByQuestionId({});
+        setCashRows([emptyCashRow()]);
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load submission state');
@@ -686,6 +732,25 @@ export default function FoChecklistPage() {
     }));
   }
 
+  function updateCashRow(index: number, patch: Partial<CashRowDraft>) {
+    setCashRows((current) => current.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, ...patch } : row
+    )));
+  }
+
+  function addCashRow() {
+    setCashRows((current) => [...current, emptyCashRow()]);
+  }
+
+  function removeCashRow(index: number) {
+    setCashRows((current) => {
+      const row = current[index];
+      if (row?.cashBankInId || row?.excessBankInId) return current;
+      const next = current.filter((_, rowIndex) => rowIndex !== index);
+      return next.length ? next : [emptyCashRow()];
+    });
+  }
+
   async function handleSaveSubmission() {
     if (!supabase || !profile?.user_id || !selectedTemplate) return;
 
@@ -704,6 +769,35 @@ export default function FoChecklistPage() {
           setErrorMsg(`Please answer required question: ${question.question_text}`);
           return;
         }
+      }
+    }
+
+    const activeCashRows = cashRows.filter((row) => (
+      row.personName.trim()
+      || row.hasCash
+      || Number(row.cashAmount || 0) > 0
+      || Number(row.excessAmount || 0) > 0
+    ));
+
+    for (const row of activeCashRows) {
+      const cashAmount = Number(row.cashAmount || 0);
+      const excessAmount = Number(row.excessAmount || 0);
+
+      if (!row.personName.trim()) {
+        setErrorMsg('Enter the staff name for every cash declaration row.');
+        return;
+      }
+      if (!Number.isFinite(cashAmount) || cashAmount < 0 || !Number.isFinite(excessAmount) || excessAmount < 0) {
+        setErrorMsg('Cash and excess amounts must be valid amounts of RM0.00 or more.');
+        return;
+      }
+      if (row.hasCash && cashAmount <= 0) {
+        setErrorMsg(`Enter the cash amount submitted by ${row.personName.trim()}.`);
+        return;
+      }
+      if (!row.hasCash && cashAmount > 0) {
+        setErrorMsg(`Tick Cash to submit for ${row.personName.trim()}, or clear the cash amount.`);
+        return;
       }
     }
 
@@ -763,6 +857,20 @@ export default function FoChecklistPage() {
         .upsert(rows, { onConflict: 'submission_id,question_id' });
 
       if (answerError) throw answerError;
+
+      const { error: cashError } = await supabase.rpc('save_fo_checklist_cash_entries', {
+        p_submission_id: submissionId,
+        p_rows: activeCashRows.map((row, index) => ({
+          id: row.id || null,
+          person_name: row.personName.trim(),
+          has_cash: row.hasCash,
+          cash_amount: row.hasCash ? Number(row.cashAmount || 0) : 0,
+          excess_amount: Number(row.excessAmount || 0),
+          line_number: index + 1,
+        })),
+      });
+
+      if (cashError) throw cashError;
 
       setSuccessMsg(
         createdNewSubmission ? 'Checklist submitted successfully.' : 'Checklist answers updated successfully.'
@@ -1088,6 +1196,128 @@ export default function FoChecklistPage() {
                 </div>
               ))}
             </div>
+
+            <section
+              style={{
+                marginTop: 20,
+                padding: isMobile ? 15 : 20,
+                border: '1px solid #c9dcfb',
+                borderRadius: 18,
+                background: '#f7faff',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={styles.kicker}>SHIFT CASH DECLARATION</div>
+                  <h3 style={{ margin: '4px 0 5px', fontSize: isMobile ? 20 : 23 }}>Cash to Accounts</h3>
+                  <p style={{ margin: 0, color: '#526783', fontSize: 13, lineHeight: 1.45 }}>
+                    Add one row per person. Record excess cash separately from the cash due to Accounts.
+                  </p>
+                </div>
+                <button type="button" onClick={addCashRow} style={styles.secondaryBtn}>
+                  + Add Person
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+                {cashRows.map((row, index) => {
+                  const cashLocked = Boolean(row.cashBankInId);
+                  const excessLocked = Boolean(row.excessBankInId);
+                  const rowLocked = cashLocked || excessLocked;
+
+                  return (
+                    <div
+                      key={row.id || `cash-row-${index}`}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 1.3fr) minmax(145px, .8fr) minmax(145px, .8fr) minmax(145px, .8fr) auto',
+                        gap: 10,
+                        alignItems: 'end',
+                        padding: 13,
+                        borderRadius: 14,
+                        border: `1px solid ${rowLocked ? '#b8dfc8' : '#dce6f4'}`,
+                        background: rowLocked ? '#f0fbf4' : '#ffffff',
+                      }}
+                    >
+                      <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
+                        Staff / Person Name
+                        <input
+                          value={row.personName}
+                          onChange={(event) => updateCashRow(index, { personName: event.target.value })}
+                          placeholder="Name handling the cash"
+                          disabled={rowLocked}
+                          style={{ ...styles.input, opacity: rowLocked ? 0.7 : 1 }}
+                        />
+                      </label>
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 9, minHeight: 47, padding: '0 12px', border: '1px solid #d4dfed', borderRadius: 12, background: '#f9fbfe', fontWeight: 800, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={row.hasCash}
+                          onChange={(event) => updateCashRow(index, {
+                            hasCash: event.target.checked,
+                            cashAmount: event.target.checked ? row.cashAmount : '',
+                          })}
+                          disabled={cashLocked}
+                        />
+                        Cash to submit
+                      </label>
+
+                      <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
+                        Cash Amount (RM)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={row.cashAmount}
+                          onChange={(event) => updateCashRow(index, { cashAmount: event.target.value })}
+                          disabled={!row.hasCash || cashLocked}
+                          placeholder="0.00"
+                          style={{ ...styles.input, opacity: !row.hasCash || cashLocked ? 0.65 : 1 }}
+                        />
+                      </label>
+
+                      <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
+                        Excess Cash (RM)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={row.excessAmount}
+                          onChange={(event) => updateCashRow(index, { excessAmount: event.target.value })}
+                          disabled={excessLocked}
+                          placeholder="0.00"
+                          style={{ ...styles.input, opacity: excessLocked ? 0.65 : 1 }}
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => removeCashRow(index)}
+                        disabled={rowLocked || cashRows.length === 1}
+                        title={rowLocked ? 'A banked row cannot be removed' : 'Remove row'}
+                        style={{
+                          ...styles.secondaryBtn,
+                          color: '#c73535',
+                          opacity: rowLocked || cashRows.length === 1 ? 0.45 : 1,
+                          minHeight: 47,
+                        }}
+                      >
+                        Remove
+                      </button>
+
+                      {rowLocked ? (
+                        <div style={{ gridColumn: '1 / -1', color: '#137044', fontWeight: 800, fontSize: 12 }}>
+                          Banked values are locked to preserve the Accounts audit trail.
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
 
             <div style={{ ...styles.actionRow, ...(isMobile ? styles.actionRowMobile : {}) }}>
               <button
