@@ -67,9 +67,6 @@ export async function POST(req: NextRequest) {
     if (kind !== 'before' && kind !== 'after') {
       return jsonNoCache({ ok: false, error: 'Please choose Before or After photo' }, 400);
     }
-    if (!staffName) {
-      return jsonNoCache({ ok: false, error: 'Staff name is required' }, 400);
-    }
     if (!(file instanceof File)) {
       return jsonNoCache({ ok: false, error: 'Photo is required' }, 400);
     }
@@ -81,6 +78,23 @@ export async function POST(req: NextRequest) {
     }
 
     const week = getCurrentChillerWeek();
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('chiller_cleaning_submissions')
+      .select('*')
+      .eq('week_start', week.start)
+      .eq('chiller_name', chillerName)
+      .maybeSingle();
+
+    if (existingError) throw new Error(existingError.message);
+
+    // The first submitter owns the weekly record. Photo replacements must not
+    // overwrite that audit name, even if a different value is sent manually.
+    const firstSubmitter = String(existing?.staff_name || '').trim();
+    const resolvedStaffName = firstSubmitter || staffName;
+    if (!resolvedStaffName) {
+      return jsonNoCache({ ok: false, error: 'Staff name is required' }, 400);
+    }
+
     const path = chillerStoragePath(kind, week.start, chillerName);
     const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -91,18 +105,9 @@ export async function POST(req: NextRequest) {
 
     if (uploadError) throw new Error(uploadError.message);
 
-    const { data: existing, error: existingError } = await supabaseAdmin
-      .from('chiller_cleaning_submissions')
-      .select('*')
-      .eq('week_start', week.start)
-      .eq('chiller_name', chillerName)
-      .maybeSingle();
-
-    if (existingError) throw new Error(existingError.message);
-
     const now = new Date().toISOString();
     const updateData: any = {
-      staff_name: staffName,
+      staff_name: resolvedStaffName,
       updated_at: now,
       [`${kind}_path`]: path,
       [`${kind}_submitted_at`]: now,
@@ -131,7 +136,7 @@ export async function POST(req: NextRequest) {
           week_start: week.start,
           week_end: week.end,
           chiller_name: chillerName,
-          staff_name: staffName,
+          staff_name: resolvedStaffName,
           ...updateData,
         })
         .select('*')
