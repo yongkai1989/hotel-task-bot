@@ -6,14 +6,19 @@ import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
 type PageTab = 'daily' | 'excess' | 'small-change' | 'history';
 type SourceMode = 'DAILY' | 'EXCESS' | 'SMALL_CHANGE';
+type PermissionValue = boolean | string | number | null | undefined;
 
 type DashboardProfile = {
   user_id?: string;
   email?: string;
   name?: string;
   role?: string;
-  can_access_management_tasks?: boolean;
-  permissions?: Record<string, boolean>;
+  user_role?: string;
+  app_role?: string;
+  is_superuser?: PermissionValue;
+  isSuperUser?: PermissionValue;
+  can_access_management_tasks?: PermissionValue;
+  permissions?: Record<string, PermissionValue>;
 };
 
 type CashEntry = {
@@ -78,6 +83,19 @@ function singaporeDate() {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+}
+
+function normalizeRole(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+function isPermissionEnabled(value: unknown) {
+  if (value === true || value === 1) return true;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'allowed';
 }
 
 function formatDate(value: string) {
@@ -174,16 +192,21 @@ export default function BankInCashPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [authError, setAuthError] = useState('');
   const [reverseTarget, setReverseTarget] = useState<BankInRecord | null>(null);
   const [reverseReason, setReverseReason] = useState('');
   const [reversing, setReversing] = useState(false);
 
-  const role = String(profile?.role || '').toUpperCase();
-  const isSuperuser = role === 'SUPERUSER';
+  const role = normalizeRole(profile?.role || profile?.user_role || profile?.app_role);
+  const isSuperuser =
+    role === 'SUPERUSER' ||
+    role.includes('SUPERUSER') ||
+    isPermissionEnabled(profile?.is_superuser) ||
+    isPermissionEnabled(profile?.isSuperUser);
   const hasAccess =
     isSuperuser ||
-    profile?.can_access_management_tasks === true ||
-    profile?.permissions?.can_access_management_tasks === true;
+    isPermissionEnabled(profile?.can_access_management_tasks) ||
+    isPermissionEnabled(profile?.permissions?.can_access_management_tasks);
 
   const loadData = useCallback(async () => {
     setDataLoading(true);
@@ -224,15 +247,17 @@ export default function BankInCashPage() {
     let active = true;
     (async () => {
       try {
+        if (active) setAuthError('');
         const response = await fetch(`/api/session-profile?t=${Date.now()}`, {
           cache: 'no-store',
           credentials: 'include',
         });
         const payload = await response.json();
-        if (!response.ok || !payload?.user) throw new Error(payload?.error || 'Unable to verify access.');
-        if (active) setProfile(payload.user as DashboardProfile);
+        const sessionProfile = payload?.user || payload?.profile || payload?.data?.user;
+        if (!response.ok || !sessionProfile) throw new Error(payload?.error || 'Unable to verify access.');
+        if (active) setProfile(sessionProfile as DashboardProfile);
       } catch (nextError: any) {
-        if (active) setError(nextError?.message || 'Unable to verify access.');
+        if (active) setAuthError(nextError?.message || 'Unable to verify access.');
       } finally {
         if (active) setAuthLoading(false);
       }
@@ -446,6 +471,21 @@ export default function BankInCashPage() {
 
   if (authLoading) {
     return <main className="cash-page"><div className="state-card">Checking cash access...</div><Styles /></main>;
+  }
+
+  if (authError) {
+    return (
+      <main className="cash-page">
+        <div className="state-card">
+          <h1>Unable to verify access</h1>
+          <p>{authError}</p>
+          <button type="button" className="primary-button" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+        <Styles />
+      </main>
+    );
   }
 
   if (!hasAccess) {
