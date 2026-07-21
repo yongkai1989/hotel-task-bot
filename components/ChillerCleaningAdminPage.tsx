@@ -21,7 +21,16 @@ type Tab = 'history' | 'settings' | 'reset';
 type HistoryMode = 'all' | 'overdue';
 
 const ADMIN_TOKEN_KEY = 'chiller_cleaning_admin_token_v2';
-const CHILLERS = ['Chiller 1', 'Chiller 2', 'Chiller 3', 'Chiller 4', 'Chiller 5'];
+const CHILLERS = [
+  'Chiller 1',
+  'Chiller 2',
+  'Chiller 3',
+  'Chiller 4',
+  'Chiller 5',
+  'Grease Trap 1',
+  'Grease Trap 2',
+  'Grease Trap 3',
+];
 const TRACKING_START = '2026-07-20';
 
 function addDays(value: string, days: number) {
@@ -143,7 +152,7 @@ export default function ChillerCleaningAdminPage() {
         headers: { 'x-chiller-token': nextToken },
       });
       const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to load chiller records');
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to load routine duty records');
       setRecords(Array.isArray(json.records) ? json.records : []);
       setCurrentWeek(json.week || json.current_week || null);
       setToken(nextToken);
@@ -151,7 +160,7 @@ export default function ChillerCleaningAdminPage() {
     } catch (err: any) {
       setToken('');
       window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-      setError(err?.message || 'Unable to load chiller records');
+      setError(err?.message || 'Unable to load routine duty records');
     } finally {
       setLoading(false);
     }
@@ -237,12 +246,12 @@ export default function ChillerCleaningAdminPage() {
         body: JSON.stringify({ chiller_name: resetChiller }),
       });
       const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to reset chiller');
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to reset routine duty');
       setRecords(Array.isArray(json.records) ? json.records : []);
       setConfirmReset(false);
       setNotice(`${resetChiller} reset for the current week. ${json.removedFiles || 0} upload(s) removed.`);
     } catch (err: any) {
-      setError(err?.message || 'Unable to reset chiller');
+      setError(err?.message || 'Unable to reset routine duty');
     } finally {
       setBusy(false);
     }
@@ -251,7 +260,7 @@ export default function ChillerCleaningAdminPage() {
   if (loading) {
     return (
       <main className="adminPage">
-        <div className="loginCard">Loading chiller admin...</div>
+        <div className="loginCard">Loading F&amp;B routine duties admin...</div>
         <style jsx>{styles}</style>
       </main>
     );
@@ -262,8 +271,8 @@ export default function ChillerCleaningAdminPage() {
       <main className="adminPage">
         <form className="loginCard" onSubmit={login}>
           <span>Branch Admin</span>
-          <h1>Chiller Cleaning Admin</h1>
-          <p>Enter the admin passcode to review records, reset selected chillers, and manage passcodes.</p>
+          <h1>F&amp;B Routine Duties Admin</h1>
+          <p>Enter the admin passcode to review records, reset selected duties, and manage passcodes.</p>
           {error ? <div className="alert error">{error}</div> : null}
           <input
             type="password"
@@ -285,8 +294,8 @@ export default function ChillerCleaningAdminPage() {
     <main className="adminPage">
       <section className="hero">
         <div>
-          <span>Chiller Workspace</span>
-          <h1>Chiller Cleaning Admin</h1>
+          <span>F&amp;B Routine Duties</span>
+          <h1>F&amp;B Routine Duties Admin</h1>
           <p>
             Current week: {formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}
           </p>
@@ -469,7 +478,7 @@ export default function ChillerCleaningAdminPage() {
               <span>Current week only</span>
               <h3>{resetChiller}</h3>
               <p>
-                This clears the selected chiller&apos;s before/after photos and submitted staff name for{' '}
+                This clears the selected duty&apos;s before/after photos and submitted staff name for{' '}
                 {formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}. Past weeks are untouched.
               </p>
               <div className="resetMeta">
@@ -477,7 +486,7 @@ export default function ChillerCleaningAdminPage() {
                 <small>{selectedCurrentRecord?.staff_name || 'No staff submitted yet'}</small>
               </div>
               <button type="button" className="dangerBtn" onClick={() => setConfirmReset(true)}>
-                Reset Selected Chiller
+                Reset Selected Duty
               </button>
             </div>
           </div>
@@ -490,7 +499,7 @@ export default function ChillerCleaningAdminPage() {
             <span>Confirm Reset</span>
             <h2>Reset {resetChiller} for this week?</h2>
             <p>
-              This action removes only the current-week uploads for {resetChiller}. It will not affect other chillers or past weeks.
+              This action removes only the current-week uploads for {resetChiller}. It will not affect other duties or past weeks.
             </p>
             <div className="modalActions">
               <button type="button" className="ghostBtn" onClick={() => setConfirmReset(false)} disabled={busy}>Cancel</button>
