@@ -75,6 +75,8 @@ export default function ChillerCleaningPage() {
 
   const selectedRecord = selectedChiller ? recordMap.get(selectedChiller) : undefined;
   const selectedStatus = statusFor(selectedRecord);
+  const lockedStaffName = String(selectedRecord?.staff_name || '').trim();
+  const effectiveStaffName = lockedStaffName || staffName.trim();
 
   async function load(currentToken = token) {
     if (!currentToken) {
@@ -139,7 +141,7 @@ export default function ChillerCleaningPage() {
 
     setError('');
     setMessage('');
-    if (!staffName.trim()) {
+    if (!effectiveStaffName) {
       setError('Please enter staff name before uploading.');
       return;
     }
@@ -153,7 +155,7 @@ export default function ChillerCleaningPage() {
       const form = new FormData();
       form.append('chiller_name', selectedChiller);
       form.append('kind', kind);
-      form.append('staff_name', staffName.trim());
+      form.append('staff_name', effectiveStaffName);
       form.append('file', file);
 
       const res = await fetch('/api/chiller-cleaning/submissions', {
@@ -255,7 +257,12 @@ export default function ChillerCleaningPage() {
               <button
                 key={chiller}
                 className={`chillerTile ${status} ${active ? 'active' : ''}`}
-                onClick={() => setSelectedChiller(chiller)}
+                onClick={() => {
+                  setSelectedChiller(chiller);
+                  setStaffName('');
+                  setError('');
+                  setMessage('');
+                }}
               >
                 <span>{chiller}</span>
                 <strong>{statusLabel(status)}</strong>
@@ -278,7 +285,18 @@ export default function ChillerCleaningPage() {
 
           <label className="fieldLabel">
             Staff name
-            <input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder="Name of staff who cleaned" />
+            <input
+              value={lockedStaffName || staffName}
+              onChange={(event) => setStaffName(event.target.value)}
+              readOnly={Boolean(lockedStaffName)}
+              aria-readonly={Boolean(lockedStaffName)}
+              placeholder="Name of staff who cleaned"
+            />
+            <span className={`fieldHint ${lockedStaffName ? 'locked' : ''}`}>
+              {lockedStaffName
+                ? `First submitted by ${lockedStaffName}. This name is locked for this chiller and week.`
+                : 'The first submitted name will be locked for this chiller and week.'}
+            </span>
           </label>
 
           <div className="photoGrid">
@@ -527,6 +545,21 @@ const styles = `
     margin-bottom: 16px;
   }
   .fieldLabel input { margin-top: 8px; }
+  .fieldLabel input[readonly] {
+    background: #eef4ff;
+    border-color: #bfd3f7;
+    color: #0f274d;
+    cursor: not-allowed;
+  }
+  .fieldHint {
+    display: block;
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+  .fieldHint.locked { color: #1d4ed8; }
   .photoGrid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
