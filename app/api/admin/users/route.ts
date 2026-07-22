@@ -55,6 +55,7 @@ function enabledCount(row: any) {
     row?.can_access_commission_checker,
     row?.can_access_admin_settings,
     row?.can_access_guest_shop_admin,
+    row?.can_access_linen_admin,
     row?.can_access_lost_found,
     row?.can_access_supervisor_checklist,
     row?.can_access_price_guide,
@@ -120,6 +121,8 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_admin_settings),
     can_access_guest_shop_admin:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_guest_shop_admin),
+    can_access_linen_admin:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_linen_admin),
     can_access_lost_found:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_lost_found),
     can_access_supervisor_checklist:
@@ -142,7 +145,10 @@ function normalizeProfileRow(row: any) {
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_guest_laundry),
     can_access_fnb_checklist:
-      role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com',
+      role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_fnb_checklist),
     can_access_fnb_menu_admin:
       role === 'SUPERUSER' ||
       email === 'fnb@hotelhallmark.com' ||
@@ -291,6 +297,7 @@ const profileSelect = `
   can_access_commission_checker,
   can_access_admin_settings,
   can_access_guest_shop_admin,
+  can_access_linen_admin,
   can_access_lost_found,
   can_access_supervisor_checklist,
   can_access_fo_checklist,
