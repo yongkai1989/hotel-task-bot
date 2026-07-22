@@ -62,13 +62,22 @@ type DraftMedia = {
   marked: boolean;
 };
 
+type MediaUploadJob = {
+  id: string;
+  check: RoomCheck;
+  items: DraftMedia[];
+  label: string;
+};
+
 type ManagerRoomCheckPageProps = {
   department: DepartmentCode;
 };
 
 const MAX_MEDIA_PER_CHECK = 30;
-const MAX_VIDEO_DURATION_SECONDS = 5;
-const MAX_VIDEO_SIZE_BYTES = 15 * 1024 * 1024;
+const MAX_VIDEO_DURATION_SECONDS = 10;
+const MAX_VIDEO_INPUT_BYTES = 80 * 1024 * 1024;
+const MAX_VIDEO_OUTPUT_BYTES = 15 * 1024 * 1024;
+const MAX_CONCURRENT_UPLOAD_JOBS = 3;
 const MANAGER_ROOM_CHECK_CLEANUP_KEY = 'manager-room-check-cleanup-at';
 const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
 
@@ -169,9 +178,9 @@ function getVideoDuration(file: File) {
 }
 
 async function validateVideoFile(file: File) {
-  if (file.size > MAX_VIDEO_SIZE_BYTES) {
+  if (file.size > MAX_VIDEO_INPUT_BYTES) {
     throw new Error(
-      `${file.name} is too large (${formatMegabytes(file.size)}). Maximum video size is 15MB.`
+      `${file.name} is too large (${formatMegabytes(file.size)}). Maximum source video size is 80MB.`
     );
   }
 
@@ -181,8 +190,96 @@ async function validateVideoFile(file: File) {
   }
   if (duration > MAX_VIDEO_DURATION_SECONDS + 0.25) {
     throw new Error(
-      `${file.name} is ${Math.ceil(duration)} seconds. Maximum video duration is 5 seconds.`
+      `${file.name} is ${Math.ceil(duration)} seconds. Maximum video duration is 10 seconds.`
     );
+  }
+}
+
+async function compressVideoFile(file: File) {
+  await validateVideoFile(file);
+  if (typeof MediaRecorder === 'undefined') {
+    return file;
+  }
+
+  const sourceUrl = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.src = sourceUrl;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.style.position = 'fixed';
+  video.style.left = '-10000px';
+  document.body.appendChild(video);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error('Unable to prepare video for compression.'));
+    });
+
+    const maxSide = 960;
+    const scale = Math.min(1, maxSide / Math.max(video.videoWidth || 1, video.videoHeight || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.round((video.videoWidth || 2) * scale));
+    canvas.height = Math.max(2, Math.round((video.videoHeight || 2) * scale));
+    const context = canvas.getContext('2d');
+    const sourceCapture = (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream;
+    if (!context || typeof canvas.captureStream !== 'function' || typeof sourceCapture !== 'function') {
+      return file;
+    }
+
+    const preferredTypes = ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+    const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+    const stream = canvas.captureStream(24);
+    const sourceStream = sourceCapture.call(video);
+    sourceStream.getAudioTracks().forEach((track) => stream.addTrack(track));
+    const recorder = new MediaRecorder(stream, {
+      ...(mimeType ? { mimeType } : {}),
+      videoBitsPerSecond: 1_000_000,
+    });
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+
+    const compressed = await new Promise<Blob>((resolve, reject) => {
+      let frameId = 0;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.cancelAnimationFrame(frameId);
+        video.pause();
+        if (recorder.state !== 'inactive') recorder.stop();
+      };
+      recorder.onerror = () => reject(new Error('Video compression failed.'));
+      recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }));
+      const drawFrame = () => {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        if (video.ended || video.currentTime >= MAX_VIDEO_DURATION_SECONDS) finish();
+        else frameId = window.requestAnimationFrame(drawFrame);
+      };
+      recorder.start(250);
+      void video.play().then(drawFrame).catch(() => reject(new Error('Video compression could not start.')));
+    });
+
+    stream.getTracks().forEach((track) => track.stop());
+    sourceStream.getTracks().forEach((track) => track.stop());
+    if (!compressed.size) throw new Error('Video compression produced an empty file.');
+    if (compressed.size > MAX_VIDEO_OUTPUT_BYTES) {
+      throw new Error(`Compressed video is still too large (${formatMegabytes(compressed.size)}).`);
+    }
+    const extension = compressed.type.includes('mp4') ? 'mp4' : 'webm';
+    return new File([compressed], file.name.replace(/\.[^.]+$/, `.${extension}`), {
+      type: compressed.type || `video/${extension}`,
+      lastModified: Date.now(),
+    });
+  } finally {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.remove();
+    URL.revokeObjectURL(sourceUrl);
   }
 }
 
@@ -264,6 +361,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const cleanupDoneRef = useRef(false);
+  const uploadQueueRef = useRef<MediaUploadJob[]>([]);
+  const activeUploadWorkersRef = useRef(0);
+  const uploadStatsRef = useRef({
+    total: 0,
+    completed: 0,
+    failed: 0,
+    completedItems: [] as DraftMedia[],
+  });
 
   const canAccess = isAccessAllowed(profile, department);
   const canManageContent = canManageRoomCheckContent(profile);
@@ -411,7 +516,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       }
 
       setChecks((checkRows || []) as RoomCheck[]);
-      setMedia(mediaRows);
+      setMedia((current) => {
+        const temporaryRows = current.filter((item) => Boolean(item.upload_status));
+        const loadedIds = new Set(mediaRows.map((item) => item.id));
+        return [...mediaRows, ...temporaryRows.filter((item) => !loadedIds.has(item.id))];
+      });
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to load room checks.');
     } finally {
@@ -570,7 +679,13 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           continue;
         }
       }
-      const file = isImage ? await compressImageFile(rawFile) : rawFile;
+      let file: File;
+      try {
+        file = isImage ? await compressImageFile(rawFile) : rawFile;
+      } catch (error: any) {
+        rejected.push(error?.message || `${rawFile.name} could not be prepared.`);
+        continue;
+      }
       nextItems.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
@@ -591,7 +706,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     const token = await getAccessToken();
     const form = new FormData();
     form.set('folder', 'manager-room-check-media');
-    items.forEach((item) => form.append('media', item.file, item.file.name));
+    for (const item of items) {
+      const preparedFile = item.media_type === 'video'
+        ? await compressVideoFile(item.file)
+        : item.file;
+      form.append('media', preparedFile, preparedFile.name);
+    }
 
     const res = await fetch('/api/upload', {
       method: 'POST',
@@ -864,7 +984,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (error) throw error;
     await supabase
       .from('manager_room_checks')
-      .update({ status: 'OPEN', updated_at: new Date().toISOString() })
+      .update({ updated_at: new Date().toISOString() })
       .eq('id', check.id);
 
     if (createDashboardReminder) {
@@ -891,37 +1011,85 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }));
   }
 
+  function updateQueuedUploadProgress() {
+    const stats = uploadStatsRef.current;
+    const finished = stats.completed + stats.failed;
+    setUploadProgressMsg(
+      `Uploading media ${finished}/${stats.total} in background across multiple room checks...`
+    );
+  }
+
+  async function runMediaUploadWorker() {
+    activeUploadWorkersRef.current += 1;
+    try {
+      while (true) {
+        const job = uploadQueueRef.current.shift();
+        if (!job) break;
+        try {
+          await appendMediaToRoomCheck(job.check, job.items, false);
+          uploadStatsRef.current.completed += job.items.length;
+          uploadStatsRef.current.completedItems.push(...job.items);
+        } catch (error: any) {
+          uploadStatsRef.current.failed += job.items.length;
+          const failedIds = new Set(
+            job.items.map((item) => `uploading-${job.check.id}-${item.id}`)
+          );
+          setMedia((current) =>
+            current.map((item) =>
+              failedIds.has(item.id)
+                ? {
+                    ...item,
+                    upload_status: 'failed',
+                    upload_error: error?.message || 'Upload failed.',
+                  }
+                : item
+            )
+          );
+        }
+        updateQueuedUploadProgress();
+      }
+    } finally {
+      activeUploadWorkersRef.current -= 1;
+      if (activeUploadWorkersRef.current === 0 && uploadQueueRef.current.length === 0) {
+        const stats = uploadStatsRef.current;
+        uploadStatsRef.current = { total: 0, completed: 0, failed: 0, completedItems: [] };
+        await loadChecks();
+        stats.completedItems.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        if (activeUploadWorkersRef.current === 0 && uploadQueueRef.current.length === 0) {
+          setUploadProgressMsg('');
+        } else {
+          updateQueuedUploadProgress();
+        }
+        if (stats.failed) {
+          setErrorMsg(
+            `${stats.failed} media item${stats.failed === 1 ? '' : 's'} failed to upload. The failed preview remains visible so it is not mistaken for a completed upload.`
+          );
+        } else {
+          setSuccessMsg(
+            `${stats.completed} media item${stats.completed === 1 ? '' : 's'} uploaded across all queued room checks.`
+          );
+        }
+      }
+    }
+  }
+
   function queueMediaUploadJobs(jobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }>) {
     if (!jobs.length) return;
-    const totalMedia = jobs.reduce((sum, job) => sum + job.items.length, 0);
-    setUploadProgressMsg(`Uploading media 0/${totalMedia} in background...`);
+    const queuedJobs = jobs.map((job) => ({
+      ...job,
+      id: `${job.check.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    }));
+    uploadQueueRef.current.push(...queuedJobs);
+    uploadStatsRef.current.total += queuedJobs.reduce((sum, job) => sum + job.items.length, 0);
+    updateQueuedUploadProgress();
 
-    void (async () => {
-      let uploadedMedia = 0;
-      try {
-        for (const job of jobs) {
-          setUploadProgressMsg(`Uploading ${job.label} media ${uploadedMedia}/${totalMedia} in background...`);
-          await appendMediaToRoomCheck(job.check, job.items, false);
-          uploadedMedia += job.items.length;
-          setUploadProgressMsg(`Uploading media ${uploadedMedia}/${totalMedia} in background...`);
-        }
-        jobs.forEach((job) => job.items.forEach((item) => URL.revokeObjectURL(item.previewUrl)));
-        setUploadProgressMsg('');
-        setSuccessMsg(`${totalMedia} media item${totalMedia === 1 ? '' : 's'} uploaded.`);
-        await loadChecks();
-      } catch (error: any) {
-        const failedIds = new Set(
-          jobs.flatMap((job) => job.items.map((item) => `uploading-${job.check.id}-${item.id}`))
-        );
-        setMedia((current) =>
-          current.filter((item) => !failedIds.has(item.id))
-        );
-        jobs.forEach((job) => job.items.forEach((item) => URL.revokeObjectURL(item.previewUrl)));
-        setUploadProgressMsg('');
-        setErrorMsg(error?.message || 'Background media upload failed. Please add the media again.');
-        await loadChecks();
-      }
-    })();
+    const workerSlots = Math.min(
+      MAX_CONCURRENT_UPLOAD_JOBS - activeUploadWorkersRef.current,
+      uploadQueueRef.current.length
+    );
+    for (let index = 0; index < workerSlots; index += 1) {
+      void runMediaUploadWorker();
+    }
   }
 
   async function createCheck() {
@@ -934,7 +1102,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setSaving(true);
     setErrorMsg('');
     setSuccessMsg('');
-    setUploadProgressMsg('');
     try {
       const normalizedRoomNumber = roomNumber.trim();
       const mediaToUpload = [...draftMedia];
@@ -987,7 +1154,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       }
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to create room check.');
-      setUploadProgressMsg('');
+      if (activeUploadWorkersRef.current === 0 && uploadQueueRef.current.length === 0) {
+        setUploadProgressMsg('');
+      }
     } finally {
       setSaving(false);
     }
@@ -1024,6 +1193,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         if (existingCount + items.length > MAX_MEDIA_PER_CHECK) {
           throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
         }
+
+        const { error: reopenError } = await supabase
+          .from('manager_room_checks')
+          .update({
+            status: 'OPEN',
+            submitted_for_check_at: null,
+            submitted_for_check_by_name: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', targetCheck.id)
+          .neq('status', 'DONE');
+        if (reopenError) throw reopenError;
 
         uploadJobs.push({ check: targetCheck, items, label: departmentLabel(targetDepartment) });
         optimisticRows.push(...optimisticMediaRows(targetCheck, items, existingCount + 1));
@@ -1338,8 +1519,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const isImage = file.type.startsWith('image/');
       const isVideo = file.type.startsWith('video/');
       if (!isImage && !isVideo) throw new Error('Please choose an image or video.');
-      if (isVideo) await validateVideoFile(file);
-      const nextFile = isImage ? await compressImageFile(file) : file;
+      const nextFile = isImage ? await compressImageFile(file) : await compressVideoFile(file);
       const token = await getAccessToken();
       const form = new FormData();
       form.set('folder', 'manager-room-check-media');
@@ -1786,8 +1966,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             {selectedMedia.map((item) => {
               const remark = mediaRemark(item.caption);
               const isUploading = item.upload_status === 'uploading';
+              const uploadFailed = item.upload_status === 'failed';
               return (
-              <div key={item.id} className={`mrc-media-card ${isUploading ? 'is-uploading' : ''}`}>
+              <div key={item.id} className={`mrc-media-card ${isUploading ? 'is-uploading' : ''} ${uploadFailed ? 'is-upload-failed' : ''}`}>
                 {item.media_type === 'video' ? (
                   <button
                     type="button"
@@ -1815,12 +1996,15 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   <span>
                     {isUploading
                       ? 'Uploading in background...'
+                      : uploadFailed
+                      ? item.upload_error || 'Upload failed'
                       : item.completed_at
                       ? `Completed by ${item.completed_by_name || '-'}`
                       : 'Not completed'}
                   </span>
                   {isUploading ? <span className="mrc-upload-chip">Uploading</span> : null}
-                  {canManageContent && selectedCheck.status !== 'DONE' && !isUploading ? (
+                  {uploadFailed ? <span className="mrc-upload-chip">Upload failed</span> : null}
+                  {canManageContent && selectedCheck.status !== 'DONE' && !isUploading && !uploadFailed ? (
                     <div className="mrc-media-route">
                       <span>Assigned to</span>
                       <div>
@@ -1840,9 +2024,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   ) : null}
                 </div>
                 <div className="mrc-media-actions">
-                  {isUploading ? (
+                  {isUploading || uploadFailed ? (
                     <button type="button" className="mrc-secondary" disabled>
-                      Uploading...
+                      {isUploading ? 'Uploading...' : 'Upload failed'}
                     </button>
                   ) : item.completed_at ? (
                     <button type="button" className="mrc-secondary" onClick={() => void uncompleteMedia(item)}>
@@ -1853,7 +2037,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       Mark Complete
                     </button>
                   )}
-                  {canManageContent && !isUploading ? (
+                  {canManageContent && !isUploading && !uploadFailed ? (
                     <>
                       {item.media_type === 'image' ? (
                         <button
@@ -2126,7 +2310,7 @@ function MediaPicker({
       ) : (
         <div className="mrc-media-choice">{sourceButtons}</div>
       )}
-      <div className="mrc-picker-hint">Up to 30 items. Images can be marked up before upload.</div>
+      <div className="mrc-picker-hint">Up to 30 items. Images are optimized; videos are compressed for review and capped at 10 seconds.</div>
       {draftMedia.length ? (
         <div className="mrc-draft-grid">
           {draftMedia.map((item, index) => (
