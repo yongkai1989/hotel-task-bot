@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { Buffer } from 'node:buffer';
 
 export type DashboardRole =
   | 'SUPERUSER'
@@ -92,6 +93,59 @@ function getBearerToken(req: NextRequest) {
   return authHeader.slice(7).trim();
 }
 
+function tokenFromStoredSession(rawValue: string) {
+  try {
+    let value = decodeURIComponent(rawValue);
+    if (value.startsWith('base64-')) {
+      const encoded = value.slice(7).replace(/-/g, '+').replace(/_/g, '/');
+      value = Buffer.from(encoded, 'base64').toString('utf8');
+    }
+
+    if (value.split('.').length === 3) return value;
+
+    const parsed = JSON.parse(value);
+    if (typeof parsed?.access_token === 'string') return parsed.access_token;
+    if (typeof parsed?.currentSession?.access_token === 'string') {
+      return parsed.currentSession.access_token;
+    }
+    if (Array.isArray(parsed)) {
+      const jwt = parsed.find(
+        (item) => typeof item === 'string' && item.split('.').length === 3
+      );
+      return typeof jwt === 'string' ? jwt : '';
+    }
+  } catch {}
+  return '';
+}
+
+export function getRequestAccessToken(req: NextRequest) {
+  const bearerToken = getBearerToken(req);
+  if (bearerToken) return bearerToken;
+
+  const authCookies = req.cookies
+    .getAll()
+    .filter((cookie) => /-auth-token(?:\.\d+)?$/.test(cookie.name));
+  const cookieBases = Array.from(
+    new Set(authCookies.map((cookie) => cookie.name.replace(/\.\d+$/, '')))
+  );
+
+  for (const baseName of cookieBases) {
+    const value = authCookies
+      .filter((cookie) => cookie.name === baseName || cookie.name.startsWith(`${baseName}.`))
+      .sort((a, b) => {
+        const aPart = Number(a.name.match(/\.(\d+)$/)?.[1] || 0);
+        const bPart = Number(b.name.match(/\.(\d+)$/)?.[1] || 0);
+        return aPart - bPart;
+      })
+      .map((cookie) => cookie.value)
+      .join('');
+    const cookieToken = tokenFromStoredSession(value);
+    if (cookieToken) return cookieToken;
+  }
+
+  return '';
+}
+
 function savedBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
 }
@@ -119,10 +173,10 @@ export async function getDashboardUserFromRequest(
   req: NextRequest
 ): Promise<{ user: DashboardUser | null; error: string | null }> {
   try {
-    const token = getBearerToken(req);
+    const token = getRequestAccessToken(req);
 
     if (!token) {
-      return { user: null, error: 'Missing authorization token' };
+      return { user: null, error: 'Missing Supabase session' };
     }
 
     const authClient = createClient(
