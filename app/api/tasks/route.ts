@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { sendTelegramTaskCard, Dept } from '../../../lib/telegram';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
+import { reconcileManagerRoomCheckTasks } from '../../../lib/managerRoomCheckTaskSync';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -585,7 +586,8 @@ export async function GET() {
       return jsonNoCache({ ok: false, error: tasksError.message }, 500);
     }
 
-    const taskIds = (tasks || []).map((t) => t.id);
+    const reconciledTasks = await reconcileManagerRoomCheckTasks(tasks || []);
+    const taskIds = reconciledTasks.map((t) => t.id);
 
     const imageMap = new Map<string, any[]>();
 
@@ -619,7 +621,7 @@ export async function GET() {
       }
     }
 
-    const finalTasks = (tasks || []).map((task) => ({
+    const finalTasks = reconciledTasks.map((task) => ({
       ...task,
       task_images: imageMap.get(String(task.id)) || [],
     }));
