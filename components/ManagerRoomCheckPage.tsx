@@ -64,9 +64,28 @@ type DraftMedia = {
 
 type MediaUploadJob = {
   id: string;
-  check: RoomCheck;
-  items: DraftMedia[];
-  label: string;
+};
+
+type DurableUploadRow = {
+  id: string;
+  check_id: string;
+  media_type: MediaType;
+  caption: string | null;
+  position: number;
+  storage_path: string;
+  file_name: string;
+  file_size: number;
+  content_type: string;
+  status: 'PENDING' | 'UPLOADING' | 'READY' | 'FAILED';
+  error_message: string | null;
+  created_at: string | null;
+};
+
+type StoredUploadFile = {
+  id: string;
+  file: File;
+  prepared: boolean;
+  uploadUrl: string | null;
 };
 
 type ManagerRoomCheckPageProps = {
@@ -75,14 +94,213 @@ type ManagerRoomCheckPageProps = {
 
 const MAX_MEDIA_PER_CHECK = 30;
 const MAX_VIDEO_DURATION_SECONDS = 10;
-const MAX_VIDEO_INPUT_BYTES = 80 * 1024 * 1024;
+const MAX_VIDEO_INPUT_BYTES = 50 * 1024 * 1024;
 const MAX_VIDEO_OUTPUT_BYTES = 15 * 1024 * 1024;
 const MAX_CONCURRENT_UPLOAD_JOBS = 3;
+const RESUMABLE_CHUNK_BYTES = 6 * 1024 * 1024;
+const UPLOAD_DB_NAME = 'hotelhallmark-manager-room-check-uploads';
+const UPLOAD_DB_STORE = 'files';
 const MANAGER_ROOM_CHECK_CLEANUP_KEY = 'manager-room-check-cleanup-at';
 const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
 
 function formatMegabytes(bytes: number) {
   return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
+}
+
+function normalizedMediaContentType(type: string, mediaType: MediaType) {
+  const baseType = String(type || '').split(';')[0].trim().toLowerCase();
+  if (mediaType === 'video') {
+    if (baseType === 'video/webm') return 'video/webm';
+    if (baseType === 'video/quicktime') return 'video/quicktime';
+    return 'video/mp4';
+  }
+  if (baseType === 'image/png' || baseType === 'image/webp' || baseType === 'image/gif') return baseType;
+  return 'image/jpeg';
+}
+
+function withNormalizedFileType(file: File, mediaType: MediaType) {
+  const contentType = normalizedMediaContentType(file.type, mediaType);
+  if (file.type === contentType) return file;
+  return new File([file], file.name, { type: contentType, lastModified: file.lastModified });
+}
+
+function openUploadDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('This browser cannot preserve uploads after the page closes.'));
+      return;
+    }
+    const request = indexedDB.open(UPLOAD_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(UPLOAD_DB_STORE)) {
+        request.result.createObjectStore(UPLOAD_DB_STORE, { keyPath: 'id' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Unable to open the upload store.'));
+  });
+}
+
+async function readStoredUpload(id: string) {
+  const db = await openUploadDatabase();
+  try {
+    return await new Promise<StoredUploadFile | null>((resolve, reject) => {
+      const request = db.transaction(UPLOAD_DB_STORE, 'readonly').objectStore(UPLOAD_DB_STORE).get(id);
+      request.onsuccess = () => resolve((request.result as StoredUploadFile | undefined) || null);
+      request.onerror = () => reject(request.error || new Error('Unable to read the saved upload.'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function writeStoredUpload(record: StoredUploadFile) {
+  const db = await openUploadDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = db.transaction(UPLOAD_DB_STORE, 'readwrite').objectStore(UPLOAD_DB_STORE).put(record);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Unable to save the upload on this device.'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteStoredUpload(id: string) {
+  const db = await openUploadDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = db.transaction(UPLOAD_DB_STORE, 'readwrite').objectStore(UPLOAD_DB_STORE).delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error('Unable to clear the completed upload.'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function encodeTusMetadata(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
+function storageResumableEndpoint() {
+  const configuredUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+  if (!configuredUrl) throw new Error('Supabase is not configured.');
+  const url = new URL(configuredUrl);
+  if (url.hostname.endsWith('.supabase.co') && !url.hostname.endsWith('.storage.supabase.co')) {
+    url.hostname = url.hostname.replace(/\.supabase\.co$/, '.storage.supabase.co');
+  }
+  return `${url.origin}/storage/v1/upload/resumable`;
+}
+
+async function tusFetch(url: string, init: RequestInit, retryDelays = [0, 3000, 5000, 10000, 20000]) {
+  let lastError: Error | null = null;
+  for (const delay of retryDelays) {
+    if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('Upload paused while this device is offline.');
+    }
+    try {
+      const response = await fetch(url, init);
+      if (response.status < 500 && response.status !== 408 && response.status !== 429) return response;
+      lastError = new Error(`Storage temporarily returned ${response.status}.`);
+    } catch (error: any) {
+      lastError = new Error(error?.message || 'The upload connection was interrupted.');
+    }
+  }
+  throw lastError || new Error('The upload connection was interrupted.');
+}
+
+async function uploadFileResumably(params: {
+  file: File;
+  storagePath: string;
+  uploadUrl: string | null;
+  getAccessToken: () => Promise<string>;
+  saveUploadUrl: (uploadUrl: string) => Promise<void>;
+}) {
+  let uploadUrl = params.uploadUrl;
+  let token = await params.getAccessToken();
+  const commonHeaders = () => ({
+    Authorization: `Bearer ${token}`,
+    'Tus-Resumable': '1.0.0',
+    'x-upsert': 'true',
+  });
+
+  if (uploadUrl) {
+    let head = await tusFetch(uploadUrl, { method: 'HEAD', headers: commonHeaders(), cache: 'no-store' }, [0, 3000]);
+    if (head.status === 401) {
+      token = await params.getAccessToken();
+      head = await tusFetch(uploadUrl, { method: 'HEAD', headers: commonHeaders(), cache: 'no-store' }, [0, 3000]);
+      if (!head.ok) throw new Error(`Unable to resume upload (${head.status}).`);
+    } else if (head.status === 404 || head.status === 410) {
+      uploadUrl = null;
+    } else if (!head.ok) {
+      throw new Error(`Unable to resume upload (${head.status}).`);
+    }
+  }
+
+  if (!uploadUrl) {
+    const metadata = [
+      ['bucketName', 'task-images'],
+      ['objectName', params.storagePath],
+      ['contentType', normalizedMediaContentType(params.file.type, params.file.type.startsWith('video/') ? 'video' : 'image')],
+      ['cacheControl', '3600'],
+    ]
+      .map(([key, value]) => `${key} ${encodeTusMetadata(value)}`)
+      .join(',');
+    const create = await tusFetch(storageResumableEndpoint(), {
+      method: 'POST',
+      headers: {
+        ...commonHeaders(),
+        'Upload-Length': String(params.file.size),
+        'Upload-Metadata': metadata,
+      },
+      cache: 'no-store',
+    });
+    if (!create.ok) throw new Error((await create.text()) || `Unable to start upload (${create.status}).`);
+    const location = create.headers.get('location');
+    if (!location) throw new Error('Storage did not return a resumable upload URL.');
+    uploadUrl = new URL(location, storageResumableEndpoint()).toString();
+    await params.saveUploadUrl(uploadUrl);
+  }
+
+  const offsetResponse = await tusFetch(uploadUrl, {
+    method: 'HEAD',
+    headers: commonHeaders(),
+    cache: 'no-store',
+  }, [0, 3000]);
+  if (!offsetResponse.ok) throw new Error(`Unable to read upload progress (${offsetResponse.status}).`);
+  let offset = Number(offsetResponse.headers.get('upload-offset') || '0');
+  if (!Number.isFinite(offset) || offset < 0 || offset > params.file.size) offset = 0;
+
+  while (offset < params.file.size) {
+    token = await params.getAccessToken();
+    const chunk = params.file.slice(offset, Math.min(offset + RESUMABLE_CHUNK_BYTES, params.file.size));
+    const patch = await tusFetch(uploadUrl, {
+      method: 'PATCH',
+      headers: {
+        ...commonHeaders(),
+        'Content-Type': 'application/offset+octet-stream',
+        'Upload-Offset': String(offset),
+      },
+      body: chunk,
+      cache: 'no-store',
+    });
+    if (patch.status === 409) {
+      const head = await tusFetch(uploadUrl, { method: 'HEAD', headers: commonHeaders(), cache: 'no-store' }, [0, 3000]);
+      if (!head.ok) throw new Error('Unable to recover upload progress.');
+      offset = Number(head.headers.get('upload-offset') || '0');
+      continue;
+    }
+    if (!patch.ok) throw new Error((await patch.text()) || `Upload failed (${patch.status}).`);
+    offset = Number(patch.headers.get('upload-offset') || offset + chunk.size);
+  }
 }
 
 function getSupabaseSafe() {
@@ -180,7 +398,7 @@ function getVideoDuration(file: File) {
 async function validateVideoFile(file: File) {
   if (file.size > MAX_VIDEO_INPUT_BYTES) {
     throw new Error(
-      `${file.name} is too large (${formatMegabytes(file.size)}). Maximum source video size is 80MB.`
+      `${file.name} is too large (${formatMegabytes(file.size)}). Maximum source video size is 50MB.`
     );
   }
 
@@ -271,7 +489,7 @@ async function compressVideoFile(file: File) {
     }
     const extension = compressed.type.includes('mp4') ? 'mp4' : 'webm';
     return new File([compressed], file.name.replace(/\.[^.]+$/, `.${extension}`), {
-      type: compressed.type || `video/${extension}`,
+      type: normalizedMediaContentType(compressed.type || `video/${extension}`, 'video'),
       lastModified: Date.now(),
     });
   } finally {
@@ -361,13 +579,16 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const cleanupDoneRef = useRef(false);
+  const deepLinkOpenedRef = useRef(false);
   const uploadQueueRef = useRef<MediaUploadJob[]>([]);
+  const queuedUploadIdsRef = useRef(new Set<string>());
+  const uploadPreviewUrlsRef = useRef(new Map<string, string>());
   const activeUploadWorkersRef = useRef(0);
   const uploadStatsRef = useRef({
     total: 0,
     completed: 0,
     failed: 0,
-    completedItems: [] as DraftMedia[],
+    paused: 0,
   });
 
   const canAccess = isAccessAllowed(profile, department);
@@ -450,6 +671,45 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }, [authLoading, canAccess]);
 
   useEffect(() => {
+    if (authLoading || !canAccess) return;
+    if (navigator.storage?.persist) void navigator.storage.persist().catch(() => false);
+    const resume = () => void resumeDurableUploadJobs();
+    const resumeWhenVisible = () => {
+      if (document.visibilityState === 'visible') resume();
+    };
+    window.addEventListener('online', resume);
+    window.addEventListener('focus', resume);
+    window.addEventListener('pageshow', resume);
+    document.addEventListener('visibilitychange', resumeWhenVisible);
+    return () => {
+      window.removeEventListener('online', resume);
+      window.removeEventListener('focus', resume);
+      window.removeEventListener('pageshow', resume);
+      document.removeEventListener('visibilitychange', resumeWhenVisible);
+    };
+  }, [authLoading, canAccess]);
+
+  useEffect(() => {
+    if (deepLinkOpenedRef.current || !checks.length || typeof window === 'undefined') return;
+    const requestedRoom = new URLSearchParams(window.location.search).get('room')?.trim();
+    if (!requestedRoom) return;
+    const matchingCheck = checks.find(
+      (check) => check.department === department && check.room_number === requestedRoom
+    );
+    if (!matchingCheck) return;
+    deepLinkOpenedRef.current = true;
+    setSelectedCheckId(matchingCheck.id);
+    setDetailOpen(true);
+  }, [checks, department]);
+
+  useEffect(() => {
+    return () => {
+      uploadPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      uploadPreviewUrlsRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     if (markupIndex === null && !existingMarkupMedia) return;
     setMarkupDrawMode(true);
     const item = markupIndex !== null ? draftMedia[markupIndex] : null;
@@ -505,22 +765,71 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
       const ids = (checkRows || []).map((row) => row.id);
       let mediaRows: CheckMedia[] = [];
+      let durableRows: DurableUploadRow[] = [];
       if (ids.length) {
-        const { data: loadedMedia, error: mediaError } = await supabase
-          .from('manager_room_check_media')
-          .select('*')
-          .in('check_id', ids)
-          .order('position', { ascending: true });
+        const [{ data: loadedMedia, error: mediaError }, { data: loadedUploads, error: uploadsError }] =
+          await Promise.all([
+            supabase
+              .from('manager_room_check_media')
+              .select('*')
+              .in('check_id', ids)
+              .order('position', { ascending: true }),
+            supabase
+              .from('manager_room_check_uploads')
+              .select('*')
+              .in('check_id', ids)
+              .neq('status', 'READY')
+              .order('position', { ascending: true }),
+          ]);
         if (mediaError) throw mediaError;
+        if (uploadsError) throw uploadsError;
         mediaRows = (loadedMedia || []) as CheckMedia[];
+        durableRows = (loadedUploads || []) as DurableUploadRow[];
       }
 
+      const durableMediaRows = await Promise.all(
+        durableRows.map(async (row): Promise<CheckMedia> => {
+          let previewUrl = uploadPreviewUrlsRef.current.get(row.id) || '';
+          let hasLocalFile = Boolean(previewUrl);
+          if (!previewUrl) {
+            try {
+              const stored = await readStoredUpload(row.id);
+              if (stored?.file) {
+                previewUrl = URL.createObjectURL(stored.file);
+                uploadPreviewUrlsRef.current.set(row.id, previewUrl);
+                hasLocalFile = true;
+              }
+            } catch {
+              hasLocalFile = false;
+            }
+          }
+          return {
+            id: `uploading-${row.id}`,
+            check_id: row.check_id,
+            media_url: previewUrl,
+            media_path: row.storage_path,
+            media_type: row.media_type,
+            caption: row.caption,
+            position: row.position,
+            completed_at: null,
+            completed_by_name: null,
+            completed_by_email: null,
+            created_at: row.created_at,
+            upload_status: row.status === 'FAILED' || !hasLocalFile ? 'failed' : 'uploading',
+            upload_error:
+              row.error_message ||
+              (!hasLocalFile ? 'The original file is saved on the device that created this upload.' : null),
+          };
+        })
+      );
+
       setChecks((checkRows || []) as RoomCheck[]);
-      setMedia((current) => {
-        const temporaryRows = current.filter((item) => Boolean(item.upload_status));
-        const loadedIds = new Set(mediaRows.map((item) => item.id));
-        return [...mediaRows, ...temporaryRows.filter((item) => !loadedIds.has(item.id))];
-      });
+      setMedia([...mediaRows, ...durableMediaRows]);
+      enqueueDurableIds(
+        durableRows
+          .filter((row) => row.status === 'PENDING' || row.status === 'UPLOADING')
+          .map((row) => row.id)
+      );
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to load room checks.');
     } finally {
@@ -565,12 +874,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function getMediaCountForCheck(checkId: string) {
     if (!supabase) return mediaCount(media, checkId);
-    const { count, error } = await supabase
-      .from('manager_room_check_media')
-      .select('id', { count: 'exact', head: true })
-      .eq('check_id', checkId);
-    if (error) throw error;
-    return count ?? 0;
+    const [{ count: savedCount, error: savedError }, { count: pendingCount, error: pendingError }] =
+      await Promise.all([
+        supabase
+          .from('manager_room_check_media')
+          .select('id', { count: 'exact', head: true })
+          .eq('check_id', checkId),
+        supabase
+          .from('manager_room_check_uploads')
+          .select('id', { count: 'exact', head: true })
+          .eq('check_id', checkId)
+          .neq('status', 'READY'),
+      ]);
+    if (savedError) throw savedError;
+    if (pendingError) throw pendingError;
+    return (savedCount ?? 0) + (pendingCount ?? 0);
   }
 
   async function renumberCheckMedia(checkId: string) {
@@ -702,37 +1020,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setDraftMedia((current) => [...current, ...nextItems]);
   }
 
-  async function uploadDraftMedia(items: DraftMedia[]) {
-    const token = await getAccessToken();
-    const form = new FormData();
-    form.set('folder', 'manager-room-check-media');
-    for (const item of items) {
-      const preparedFile = item.media_type === 'video'
-        ? await compressVideoFile(item.file)
-        : item.file;
-      form.append('media', preparedFile, preparedFile.name);
-    }
-
-    const res = await fetch('/api/upload', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      body: form,
-      cache: 'no-store',
-    });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) {
-      throw new Error(json?.error || 'Failed to upload media.');
-    }
-    return json.items as Array<{
-      url: string;
-      path: string | null;
-      media_type: MediaType;
-      caption: string | null;
-    }>;
-  }
-
   function groupedDraftMedia(items: DraftMedia[]) {
     return items.reduce<Record<DepartmentCode, DraftMedia[]>>(
       (groups, item) => {
@@ -859,69 +1146,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }
   }
 
-  async function insertRoomCheckWithMedia(
-    targetDepartment: DepartmentCode,
-    targetRoomNumber: string,
-    notes: string,
-    items: DraftMedia[],
-    createDashboardReminder = false
-  ) {
-    if (!supabase || !profile) return null;
-    const existingCheck = await findActiveRoomCheck(targetDepartment, targetRoomNumber);
-    if (existingCheck) {
-      if (items.length) {
-        await appendMediaToRoomCheck(existingCheck, items, createDashboardReminder);
-      } else if (createDashboardReminder) {
-        await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
-      }
-      return existingCheck;
-    }
-
-    const uploaded = items.length ? await uploadDraftMedia(items) : [];
-    const now = new Date().toISOString();
-    const { data: check, error: checkError } = await supabase
-      .from('manager_room_checks')
-      .insert([
-        {
-          department: targetDepartment,
-          room_number: targetRoomNumber,
-          title: `Room ${targetRoomNumber} Check`,
-          description: notes.trim() || null,
-          status: 'OPEN',
-          created_by_user_id: profile.user_id || null,
-          created_by_name: profile.name || null,
-          created_by_email: profile.email || null,
-          created_at: now,
-          updated_at: now,
-        },
-      ])
-      .select('*')
-      .single();
-    if (checkError) throw checkError;
-
-    if (uploaded.length) {
-      const rows = uploaded.map((item, index) => ({
-        check_id: check.id,
-        media_url: item.url,
-        media_path: item.path,
-        media_type: item.media_type,
-        caption: items[index]?.caption.trim() || null,
-        position: index + 1,
-      }));
-
-      const { error: mediaError } = await supabase
-        .from('manager_room_check_media')
-        .insert(rows);
-      if (mediaError) throw mediaError;
-    }
-
-    if (createDashboardReminder) {
-      await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
-    }
-
-    return check as RoomCheck;
-  }
-
   async function getOrCreateRoomCheck(
     targetDepartment: DepartmentCode,
     targetRoomNumber: string,
@@ -965,58 +1189,270 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     return check as RoomCheck;
   }
 
-  async function appendMediaToRoomCheck(check: RoomCheck, items: DraftMedia[], createDashboardReminder = false) {
-    if (!supabase || !items.length) return;
-    const existingCount = await getMediaCountForCheck(check.id);
-    if (existingCount + items.length > MAX_MEDIA_PER_CHECK) {
-      throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
-    }
-    const uploaded = await uploadDraftMedia(items);
-    const rows = uploaded.map((item, index) => ({
-      check_id: check.id,
-      media_url: item.url,
-      media_path: item.path,
-      media_type: item.media_type,
-      caption: items[index]?.caption.trim() || null,
-      position: existingCount + index + 1,
-    }));
-    const { error } = await supabase.from('manager_room_check_media').insert(rows);
-    if (error) throw error;
-    await supabase
-      .from('manager_room_checks')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', check.id);
-
-    if (createDashboardReminder) {
-      await createUrgentDashboardTask(check.department, check.room_number);
-    }
-  }
-
-  function optimisticMediaRows(check: RoomCheck, items: DraftMedia[], startPosition: number): CheckMedia[] {
-    const now = new Date().toISOString();
-    return items.map((item, index) => ({
-      id: `uploading-${check.id}-${item.id}`,
-      check_id: check.id,
-      media_url: item.previewUrl,
-      media_path: null,
-      media_type: item.media_type,
-      caption: item.caption.trim() || null,
-      position: startPosition + index,
-      completed_at: null,
-      completed_by_name: null,
-      completed_by_email: null,
-      created_at: now,
-      upload_status: 'uploading',
-      upload_error: null,
-    }));
-  }
-
   function updateQueuedUploadProgress() {
     const stats = uploadStatsRef.current;
     const finished = stats.completed + stats.failed;
     setUploadProgressMsg(
-      `Uploading media ${finished}/${stats.total} in background across multiple room checks...`
+      `Resumable media uploads ${finished}/${stats.total}. You may continue creating room checks.`
     );
+  }
+
+  function uploadFileExtension(file: File, mediaType: MediaType) {
+    const fromName = file.name.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
+    if (fromName && /^[a-z0-9]+$/.test(fromName)) return fromName;
+    if (file.type.includes('webm')) return 'webm';
+    if (file.type.includes('mp4')) return 'mp4';
+    return mediaType === 'video' ? 'mp4' : 'jpg';
+  }
+
+  function enqueueDurableIds(ids: string[]) {
+    let added = 0;
+    ids.forEach((id) => {
+      if (queuedUploadIdsRef.current.has(id)) return;
+      queuedUploadIdsRef.current.add(id);
+      uploadQueueRef.current.push({ id });
+      uploadStatsRef.current.total += 1;
+      added += 1;
+    });
+    if (!added) return;
+    updateQueuedUploadProgress();
+    const workerSlots = Math.min(
+      MAX_CONCURRENT_UPLOAD_JOBS - activeUploadWorkersRef.current,
+      uploadQueueRef.current.length
+    );
+    for (let index = 0; index < workerSlots; index += 1) void runMediaUploadWorker();
+  }
+
+  async function resumeDurableUploadJobs() {
+    if (!supabase || !canAccess || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+    try {
+      const { data, error } = await supabase
+        .from('manager_room_check_uploads')
+        .select('id, manager_room_checks!inner(department)')
+        .in('status', ['PENDING', 'UPLOADING'])
+        .eq('manager_room_checks.department', department)
+        .order('created_at', { ascending: true })
+        .limit(120);
+      if (error) throw error;
+      const resumableIds: string[] = [];
+      for (const row of data || []) {
+        if (await readStoredUpload(row.id)) resumableIds.push(row.id);
+      }
+      enqueueDurableIds(resumableIds);
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Unable to resume saved uploads.');
+    }
+  }
+
+  async function persistMediaUploadJobs(
+    jobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }>
+  ) {
+    if (!supabase || !profile) return;
+    for (const job of jobs) {
+      let position = await getMediaCountForCheck(job.check.id);
+      if (position + job.items.length > MAX_MEDIA_PER_CHECK) {
+        throw new Error(`Maximum ${MAX_MEDIA_PER_CHECK} photos or videos per room check.`);
+      }
+      for (const item of job.items) {
+        position += 1;
+        const id = crypto.randomUUID();
+        const storagePath = `manager-room-check-media/${job.check.id}/${id}.${uploadFileExtension(
+          item.file,
+          item.media_type
+        )}`;
+        await writeStoredUpload({
+          id,
+          file: item.file,
+          prepared: item.media_type === 'image',
+          uploadUrl: null,
+        });
+        const { error } = await supabase.from('manager_room_check_uploads').insert({
+          id,
+          check_id: job.check.id,
+          media_type: item.media_type,
+          caption: item.caption.trim() || null,
+          position,
+          storage_path: storagePath,
+          file_name: item.file.name,
+          file_size: item.file.size,
+          content_type: normalizedMediaContentType(item.file.type, item.media_type),
+          status: 'PENDING',
+          created_by_user_id: profile.user_id || null,
+        });
+        if (error) {
+          await deleteStoredUpload(id).catch(() => undefined);
+          throw error;
+        }
+        uploadPreviewUrlsRef.current.set(id, item.previewUrl);
+        const optimisticRow: CheckMedia = {
+          id: `uploading-${id}`,
+          check_id: job.check.id,
+          media_url: item.previewUrl,
+          media_path: storagePath,
+          media_type: item.media_type,
+          caption: item.caption.trim() || null,
+          position,
+          completed_at: null,
+          completed_by_name: null,
+          completed_by_email: null,
+          created_at: new Date().toISOString(),
+          upload_status: 'uploading',
+          upload_error: null,
+        };
+        setMedia((current) => [optimisticRow, ...current]);
+        enqueueDurableIds([id]);
+      }
+    }
+  }
+
+  async function processDurableUpload(id: string) {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await supabase
+      .from('manager_room_check_uploads')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    const row = data as DurableUploadRow;
+    if (row.status === 'READY') {
+      await deleteStoredUpload(id).catch(() => undefined);
+      return;
+    }
+    let stored = await readStoredUpload(id);
+    if (!stored?.file) throw new Error('The original file is no longer available on this device.');
+
+    if (row.media_type === 'video' && !stored.prepared) {
+      const compressed = await compressVideoFile(stored.file);
+      stored = { ...stored, file: compressed, prepared: true, uploadUrl: null };
+      await writeStoredUpload(stored);
+    }
+    const normalizedFile = withNormalizedFileType(stored.file, row.media_type);
+    if (normalizedFile !== stored.file) {
+      stored = { ...stored, file: normalizedFile, uploadUrl: null };
+      await writeStoredUpload(stored);
+    }
+
+    await supabase
+      .from('manager_room_check_uploads')
+      .update({ status: 'UPLOADING', error_message: null, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    await uploadFileResumably({
+      file: stored.file,
+      storagePath: row.storage_path,
+      uploadUrl: stored.uploadUrl,
+      getAccessToken,
+      saveUploadUrl: async (uploadUrl) => {
+        stored = { ...stored!, uploadUrl };
+        await writeStoredUpload(stored);
+      },
+    });
+
+    const { data: publicData } = supabase.storage.from('task-images').getPublicUrl(row.storage_path);
+    const readyMedia: CheckMedia = {
+      id: row.id,
+      check_id: row.check_id,
+      media_url: publicData.publicUrl,
+      media_path: row.storage_path,
+      media_type: row.media_type,
+      caption: row.caption,
+      position: row.position,
+      completed_at: null,
+      completed_by_name: null,
+      completed_by_email: null,
+      created_at: new Date().toISOString(),
+    };
+    const { error: mediaError } = await supabase
+      .from('manager_room_check_media')
+      .upsert(readyMedia, { onConflict: 'id' });
+    if (mediaError) throw mediaError;
+    const { error: readyError } = await supabase
+      .from('manager_room_check_uploads')
+      .update({ status: 'READY', error_message: null, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (readyError) throw readyError;
+    await supabase
+      .from('manager_room_checks')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', row.check_id);
+    await deleteStoredUpload(id).catch(() => undefined);
+    const previewUrl = uploadPreviewUrlsRef.current.get(id);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    uploadPreviewUrlsRef.current.delete(id);
+    setMedia((current) => [readyMedia, ...current.filter((item) => item.id !== `uploading-${id}`)]);
+  }
+
+  async function retryDurableUpload(item: CheckMedia) {
+    if (!supabase || !item.id.startsWith('uploading-')) return;
+    const id = item.id.slice('uploading-'.length);
+    let stored = await readStoredUpload(id).catch(() => null);
+    if (!stored?.file) {
+      setErrorMsg('Retry this upload from the same device where the photo or video was selected.');
+      return;
+    }
+    stored = {
+      ...stored,
+      file: withNormalizedFileType(stored.file, item.media_type),
+      uploadUrl: null,
+    };
+    await writeStoredUpload(stored);
+    const { error } = await supabase
+      .from('manager_room_check_uploads')
+      .update({ status: 'PENDING', error_message: null, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      setErrorMsg(error.message || 'Unable to retry upload.');
+      return;
+    }
+    setMedia((current) =>
+      current.map((entry) =>
+        entry.id === item.id ? { ...entry, upload_status: 'uploading', upload_error: null } : entry
+      )
+    );
+    enqueueDurableIds([id]);
+  }
+
+  async function retryAllFailedUploads() {
+    if (!supabase || !canAccess) return;
+    setErrorMsg('');
+    const { data: failedRows, error: failedRowsError } = await supabase
+      .from('manager_room_check_uploads')
+      .select('id, media_type')
+      .eq('status', 'FAILED')
+      .order('created_at', { ascending: true })
+      .limit(120);
+    if (failedRowsError) {
+      setErrorMsg(failedRowsError.message || 'Unable to find failed uploads.');
+      return;
+    }
+    const retryIds: string[] = [];
+    for (const failed of failedRows || []) {
+      let stored = await readStoredUpload(failed.id).catch(() => null);
+      if (!stored?.file) continue;
+      stored = {
+        ...stored,
+        file: withNormalizedFileType(stored.file, failed.media_type as MediaType),
+        uploadUrl: null,
+      };
+      await writeStoredUpload(stored);
+      const { error } = await supabase
+        .from('manager_room_check_uploads')
+        .update({ status: 'PENDING', error_message: null, updated_at: new Date().toISOString() })
+        .eq('id', failed.id);
+      if (!error) retryIds.push(failed.id);
+    }
+    if (!retryIds.length) {
+      setErrorMsg('No failed files were found on this device. Re-upload them from the phone where they were selected.');
+      return;
+    }
+    const retrySet = new Set(retryIds.map((id) => `uploading-${id}`));
+    setMedia((current) =>
+      current.map((item) =>
+        retrySet.has(item.id) ? { ...item, upload_status: 'uploading', upload_error: null } : item
+      )
+    );
+    setSuccessMsg(`${retryIds.length} failed upload${retryIds.length === 1 ? '' : 's'} queued again.`);
+    enqueueDurableIds(retryIds);
   }
 
   async function runMediaUploadWorker() {
@@ -1026,25 +1462,37 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         const job = uploadQueueRef.current.shift();
         if (!job) break;
         try {
-          await appendMediaToRoomCheck(job.check, job.items, false);
-          uploadStatsRef.current.completed += job.items.length;
-          uploadStatsRef.current.completedItems.push(...job.items);
+          await processDurableUpload(job.id);
+          uploadStatsRef.current.completed += 1;
         } catch (error: any) {
-          uploadStatsRef.current.failed += job.items.length;
-          const failedIds = new Set(
-            job.items.map((item) => `uploading-${job.check.id}-${item.id}`)
-          );
+          const paused =
+            (typeof navigator !== 'undefined' && !navigator.onLine) ||
+            /offline|network|fetch|connection|interrupted/i.test(error?.message || '');
+          if (paused) uploadStatsRef.current.paused += 1;
+          else uploadStatsRef.current.failed += 1;
+          await supabase
+            ?.from('manager_room_check_uploads')
+            .update({
+              status: paused ? 'PENDING' : 'FAILED',
+              error_message: paused ? 'Upload paused. It will resume when this device reconnects.' : error?.message || 'Upload failed.',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id);
           setMedia((current) =>
             current.map((item) =>
-              failedIds.has(item.id)
+              item.id === `uploading-${job.id}`
                 ? {
                     ...item,
-                    upload_status: 'failed',
-                    upload_error: error?.message || 'Upload failed.',
+                    upload_status: paused ? 'uploading' : 'failed',
+                    upload_error: paused
+                      ? 'Upload paused. It will resume when this device reconnects.'
+                      : error?.message || 'Upload failed.',
                   }
                 : item
             )
           );
+        } finally {
+          queuedUploadIdsRef.current.delete(job.id);
         }
         updateQueuedUploadProgress();
       }
@@ -1052,15 +1500,17 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       activeUploadWorkersRef.current -= 1;
       if (activeUploadWorkersRef.current === 0 && uploadQueueRef.current.length === 0) {
         const stats = uploadStatsRef.current;
-        uploadStatsRef.current = { total: 0, completed: 0, failed: 0, completedItems: [] };
-        await loadChecks();
-        stats.completedItems.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        uploadStatsRef.current = { total: 0, completed: 0, failed: 0, paused: 0 };
         if (activeUploadWorkersRef.current === 0 && uploadQueueRef.current.length === 0) {
           setUploadProgressMsg('');
         } else {
           updateQueuedUploadProgress();
         }
-        if (stats.failed) {
+        if (stats.paused) {
+          setUploadProgressMsg(
+            `${stats.paused} upload${stats.paused === 1 ? ' is' : 's are'} safely paused and will resume when this device reconnects or returns to this page.`
+          );
+        } else if (stats.failed) {
           setErrorMsg(
             `${stats.failed} media item${stats.failed === 1 ? '' : 's'} failed to upload. The failed preview remains visible so it is not mistaken for a completed upload.`
           );
@@ -1073,23 +1523,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }
   }
 
-  function queueMediaUploadJobs(jobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }>) {
+  async function queueMediaUploadJobs(jobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }>) {
     if (!jobs.length) return;
-    const queuedJobs = jobs.map((job) => ({
-      ...job,
-      id: `${job.check.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    }));
-    uploadQueueRef.current.push(...queuedJobs);
-    uploadStatsRef.current.total += queuedJobs.reduce((sum, job) => sum + job.items.length, 0);
-    updateQueuedUploadProgress();
-
-    const workerSlots = Math.min(
-      MAX_CONCURRENT_UPLOAD_JOBS - activeUploadWorkersRef.current,
-      uploadQueueRef.current.length
-    );
-    for (let index = 0; index < workerSlots; index += 1) {
-      void runMediaUploadWorker();
-    }
+    await persistMediaUploadJobs(jobs);
   }
 
   async function createCheck() {
@@ -1108,7 +1544,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const groups = groupedDraftMedia(mediaToUpload);
       const createdDepartments: string[] = [];
       const uploadJobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }> = [];
-      const optimisticRows: CheckMedia[] = [];
       if (mediaToUpload.length) {
         for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
           const items = groups[targetDepartment];
@@ -1116,9 +1551,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           const check = await getOrCreateRoomCheck(targetDepartment, normalizedRoomNumber, description, true);
           if (check) {
             createdDepartments.push(departmentLabel(targetDepartment));
-            const existingCount = await getMediaCountForCheck(check.id);
             uploadJobs.push({ check, items, label: departmentLabel(targetDepartment) });
-            optimisticRows.push(...optimisticMediaRows(check, items, existingCount + 1));
           }
         }
       } else {
@@ -1137,9 +1570,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         });
         return next;
       });
-      if (optimisticRows.length) {
-        setMedia((current) => [...optimisticRows, ...current]);
-      }
+      if (uploadJobs.length) await queueMediaUploadJobs(uploadJobs);
       setSaving(false);
       setSuccessMsg(
         uploadJobs.length
@@ -1147,9 +1578,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           : `Manager room check created for ${createdDepartments.join(' and ')}.`
       );
 
-      if (uploadJobs.length) {
-        queueMediaUploadJobs(uploadJobs);
-      } else {
+      if (!uploadJobs.length) {
         await loadChecks();
       }
     } catch (error: any) {
@@ -1172,7 +1601,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const mediaToUpload = [...draftMedia];
       const groups = groupedDraftMedia(mediaToUpload);
       const uploadJobs: Array<{ check: RoomCheck; items: DraftMedia[]; label: string }> = [];
-      const optimisticRows: CheckMedia[] = [];
       const touchedChecks: RoomCheck[] = [];
 
       for (const targetDepartment of (['HK', 'MT'] as DepartmentCode[])) {
@@ -1207,11 +1635,10 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         if (reopenError) throw reopenError;
 
         uploadJobs.push({ check: targetCheck, items, label: departmentLabel(targetDepartment) });
-        optimisticRows.push(...optimisticMediaRows(targetCheck, items, existingCount + 1));
         touchedChecks.push(targetCheck);
       }
 
-      setMedia((current) => [...optimisticRows, ...current]);
+      await queueMediaUploadJobs(uploadJobs);
       setChecks((current) => {
         const next = [...current];
         touchedChecks.forEach((targetCheck) => {
@@ -1233,7 +1660,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       setMediaChoiceOpen(false);
       setSuccessMsg('Media queued. You can take the next photo now.');
       setSaving(false);
-      queueMediaUploadJobs(uploadJobs);
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to add media.');
     } finally {
@@ -1761,6 +2187,17 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       </section>
 
       {errorMsg ? <div className="mrc-alert mrc-alert-error">{errorMsg}</div> : null}
+      {media.some((item) => item.upload_status === 'failed') ? (
+        <div className="mrc-alert mrc-alert-error">
+          <span>
+            {media.filter((item) => item.upload_status === 'failed').length} saved media upload
+            {media.filter((item) => item.upload_status === 'failed').length === 1 ? '' : 's'} can be retried from this phone.
+          </span>
+          <button type="button" className="mrc-retry-all" onClick={() => void retryAllFailedUploads()}>
+            Retry All Failed Uploads
+          </button>
+        </div>
+      ) : null}
       {successMsg ? <div className="mrc-alert mrc-alert-success">{successMsg}</div> : null}
       {uploadProgressMsg ? <div className="mrc-alert mrc-alert-info">{uploadProgressMsg}</div> : null}
 
@@ -1967,9 +2404,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               const remark = mediaRemark(item.caption);
               const isUploading = item.upload_status === 'uploading';
               const uploadFailed = item.upload_status === 'failed';
+              const hasPreview = Boolean(item.media_url);
               return (
               <div key={item.id} className={`mrc-media-card ${isUploading ? 'is-uploading' : ''} ${uploadFailed ? 'is-upload-failed' : ''}`}>
-                {item.media_type === 'video' ? (
+                {!hasPreview ? (
+                  <div className="mrc-media-preview mrc-upload-placeholder">
+                    <span>Upload saved on original device</span>
+                  </div>
+                ) : item.media_type === 'video' ? (
                   <button
                     type="button"
                     className="mrc-media-preview"
@@ -2004,6 +2446,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                   </span>
                   {isUploading ? <span className="mrc-upload-chip">Uploading</span> : null}
                   {uploadFailed ? <span className="mrc-upload-chip">Upload failed</span> : null}
+                  {uploadFailed ? (
+                    <button type="button" className="mrc-primary" onClick={() => void retryDurableUpload(item)}>
+                      Re-upload Now
+                    </button>
+                  ) : null}
                   {canManageContent && selectedCheck.status !== 'DONE' && !isUploading && !uploadFailed ? (
                     <div className="mrc-media-route">
                       <span>Assigned to</span>
@@ -2682,6 +3129,18 @@ function StyleBlock() {
         border: 1px solid #bfdbfe;
         color: #1d4ed8;
       }
+      .mrc-retry-all {
+        display: block;
+        width: 100%;
+        margin-top: 10px;
+        border: 0;
+        border-radius: 12px;
+        padding: 11px 14px;
+        background: #fff;
+        color: #9f1239;
+        font-weight: 950;
+        cursor: pointer;
+      }
       .mrc-modal-backdrop {
         position: fixed;
         inset: 0;
@@ -2952,6 +3411,23 @@ function StyleBlock() {
         cursor: zoom-in;
         display: block;
         text-align: inherit;
+      }
+      .mrc-upload-placeholder {
+        min-height: 165px;
+        display: grid;
+        place-items: center;
+        cursor: default;
+        background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+      }
+      .mrc-upload-placeholder span {
+        position: static;
+        max-width: 180px;
+        padding: 10px 14px;
+        color: #475569;
+        background: #fff;
+        opacity: 1;
+        transform: none;
+        text-align: center;
       }
       .mrc-media-preview::after {
         content: '';
