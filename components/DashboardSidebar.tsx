@@ -1556,6 +1556,17 @@ export default function DashboardSidebar({
 
               {canSeeManagementTasks ? (
                 <Link
+                  href="/dashboard/daily-operations-summary"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="list" sub>Daily Operations Summary</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeManagementTasks ? (
+                <Link
                   href="/dashboard/management-tasks"
                   prefetch={false}
                   onClick={closeSidebar}
