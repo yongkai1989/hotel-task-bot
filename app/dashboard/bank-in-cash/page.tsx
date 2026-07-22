@@ -66,6 +66,17 @@ type BankInSource = {
   source_amount: number;
 };
 
+type DeletedBankInRecord = {
+  id: string;
+  bank_in_id: string;
+  bank_in_date: string;
+  bank_in_snapshot: BankInRecord;
+  deletion_reason: string;
+  deleted_by_name: string;
+  deleted_by_email: string;
+  deleted_at: string;
+};
+
 type DailyCashRow = {
   id: string;
   sourceType: 'SHIFT_CASH' | 'MANUAL_CASH';
@@ -225,6 +236,7 @@ export default function BankInCashPage() {
   const [manualEntries, setManualEntries] = useState<ManualCashEntry[]>([]);
   const [amendments, setAmendments] = useState<CashEntryAmendment[]>([]);
   const [bankInSources, setBankInSources] = useState<BankInSource[]>([]);
+  const [deletedBankIns, setDeletedBankIns] = useState<DeletedBankInRecord[]>([]);
   const [smallChange, setSmallChange] = useState<SmallChangeEntry[]>([]);
   const [bankIns, setBankIns] = useState<BankInRecord[]>([]);
   const [tab, setTab] = useState<PageTab>('daily');
@@ -240,6 +252,9 @@ export default function BankInCashPage() {
   const [reverseTarget, setReverseTarget] = useState<BankInRecord | null>(null);
   const [reverseReason, setReverseReason] = useState('');
   const [reversing, setReversing] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<BankInRecord | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [manualDate, setManualDate] = useState(singaporeDate());
   const [manualDescription, setManualDescription] = useState('');
   const [manualAmount, setManualAmount] = useState('');
@@ -264,7 +279,7 @@ export default function BankInCashPage() {
     setDataLoading(true);
     setError('');
     const retentionStart = monthStartTwelveMonthsAgo();
-    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, sourceResult] = await Promise.all([
+    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, sourceResult, deletionResult] = await Promise.all([
       supabase
         .from('fo_checklist_cash_entries')
         .select('*')
@@ -296,9 +311,14 @@ export default function BankInCashPage() {
       supabase
         .from('cash_bank_in_sources')
         .select('*'),
+      supabase
+        .from('cash_bank_in_deletions')
+        .select('*')
+        .gte('deleted_at', retentionStart)
+        .order('deleted_at', { ascending: false }),
     ]);
 
-    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || sourceResult.error;
+    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || sourceResult.error || deletionResult.error;
     if (firstError) {
       setError(firstError.message);
     } else {
@@ -308,6 +328,7 @@ export default function BankInCashPage() {
       setBankIns((bankInResult.data || []) as BankInRecord[]);
       setAmendments((amendmentResult.data || []) as CashEntryAmendment[]);
       setBankInSources((sourceResult.data || []) as BankInSource[]);
+      setDeletedBankIns((deletionResult.data || []) as DeletedBankInRecord[]);
     }
     setDataLoading(false);
   }, [supabase]);
@@ -437,6 +458,11 @@ export default function BankInCashPage() {
         return entry?.service_date.slice(0, 7) === month;
       }),
     [amendments, cashEntries, month],
+  );
+
+  const filteredDeletedBankIns = useMemo(
+    () => deletedBankIns.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
+    [deletedBankIns, month],
   );
 
   const selectedTotal = useMemo(() => {
@@ -646,6 +672,36 @@ export default function BankInCashPage() {
     setReversing(false);
   };
 
+  const deleteBankIn = async () => {
+    if (!deleteTarget || !deleteReason.trim()) return setError('Enter a deletion reason.');
+    if (!deleteTarget.reversed_at) return setError('Reverse this bank-in before deleting it.');
+
+    setDeleting(true);
+    setError('');
+    const receiptPaths = normaliseReceiptPaths(deleteTarget.receipt_paths);
+    const { error: deleteError } = await supabase.rpc('delete_cash_bank_in', {
+      p_bank_in_id: deleteTarget.id,
+      p_reason: deleteReason.trim(),
+    });
+
+    if (deleteError) {
+      setError(deleteError.message);
+    } else {
+      let receiptWarning = '';
+      if (receiptPaths.length) {
+        const { error: receiptDeleteError } = await supabase.storage
+          .from('bank-in-receipts')
+          .remove(receiptPaths);
+        if (receiptDeleteError) receiptWarning = ` Receipt cleanup warning: ${receiptDeleteError.message}`;
+      }
+      setMessage(`Deleted bank-in ${deleteTarget.id.slice(0, 8).toUpperCase()}.${receiptWarning}`);
+      setDeleteTarget(null);
+      setDeleteReason('');
+      await loadData();
+    }
+    setDeleting(false);
+  };
+
   if (authLoading) {
     return <main className="cash-page"><div className="state-card">Checking cash access...</div><Styles /></main>;
   }
@@ -804,6 +860,7 @@ export default function BankInCashPage() {
                     {paths.map((path, index) => <button type="button" className="receipt-button" onClick={() => void viewReceipt(path)} key={path}>Receipt {index + 1}</button>)}
                     {isSuperuser && !record.reversed_at ? <button type="button" className="danger-button" onClick={() => setReverseTarget(record)}>Reverse</button> : null}
                     {record.reversed_at ? <span className="reversed-label">Reversed · {record.reversal_reason}</span> : null}
+                    {isSuperuser && record.reversed_at ? <button type="button" className="danger-solid" onClick={() => setDeleteTarget(record)}>Delete</button> : null}
                   </div>
                 </article>
               );
@@ -822,6 +879,17 @@ export default function BankInCashPage() {
                     </article>
                   );
                 })}
+              </section>
+            ) : null}
+            {filteredDeletedBankIns.length ? (
+              <section className="deletion-history" aria-label="Deleted bank-in audit trail">
+                <div className="section-heading"><div><span className="danger-kicker">DELETION AUDIT</span><h2>Deleted bank-in records</h2></div><span>{filteredDeletedBankIns.length} record(s)</span></div>
+                {filteredDeletedBankIns.map((deleted) => (
+                  <article className="deletion-row" key={deleted.id}>
+                    <div><strong>{money.format(Number(deleted.bank_in_snapshot?.banked_amount || 0))}</strong><span>{formatDate(deleted.bank_in_date)} · Ref {deleted.bank_in_id.slice(0, 8).toUpperCase()}</span></div>
+                    <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) · {formatDateTime(deleted.deleted_at)}</span></div>
+                  </article>
+                ))}
               </section>
             ) : null}
           </div>
@@ -850,6 +918,19 @@ export default function BankInCashPage() {
             <div className="reverse-amount">{money.format(Number(reverseTarget.banked_amount))}</div>
             <label>Reason for reversal<textarea value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this bank-in must be reopened" /></label>
             <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setReverseTarget(null)}>Cancel</button><button type="button" className="danger-solid" onClick={() => void reverseBankIn()} disabled={reversing}>{reversing ? 'Reversing...' : 'Confirm Reversal'}</button></div>
+          </section>
+        </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDeleteTarget(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+            <span className="danger-kicker">SUPERUSER DELETE</span>
+            <h2 id="delete-title">Permanently delete this record?</h2>
+            <p>The bank-in has already been reversed, so deleting its history record will not change cash balances. A deletion audit will be retained for 12 months.</p>
+            <div className="reverse-amount">{money.format(Number(deleteTarget.banked_amount))}</div>
+            <label>Reason for deletion<textarea value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} placeholder="Explain why this reversed record must be deleted" /></label>
+            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setDeleteTarget(null)}>Cancel</button><button type="button" className="danger-solid" onClick={() => void deleteBankIn()} disabled={deleting}>{deleting ? 'Deleting...' : 'Delete Permanently'}</button></div>
           </section>
         </div>
       ) : null}
@@ -952,6 +1033,10 @@ function Styles() {
       .amendment-row { display: grid; grid-template-columns: minmax(190px, 1fr) 110px 110px minmax(230px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #dbe5f2; border-left: 4px solid #7c5ce7; border-radius: 8px; background: #fbfaff; }
       .amendment-row > div { display: grid; gap: 2px; }
       .amendment-row span { color: #667995; font-size: 12px; }
+      .deletion-history { display: grid; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f1c4c0; }
+      .deletion-row { display: grid; grid-template-columns: minmax(190px, .7fr) minmax(260px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #f1c4c0; border-left: 4px solid #d92d20; border-radius: 8px; background: #fff7f6; }
+      .deletion-row > div { display: grid; gap: 2px; }
+      .deletion-row span { color: #80534f; font-size: 12px; }
       .receipt-button { min-height: 36px; padding: 7px 10px; background: #f4f7fb; color: #1e4fb7; }
       .reversed-label { color: #b42318; font-size: 12px; font-weight: 800; }
       .empty-state { margin: 16px; min-height: 80px; border: 1px dashed #cbd8e9; border-radius: 8px; color: #687b98; background: #f8fafd; display: grid; place-items: center; text-align: center; padding: 20px; }
@@ -989,6 +1074,7 @@ function Styles() {
         .manual-panel { grid-template-columns: 1fr; }
         .manual-form { grid-template-columns: 1fr 1fr; }
         .amendment-row { grid-template-columns: 1fr 1fr; }
+        .deletion-row { grid-template-columns: 1fr; }
         .bank-form { grid-template-columns: 1fr 1fr; }
       }
       @media (max-width: 620px) {
