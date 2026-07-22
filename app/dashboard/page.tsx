@@ -419,21 +419,6 @@ function deptBadgeStyle(dept: Task['department']): React.CSSProperties {
   return { ...styles.deptBadge, background: '#fef3c7', color: '#a16207' };
 }
 
-function actionBtn(active: boolean, tone: 'open' | 'done'): React.CSSProperties {
-  const toneMap = {
-    open: '#c2410c',
-    done: '#15803d',
-  } as const;
-
-  const color = toneMap[tone];
-  return {
-    ...styles.actionButton,
-    background: active ? color : '#ffffff',
-    color: active ? '#ffffff' : color,
-    borderColor: color,
-  };
-}
-
 function SummaryCard({
   title,
   value,
@@ -1798,7 +1783,7 @@ function canEditTaskDetails(task: Task) {
 }
 
 function canDeleteTask() {
-  return !!profile?.can_delete_task;
+  return profile?.role === 'SUPERUSER';
 }
 
   async function setTaskStatus(taskId: string, nextStatus: Task['status']) {
@@ -2283,22 +2268,26 @@ function canDeleteTask() {
       setErrorMsg(err?.message || 'Task creation or media upload failed');
     }
   }
-async function handleDeleteTask(taskId: string) {
+async function handleDeleteTask(task: Task) {
   try {
-    if (!profile || !profile.can_delete_task) {
+    if (!profile || profile.role !== 'SUPERUSER') {
       alert('Unauthorized');
       return;
     }
 
-    const confirmDelete = confirm('Delete this task permanently?');
+    const confirmDelete = confirm(
+      managerRoomCheckHref(task)
+        ? 'Delete this task and its linked Manager Room Check permanently?'
+        : 'Delete this task permanently?'
+    );
     if (!confirmDelete) return;
 
-    setBusyTaskId(taskId);
+    setBusyTaskId(task.id);
 
     const token = await getAccessToken();
 
     await fetchJson(
-      `/api/tasks/${taskId}`,
+      `/api/tasks/${task.id}`,
       {
         method: 'DELETE',
         headers: {
@@ -2309,7 +2298,7 @@ async function handleDeleteTask(taskId: string) {
     );
 
     setTasks((prev) => {
-      const next = prev.filter((task) => task.id !== taskId);
+      const next = prev.filter((item) => item.id !== task.id);
       saveTasksToCache(next);
       lastTasksFingerprintRef.current = buildTasksFingerprint(next);
       return next;
@@ -3165,6 +3154,16 @@ async function handleDeleteTask(taskId: string) {
                                       Customer waiting
                                     </div>
                                   ) : null}
+                                  {!roomCheckHref && canEditTaskDetails(task) ? (
+                                    <button
+                                      type="button"
+                                      style={styles.cardEditTaskBtn}
+                                      disabled={busyTaskId === task.id}
+                                      onClick={() => openEditModal(task)}
+                                    >
+                                      Edit details
+                                    </button>
+                                  ) : null}
                                 </div>
 
                                 <div style={styles.roomLine}>
@@ -3174,6 +3173,11 @@ async function handleDeleteTask(taskId: string) {
                                   <span style={deptBadgeStyle(task.department)}>
                                     {task.department}
                                   </span>
+                                  {roomCheckHref ? (
+                                    <Link href={roomCheckHref} style={styles.roomCheckLink}>
+                                      View Room Check
+                                    </Link>
+                                  ) : null}
                                 </div>
                               </div>
                             </div>
@@ -3243,58 +3247,30 @@ async function handleDeleteTask(taskId: string) {
 
                             {sidebarView === 'DASHBOARD' ? (
                               <>
-                                <div style={styles.buttonRow}>
-                                  {roomCheckHref ? (
-                                    <Link
-                                      href={roomCheckHref}
-                                      style={{
-                                        ...actionBtn(true, 'open'),
-                                        textDecoration: 'none',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                      }}
-                                    >
-                                      Open Room Check
-                                    </Link>
-                                  ) : (
+                                {task.status === 'OPEN' || canDeleteTask() ? (
+                                  <div style={styles.buttonRow}>
+                                    {task.status === 'OPEN' ? (
                                     <button
-                                      style={actionBtn(task.status === 'OPEN', 'open')}
-                                      disabled={busyTaskId === task.id || !canUpdateTaskStatus(task) || task.status === 'OPEN'}
-                                      onClick={() => setTaskStatus(task.id, 'OPEN')}
+                                      style={styles.markDoneBtn}
+                                      disabled={busyTaskId === task.id || !canUpdateTaskStatus(task)}
+                                      onClick={() => setTaskStatus(task.id, 'DONE')}
                                     >
-                                      Open
+                                      Mark As Done
                                     </button>
-                                  )}
+                                    ) : null}
+                                    {canDeleteTask() ? (
+                                      <button
+                                        style={styles.deleteTaskBtn}
+                                        disabled={busyTaskId === task.id}
+                                        onClick={() => handleDeleteTask(task)}
+                                      >
+                                        Delete
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ) : null}
 
-                                  <button
-                                    style={actionBtn(task.status === 'DONE', 'done')}
-                                    disabled={busyTaskId === task.id || !canUpdateTaskStatus(task) || task.status === 'DONE'}
-                                    onClick={() => setTaskStatus(task.id, 'DONE')}
-                                  >
-                                    Done
-                                  </button>
-
-                                  {canEditTaskDetails(task) ? (
-  <button
-    style={styles.editTaskBtn}
-    disabled={busyTaskId === task.id}
-    onClick={() => openEditModal(task)}
-  >
-    Edit
-  </button>
-) : null}
-{canDeleteTask() ? (
-  <button
-    style={styles.deleteTaskBtn}
-    onClick={() => handleDeleteTask(task.id)}
-  >
-    Delete
-  </button>
-) : null}
-                                </div>
-
-                                {!canUpdateTaskStatus(task) ? (
+                                {task.status === 'OPEN' && !canUpdateTaskStatus(task) ? (
                                   <div style={styles.permissionText}>
                                     You do not have permission to update this task status.
                                   </div>
@@ -5183,6 +5159,17 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: 0.4,
 
   },
+  cardEditTaskBtn: {
+    marginLeft: 'auto',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#475569',
+    borderRadius: 8,
+    padding: '5px 9px',
+    fontSize: 10,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
   statusBadge: {
     borderRadius: 999,
     padding: '5px 8px',
@@ -5225,6 +5212,20 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 10,
     fontWeight: 900,
 
+  },
+  roomCheckLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#1e3a8a',
+    borderRadius: 8,
+    padding: '6px 10px',
+    fontSize: 10,
+    fontWeight: 900,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
   },
   taskText: {
     marginTop: 8,
@@ -5285,32 +5286,19 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8,
 
   },
-  actionButton: {
-    border: '1px solid',
-    background: '#ffffff',
+  markDoneBtn: {
+    border: '1px solid #15803d',
+    background: '#15803d',
+    color: '#ffffff',
     borderRadius: 10,
-    padding: '9px 10px',
+    padding: '10px 12px',
     fontWeight: 900,
     fontSize: 11,
     cursor: 'pointer',
     flex: 1,
-    minWidth: 90,
-
+    minWidth: 150,
   },
-  editTaskBtn: {
-    border: '1px solid #dbe3ee',
-    background: '#ffffff',
-    color: '#1f2937',
-    borderRadius: 10,
-    padding: '9px 10px',
-    fontWeight: 800,
-    fontSize: 11,
-    cursor: 'pointer',
-    flex: 1,
-    minWidth: 90,
-
-  },
-deleteTaskBtn: {
+  deleteTaskBtn: {
     border: '1px solid #ef4444',
     background: '#fff',
     color: '#ef4444',
