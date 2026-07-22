@@ -1133,7 +1133,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const taskText = managerRoomCheckDashboardTaskText(check.department, check.room_number);
       const query = supabase
         .from('tasks')
-        .select('id, status')
+        .select('id, status, created_at')
         .eq('room', check.room_number)
         .eq('department', check.department)
         .eq('task_text', taskText)
@@ -1147,8 +1147,14 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
       if (error) throw error;
 
+      const checkTime = new Date(check.created_at).getTime();
+      const task = [...(data || [])].sort(
+        (a, b) =>
+          Math.abs(new Date(a.created_at).getTime() - checkTime) -
+          Math.abs(new Date(b.created_at).getTime() - checkTime)
+      )[0];
       let synced = 0;
-      for (const task of data || []) {
+      if (task) {
         const res = await fetch('/api/task-status', {
           method: 'POST',
           headers: {
@@ -1177,7 +1183,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     const taskText = managerRoomCheckDashboardTaskText(check.department, check.room_number);
     const { data, error } = await supabase
       .from('tasks')
-      .select('id')
+      .select('id, created_at')
       .eq('room', check.room_number)
       .eq('department', check.department)
       .eq('task_text', taskText)
@@ -1186,17 +1192,22 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (error) throw error;
     if (!data?.length) return;
 
+    const checkTime = new Date(check.created_at).getTime();
+    const task = [...data].sort(
+      (a, b) =>
+        Math.abs(new Date(a.created_at).getTime() - checkTime) -
+        Math.abs(new Date(b.created_at).getTime() - checkTime)
+    )[0];
+    if (!task) return;
     const token = await getAccessToken();
-    for (const task of data) {
-      const res = await fetch(`/api/tasks/${task.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || 'Dashboard reminder delete failed.');
-      }
+    const res = await fetch(`/api/tasks/${task.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error || 'Dashboard reminder delete failed.');
     }
   }
 
