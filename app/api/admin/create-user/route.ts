@@ -29,6 +29,7 @@ type CreateBody = {
   can_access_commission_checker?: boolean;
   can_access_admin_settings?: boolean;
   can_access_guest_shop_admin?: boolean;
+  can_access_linen_admin?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_supervisor_checklist?: boolean;
@@ -93,6 +94,7 @@ function withPermissions(row: any) {
     can_access_commission_checker: toPermissionBoolean(row.can_access_commission_checker),
     can_access_admin_settings: toPermissionBoolean(row.can_access_admin_settings),
     can_access_guest_shop_admin: toPermissionBoolean(row.can_access_guest_shop_admin),
+    can_access_linen_admin: toPermissionBoolean(row.can_access_linen_admin),
     can_access_lost_found: toPermissionBoolean(row.can_access_lost_found),
     can_access_supervisor_checklist: toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_checklist:
@@ -113,7 +115,10 @@ function withPermissions(row: any) {
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_guest_laundry),
     can_access_fnb_checklist:
-      role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com',
+      role === 'SUPERUSER' ||
+      email === 'fnb@hotelhallmark.com' ||
+      email === 'fenny@hotelhallmark.com' ||
+      toPermissionBoolean(row.can_access_fnb_checklist),
     can_access_fnb_menu_admin:
       role === 'SUPERUSER' ||
       email === 'fnb@hotelhallmark.com' ||
@@ -232,6 +237,8 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_admin_settings),
       can_access_guest_shop_admin:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_guest_shop_admin),
+      can_access_linen_admin:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_linen_admin),
       can_access_lost_found:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_lost_found),
       can_access_supervisor_checklist:
@@ -279,6 +286,7 @@ export async function POST(req: NextRequest) {
       payload.can_access_commission_checker = true;
       payload.can_access_admin_settings = true;
       payload.can_access_guest_shop_admin = true;
+      payload.can_access_linen_admin = true;
       payload.can_access_lost_found = true;
       payload.can_access_supervisor_checklist = true;
       payload.can_access_fo_checklist = true;
@@ -323,6 +331,7 @@ export async function POST(req: NextRequest) {
         can_access_commission_checker,
         can_access_admin_settings,
         can_access_guest_shop_admin,
+        can_access_linen_admin,
         can_access_lost_found,
         can_access_supervisor_checklist,
         can_access_fo_checklist,
