@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { buildTaskInlineKeyboard, buildTaskMessageText } from '../../../lib/telegram';
+import { syncLinkedManagerRoomCheckStatus } from '../../../lib/managerRoomCheckTaskSync';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -108,7 +109,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existingTask, error: existingTaskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, status')
+      .select('id, status, room, department, task_text, created_at')
       .eq('id', taskId)
       .single();
 
@@ -122,6 +123,8 @@ export async function POST(req: NextRequest) {
         403
       );
     }
+
+    await syncLinkedManagerRoomCheckStatus(existingTask, requestedStatus, user.name);
 
     if (existingTask.status === requestedStatus) {
       return jsonNoCache({ ok: true, task: existingTask, unchanged: true });
