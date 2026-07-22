@@ -95,6 +95,17 @@ const HOUSEKEEPING_SUPERVISOR_EMAILS = [
 const PA_CHECKLIST_SUBMITTER_EMAILS = ['pa@hotelhallmark.com'];
 const FNB_CHECKLIST_SUBMITTER_EMAILS = ['fnb@hotelhallmark.com'];
 
+function managerRoomCheckHref(task: Task) {
+  if (!/^Urgent Manager Room Check for room\s+/i.test(String(task.task_text || '').trim())) return null;
+  const route =
+    task.department === 'HK'
+      ? '/dashboard/hk-manager-room-check'
+      : task.department === 'MT'
+      ? '/dashboard/maintenance-manager-room-check'
+      : null;
+  return route ? `${route}?room=${encodeURIComponent(task.room)}` : null;
+}
+
 type AdminUser = {
   email: string;
   name: string;
@@ -3132,6 +3143,7 @@ async function handleDeleteTask(taskId: string) {
                 <div style={styles.cardList}>
                   {visibleTasks.map((task, taskIndex) => {
                     const mediaItems = Array.isArray(task.task_images) ? task.task_images : [];
+                    const roomCheckHref = managerRoomCheckHref(task);
                     const thumb =
                       mediaItems.length > 0
                         ? mediaItems[mediaItems.length - 1].image_url
@@ -3232,13 +3244,28 @@ async function handleDeleteTask(taskId: string) {
                             {sidebarView === 'DASHBOARD' ? (
                               <>
                                 <div style={styles.buttonRow}>
-                                  <button
-                                    style={actionBtn(task.status === 'OPEN', 'open')}
-                                    disabled={busyTaskId === task.id || !canUpdateTaskStatus(task) || task.status === 'OPEN'}
-                                    onClick={() => setTaskStatus(task.id, 'OPEN')}
-                                  >
-                                    Open
-                                  </button>
+                                  {roomCheckHref ? (
+                                    <Link
+                                      href={roomCheckHref}
+                                      style={{
+                                        ...actionBtn(true, 'open'),
+                                        textDecoration: 'none',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                      }}
+                                    >
+                                      Open Room Check
+                                    </Link>
+                                  ) : (
+                                    <button
+                                      style={actionBtn(task.status === 'OPEN', 'open')}
+                                      disabled={busyTaskId === task.id || !canUpdateTaskStatus(task) || task.status === 'OPEN'}
+                                      onClick={() => setTaskStatus(task.id, 'OPEN')}
+                                    >
+                                      Open
+                                    </button>
+                                  )}
 
                                   <button
                                     style={actionBtn(task.status === 'DONE', 'done')}
