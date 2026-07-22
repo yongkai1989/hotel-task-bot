@@ -593,6 +593,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [existingMarkupMedia, setExistingMarkupMedia] = useState<CheckMedia | null>(null);
   const [fullMedia, setFullMedia] = useState<CheckMedia | null>(null);
   const [markupDrawMode, setMarkupDrawMode] = useState(false);
+  const [commentEditingId, setCommentEditingId] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentSavingId, setCommentSavingId] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -1509,6 +1512,46 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     );
     setSuccessMsg(`${retryIds.length} failed upload${retryIds.length === 1 ? '' : 's'} queued again.`);
     enqueueDurableIds(retryIds);
+  }
+
+  function beginMediaComment(item: CheckMedia) {
+    setCommentEditingId(item.id);
+    setCommentDraft(mediaRemark(item.caption));
+  }
+
+  function cancelMediaComment() {
+    setCommentEditingId(null);
+    setCommentDraft('');
+  }
+
+  async function saveMediaComment(item: CheckMedia) {
+    if (!supabase || item.upload_status) return;
+    const comment = commentDraft.trim();
+    if (comment.length > 1000) {
+      setErrorMsg('Media comment must be 1,000 characters or less.');
+      return;
+    }
+    setCommentSavingId(item.id);
+    setErrorMsg('');
+    try {
+      const { error } = await supabase
+        .from('manager_room_check_media')
+        .update({ caption: comment || null })
+        .eq('id', item.id);
+      if (error) throw error;
+      setMedia((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, caption: comment || null } : entry))
+      );
+      setFullMedia((current) =>
+        current?.id === item.id ? { ...current, caption: comment || null } : current
+      );
+      cancelMediaComment();
+      setSuccessMsg(comment ? 'Media comment saved.' : 'Media comment removed.');
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Unable to save media comment.');
+    } finally {
+      setCommentSavingId(null);
+    }
   }
 
   async function recoverOrphanedUploads(check: RoomCheck) {
@@ -2474,6 +2517,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       {detailOpen && selectedCheck ? (
         <Modal title={`Room ${selectedCheck.room_number}`} onClose={() => {
           clearDraftMedia();
+          cancelMediaComment();
           setAddingToCheckId(null);
           setDetailOpen(false);
         }}>
@@ -2534,6 +2578,45 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                 <div className="mrc-media-info">
                   <strong>Issue {item.position}</strong>
                   {remark ? <p className="mrc-media-remark">{remark}</p> : null}
+                  {!isUploading && !uploadFailed ? (
+                    commentEditingId === item.id ? (
+                      <div className="mrc-comment-editor">
+                        <label htmlFor={`media-comment-${item.id}`}>Comment</label>
+                        <textarea
+                          id={`media-comment-${item.id}`}
+                          value={commentDraft}
+                          maxLength={1000}
+                          rows={3}
+                          autoFocus
+                          placeholder="Add a comment about this media..."
+                          onChange={(event) => setCommentDraft(event.target.value)}
+                        />
+                        <small>{commentDraft.length}/1000</small>
+                        <div>
+                          <button
+                            type="button"
+                            className="mrc-secondary"
+                            disabled={commentSavingId === item.id}
+                            onClick={cancelMediaComment}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="mrc-primary"
+                            disabled={commentSavingId === item.id}
+                            onClick={() => void saveMediaComment(item)}
+                          >
+                            {commentSavingId === item.id ? 'Saving...' : 'Save Comment'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" className="mrc-comment-button" onClick={() => beginMediaComment(item)}>
+                        {remark ? 'Edit Comment' : 'Add Comment'}
+                      </button>
+                    )
+                  ) : null}
                   <span>
                     {isUploading
                       ? 'Uploading in background...'
@@ -3758,6 +3841,52 @@ function StyleBlock() {
         font-weight: 750;
         line-height: 1.35;
         overflow-wrap: anywhere;
+      }
+      .mrc-comment-button {
+        width: fit-content;
+        border: 1px solid #bfdbfe;
+        border-radius: 999px;
+        padding: 7px 11px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        font-size: 12px;
+        font-weight: 950;
+        cursor: pointer;
+      }
+      .mrc-comment-editor {
+        display: grid;
+        gap: 7px;
+        padding: 10px;
+        border: 1px solid #bfdbfe;
+        border-radius: 12px;
+        background: #f8fbff;
+      }
+      .mrc-comment-editor label {
+        color: #334155;
+        font-size: 12px;
+        font-weight: 950;
+      }
+      .mrc-comment-editor textarea {
+        box-sizing: border-box;
+        width: 100%;
+        resize: vertical;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+        color: #0f172a;
+        font: inherit;
+      }
+      .mrc-comment-editor small {
+        color: #64748b;
+        text-align: right;
+        font-size: 11px;
+        font-weight: 750;
+      }
+      .mrc-comment-editor > div {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
       }
       .mrc-upload-chip {
         display: inline-flex;
