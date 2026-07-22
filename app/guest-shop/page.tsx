@@ -63,7 +63,7 @@ type CartItem = {
   specialInstructions: string;
 };
 
-const DEFAULT_CATEGORIES: Category[] = ['All', 'Comfort', 'Laundry', 'Room Service', 'Essentials'];
+const INITIAL_CATEGORIES: Category[] = ['All'];
 
 const DEFAULT_HERO = {
   hero_image_url: '',
@@ -107,95 +107,6 @@ function cachedHeroSettings() {
     return DEFAULT_HERO;
   }
 }
-
-const DEFAULT_SHOP_ITEMS: ShopItem[] = [
-  {
-    id: 'late-checkout',
-    name: 'Late Check-Out',
-    category: 'Room Service',
-    description: 'Extend your stay comfortably, subject to front office confirmation.',
-    price: 60,
-    stock: 8,
-    submenu: '',
-    isFnb: false,
-    optionGroups: [],
-    accent: '#b6813a',
-    label: 'Limited daily',
-    imageUrl:
-      'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1100&q=82',
-  },
-  {
-    id: 'express-laundry',
-    name: 'Express Laundry',
-    category: 'Laundry',
-    description: 'Priority laundry handling for garments that need a faster return.',
-    price: 40,
-    stock: 12,
-    submenu: '',
-    isFnb: false,
-    optionGroups: [],
-    accent: '#28605f',
-    imageUrl:
-      'https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?auto=format&fit=crop&w=1100&q=82',
-  },
-  {
-    id: 'extra-bed',
-    name: 'Extra Bed',
-    category: 'Comfort',
-    description: 'Additional bed setup for selected room categories and family stays.',
-    price: 60,
-    stock: 4,
-    submenu: '',
-    isFnb: false,
-    optionGroups: [],
-    accent: '#7c463a',
-    label: 'Upon request',
-    imageUrl:
-      'https://images.unsplash.com/photo-1615874959474-d609969a20ed?auto=format&fit=crop&w=1100&q=82',
-  },
-  {
-    id: 'extra-pillow',
-    name: 'Extra Pillow',
-    category: 'Comfort',
-    description: 'Fresh pillow delivered to your room for a more restful night.',
-    price: 15,
-    stock: 18,
-    submenu: '',
-    isFnb: false,
-    optionGroups: [],
-    accent: '#725a92',
-    imageUrl:
-      'https://images.unsplash.com/photo-1585495336621-dcfb1aaf2a45?auto=format&fit=crop&w=1100&q=82',
-  },
-  {
-    id: 'travel-adapter',
-    name: 'Travel Adapter',
-    category: 'Essentials',
-    description: 'Universal adapter prepared for guest convenience during your stay.',
-    price: 25,
-    stock: 6,
-    submenu: '',
-    isFnb: false,
-    optionGroups: [],
-    accent: '#254f78',
-    imageUrl:
-      'https://images.unsplash.com/photo-1625834311143-7b6f5c9fdb40?auto=format&fit=crop&w=1100&q=82',
-  },
-  {
-    id: 'mineral-water',
-    name: 'Mineral Water Set',
-    category: 'Essentials',
-    description: 'Chilled bottled mineral water delivered directly to your room.',
-    price: 12,
-    stock: 30,
-    submenu: '',
-    isFnb: false,
-    optionGroups: [],
-    accent: '#3c704d',
-    imageUrl:
-      'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1100&q=82',
-  },
-];
 
 const LANGUAGE_OPTIONS: Array<{ code: LanguageCode; label: string; shortLabel: string }> = [
   { code: 'en', label: 'English', shortLabel: 'EN' },
@@ -526,8 +437,10 @@ function isFnbCategory(category: string) {
 
 export default function GuestShopPage() {
   const [language, setLanguage] = useState<LanguageCode>('en');
-  const [items, setItems] = useState<ShopItem[]>(DEFAULT_SHOP_ITEMS);
-  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [items, setItems] = useState<ShopItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
+  const [shopLoading, setShopLoading] = useState(true);
+  const [shopLoadError, setShopLoadError] = useState('');
   const [categoryTranslations, setCategoryTranslations] = useState<Record<string, { ms: string; zh: string }>>({});
   const [hero, setHero] = useState(cachedHeroSettings);
   const [heroReady, setHeroReady] = useState(false);
@@ -675,6 +588,7 @@ export default function GuestShopPage() {
 
     async function loadShop() {
       try {
+        setShopLoadError('');
         const [itemsRes, categoriesRes, fnbHoursRes] = await Promise.all([
           fetch('/api/guest-shop/items', { cache: 'no-store' }),
           fetch('/api/guest-shop/categories', { cache: 'no-store' }),
@@ -710,7 +624,9 @@ export default function GuestShopPage() {
           );
         }
 
-        if (!json?.ok || !Array.isArray(json.items) || !json.items.length) return;
+        if (!itemsRes.ok || !json?.ok || !Array.isArray(json.items)) {
+          throw new Error(String(json?.error || 'Unable to load the guest menu.'));
+        }
 
         const nextItems = json.items
           .filter((item: any) => item?.is_active !== false)
@@ -738,8 +654,8 @@ export default function GuestShopPage() {
           }))
           .filter((item: ShopItem) => item.name);
 
+        setItems(nextItems);
         if (nextItems.length) {
-          setItems(nextItems);
           setSelectedOptionsByItem((current) => {
             const next = { ...current };
             for (const item of nextItems) {
@@ -752,8 +668,12 @@ export default function GuestShopPage() {
             return ['All', ...Array.from(new Set([...current.filter((item) => item !== 'All'), ...itemCategories]))];
           });
         }
-      } catch {
-        // Keep the curated fallback so the guest shop stays usable if the catalog table is not ready.
+      } catch (error: any) {
+        if (!alive) return;
+        setItems([]);
+        setShopLoadError(error?.message || 'Unable to load the guest menu.');
+      } finally {
+        if (alive) setShopLoading(false);
       }
     }
 
@@ -1059,7 +979,24 @@ export default function GuestShopPage() {
 
         <div className="shop-grid">
           <div className="products">
-            {visibleItems.map((item) => {
+            {shopLoading ? (
+              <div className="catalog-state" role="status" aria-live="polite">
+                <strong>{language === 'ms' ? 'Memuatkan menu anda…' : language === 'zh' ? '正在加载您的菜单…' : 'Loading your menu…'}</strong>
+                <span>{language === 'ms' ? 'Gambar dan harga terkini sedang disediakan.' : language === 'zh' ? '正在准备最新图片和价格。' : 'Preparing the latest images and prices.'}</span>
+              </div>
+            ) : null}
+            {!shopLoading && shopLoadError ? (
+              <div className="catalog-state catalog-error" role="alert">
+                <strong>{language === 'ms' ? 'Menu tidak dapat dimuatkan buat masa ini.' : language === 'zh' ? '菜单暂时无法加载。' : 'The menu is temporarily unavailable.'}</strong>
+                <span>{language === 'ms' ? 'Sila muat semula halaman atau hubungi Front Office.' : language === 'zh' ? '请刷新页面或联系前台。' : 'Please refresh the page or contact Front Office.'}</span>
+              </div>
+            ) : null}
+            {!shopLoading && !shopLoadError && !visibleItems.length ? (
+              <div className="catalog-state">
+                <strong>{language === 'ms' ? 'Tiada item tersedia.' : language === 'zh' ? '目前没有可订购商品。' : 'No items are currently available.'}</strong>
+              </div>
+            ) : null}
+            {!shopLoading && !shopLoadError ? visibleItems.map((item) => {
               const fnbClosed = isFnbItem(item) && !fnbOpenNow;
               const isUnavailable = item.stock <= 0 || fnbClosed;
               const selectedOptions = getSelection(item);
@@ -1158,7 +1095,7 @@ export default function GuestShopPage() {
                   </div>
                 </article>
               );
-            })}
+            }) : null}
           </div>
 
           <aside id="order" className="order-panel">
@@ -1727,6 +1664,35 @@ export default function GuestShopPage() {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 14px;
+        }
+
+        .catalog-state {
+          grid-column: 1 / -1;
+          min-height: 220px;
+          display: grid;
+          place-content: center;
+          gap: 8px;
+          padding: 28px;
+          border: 1px dashed rgba(145, 108, 53, 0.28);
+          border-radius: 20px;
+          color: #6f5a3f;
+          background: rgba(255, 252, 246, 0.72);
+          text-align: center;
+        }
+
+        .catalog-state strong {
+          color: #342719;
+          font-size: 18px;
+        }
+
+        .catalog-state span {
+          font-size: 13px;
+        }
+
+        .catalog-state.catalog-error {
+          border-color: rgba(180, 60, 45, 0.3);
+          color: #8e4339;
+          background: rgba(255, 247, 245, 0.85);
         }
 
         .product-card,
