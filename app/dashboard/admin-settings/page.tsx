@@ -32,6 +32,7 @@ type UserProfile = {
   can_access_commission_checker: boolean;
   can_access_admin_settings: boolean;
   can_access_guest_shop_admin: boolean;
+  can_access_linen_admin: boolean;
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
   can_access_price_guide: boolean;
@@ -73,11 +74,12 @@ const accessFieldDefs: Array<{
   { key: 'can_access_stock_card', label: 'Stock Card', group: 'Housekeeping' },
   { key: 'can_access_damaged', label: 'Damaged', group: 'Housekeeping' },
   { key: 'can_access_linen_history', label: 'Linen History', group: 'Housekeeping' },
+  { key: 'can_access_linen_admin', label: 'Linen Administration', group: 'Housekeeping' },
   { key: 'can_access_supervisor_checklist', label: 'Supervisor Checklist', group: 'Housekeeping' },
   { key: 'can_access_pa_checklist', label: 'PA Checklist', group: 'Public Area' },
   { key: 'can_access_pa_linen_entry', label: 'PA Linen Entry', group: 'Public Area' },
   { key: 'can_access_daily_forms', label: 'Daily Forms', group: 'Management' },
-  { key: 'can_access_management_tasks', label: 'Management Tasks', group: 'Management' },
+  { key: 'can_access_management_tasks', label: 'Management Tasks / Bank In Cash / Daily Operations Summary', group: 'Management' },
   { key: 'can_access_commission_checker', label: 'Commission Checker', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
   { key: 'can_access_guest_shop_admin', label: 'Guest Shop Admin', group: 'Front Office' },
@@ -117,6 +119,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_commission_checker: false,
     can_access_admin_settings: false,
     can_access_guest_shop_admin: false,
+    can_access_linen_admin: false,
     can_access_lost_found: false,
     can_access_fo_checklist: false,
     can_access_price_guide: false,
@@ -210,6 +213,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_admin_settings')),
     can_access_guest_shop_admin:
       toPermissionBoolean(permissionValue('can_access_guest_shop_admin')),
+    can_access_linen_admin:
+      toPermissionBoolean(permissionValue('can_access_linen_admin')),
     can_access_lost_found:
       toPermissionBoolean(permissionValue('can_access_lost_found')),
     can_access_fo_checklist:
@@ -262,6 +267,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_commission_checker: toPermissionBoolean(draft.can_access_commission_checker),
     can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
     can_access_guest_shop_admin: toPermissionBoolean(draft.can_access_guest_shop_admin),
+    can_access_linen_admin: toPermissionBoolean(draft.can_access_linen_admin),
     can_access_lost_found: toPermissionBoolean(draft.can_access_lost_found),
     can_access_fo_checklist: toPermissionBoolean(draft.can_access_fo_checklist),
     can_access_price_guide: toPermissionBoolean(draft.can_access_price_guide),
@@ -677,7 +683,7 @@ export default function AdminSettingsPage() {
         setSelectedUserId(confirmedUser.user_id);
       }
 
-      setStatusMsg('User access updated successfully');
+      setStatusMsg('User name, role, and access updated successfully');
       void refreshUsers(confirmedUser.user_id, confirmedUser).catch(() => {
         setUsers((prev) =>
           prev.map((u) => (u.user_id === confirmedUser.user_id ? confirmedUser : u))
@@ -1024,14 +1030,20 @@ function renderToggle(key: AccessKey, label: string) {
                       </select>
                     </div>
                     <div style={styles.formGroup}>
-                      <label style={styles.label}>Reset Password</label>
+                      <label style={styles.label}>Reset Password (optional)</label>
                       <div style={inlineActionRowStyle}>
                         <input value={draft.newPassword || ''} onChange={(e) => setDraftField('newPassword', e.target.value)} style={styles.input} placeholder="Enter new password" type="password" />
                         <button type="button" onClick={() => void handleResetPassword()} style={{ ...secondaryBtnStyle, opacity: changingPassword ? 0.65 : 1 }} disabled={changingPassword}>
-                          {changingPassword ? 'Saving...' : 'Update'}
+                          {changingPassword ? 'Saving...' : 'Reset Password'}
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  <div style={{ ...bottomActionsStyle, justifyContent: 'flex-end', marginTop: '12px' }}>
+                    <button type="button" onClick={() => void handleSaveUser()} style={{ ...primaryBtnStyle, opacity: saving || selectedLoading ? 0.65 : 1 }} disabled={saving || selectedLoading}>
+                      {saving ? 'Saving...' : 'Save Name, Role & Access'}
+                    </button>
                   </div>
 
                   {persistedAccess ? (
