@@ -86,6 +86,11 @@ type StoredUploadFile = {
   file: File;
   prepared: boolean;
   uploadUrl: string | null;
+  checkId?: string;
+  mediaType?: MediaType;
+  caption?: string | null;
+  position?: number;
+  storagePath?: string;
 };
 
 type ManagerRoomCheckPageProps = {
@@ -148,6 +153,19 @@ async function readStoredUpload(id: string) {
       const request = db.transaction(UPLOAD_DB_STORE, 'readonly').objectStore(UPLOAD_DB_STORE).get(id);
       request.onsuccess = () => resolve((request.result as StoredUploadFile | undefined) || null);
       request.onerror = () => reject(request.error || new Error('Unable to read the saved upload.'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function readAllStoredUploads() {
+  const db = await openUploadDatabase();
+  try {
+    return await new Promise<StoredUploadFile[]>((resolve, reject) => {
+      const request = db.transaction(UPLOAD_DB_STORE, 'readonly').objectStore(UPLOAD_DB_STORE).getAll();
+      request.onsuccess = () => resolve((request.result as StoredUploadFile[] | undefined) || []);
+      request.onerror = () => reject(request.error || new Error('Unable to read saved uploads.'));
     });
   } finally {
     db.close();
@@ -560,6 +578,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [uploadProgressMsg, setUploadProgressMsg] = useState('');
+  const [orphanedUploads, setOrphanedUploads] = useState<StoredUploadFile[]>([]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [roomNumber, setRoomNumber] = useState('');
@@ -830,6 +849,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           .filter((row) => row.status === 'PENDING' || row.status === 'UPLOADING')
           .map((row) => row.id)
       );
+      await discoverOrphanedUploads();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to load room checks.');
     } finally {
@@ -959,6 +979,16 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     }
 
     for (const pair of duplicatePairs) {
+      const { count: pendingUploadCount, error: pendingUploadError } = await supabase
+        .from('manager_room_check_uploads')
+        .select('id', { count: 'exact', head: true })
+        .eq('check_id', pair.duplicateId)
+        .neq('status', 'READY');
+      if (pendingUploadError) throw pendingUploadError;
+      // Never delete a duplicate check while its files are still stored locally
+      // or uploading. Deleting the check cascades to its durable queue records.
+      if ((pendingUploadCount ?? 0) > 0) continue;
+
       const { error: moveError } = await supabase
         .from('manager_room_check_media')
         .update({ check_id: pair.keepId })
@@ -972,6 +1002,27 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       if (deleteError) throw deleteError;
 
       await renumberCheckMedia(pair.keepId);
+    }
+  }
+
+  async function discoverOrphanedUploads() {
+    if (!supabase) return;
+    try {
+      const storedUploads = await readAllStoredUploads();
+      if (!storedUploads.length) {
+        setOrphanedUploads([]);
+        return;
+      }
+      const storedIds = storedUploads.map((item) => item.id);
+      const { data, error } = await supabase
+        .from('manager_room_check_uploads')
+        .select('id')
+        .in('id', storedIds);
+      if (error) throw error;
+      const linkedIds = new Set((data || []).map((item) => item.id));
+      setOrphanedUploads(storedUploads.filter((item) => !linkedIds.has(item.id)));
+    } catch {
+      // Normal room-check loading should continue even if this browser blocks IndexedDB.
     }
   }
 
@@ -1265,6 +1316,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           file: item.file,
           prepared: item.media_type === 'image',
           uploadUrl: null,
+          checkId: job.check.id,
+          mediaType: item.media_type,
+          caption: item.caption.trim() || null,
+          position,
+          storagePath,
         });
         const { error } = await supabase.from('manager_room_check_uploads').insert({
           id,
@@ -1453,6 +1509,43 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     );
     setSuccessMsg(`${retryIds.length} failed upload${retryIds.length === 1 ? '' : 's'} queued again.`);
     enqueueDurableIds(retryIds);
+  }
+
+  async function recoverOrphanedUploads(check: RoomCheck) {
+    if (!canManageContent || !orphanedUploads.length) return;
+    const confirmed = window.confirm(
+      `Recover ${orphanedUploads.length} saved file${orphanedUploads.length === 1 ? '' : 's'} into Room ${check.room_number} ${departmentLabel(check.department)}? Only continue if these files belong to this room.`
+    );
+    if (!confirmed) return;
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const recoveryItems: DraftMedia[] = orphanedUploads.map((stored) => {
+        const mediaType = stored.mediaType || (stored.file.type.startsWith('video/') ? 'video' : 'image');
+        return {
+          id: crypto.randomUUID(),
+          file: withNormalizedFileType(stored.file, mediaType),
+          previewUrl: URL.createObjectURL(stored.file),
+          media_type: mediaType,
+          caption: stored.caption || stored.file.name || '',
+          assigned_department: check.department,
+          marked: false,
+        };
+      });
+      await persistMediaUploadJobs([
+        { check, items: recoveryItems, label: departmentLabel(check.department) },
+      ]);
+      await Promise.all(orphanedUploads.map((stored) => deleteStoredUpload(stored.id).catch(() => undefined)));
+      const recoveredCount = orphanedUploads.length;
+      setOrphanedUploads([]);
+      setSuccessMsg(
+        `${recoveredCount} saved file${recoveredCount === 1 ? '' : 's'} recovered into Room ${check.room_number} and queued for upload.`
+      );
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Unable to recover the saved files.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function runMediaUploadWorker() {
@@ -2198,6 +2291,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           </button>
         </div>
       ) : null}
+      {orphanedUploads.length ? (
+        <div className="mrc-alert mrc-alert-warning">
+          <strong>{orphanedUploads.length} unsent file{orphanedUploads.length === 1 ? '' : 's'} found on this phone.</strong>
+          <span>Open the correct room below, then tap “Recover Saved Files to This Room”. Do not clear this browser’s data.</span>
+        </div>
+      ) : null}
       {successMsg ? <div className="mrc-alert mrc-alert-success">{successMsg}</div> : null}
       {uploadProgressMsg ? <div className="mrc-alert mrc-alert-info">{uploadProgressMsg}</div> : null}
 
@@ -2554,6 +2653,16 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
           {addingToCheckId !== selectedCheck.id ? (
           <div className="mrc-modal-actions">
+            {canManageContent && orphanedUploads.length && selectedCheck.status !== 'DONE' ? (
+              <button
+                type="button"
+                className="mrc-primary"
+                disabled={saving}
+                onClick={() => void recoverOrphanedUploads(selectedCheck)}
+              >
+                Recover {orphanedUploads.length} Saved File{orphanedUploads.length === 1 ? '' : 's'} to This Room
+              </button>
+            ) : null}
             {canManageContent ? (
               <button
                 type="button"
@@ -3128,6 +3237,13 @@ function StyleBlock() {
         background: #eff6ff;
         border: 1px solid #bfdbfe;
         color: #1d4ed8;
+      }
+      .mrc-alert-warning {
+        display: grid;
+        gap: 6px;
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        color: #92400e;
       }
       .mrc-retry-all {
         display: block;
