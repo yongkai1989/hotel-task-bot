@@ -111,6 +111,7 @@ const permissionKeys = [
   'can_access_commission_checker',
   'can_access_admin_settings',
   'can_access_guest_shop_admin',
+  'can_access_linen_admin',
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_supervisor_checklist',
@@ -217,7 +218,12 @@ function buildUser(profile: any, authEmail: string) {
     can_access_fnb_checklist:
       (() => {
         const email = String(profile.email || authEmail || '').trim().toLowerCase();
-        return role === 'SUPERUSER' || email === 'fnb@hotelhallmark.com' || email === 'fenny@hotelhallmark.com';
+        return (
+          role === 'SUPERUSER' ||
+          email === 'fnb@hotelhallmark.com' ||
+          email === 'fenny@hotelhallmark.com' ||
+          toPermissionBoolean(profile.can_access_fnb_checklist)
+        );
       })(),
     can_access_fnb_menu_admin:
       (() => {
