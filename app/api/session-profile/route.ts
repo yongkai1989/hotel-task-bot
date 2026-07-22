@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getRequestAccessToken } from '../../../lib/dashboardAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -49,12 +50,6 @@ const PROFILE_SELECT = `
   can_access_pa_linen_entry,
   updated_at
 `;
-
-function getBearerToken(req: NextRequest) {
-  const authHeader = req.headers.get('authorization') || '';
-  if (!authHeader.startsWith('Bearer ')) return '';
-  return authHeader.slice(7).trim();
-}
 
 function toPermissionBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
@@ -305,12 +300,12 @@ function buildDebugPayload(profileByUserId: any, emailProfiles: any[], authUserI
 
 export async function GET(req: NextRequest) {
   try {
-    const token = getBearerToken(req);
+    const token = getRequestAccessToken(req);
     const includeDebug = req.nextUrl.searchParams.get('debug') === '1';
 
     if (!token) {
       return NextResponse.json(
-        { ok: false, error: 'Missing authorization token' },
+        { ok: false, error: 'Missing Supabase session' },
         { status: 401 }
       );
     }
