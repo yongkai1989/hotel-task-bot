@@ -2907,9 +2907,38 @@ function MediaPicker({
   choiceOpen?: boolean;
   setChoiceOpen?: (open: boolean) => void;
 }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const swipeStartXRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!draftMedia.length) {
+      setActiveIndex(0);
+      return;
+    }
+    setActiveIndex((current) => Math.min(current, draftMedia.length - 1));
+  }, [draftMedia.length]);
+
   const handlePick = (files: FileList | null) => {
     if (files) void addFiles(files);
     setChoiceOpen?.(false);
+  };
+
+  const activeItem = draftMedia[activeIndex] || null;
+
+  const moveActive = (direction: -1 | 1) => {
+    if (draftMedia.length < 2) return;
+    setActiveIndex((current) => (
+      (current + direction + draftMedia.length) % draftMedia.length
+    ));
+  };
+
+  const finishSwipe = (endX: number) => {
+    const startX = swipeStartXRef.current;
+    swipeStartXRef.current = null;
+    if (startX === null) return;
+    const distance = endX - startX;
+    if (Math.abs(distance) < 45) return;
+    moveActive(distance < 0 ? 1 : -1);
   };
 
   const sourceButtons = (
@@ -2961,62 +2990,141 @@ function MediaPicker({
         <div className="mrc-media-choice">{sourceButtons}</div>
       )}
       <div className="mrc-picker-hint">Up to 30 items. Images are optimized; videos are compressed for review and capped at 10 seconds.</div>
-      {draftMedia.length ? (
-        <div className="mrc-draft-grid">
-          {draftMedia.map((item, index) => (
-            <div key={item.id} className="mrc-draft-card">
-              {item.media_type === 'video' ? (
-                <video src={item.previewUrl} muted />
-              ) : (
-                <img src={item.previewUrl} alt={`Media preview ${index + 1}`} />
-              )}
-              <label className="mrc-draft-remark">
-                <span>Remark for staff (optional)</span>
-                <textarea
-                  value={item.caption}
-                  onChange={(e) => updateDraftMediaCaption(item.id, e.target.value)}
-                  placeholder={`Example: ${item.media_type === 'video' ? 'Leaking sound from AC' : 'Stain on bedsheet'}`}
-                />
-              </label>
-              <div className="mrc-draft-routing">
-                <div className="mrc-dept-choice" aria-label="Assign media to department">
-                  <span>Assign to</span>
-                  <div>
-                    <label className={`mrc-dept-check ${item.assigned_department === 'HK' ? 'is-selected' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={item.assigned_department === 'HK'}
-                        onChange={() => updateDraftMediaDepartment(item.id, 'HK')}
-                      />
-                      <span>Housekeeping</span>
-                    </label>
-                    <label className={`mrc-dept-check ${item.assigned_department === 'MT' ? 'is-selected' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={item.assigned_department === 'MT'}
-                        onChange={() => updateDraftMediaDepartment(item.id, 'MT')}
-                      />
-                      <span>Maintenance</span>
-                    </label>
-                  </div>
-                </div>
+      {activeItem ? (
+        <div className="mrc-reviewer">
+          <div
+            className="mrc-review-stage"
+            tabIndex={0}
+            aria-label={`Reviewing media ${activeIndex + 1} of ${draftMedia.length}`}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowLeft') moveActive(-1);
+              if (event.key === 'ArrowRight') moveActive(1);
+            }}
+            onTouchStart={(event) => {
+              swipeStartXRef.current = event.touches[0]?.clientX ?? null;
+            }}
+            onTouchEnd={(event) => {
+              finishSwipe(event.changedTouches[0]?.clientX ?? 0);
+            }}
+          >
+            {activeItem.media_type === 'video' ? (
+              <video
+                key={activeItem.id}
+                src={activeItem.previewUrl}
+                controls
+                playsInline
+                preload="metadata"
+              />
+            ) : (
+              <img
+                key={activeItem.id}
+                src={activeItem.previewUrl}
+                alt={`Media preview ${activeIndex + 1} of ${draftMedia.length}`}
+              />
+            )}
+            <span className="mrc-review-counter">{activeIndex + 1} / {draftMedia.length}</span>
+            {activeItem.marked ? <span className="mrc-review-marked">Marked up</span> : null}
+            {draftMedia.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="mrc-review-arrow is-prev"
+                  aria-label="Previous media"
+                  onClick={() => moveActive(-1)}
+                >
+                  &#8249;
+                </button>
+                <button
+                  type="button"
+                  className="mrc-review-arrow is-next"
+                  aria-label="Next media"
+                  onClick={() => moveActive(1)}
+                >
+                  &#8250;
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          {draftMedia.length > 1 ? (
+            <div className="mrc-review-thumbnails" aria-label="Choose media">
+              {draftMedia.map((item, index) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={`mrc-review-thumb ${index === activeIndex ? 'is-active' : ''}`}
+                  onClick={() => setActiveIndex(index)}
+                  aria-label={`Open media ${index + 1}`}
+                  aria-current={index === activeIndex ? 'true' : undefined}
+                >
+                  {item.media_type === 'video' ? (
+                    <video src={item.previewUrl} muted playsInline preload="metadata" />
+                  ) : (
+                    <img src={item.previewUrl} alt="" />
+                  )}
+                  <span>{index + 1}</span>
+                  {item.marked ? <i aria-label="Marked up" /> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mrc-review-details">
+            <div className="mrc-review-heading">
+              <div>
+                <strong>{activeItem.media_type === 'video' ? 'Video' : 'Photo'} {activeIndex + 1}</strong>
+                <small>Swipe or use thumbnails to change media</small>
               </div>
-              <div className="mrc-draft-actions">
-                {item.media_type === 'image' ? (
+              <div className="mrc-review-actions">
+                {activeItem.media_type === 'image' ? (
                   <button
                     type="button"
-                    className="mrc-secondary"
-                    onClick={() => setMarkupIndex(index)}
+                    className="mrc-review-markup-btn"
+                    onClick={() => setMarkupIndex(activeIndex)}
                   >
-                    {item.marked ? 'Edit Markup' : 'Mark Up'}
+                    <span aria-hidden="true">&#9998;</span>
+                    {activeItem.marked ? 'Edit Markup' : 'Mark Up'}
                   </button>
                 ) : null}
-                <button type="button" className="mrc-danger" onClick={() => removeDraftMedia(item.id)}>
+                <button
+                  type="button"
+                  className="mrc-review-remove-btn"
+                  onClick={() => removeDraftMedia(activeItem.id)}
+                >
                   Remove
                 </button>
               </div>
             </div>
-          ))}
+
+            <label className="mrc-review-remark">
+              <span>Remark for staff <em>(optional)</em></span>
+              <textarea
+                value={activeItem.caption}
+                onChange={(event) => updateDraftMediaCaption(activeItem.id, event.target.value)}
+                placeholder={`Example: ${activeItem.media_type === 'video' ? 'Leaking sound from AC' : 'Stain on bedsheet'}`}
+              />
+            </label>
+
+            <div className="mrc-review-routing" aria-label="Assign active media to department">
+              <span>Assign this {activeItem.media_type} to</span>
+              <div>
+                <button
+                  type="button"
+                  className={activeItem.assigned_department === 'HK' ? 'is-selected' : ''}
+                  onClick={() => updateDraftMediaDepartment(activeItem.id, 'HK')}
+                >
+                  Housekeeping
+                </button>
+                <button
+                  type="button"
+                  className={activeItem.assigned_department === 'MT' ? 'is-selected' : ''}
+                  onClick={() => updateDraftMediaDepartment(activeItem.id, 'MT')}
+                >
+                  Maintenance
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
@@ -3581,6 +3689,265 @@ function StyleBlock() {
         color: #64748b;
         font-weight: 750;
         font-size: 12px;
+      }
+      .mrc-reviewer {
+        margin-top: 12px;
+        border: 1px solid #dbe3ee;
+        border-radius: 20px;
+        overflow: hidden;
+        background: #f8fafc;
+        box-shadow: 0 14px 32px rgba(15,23,42,.08);
+      }
+      .mrc-review-stage {
+        position: relative;
+        width: 100%;
+        height: clamp(300px, 50dvh, 560px);
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 35%, rgba(51,65,85,.52), transparent 46%),
+          #0b1120;
+        touch-action: pan-y;
+        user-select: none;
+      }
+      .mrc-review-stage > img,
+      .mrc-review-stage > video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        background: transparent;
+      }
+      .mrc-review-counter,
+      .mrc-review-marked {
+        position: absolute;
+        top: 12px;
+        z-index: 3;
+        border-radius: 999px;
+        padding: 6px 10px;
+        color: #fff;
+        background: rgba(15,23,42,.76);
+        backdrop-filter: blur(8px);
+        font-size: 12px;
+        font-weight: 950;
+        box-shadow: 0 4px 14px rgba(0,0,0,.18);
+      }
+      .mrc-review-counter {
+        left: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .mrc-review-marked {
+        right: 12px;
+        color: #dcfce7;
+        background: rgba(21,128,61,.88);
+      }
+      .mrc-review-arrow {
+        position: absolute;
+        top: 50%;
+        z-index: 4;
+        width: 44px;
+        height: 56px;
+        margin-top: -28px;
+        border: 0;
+        border-radius: 13px;
+        padding: 0 0 5px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: rgba(15,23,42,.7);
+        backdrop-filter: blur(6px);
+        font-size: 40px;
+        line-height: 1;
+        cursor: pointer;
+        transition: transform .14s ease, background .14s ease;
+      }
+      .mrc-review-arrow:hover {
+        background: rgba(15,23,42,.92);
+        transform: scale(1.04);
+      }
+      .mrc-review-arrow.is-prev {
+        left: 10px;
+      }
+      .mrc-review-arrow.is-next {
+        right: 10px;
+      }
+      .mrc-review-thumbnails {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 10px;
+        background: #111827;
+        scrollbar-width: thin;
+        scroll-snap-type: x proximity;
+        overscroll-behavior-x: contain;
+      }
+      .mrc-review-thumb {
+        position: relative;
+        flex: 0 0 66px;
+        width: 66px;
+        height: 58px;
+        overflow: hidden;
+        border: 2px solid transparent;
+        border-radius: 10px;
+        padding: 0;
+        background: #020617;
+        opacity: .62;
+        cursor: pointer;
+        scroll-snap-align: center;
+        transition: opacity .14s ease, border-color .14s ease, transform .14s ease;
+      }
+      .mrc-review-thumb.is-active {
+        border-color: #60a5fa;
+        opacity: 1;
+        transform: translateY(-1px);
+        box-shadow: 0 0 0 2px rgba(96,165,250,.24);
+      }
+      .mrc-review-thumb img,
+      .mrc-review-thumb video {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+        pointer-events: none;
+      }
+      .mrc-review-thumb span {
+        position: absolute;
+        left: 4px;
+        bottom: 4px;
+        min-width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        padding: 0 4px;
+        display: grid;
+        place-items: center;
+        background: rgba(2,6,23,.78);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 950;
+      }
+      .mrc-review-thumb i {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 10px;
+        height: 10px;
+        border: 2px solid #fff;
+        border-radius: 999px;
+        background: #22c55e;
+        box-shadow: 0 2px 5px rgba(0,0,0,.28);
+      }
+      .mrc-review-details {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        background: #fff;
+      }
+      .mrc-review-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .mrc-review-heading > div:first-child {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+      .mrc-review-heading strong {
+        color: #0f172a;
+        font-size: 15px;
+      }
+      .mrc-review-heading small {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 750;
+      }
+      .mrc-review-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 7px;
+        flex-wrap: wrap;
+      }
+      .mrc-review-markup-btn,
+      .mrc-review-remove-btn {
+        min-height: 40px;
+        border-radius: 11px;
+        padding: 0 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        font-weight: 950;
+        cursor: pointer;
+      }
+      .mrc-review-markup-btn {
+        border: 0;
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #fff;
+        box-shadow: 0 7px 16px rgba(37,99,235,.2);
+      }
+      .mrc-review-markup-btn span {
+        font-size: 17px;
+        line-height: 1;
+      }
+      .mrc-review-remove-btn {
+        border: 1px solid #fecaca;
+        background: #fff1f2;
+        color: #be123c;
+      }
+      .mrc-review-remark {
+        display: grid;
+        gap: 6px;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 900;
+      }
+      .mrc-review-remark em {
+        color: #64748b;
+        font-style: normal;
+        font-weight: 700;
+      }
+      .mrc-review-remark textarea {
+        width: 100%;
+        min-height: 68px;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 10px 11px;
+        color: #0f172a;
+        background: #fbfdff;
+        font: inherit;
+        font-weight: 650;
+        resize: vertical;
+      }
+      .mrc-review-routing {
+        display: grid;
+        gap: 7px;
+      }
+      .mrc-review-routing > span {
+        color: #334155;
+        font-size: 12px;
+        font-weight: 900;
+      }
+      .mrc-review-routing > div {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .mrc-review-routing button {
+        min-height: 40px;
+        border: 1px solid #cbd5e1;
+        border-radius: 11px;
+        background: #fff;
+        color: #475569;
+        font-weight: 900;
+        cursor: pointer;
+      }
+      .mrc-review-routing button.is-selected {
+        border-color: #2563eb;
+        background: #eff6ff;
+        color: #1d4ed8;
+        box-shadow: inset 0 0 0 1px rgba(37,99,235,.18);
       }
       .mrc-draft-grid,
       .mrc-media-grid {
@@ -4187,6 +4554,26 @@ function StyleBlock() {
         .mrc-draft-grid,
         .mrc-media-grid {
           grid-template-columns: 1fr;
+        }
+        .mrc-review-stage {
+          height: min(48dvh, 430px);
+          min-height: 270px;
+        }
+        .mrc-review-arrow {
+          width: 38px;
+          height: 50px;
+          margin-top: -25px;
+        }
+        .mrc-review-heading {
+          align-items: stretch;
+          flex-direction: column;
+        }
+        .mrc-review-actions {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+        .mrc-review-markup-btn {
+          width: 100%;
         }
       }
     `}</style>
