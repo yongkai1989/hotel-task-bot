@@ -10,6 +10,7 @@ type Profile = {
   name: string;
   role: string;
   can_create_task?: boolean;
+  can_update_task_status?: boolean;
   can_access_fo_checklist?: boolean;
 };
 
@@ -48,10 +49,10 @@ type TrackedItem = {
   updated_at: string;
 };
 
-type TaskKind = 'Guest Request' | 'Complaint' | 'Follow-up' | 'Other';
-type ReminderView = 'OPEN' | 'DONE';
+type StatusView = 'OPEN' | 'DONE';
+type ReminderAction = 'COMPLETE' | 'REOPEN';
 
-const TASK_KINDS: TaskKind[] = ['Guest Request', 'Complaint', 'Follow-up', 'Other'];
+const CUSTOMER_WAITING_LIMIT_MS = 15 * 60 * 1000;
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
@@ -78,11 +79,27 @@ function singleRpcRow<T>(data: unknown): T {
   return row as T;
 }
 
+function customerWaitingTimer(task: DashboardTask, now: number) {
+  if (task.status !== 'OPEN' || !task.customer_waiting) return null;
+  const createdAt = Date.parse(task.created_at);
+  if (!Number.isFinite(createdAt)) return null;
+  const remainingMs = createdAt + CUSTOMER_WAITING_LIMIT_MS - now;
+  if (remainingMs <= 0) return { overdue: true, label: 'FOLLOW UP NOW' };
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return {
+    overdue: false,
+    label: `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`,
+  };
+}
+
 export default function FoQuickActionsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [accessToken, setAccessToken] = useState('');
-  const [reminderView, setReminderView] = useState<ReminderView>('OPEN');
+  const [taskView, setTaskView] = useState<StatusView>('OPEN');
+  const [reminderView, setReminderView] = useState<StatusView>('OPEN');
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [reminders, setReminders] = useState<ShiftReminder[]>([]);
   const [items, setItems] = useState<TrackedItem[]>([]);
@@ -91,8 +108,8 @@ export default function FoQuickActionsPage() {
   const [busyKey, setBusyKey] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [clockNow, setClockNow] = useState(() => Date.now());
 
-  const [taskKind, setTaskKind] = useState<TaskKind>('Guest Request');
   const [taskLocation, setTaskLocation] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [taskDepartments, setTaskDepartments] = useState<Array<'HK' | 'MT'>>(['HK']);
@@ -100,8 +117,8 @@ export default function FoQuickActionsPage() {
 
   const [reminderText, setReminderText] = useState('');
   const [reminderReference, setReminderReference] = useState('');
-  const [completingReminderId, setCompletingReminderId] = useState<string | null>(null);
-  const [completionName, setCompletionName] = useState('');
+  const [reminderAction, setReminderAction] = useState<{ id: string; action: ReminderAction } | null>(null);
+  const [reminderActorName, setReminderActorName] = useState('');
 
   const [loaningItemId, setLoaningItemId] = useState<string | null>(null);
   const [loanedToName, setLoanedToName] = useState('');
@@ -184,14 +201,25 @@ export default function FoQuickActionsPage() {
   }, [loadData, supabase]);
 
   const openTasks = tasks.filter((task) => task.status === 'OPEN');
+  const doneTasks = tasks.filter((task) => task.status === 'DONE');
   const visibleTasks = [...tasks]
-    .sort((a, b) => Number(a.status === 'DONE') - Number(b.status === 'DONE') || Date.parse(b.created_at) - Date.parse(a.created_at))
+    .filter((task) => task.status === taskView)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .slice(0, 16);
   const openReminders = reminders.filter((reminder) => reminder.status === 'OPEN');
+  const doneReminders = reminders.filter((reminder) => reminder.status === 'DONE');
   const visibleReminders = reminders
     .filter((reminder) => reminder.status === reminderView)
     .slice(0, reminderView === 'OPEN' ? 30 : 12);
   const loanedItems = items.filter((item) => item.current_status === 'LOANED');
+  const hasActiveCustomerWaiting = tasks.some((task) => task.status === 'OPEN' && task.customer_waiting);
+
+  useEffect(() => {
+    if (!hasActiveCustomerWaiting) return;
+    setClockNow(Date.now());
+    const timerId = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timerId);
+  }, [hasActiveCustomerWaiting]);
 
   function clearNotices() {
     setError('');
@@ -220,9 +248,6 @@ export default function FoQuickActionsPage() {
 
     setBusyKey('create-task');
     try {
-      const taskText = taskKind === 'Other'
-        ? taskDescription.trim()
-        : `[${taskKind}] ${taskDescription.trim()}`;
       const response = await fetch('/api/tasks', {
         method: 'POST',
         cache: 'no-store',
@@ -234,7 +259,7 @@ export default function FoQuickActionsPage() {
         body: JSON.stringify({
           room: taskLocation.trim(),
           departments: taskDepartments,
-          task_text: taskText,
+          task_text: taskDescription.trim(),
           customer_waiting: customerWaiting,
         }),
       });
@@ -278,26 +303,60 @@ export default function FoQuickActionsPage() {
     }
   }
 
-  async function completeReminder(reminderId: string) {
+  async function setTaskStatus(taskId: string, nextStatus: StatusView) {
     clearNotices();
-    if (!completionName.trim()) {
-      setError('Enter your name before marking the reminder complete.');
+    if (!profile?.can_update_task_status && !isSuperuser) {
+      setError('This FO account does not have permission to update task status.');
+      return;
+    }
+    setBusyKey(`task-${taskId}`);
+    try {
+      const response = await fetch('/api/task-status', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ taskId, status: nextStatus }),
+      });
+      const payload = await responseJson(response);
+      const updatedTask = payload.task as DashboardTask;
+      setTasks((current) => current.map((task) => task.id === taskId ? updatedTask : task));
+      setSuccess(nextStatus === 'DONE' ? 'Task marked as done.' : 'Task re-opened.');
+    } catch (nextError: any) {
+      setError(nextError?.message || 'Unable to update task status.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function changeReminderStatus(reminderId: string, action: ReminderAction) {
+    clearNotices();
+    if (!reminderActorName.trim()) {
+      setError(`Enter your name before ${action === 'COMPLETE' ? 'completing' : 're-opening'} this reminder.`);
       return;
     }
     setBusyKey(`reminder-${reminderId}`);
     try {
-      const { data, error: rpcError } = await supabase.rpc('complete_fo_shift_reminder', {
-        p_reminder_id: reminderId,
-        p_completed_by_name: completionName.trim(),
-      });
+      const rpcName = action === 'COMPLETE'
+        ? 'complete_fo_shift_reminder'
+        : 'reopen_fo_shift_reminder';
+      const rpcArgs = action === 'COMPLETE'
+        ? { p_reminder_id: reminderId, p_completed_by_name: reminderActorName.trim() }
+        : { p_reminder_id: reminderId, p_reopened_by_name: reminderActorName.trim() };
+      const { data, error: rpcError } = await supabase.rpc(rpcName, rpcArgs);
       if (rpcError) throw rpcError;
       const updatedReminder = singleRpcRow<ShiftReminder>(data);
       setReminders((current) => current.map((row) => row.id === reminderId ? updatedReminder : row));
-      setCompletingReminderId(null);
-      setCompletionName('');
-      setSuccess('Reminder completed and staff name recorded.');
+      setReminderAction(null);
+      setReminderActorName('');
+      setSuccess(action === 'COMPLETE'
+        ? 'Reminder completed and staff name recorded.'
+        : 'Reminder re-opened and staff name recorded.');
     } catch (nextError: any) {
-      setError(nextError?.message || 'Unable to complete reminder.');
+      setError(nextError?.message || `Unable to ${action === 'COMPLETE' ? 'complete' : 're-open'} reminder.`);
     } finally {
       setBusyKey('');
     }
@@ -504,9 +563,6 @@ export default function FoQuickActionsPage() {
           </div>
 
           <form className="quick-form task-form" onSubmit={createTask}>
-            <div className="choice-row type-row">
-              {TASK_KINDS.map((kind) => <button type="button" key={kind} className={taskKind === kind ? 'selected' : ''} onClick={() => setTaskKind(kind)}>{kind}</button>)}
-            </div>
             <div className="field-grid">
               <label>Room / Area<input value={taskLocation} onChange={(event) => setTaskLocation(event.target.value)} placeholder="e.g. 1205 or Lobby" maxLength={80} /></label>
               <label>Assign to<div className="choice-row department-row">
@@ -517,20 +573,46 @@ export default function FoQuickActionsPage() {
             </div>
             <label>Task details<textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} placeholder="Guest request, complaint, or work needed..." maxLength={800} rows={2} /></label>
             <div className="form-footer">
-              <label className="waiting-toggle"><input type="checkbox" checked={customerWaiting} onChange={(event) => setCustomerWaiting(event.target.checked)} /><span><b>Customer waiting</b><small>Use the existing urgent reminder.</small></span></label>
+              <button type="button" className={`waiting-chip ${customerWaiting ? 'active' : ''}`} aria-pressed={customerWaiting} onClick={() => setCustomerWaiting((current) => !current)}>
+                <span className="waiting-chip-icon">{customerWaiting ? 'ON' : '15'}</span>
+                <span><b>Customer waiting</b><small>15-minute follow-up timer</small></span>
+              </button>
               <button className="primary-action" disabled={busyKey === 'create-task'}>{busyKey === 'create-task' ? 'Assigning...' : `Assign to ${taskDepartments.join(' + ')}`}</button>
             </div>
           </form>
 
-          <div className="list-heading"><strong>Task follow-up</strong><small>Created by fo@hotelhallmark.com or assigned to FO</small></div>
+          <div className="list-heading reminder-list-heading">
+            <div><strong>Task follow-up</strong><small>Created by FO or assigned to FO</small></div>
+            <div className="mini-tabs">
+              <button type="button" className={taskView === 'OPEN' ? 'active' : ''} onClick={() => setTaskView('OPEN')}>Open {openTasks.length}</button>
+              <button type="button" className={taskView === 'DONE' ? 'active' : ''} onClick={() => setTaskView('DONE')}>Done {doneTasks.length}</button>
+            </div>
+          </div>
           <div className="compact-list command-list">
-            {visibleTasks.length ? visibleTasks.map((task) => (
-              <article key={task.id} className={`compact-card ${task.status.toLowerCase()}`}>
-                <div className="card-title"><div><b>{task.task_code}</b><strong>{task.room}</strong><span className={`dept ${task.department.toLowerCase()}`}>{task.department}</span></div><em>{task.status}</em></div>
-                <p>{task.task_text}</p>
-                <small>{task.customer_waiting ? 'CUSTOMER WAITING - ' : ''}{formatDateTime(task.created_at)}</small>
-              </article>
-            )) : <div className="empty">No matching FO tasks.</div>}
+            {visibleTasks.length ? visibleTasks.map((task) => {
+              const waitingTimer = customerWaitingTimer(task, clockNow);
+              return (
+                <article key={task.id} className={`compact-card ${task.status.toLowerCase()} ${waitingTimer ? 'customer-waiting-task' : ''} ${waitingTimer?.overdue ? 'waiting-overdue' : ''}`}>
+                  <div className="card-title">
+                    <div><b>{task.task_code}</b><strong>{task.room}</strong><span className={`dept ${task.department.toLowerCase()}`}>{task.department}</span></div>
+                    <div className="task-state">
+                      {waitingTimer ? <span className={`waiting-timer ${waitingTimer.overdue ? 'overdue' : ''}`}>{waitingTimer.label}</span> : null}
+                      <em>{task.status}</em>
+                    </div>
+                  </div>
+                  <p>{task.task_text}</p>
+                  <small>{task.customer_waiting ? 'CUSTOMER WAITING - 15 MINUTE TARGET - ' : ''}{formatDateTime(task.created_at)}</small>
+                  <button
+                    type="button"
+                    className={`task-status-btn ${task.status === 'OPEN' ? 'mark-done' : 'reopen'}`}
+                    disabled={busyKey === `task-${task.id}`}
+                    onClick={() => void setTaskStatus(task.id, task.status === 'OPEN' ? 'DONE' : 'OPEN')}
+                  >
+                    {busyKey === `task-${task.id}` ? 'Saving...' : task.status === 'OPEN' ? 'Mark Done' : 'Re-open'}
+                  </button>
+                </article>
+              );
+            }) : <div className="empty">{taskView === 'OPEN' ? 'No open FO tasks. Everything is followed up.' : 'No completed FO tasks yet.'}</div>}
           </div>
         </section>
 
@@ -549,8 +631,8 @@ export default function FoQuickActionsPage() {
           </form>
 
           <div className="list-heading reminder-list-heading">
-            <div><strong>Reminder follow-up</strong><small>Name is required when completing</small></div>
-            <div className="mini-tabs"><button type="button" className={reminderView === 'OPEN' ? 'active' : ''} onClick={() => setReminderView('OPEN')}>Open {openReminders.length}</button><button type="button" className={reminderView === 'DONE' ? 'active' : ''} onClick={() => setReminderView('DONE')}>Completed</button></div>
+            <div><strong>Reminder follow-up</strong><small>Name is required for status changes</small></div>
+            <div className="mini-tabs"><button type="button" className={reminderView === 'OPEN' ? 'active' : ''} onClick={() => setReminderView('OPEN')}>Open {openReminders.length}</button><button type="button" className={reminderView === 'DONE' ? 'active' : ''} onClick={() => setReminderView('DONE')}>Done {doneReminders.length}</button></div>
           </div>
           <div className="compact-list command-list">
             {visibleReminders.length ? visibleReminders.map((reminder) => (
@@ -558,16 +640,15 @@ export default function FoQuickActionsPage() {
                 <div className="card-title"><strong>{reminder.reference_text || 'General handover'}</strong><em>{reminder.status}</em></div>
                 <p>{reminder.reminder_text}</p>
                 <small>Added by {reminder.created_by_name || 'FO'} - {formatDateTime(reminder.created_at)}</small>
-                {reminder.status === 'DONE' ? (
-                  <div className="completed-by">Completed by <b>{reminder.completed_by_name}</b> - {formatDateTime(reminder.completed_at)}</div>
-                ) : completingReminderId === reminder.id ? (
+                {reminder.status === 'DONE' ? <div className="completed-by">Completed by <b>{reminder.completed_by_name}</b> - {formatDateTime(reminder.completed_at)}</div> : null}
+                {reminderAction?.id === reminder.id ? (
                   <div className="completion-row">
-                    <input autoFocus value={completionName} onChange={(event) => setCompletionName(event.target.value)} placeholder="Your name (required)" maxLength={120} onKeyDown={(event) => { if (event.key === 'Enter') void completeReminder(reminder.id); }} />
-                    <button type="button" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void completeReminder(reminder.id)}>Confirm Done</button>
-                    <button type="button" className="secondary" onClick={() => { setCompletingReminderId(null); setCompletionName(''); }}>Cancel</button>
+                    <input autoFocus value={reminderActorName} onChange={(event) => setReminderActorName(event.target.value)} placeholder="Your name (required)" maxLength={120} onKeyDown={(event) => { if (event.key === 'Enter') void changeReminderStatus(reminder.id, reminderAction.action); }} />
+                    <button type="button" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void changeReminderStatus(reminder.id, reminderAction.action)}>{reminderAction.action === 'COMPLETE' ? 'Confirm Done' : 'Confirm Re-open'}</button>
+                    <button type="button" className="secondary" onClick={() => { setReminderAction(null); setReminderActorName(''); }}>Cancel</button>
                   </div>
                 ) : (
-                  <button type="button" className="complete-btn" onClick={() => { setCompletingReminderId(reminder.id); setCompletionName(''); }}>Mark Complete</button>
+                  <button type="button" className={`complete-btn ${reminder.status === 'DONE' ? 'reopen' : ''}`} onClick={() => { setReminderAction({ id: reminder.id, action: reminder.status === 'DONE' ? 'REOPEN' : 'COMPLETE' }); setReminderActorName(''); }}>{reminder.status === 'DONE' ? 'Re-open' : 'Mark Done'}</button>
                 )}
                 {isSuperuser ? <button type="button" className="delete-link" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void deleteReminder(reminder.id)}>Delete</button> : null}
               </article>
@@ -597,13 +678,18 @@ function ProfessionalStyles() {
     .quick-form label{display:grid;gap:5px;color:#435873;font-size:10px;font-weight:900}
     .quick-form label small{font-weight:600}
     .quick-form input,.quick-form textarea{width:100%;border:1px solid #c9d5e3;border-radius:9px;padding:9px 10px;background:#fbfcfe;color:#10223c;font:inherit;resize:vertical}
-    .quick-form .type-row{margin-bottom:9px}
     .quick-form .field-grid{margin-bottom:9px}
     .department-row{flex-wrap:nowrap}
     .department-row button{flex:1;padding-left:7px;padding-right:7px}
     .choice-row button.both.selected{border-color:#7054b3;background:#f1edfb;color:#60449e;box-shadow:inset 0 0 0 1px #7054b3}
-    .form-footer{display:grid;grid-template-columns:1.35fr .65fr;gap:8px;align-items:stretch;margin-top:9px}
-    .form-footer .waiting-toggle{margin:0;min-height:46px}
+    .form-footer{display:grid;grid-template-columns:auto minmax(210px,.7fr);justify-content:end;gap:8px;align-items:stretch;margin-top:9px}
+    .waiting-chip{min-height:46px;border:1px solid #d8e0ea;border-radius:10px;padding:6px 11px;background:#f8fafc;color:#435873;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer}
+    .waiting-chip:hover{border-color:#e1a46c;background:#fffaf5}
+    .waiting-chip.active{border-color:#e16922;background:#fff3e8;color:#9c3d0d;box-shadow:inset 0 0 0 1px #e16922}
+    .waiting-chip-icon{width:30px;height:30px;border-radius:8px;background:#e8eef5;color:#52667e;display:grid;place-items:center;font-size:10px;font-weight:950}
+    .waiting-chip.active .waiting-chip-icon{background:#dc5b16;color:#fff}
+    .waiting-chip>span:last-child{display:grid;gap:1px}
+    .waiting-chip b{font-size:10px}.waiting-chip small{font-size:8px;font-weight:700}
     .form-footer .primary-action{margin:0;min-height:46px}
     .reminder-create-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:9px}
     .reminder-create-row .primary-action{width:auto;min-width:125px;margin:0;min-height:40px}
@@ -614,12 +700,21 @@ function ProfessionalStyles() {
     .command-list{max-height:430px;padding:8px 10px 12px;background:#f8fafc}
     .command-list .compact-card,.command-list .reminder-card{box-shadow:0 2px 7px rgba(25,48,78,.04)}
     .dept.fo{background:#f1edfb;color:#6548a3}
+    .task-state{display:flex;align-items:center;gap:7px}
+    .waiting-timer{min-width:58px;border-radius:999px;padding:5px 8px;background:#fff1df;color:#a95108;text-align:center;font-size:10px;font-weight:950;font-variant-numeric:tabular-nums;letter-spacing:.03em}
+    .waiting-timer.overdue{background:#b91c1c;color:#fff;min-width:104px}
+    .compact-card.customer-waiting-task:not(.waiting-overdue){border-left-color:#f08a24;background:#fffdf8}
+    .compact-card.waiting-overdue{border-color:#dc2626;border-left:5px solid #b91c1c;animation:foWaitingFlash 1.1s step-end infinite}
+    .task-status-btn{margin-top:9px;border:0;border-radius:8px;padding:8px 12px;color:#fff;font-size:10px;font-weight:900;cursor:pointer}
+    .task-status-btn.mark-done{background:#16834e}.task-status-btn.reopen,.complete-btn.reopen{background:#375b88}
+    @keyframes foWaitingFlash{0%,100%{background:#fff1f1;box-shadow:0 0 0 2px rgba(220,38,38,.14),0 5px 15px rgba(185,28,28,.12)}50%{background:#fca5a5;box-shadow:0 0 0 4px rgba(220,38,38,.28),0 7px 20px rgba(185,28,28,.25)}}
+    @media(prefers-reduced-motion:reduce){.compact-card.waiting-overdue{animation:none;background:#fff1f1}}
     .task-command .primary-action{background:linear-gradient(135deg,#1e67d2,#164d9d)}
     .reminder-command .primary-action{background:linear-gradient(135deg,#7758b8,#5c4098)}
     .item-panel{border-top:4px solid #1d9a61}
     .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
     @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}}
-    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row{grid-template-columns:1fr}.waiting-chip{justify-self:start}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
   `}</style>;
 }
 
