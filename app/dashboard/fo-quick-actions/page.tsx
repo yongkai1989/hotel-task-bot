@@ -132,13 +132,28 @@ export default function FoQuickActionsPage() {
     String(profile?.role || '').toUpperCase() === 'FO' ||
     profile?.can_access_fo_checklist === true;
 
+  const loadFoTasks = useCallback(async () => {
+    const taskResponse = await fetch('/api/tasks', {
+      cache: 'no-store',
+      credentials: 'include',
+    });
+    const taskPayload = await responseJson(taskResponse);
+    const foTasks = ((taskPayload?.tasks || []) as DashboardTask[])
+      .filter((task) => (
+        String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
+        || task.department === 'FO'
+      ))
+      .slice(0, 40);
+    setTasks(foTasks);
+  }, []);
+
   const loadData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     else setRefreshing(true);
     setError('');
     try {
-      const [taskResponse, reminderResult, itemResult] = await Promise.all([
-        fetch('/api/tasks', { cache: 'no-store', credentials: 'include' }),
+      const [, reminderResult, itemResult] = await Promise.all([
+        loadFoTasks(),
         supabase
           .from('fo_shift_reminders')
           .select('*')
@@ -152,17 +167,9 @@ export default function FoQuickActionsPage() {
           .order('item_name', { ascending: true }),
       ]);
 
-      const taskPayload = await responseJson(taskResponse);
       if (reminderResult.error) throw reminderResult.error;
       if (itemResult.error) throw itemResult.error;
 
-      const foTasks = ((taskPayload?.tasks || []) as DashboardTask[])
-        .filter((task) => (
-          String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
-          || task.department === 'FO'
-        ))
-        .slice(0, 40);
-      setTasks(foTasks);
       setReminders((reminderResult.data || []) as ShiftReminder[]);
       setItems((itemResult.data || []) as TrackedItem[]);
     } catch (nextError: any) {
@@ -171,7 +178,7 @@ export default function FoQuickActionsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [supabase]);
+  }, [loadFoTasks, supabase]);
 
   useEffect(() => {
     let mounted = true;
@@ -199,6 +206,32 @@ export default function FoQuickActionsPage() {
     })();
     return () => { mounted = false; };
   }, [loadData, supabase]);
+
+  useEffect(() => {
+    if (!accessToken || !canAccess) return;
+    let refreshTimer: number | null = null;
+
+    const channel = supabase
+      .channel(`fo-quick-actions-task-sync-${profile?.user_id || 'user'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        () => {
+          if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+          refreshTimer = window.setTimeout(() => {
+            void loadFoTasks().catch((nextError: any) => {
+              setError(nextError?.message || 'Unable to synchronize FO tasks.');
+            });
+          }, 250);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [accessToken, canAccess, loadFoTasks, profile?.user_id, supabase]);
 
   const openTasks = tasks.filter((task) => task.status === 'OPEN');
   const doneTasks = tasks.filter((task) => task.status === 'DONE');
@@ -327,6 +360,30 @@ export default function FoQuickActionsPage() {
       setSuccess(nextStatus === 'DONE' ? 'Task marked as done.' : 'Task re-opened.');
     } catch (nextError: any) {
       setError(nextError?.message || 'Unable to update task status.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function deleteTask(task: DashboardTask) {
+    if (!isSuperuser) return;
+    if (!window.confirm(`Delete task ${task.task_code} permanently? Any linked Manager Room Check will also be deleted.`)) return;
+    clearNotices();
+    setBusyKey(`task-${task.id}`);
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      await responseJson(response);
+      setTasks((current) => current.filter((row) => row.id !== task.id));
+      setSuccess(`Task ${task.task_code} deleted.`);
+    } catch (nextError: any) {
+      setError(nextError?.message || 'Unable to delete task.');
     } finally {
       setBusyKey('');
     }
@@ -574,8 +631,8 @@ export default function FoQuickActionsPage() {
             <label>Task details<textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} placeholder="Guest request, complaint, or work needed..." maxLength={800} rows={2} /></label>
             <div className="form-footer">
               <button type="button" className={`waiting-chip ${customerWaiting ? 'active' : ''}`} aria-pressed={customerWaiting} onClick={() => setCustomerWaiting((current) => !current)}>
-                <span className="waiting-chip-icon">{customerWaiting ? 'ON' : '15'}</span>
-                <span><b>Customer waiting</b><small>15-minute follow-up timer</small></span>
+                <span className="waiting-chip-icon">{customerWaiting ? '!' : '15m'}</span>
+                <span><b>Customer waiting</b><small>{customerWaiting ? 'Urgent timer enabled' : 'Enable 15-minute timer'}</small></span>
               </button>
               <button className="primary-action" disabled={busyKey === 'create-task'}>{busyKey === 'create-task' ? 'Assigning...' : `Assign to ${taskDepartments.join(' + ')}`}</button>
             </div>
@@ -602,14 +659,22 @@ export default function FoQuickActionsPage() {
                   </div>
                   <p>{task.task_text}</p>
                   <small>{task.customer_waiting ? 'CUSTOMER WAITING - 15 MINUTE TARGET - ' : ''}{formatDateTime(task.created_at)}</small>
-                  <button
-                    type="button"
-                    className={`task-status-btn ${task.status === 'OPEN' ? 'mark-done' : 'reopen'}`}
-                    disabled={busyKey === `task-${task.id}`}
-                    onClick={() => void setTaskStatus(task.id, task.status === 'OPEN' ? 'DONE' : 'OPEN')}
-                  >
-                    {busyKey === `task-${task.id}` ? 'Saving...' : task.status === 'OPEN' ? 'Mark Done' : 'Re-open'}
-                  </button>
+                  <div className="task-action-row">
+                    <button
+                      type="button"
+                      className={`task-status-btn ${task.status === 'OPEN' ? 'mark-done' : 'reopen'}`}
+                      disabled={busyKey === `task-${task.id}`}
+                      onClick={() => void setTaskStatus(task.id, task.status === 'OPEN' ? 'DONE' : 'OPEN')}
+                    >
+                      <span className="status-action-icon" aria-hidden="true">{busyKey === `task-${task.id}` ? '…' : task.status === 'OPEN' ? '✓' : '↻'}</span>
+                      <span>{busyKey === `task-${task.id}` ? 'Saving...' : task.status === 'OPEN' ? 'Mark as Done' : 'Re-open Task'}</span>
+                    </button>
+                    {isSuperuser ? (
+                      <button type="button" className="task-delete-btn" disabled={busyKey === `task-${task.id}`} onClick={() => void deleteTask(task)}>
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
                 </article>
               );
             }) : <div className="empty">{taskView === 'OPEN' ? 'No open FO tasks. Everything is followed up.' : 'No completed FO tasks yet.'}</div>}
@@ -648,7 +713,10 @@ export default function FoQuickActionsPage() {
                     <button type="button" className="secondary" onClick={() => { setReminderAction(null); setReminderActorName(''); }}>Cancel</button>
                   </div>
                 ) : (
-                  <button type="button" className={`complete-btn ${reminder.status === 'DONE' ? 'reopen' : ''}`} onClick={() => { setReminderAction({ id: reminder.id, action: reminder.status === 'DONE' ? 'REOPEN' : 'COMPLETE' }); setReminderActorName(''); }}>{reminder.status === 'DONE' ? 'Re-open' : 'Mark Done'}</button>
+                  <button type="button" className={`complete-btn ${reminder.status === 'DONE' ? 'reopen' : ''}`} onClick={() => { setReminderAction({ id: reminder.id, action: reminder.status === 'DONE' ? 'REOPEN' : 'COMPLETE' }); setReminderActorName(''); }}>
+                    <span className="status-action-icon" aria-hidden="true">{reminder.status === 'DONE' ? '↻' : '✓'}</span>
+                    <span>{reminder.status === 'DONE' ? 'Re-open Reminder' : 'Mark as Done'}</span>
+                  </button>
                 )}
                 {isSuperuser ? <button type="button" className="delete-link" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void deleteReminder(reminder.id)}>Delete</button> : null}
               </article>
@@ -682,15 +750,16 @@ function ProfessionalStyles() {
     .department-row{flex-wrap:nowrap}
     .department-row button{flex:1;padding-left:7px;padding-right:7px}
     .choice-row button.both.selected{border-color:#7054b3;background:#f1edfb;color:#60449e;box-shadow:inset 0 0 0 1px #7054b3}
-    .form-footer{display:grid;grid-template-columns:auto minmax(210px,.7fr);justify-content:end;gap:8px;align-items:stretch;margin-top:9px}
-    .waiting-chip{min-height:46px;border:1px solid #d8e0ea;border-radius:10px;padding:6px 11px;background:#f8fafc;color:#435873;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer}
-    .waiting-chip:hover{border-color:#e1a46c;background:#fffaf5}
-    .waiting-chip.active{border-color:#e16922;background:#fff3e8;color:#9c3d0d;box-shadow:inset 0 0 0 1px #e16922}
-    .waiting-chip-icon{width:30px;height:30px;border-radius:8px;background:#e8eef5;color:#52667e;display:grid;place-items:center;font-size:10px;font-weight:950}
-    .waiting-chip.active .waiting-chip-icon{background:#dc5b16;color:#fff}
+    .form-footer{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:8px;align-items:stretch;margin-top:9px;width:100%}
+    .waiting-chip{width:100%;min-height:48px;border:1px solid #e13b3b;border-radius:10px;padding:6px 11px;background:#fff1f1;color:#a51f1f;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer;box-shadow:0 2px 7px rgba(185,28,28,.08);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+    .waiting-chip:hover{border-color:#bd1f1f;background:#ffe5e5;box-shadow:0 4px 12px rgba(185,28,28,.14)}
+    .waiting-chip:active{transform:translateY(1px)}
+    .waiting-chip.active{border-color:#991b1b;background:linear-gradient(135deg,#d92d2d,#b91c1c);color:#fff;box-shadow:0 5px 14px rgba(185,28,28,.25)}
+    .waiting-chip-icon{flex:0 0 auto;width:32px;height:32px;border-radius:9px;background:#c62828;color:#fff;display:grid;place-items:center;font-size:9px;font-weight:950;letter-spacing:-.02em}
+    .waiting-chip.active .waiting-chip-icon{background:#fff;color:#b91c1c}
     .waiting-chip>span:last-child{display:grid;gap:1px}
-    .waiting-chip b{font-size:10px}.waiting-chip small{font-size:8px;font-weight:700}
-    .form-footer .primary-action{margin:0;min-height:46px}
+    .waiting-chip b{font-size:10px}.waiting-chip small{font-size:8px;font-weight:750;opacity:.82}
+    .form-footer .primary-action{margin:0;min-height:48px}
     .reminder-create-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:9px}
     .reminder-create-row .primary-action{width:auto;min-width:125px;margin:0;min-height:40px}
     .list-heading{padding:11px 16px 8px;display:flex;justify-content:space-between;align-items:end;gap:10px;background:#f8fafc}
@@ -705,8 +774,15 @@ function ProfessionalStyles() {
     .waiting-timer.overdue{background:#b91c1c;color:#fff;min-width:104px}
     .compact-card.customer-waiting-task:not(.waiting-overdue){border-left-color:#f08a24;background:#fffdf8}
     .compact-card.waiting-overdue{border-color:#dc2626;border-left:5px solid #b91c1c;animation:foWaitingFlash 1.1s step-end infinite}
-    .task-status-btn{margin-top:9px;border:0;border-radius:8px;padding:8px 12px;color:#fff;font-size:10px;font-weight:900;cursor:pointer}
-    .task-status-btn.mark-done{background:#16834e}.task-status-btn.reopen,.complete-btn.reopen{background:#375b88}
+    .task-action-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:stretch;margin-top:10px}
+    .task-status-btn,.complete-btn{min-height:38px;border:0;border-radius:9px;padding:7px 13px;color:#fff;font-size:10px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 3px 9px rgba(22,101,62,.14);transition:filter .16s ease,transform .16s ease,box-shadow .16s ease}
+    .task-status-btn:hover,.complete-btn:hover{filter:brightness(.96);box-shadow:0 5px 13px rgba(22,51,85,.2)}
+    .task-status-btn:active,.complete-btn:active{transform:translateY(1px)}
+    .task-status-btn.mark-done,.complete-btn:not(.reopen){background:linear-gradient(135deg,#199657,#117642)}
+    .task-status-btn.reopen,.complete-btn.reopen{background:linear-gradient(135deg,#416b9f,#294b76);box-shadow:0 3px 9px rgba(41,75,118,.18)}
+    .status-action-icon{width:20px;height:20px;border-radius:999px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:12px;font-weight:950;line-height:1}
+    .task-delete-btn{border:1px solid #e1a8a4;border-radius:9px;padding:7px 13px;background:#fff5f4;color:#ad332d;font-size:10px;font-weight:900;cursor:pointer}
+    .reminder-card>.complete-btn{width:100%;margin-top:10px}
     @keyframes foWaitingFlash{0%,100%{background:#fff1f1;box-shadow:0 0 0 2px rgba(220,38,38,.14),0 5px 15px rgba(185,28,28,.12)}50%{background:#fca5a5;box-shadow:0 0 0 4px rgba(220,38,38,.28),0 7px 20px rgba(185,28,28,.25)}}
     @media(prefers-reduced-motion:reduce){.compact-card.waiting-overdue{animation:none;background:#fff1f1}}
     .task-command .primary-action{background:linear-gradient(135deg,#1e67d2,#164d9d)}
@@ -714,7 +790,7 @@ function ProfessionalStyles() {
     .item-panel{border-top:4px solid #1d9a61}
     .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
     @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}}
-    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row{grid-template-columns:1fr}.waiting-chip{justify-self:start}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
   `}</style>;
 }
 
