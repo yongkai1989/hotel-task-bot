@@ -2909,6 +2909,7 @@ function MediaPicker({
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [mediaOrientations, setMediaOrientations] = useState<Record<string, 'portrait' | 'landscape'>>({});
   const swipeStartXRef = useRef<number | null>(null);
   const previousMediaCountRef = useRef(0);
 
@@ -2916,6 +2917,7 @@ function MediaPicker({
     if (!draftMedia.length) {
       setActiveIndex(0);
       setReviewOpen(false);
+      setMediaOrientations({});
       previousMediaCountRef.current = 0;
       return;
     }
@@ -3038,7 +3040,18 @@ function MediaPicker({
               <img
                 key={activeItem.id}
                 src={activeItem.previewUrl}
+                className={mediaOrientations[activeItem.id] === 'landscape' ? 'is-landscape' : 'is-portrait'}
                 alt={`Media preview ${activeIndex + 1} of ${draftMedia.length}`}
+                onLoad={(event) => {
+                  const orientation = event.currentTarget.naturalWidth >= event.currentTarget.naturalHeight
+                    ? 'landscape'
+                    : 'portrait';
+                  setMediaOrientations((current) => (
+                    current[activeItem.id] === orientation
+                      ? current
+                      : { ...current, [activeItem.id]: orientation }
+                  ));
+                }}
               />
             )}
             {activeItem.marked ? <span className="mrc-review-marked">Marked up</span> : null}
@@ -3829,6 +3842,10 @@ function StyleBlock() {
         object-position: center top !important;
         display: block;
         background: transparent;
+      }
+      .mrc-review-stage > img.is-landscape,
+      .mrc-review-stage > video {
+        object-position: center center !important;
       }
       .mrc-review-counter,
       .mrc-review-marked {
