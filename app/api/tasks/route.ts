@@ -568,6 +568,7 @@ export async function GET() {
         created_at,
         created_by_name,
         created_by_email,
+        source_page,
         done_at,
         done_by_name,
         last_updated_by_name,
@@ -656,6 +657,11 @@ export async function POST(req: NextRequest) {
 
     const sourceMessage = String(body.source_message || body.sourceMessage || '').trim();
     const rawTaskText = String(body.task_text || body.taskText || '').trim();
+    const sourcePage =
+      String(body.source_page || body.sourcePage || '').trim().toUpperCase() ===
+      'FO_QUICK_ACTIONS'
+        ? 'FO_QUICK_ACTIONS'
+        : null;
     const room = String(body.room || '').trim() || extractRoomFromText(sourceMessage) || extractRoomFromText(rawTaskText);
     const taskText = rawTaskText || sourceMessage || room;
     const inferredDept = inferDepartmentFromText(sourceMessage || taskText);
@@ -729,6 +735,7 @@ export async function POST(req: NextRequest) {
           status: 'OPEN',
           created_by_name: user.name,
           created_by_email: userEmail,
+          source_page: sourcePage,
           chat_id: telegramChatId,
           image_url: firstImageUrl,
           customer_waiting: customerWaiting,
@@ -745,6 +752,7 @@ export async function POST(req: NextRequest) {
           status,
           created_by_name,
           created_by_email,
+          source_page,
           chat_id,
           image_url,
           done_by_name,
