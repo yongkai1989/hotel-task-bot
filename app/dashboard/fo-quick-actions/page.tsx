@@ -436,7 +436,9 @@ export default function FoQuickActionsPage() {
       setTasks((current) => current.map((task) => task.id === taskId ? updatedTask : task));
       setSuccess(nextStatus === 'DONE' ? 'Task marked as done.' : 'Task re-opened.');
     } catch (nextError: any) {
-      setError(nextError?.message || 'Unable to update task status.');
+      const message = nextError?.message || 'Unable to update task status.';
+      setError(message);
+      if (urgentCustomerWaitingTask?.id === taskId) setFollowUpError(message);
     } finally {
       setBusyKey('');
     }
@@ -657,9 +659,25 @@ export default function FoQuickActionsPage() {
                 </div>
               </form>
             ) : (
-              <button type="button" className="urgent-follow-up-btn" onClick={() => { setFollowUpTaskId(urgentCustomerWaitingTask.id); setFollowUpReason(''); setFollowUpError(''); }}>
-                Follow Up
-              </button>
+              <>
+                <div className="urgent-primary-actions">
+                  <button type="button" className="urgent-follow-up-btn" onClick={() => { setFollowUpTaskId(urgentCustomerWaitingTask.id); setFollowUpReason(''); setFollowUpError(''); }}>
+                    Follow Up
+                  </button>
+                  <button
+                    type="button"
+                    className="urgent-complete-btn"
+                    disabled={busyKey === `task-${urgentCustomerWaitingTask.id}`}
+                    onClick={() => {
+                      setFollowUpError('');
+                      void setTaskStatus(urgentCustomerWaitingTask.id, 'DONE');
+                    }}
+                  >
+                    {busyKey === `task-${urgentCustomerWaitingTask.id}` ? 'Saving...' : 'Mark as Done'}
+                  </button>
+                </div>
+                {followUpError ? <div className="urgent-inline-error">{followUpError}</div> : null}
+              </>
             )}
           </section>
         </div>
@@ -928,7 +946,12 @@ function ProfessionalStyles() {
     .urgent-task-text{margin:14px auto;color:#301313;font-size:16px;font-weight:800;line-height:1.45}
     .urgent-overdue-banner{border-radius:10px;padding:11px;background:#b91c1c;color:#fff;font-size:15px;font-weight:950;letter-spacing:.06em}
     .urgent-queue-count{margin:9px 0 0;color:#9b1919;font-size:11px;font-weight:900}
-    .urgent-follow-up-btn,.urgent-restart-btn{width:100%;min-height:54px;margin-top:15px;border:0;border-radius:12px;background:linear-gradient(135deg,#d91f1f,#a80f0f);color:#fff;font-size:16px;font-weight:950;cursor:pointer;box-shadow:0 8px 20px rgba(185,28,28,.3)}
+    .urgent-primary-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:15px}
+    .urgent-follow-up-btn,.urgent-restart-btn,.urgent-complete-btn{width:100%;min-height:54px;border:0;border-radius:12px;color:#fff;font-size:16px;font-weight:950;cursor:pointer}
+    .urgent-follow-up-btn,.urgent-restart-btn{background:linear-gradient(135deg,#d91f1f,#a80f0f);box-shadow:0 8px 20px rgba(185,28,28,.3)}
+    .urgent-follow-up-btn{margin:0}
+    .urgent-restart-btn{margin-top:15px}
+    .urgent-complete-btn{background:linear-gradient(135deg,#17864e,#0d6f3d);box-shadow:0 8px 20px rgba(13,111,61,.25)}
     .urgent-reason-form{margin-top:15px;text-align:left}
     .urgent-reason-form label{display:grid;gap:6px;color:#7d1616;font-size:11px;font-weight:950}
     .urgent-reason-form textarea{width:100%;border:2px solid #dc7777;border-radius:11px;padding:11px;background:#fffafa;color:#311;font:inherit;resize:vertical}
