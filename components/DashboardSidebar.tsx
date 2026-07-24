@@ -803,6 +803,10 @@ export default function DashboardSidebar({
         effectiveProfile?.email === 'fenny@hotelhallmark.com'
       )
     );
+  const canSeeFoQuickActions =
+    effectiveRole === 'SUPERUSER' ||
+    effectiveRole === 'FO' ||
+    canSeeFoChecklist;
 
   const showMaintenanceGroup =
     canSeePM ||
@@ -825,6 +829,7 @@ export default function DashboardSidebar({
   const showManagementGroup =
     canSeeDailyForms || canSeeManagementTasks || canSeeCommissionChecker || canSeeAdminSettings;
   const showFrontOfficeGroup =
+    canSeeFoQuickActions ||
     canSeeLostFound ||
     canSeeFoChecklist ||
     canSeePriceGuide ||
@@ -1363,6 +1368,17 @@ export default function DashboardSidebar({
               open={frontOfficeOpen}
               setOpen={setFrontOfficeOpen}
             >
+              {canSeeFoQuickActions ? (
+                <Link
+                  href="/dashboard/fo-quick-actions"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="frontOffice" sub>FO Quick Actions</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeLostFound ? (
                 <Link
                   href="/dashboard/lost-found"
