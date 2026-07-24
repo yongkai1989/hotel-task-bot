@@ -22,6 +22,8 @@ type DashboardTask = {
   task_text: string;
   status: 'OPEN' | 'DONE';
   customer_waiting?: boolean | null;
+  customer_waiting_due_at?: string | null;
+  customer_waiting_follow_up_count?: number | null;
   source_page?: string | null;
   created_by_email?: string | null;
   created_at: string;
@@ -82,9 +84,15 @@ function singleRpcRow<T>(data: unknown): T {
 
 function customerWaitingTimer(task: DashboardTask, now: number) {
   if (task.status !== 'OPEN' || !task.customer_waiting) return null;
+  const storedDueAt = Date.parse(String(task.customer_waiting_due_at || ''));
   const createdAt = Date.parse(task.created_at);
-  if (!Number.isFinite(createdAt)) return null;
-  const remainingMs = createdAt + CUSTOMER_WAITING_LIMIT_MS - now;
+  const dueAt = Number.isFinite(storedDueAt)
+    ? storedDueAt
+    : Number.isFinite(createdAt)
+      ? createdAt + CUSTOMER_WAITING_LIMIT_MS
+      : Number.NaN;
+  if (!Number.isFinite(dueAt)) return null;
+  const remainingMs = dueAt - now;
   if (remainingMs <= 0) return { overdue: true, label: 'FOLLOW UP NOW' };
   const remainingSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(remainingSeconds / 60);
@@ -115,6 +123,9 @@ export default function FoQuickActionsPage() {
   const [taskDescription, setTaskDescription] = useState('');
   const [taskDepartments, setTaskDepartments] = useState<Array<'HK' | 'MT'>>(['HK']);
   const [customerWaiting, setCustomerWaiting] = useState(false);
+  const [followUpTaskId, setFollowUpTaskId] = useState<string | null>(null);
+  const [followUpReason, setFollowUpReason] = useState('');
+  const [followUpError, setFollowUpError] = useState('');
 
   const [reminderText, setReminderText] = useState('');
   const [reminderReference, setReminderReference] = useState('');
@@ -145,8 +156,7 @@ export default function FoQuickActionsPage() {
         || task.department === 'FO'
         || String(task.source_page || '').trim().toUpperCase() === 'FO_QUICK_ACTIONS'
         || task.customer_waiting === true
-      ))
-      .slice(0, 40);
+      ));
     setTasks(foTasks);
   }, []);
 
@@ -240,7 +250,11 @@ export default function FoQuickActionsPage() {
   const doneTasks = tasks.filter((task) => task.status === 'DONE');
   const visibleTasks = [...tasks]
     .filter((task) => task.status === taskView)
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .sort((a, b) => (
+      Number(customerWaitingTimer(b, clockNow)?.overdue === true)
+      - Number(customerWaitingTimer(a, clockNow)?.overdue === true)
+      || Date.parse(b.created_at) - Date.parse(a.created_at)
+    ))
     .slice(0, 16);
   const openReminders = reminders.filter((reminder) => reminder.status === 'OPEN');
   const doneReminders = reminders.filter((reminder) => reminder.status === 'DONE');
@@ -249,6 +263,14 @@ export default function FoQuickActionsPage() {
     .slice(0, reminderView === 'OPEN' ? 30 : 12);
   const loanedItems = items.filter((item) => item.current_status === 'LOANED');
   const hasActiveCustomerWaiting = tasks.some((task) => task.status === 'OPEN' && task.customer_waiting);
+  const overdueCustomerWaitingTasks = tasks
+    .filter((task) => customerWaitingTimer(task, clockNow)?.overdue === true)
+    .sort((a, b) => {
+      const aDue = Date.parse(String(a.customer_waiting_due_at || a.created_at));
+      const bDue = Date.parse(String(b.customer_waiting_due_at || b.created_at));
+      return aDue - bDue;
+    });
+  const urgentCustomerWaitingTask = overdueCustomerWaitingTasks[0] || null;
 
   useEffect(() => {
     if (!hasActiveCustomerWaiting) return;
@@ -256,6 +278,15 @@ export default function FoQuickActionsPage() {
     const timerId = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(timerId);
   }, [hasActiveCustomerWaiting]);
+
+  useEffect(() => {
+    if (urgentCustomerWaitingTask) setTaskView('OPEN');
+    if (followUpTaskId && followUpTaskId !== urgentCustomerWaitingTask?.id) {
+      setFollowUpTaskId(null);
+      setFollowUpReason('');
+      setFollowUpError('');
+    }
+  }, [followUpTaskId, urgentCustomerWaitingTask?.id]);
 
   function clearNotices() {
     setError('');
@@ -335,6 +366,48 @@ export default function FoQuickActionsPage() {
       setSuccess('Shift reminder added.');
     } catch (nextError: any) {
       setError(nextError?.message || 'Unable to create reminder.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function followUpCustomerWaiting(event: FormEvent) {
+    event.preventDefault();
+    if (!urgentCustomerWaitingTask || followUpTaskId !== urgentCustomerWaitingTask.id) return;
+    clearNotices();
+    setFollowUpError('');
+    if (followUpReason.trim().length < 3) {
+      setFollowUpError('Enter the reason for the customer-waiting delay.');
+      return;
+    }
+
+    setBusyKey(`follow-up-${urgentCustomerWaitingTask.id}`);
+    try {
+      const response = await fetch(
+        `/api/tasks/${urgentCustomerWaitingTask.id}/customer-waiting-follow-up`,
+        {
+          method: 'POST',
+          cache: 'no-store',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ reason: followUpReason.trim() }),
+        }
+      );
+      const payload = await responseJson(response);
+      const updatedTask = payload.task as DashboardTask;
+      setTasks((current) => current.map((task) => (
+        task.id === urgentCustomerWaitingTask.id ? updatedTask : task
+      )));
+      setFollowUpTaskId(null);
+      setFollowUpReason('');
+      setFollowUpError('');
+      setClockNow(Date.now());
+      setSuccess(`Follow-up recorded for ${urgentCustomerWaitingTask.task_code}. New 15-minute timer started.`);
+    } catch (nextError: any) {
+      setFollowUpError(nextError?.message || 'Unable to restart the customer-waiting timer.');
     } finally {
       setBusyKey('');
     }
@@ -544,6 +617,53 @@ export default function FoQuickActionsPage() {
 
   return (
     <main className="foq-page">
+      {urgentCustomerWaitingTask ? (
+        <div className="urgent-follow-up-overlay" role="alertdialog" aria-modal="true" aria-labelledby="urgent-follow-up-title">
+          <section className="urgent-follow-up-modal">
+            <div className="urgent-alarm-mark" aria-hidden="true">!</div>
+            <span className="urgent-kicker">CUSTOMER WAITING</span>
+            <h2 id="urgent-follow-up-title">Urgent follow-up overdue</h2>
+            <p className="urgent-task-reference">
+              <b>{urgentCustomerWaitingTask.task_code}</b>
+              <span>{urgentCustomerWaitingTask.room}</span>
+              <em>{urgentCustomerWaitingTask.department}</em>
+            </p>
+            <p className="urgent-task-text">{urgentCustomerWaitingTask.task_text}</p>
+            <div className="urgent-overdue-banner">15-MINUTE TIMER EXPIRED</div>
+            {overdueCustomerWaitingTasks.length > 1 ? (
+              <p className="urgent-queue-count">
+                {overdueCustomerWaitingTasks.length} customer-waiting tasks need attention
+              </p>
+            ) : null}
+            {followUpTaskId === urgentCustomerWaitingTask.id ? (
+              <form className="urgent-reason-form" onSubmit={followUpCustomerWaiting}>
+                <label>
+                  Reason for delay
+                  <textarea
+                    autoFocus
+                    value={followUpReason}
+                    onChange={(event) => setFollowUpReason(event.target.value)}
+                    placeholder="Explain why the guest request was delayed..."
+                    maxLength={500}
+                    rows={3}
+                  />
+                </label>
+                {followUpError ? <div className="urgent-inline-error">{followUpError}</div> : null}
+                <div className="urgent-form-actions">
+                  <button type="button" className="urgent-cancel-btn" onClick={() => { setFollowUpTaskId(null); setFollowUpReason(''); setFollowUpError(''); }}>Back</button>
+                  <button type="submit" className="urgent-restart-btn" disabled={busyKey === `follow-up-${urgentCustomerWaitingTask.id}`}>
+                    {busyKey === `follow-up-${urgentCustomerWaitingTask.id}` ? 'Saving...' : 'Save & Restart 15 Minutes'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button type="button" className="urgent-follow-up-btn" onClick={() => { setFollowUpTaskId(urgentCustomerWaitingTask.id); setFollowUpReason(''); setFollowUpError(''); }}>
+                Follow Up
+              </button>
+            )}
+          </section>
+        </div>
+      ) : null}
       <header className="foq-header">
         <div>
           <span className="eyebrow">FRONT OFFICE WORKSPACE</span>
@@ -781,8 +901,8 @@ function ProfessionalStyles() {
     .command-list .compact-card,.command-list .reminder-card{box-shadow:0 2px 7px rgba(25,48,78,.04)}
     .dept.fo{background:#f1edfb;color:#6548a3}
     .task-state{display:flex;align-items:center;gap:7px}
-    .waiting-timer{min-width:58px;border-radius:999px;padding:5px 8px;background:#fff1df;color:#a95108;text-align:center;font-size:10px;font-weight:950;font-variant-numeric:tabular-nums;letter-spacing:.03em}
-    .waiting-timer.overdue{background:#b91c1c;color:#fff;min-width:104px}
+    .waiting-timer{min-width:92px;border-radius:999px;padding:3px 10px;background:#fff1df;color:#9f3e08;text-align:center;font-size:17px;font-weight:950;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:.035em;box-shadow:inset 0 0 0 1px #f2c28d}
+    .waiting-timer.overdue{background:#b91c1c;color:#fff;min-width:132px;font-size:12px;line-height:1.5;box-shadow:none}
     .compact-card.customer-waiting-task:not(.waiting-overdue){border-left-color:#f08a24;background:#fffdf8}
     .compact-card.waiting-overdue{border-color:#dc2626;border-left:5px solid #b91c1c;animation:foWaitingFlash 1.1s step-end infinite}
     .task-action-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:stretch;margin-top:10px}
@@ -798,14 +918,33 @@ function ProfessionalStyles() {
     .reminder-action-row .completion-row{margin:0}
     .reminder-delete-btn{border:1px solid #dc8f89;border-radius:9px;padding:7px 12px;background:#fff1f0;color:#a92e27;font-size:10px;font-weight:900;cursor:pointer}
     .reminder-delete-btn:hover{border-color:#c94b43;background:#ffe4e2}
+    .urgent-follow-up-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:18px;background:rgba(44,4,4,.82);backdrop-filter:blur(5px)}
+    .urgent-follow-up-modal{width:min(560px,100%);border:5px solid #ff3131;border-radius:22px;padding:24px;background:#fff;color:#541010;text-align:center;box-shadow:0 0 0 9px rgba(255,49,49,.25),0 28px 80px rgba(0,0,0,.55);animation:urgentModalFlash .85s step-end infinite}
+    .urgent-alarm-mark{width:72px;height:72px;margin:-5px auto 10px;border-radius:999px;background:#c91414;color:#fff;display:grid;place-items:center;font-size:50px;font-weight:950;line-height:1;box-shadow:0 0 0 8px #ffdada}
+    .urgent-kicker{display:block;color:#c91414;font-size:12px;font-weight:950;letter-spacing:.18em}
+    .urgent-follow-up-modal h2{margin:5px 0 14px;color:#8f1111;font-size:30px;line-height:1.05;letter-spacing:-.03em}
+    .urgent-task-reference{margin:0;display:flex;justify-content:center;align-items:center;gap:8px;font-style:normal}
+    .urgent-task-reference b,.urgent-task-reference span,.urgent-task-reference em{border-radius:999px;padding:5px 9px;background:#f5e9e9;font-size:11px;font-style:normal;font-weight:900}
+    .urgent-task-text{margin:14px auto;color:#301313;font-size:16px;font-weight:800;line-height:1.45}
+    .urgent-overdue-banner{border-radius:10px;padding:11px;background:#b91c1c;color:#fff;font-size:15px;font-weight:950;letter-spacing:.06em}
+    .urgent-queue-count{margin:9px 0 0;color:#9b1919;font-size:11px;font-weight:900}
+    .urgent-follow-up-btn,.urgent-restart-btn{width:100%;min-height:54px;margin-top:15px;border:0;border-radius:12px;background:linear-gradient(135deg,#d91f1f,#a80f0f);color:#fff;font-size:16px;font-weight:950;cursor:pointer;box-shadow:0 8px 20px rgba(185,28,28,.3)}
+    .urgent-reason-form{margin-top:15px;text-align:left}
+    .urgent-reason-form label{display:grid;gap:6px;color:#7d1616;font-size:11px;font-weight:950}
+    .urgent-reason-form textarea{width:100%;border:2px solid #dc7777;border-radius:11px;padding:11px;background:#fffafa;color:#311;font:inherit;resize:vertical}
+    .urgent-inline-error{margin-top:8px;border-radius:8px;padding:8px 10px;background:#7f1010;color:#fff;font-size:11px;font-weight:900}
+    .urgent-form-actions{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;margin-top:9px}
+    .urgent-form-actions button{margin:0}
+    .urgent-cancel-btn{border:1px solid #cfaaaa;border-radius:11px;padding:10px 16px;background:#fff;color:#743333;font-weight:900;cursor:pointer}
+    @keyframes urgentModalFlash{0%,100%{border-color:#ff2626;background:#fff;box-shadow:0 0 0 9px rgba(255,49,49,.3),0 28px 80px rgba(0,0,0,.55)}50%{border-color:#8b0000;background:#ffe1e1;box-shadow:0 0 0 16px rgba(255,25,25,.48),0 28px 90px rgba(0,0,0,.65)}}
     @keyframes foWaitingFlash{0%,100%{background:#fff1f1;box-shadow:0 0 0 2px rgba(220,38,38,.14),0 5px 15px rgba(185,28,28,.12)}50%{background:#fca5a5;box-shadow:0 0 0 4px rgba(220,38,38,.28),0 7px 20px rgba(185,28,28,.25)}}
-    @media(prefers-reduced-motion:reduce){.compact-card.waiting-overdue{animation:none;background:#fff1f1}}
+    @media(prefers-reduced-motion:reduce){.compact-card.waiting-overdue,.urgent-follow-up-modal{animation:none}.compact-card.waiting-overdue{background:#fff1f1}}
     .task-command .primary-action{background:linear-gradient(135deg,#1e67d2,#164d9d)}
     .reminder-command .primary-action{background:linear-gradient(135deg,#7758b8,#5c4098)}
     .item-panel{border-top:4px solid #1d9a61}
     .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
     @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}}
-    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}.urgent-follow-up-overlay{padding:10px}.urgent-follow-up-modal{padding:20px 14px;border-width:4px}.urgent-follow-up-modal h2{font-size:25px}.urgent-task-text{font-size:14px}.urgent-form-actions{grid-template-columns:1fr}.waiting-timer{min-width:84px;font-size:15px}}
   `}</style>;
 }
 
