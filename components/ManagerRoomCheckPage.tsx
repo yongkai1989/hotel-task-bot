@@ -2908,13 +2908,21 @@ function MediaPicker({
   setChoiceOpen?: (open: boolean) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const swipeStartXRef = useRef<number | null>(null);
+  const previousMediaCountRef = useRef(0);
 
   useEffect(() => {
     if (!draftMedia.length) {
       setActiveIndex(0);
+      setReviewOpen(false);
+      previousMediaCountRef.current = 0;
       return;
     }
+    if (draftMedia.length > previousMediaCountRef.current) {
+      setReviewOpen(true);
+    }
+    previousMediaCountRef.current = draftMedia.length;
     setActiveIndex((current) => Math.min(current, draftMedia.length - 1));
   }, [draftMedia.length]);
 
@@ -2991,7 +2999,18 @@ function MediaPicker({
       )}
       <div className="mrc-picker-hint">Up to 30 items. Images are optimized; videos are compressed for review and capped at 10 seconds.</div>
       {activeItem ? (
-        <div className="mrc-reviewer">
+        <>
+          <button type="button" className="mrc-open-review-btn" onClick={() => setReviewOpen(true)}>
+            <span>Review {draftMedia.length} media item{draftMedia.length === 1 ? '' : 's'}</span>
+            <small>Full-screen preview, markup and assignment</small>
+          </button>
+          {reviewOpen ? (
+        <div className="mrc-reviewer is-fullscreen" role="dialog" aria-modal="true" aria-label="Review selected media">
+          <div className="mrc-review-topbar">
+            <button type="button" onClick={() => setReviewOpen(false)}>Done</button>
+            <strong>Media {activeIndex + 1} of {draftMedia.length}</strong>
+            <span>{activeItem.media_type === 'video' ? 'Video' : activeItem.marked ? 'Marked' : 'Photo'}</span>
+          </div>
           <div
             className="mrc-review-stage"
             tabIndex={0}
@@ -3126,6 +3145,8 @@ function MediaPicker({
             </div>
           </div>
         </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -3507,6 +3528,7 @@ function StyleBlock() {
         flex-direction: column;
         padding: 0;
         overflow: hidden;
+        overscroll-behavior: none;
         background: #020617;
       }
       .mrc-modal-head {
@@ -3690,6 +3712,30 @@ function StyleBlock() {
         font-weight: 750;
         font-size: 12px;
       }
+      .mrc-open-review-btn {
+        width: 100%;
+        min-height: 58px;
+        margin-top: 12px;
+        border: 1px solid #93c5fd;
+        border-radius: 15px;
+        padding: 10px 14px;
+        display: grid;
+        gap: 2px;
+        text-align: left;
+        background: linear-gradient(135deg, #eff6ff, #dbeafe);
+        color: #1d4ed8;
+        cursor: pointer;
+        box-shadow: 0 8px 20px rgba(37,99,235,.1);
+      }
+      .mrc-open-review-btn span {
+        font-size: 14px;
+        font-weight: 950;
+      }
+      .mrc-open-review-btn small {
+        color: #52709f;
+        font-size: 11px;
+        font-weight: 750;
+      }
       .mrc-reviewer {
         margin-top: 12px;
         border: 1px solid #dbe3ee;
@@ -3697,6 +3743,58 @@ function StyleBlock() {
         overflow: hidden;
         background: #f8fafc;
         box-shadow: 0 14px 32px rgba(15,23,42,.08);
+      }
+      .mrc-reviewer.is-fullscreen {
+        position: fixed;
+        inset: 0;
+        z-index: 190;
+        width: 100vw;
+        height: 100dvh;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: #020617;
+        box-shadow: none;
+      }
+      .mrc-review-topbar {
+        position: relative;
+        z-index: 8;
+        min-height: calc(58px + env(safe-area-inset-top, 0px));
+        padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        color: #fff;
+        background: linear-gradient(180deg, rgba(2,6,23,.94), rgba(2,6,23,.58), transparent);
+      }
+      .mrc-review-topbar button {
+        min-height: 40px;
+        border: 1px solid rgba(255,255,255,.24);
+        border-radius: 999px;
+        padding: 0 15px;
+        color: #fff;
+        background: rgba(30,41,59,.82);
+        font-weight: 950;
+        cursor: pointer;
+      }
+      .mrc-review-topbar strong {
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+      }
+      .mrc-review-topbar > span {
+        border-radius: 999px;
+        padding: 5px 8px;
+        color: #dbeafe;
+        background: rgba(30,64,175,.72);
+        font-size: 10px;
+        font-weight: 950;
       }
       .mrc-review-stage {
         position: relative;
@@ -3710,6 +3808,19 @@ function StyleBlock() {
           #0b1120;
         touch-action: pan-y;
         user-select: none;
+      }
+      .mrc-reviewer.is-fullscreen .mrc-review-stage {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        border-radius: 0;
+        touch-action: none;
+      }
+      .mrc-reviewer.is-fullscreen .mrc-review-counter,
+      .mrc-reviewer.is-fullscreen .mrc-review-marked {
+        top: calc(64px + env(safe-area-inset-top, 0px));
       }
       .mrc-review-stage > img,
       .mrc-review-stage > video {
@@ -3782,6 +3893,17 @@ function StyleBlock() {
         scroll-snap-type: x proximity;
         overscroll-behavior-x: contain;
       }
+      .mrc-reviewer.is-fullscreen .mrc-review-thumbnails {
+        position: relative;
+        z-index: 7;
+        flex: 0 0 auto;
+        margin-top: auto;
+        background: rgba(2,6,23,.82);
+        backdrop-filter: blur(10px);
+      }
+      .mrc-reviewer.is-fullscreen .mrc-review-thumbnails + .mrc-review-details {
+        margin-top: 0;
+      }
       .mrc-review-thumb {
         position: relative;
         flex: 0 0 66px;
@@ -3842,6 +3964,19 @@ function StyleBlock() {
         gap: 12px;
         padding: 14px;
         background: #fff;
+      }
+      .mrc-reviewer.is-fullscreen .mrc-review-details {
+        position: relative;
+        z-index: 7;
+        flex: 0 0 auto;
+        max-height: 38dvh;
+        margin-top: auto;
+        overflow-y: auto;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        border-radius: 18px 18px 0 0;
+        background: rgba(255,255,255,.97);
+        box-shadow: 0 -12px 34px rgba(2,6,23,.35);
+        backdrop-filter: blur(12px);
       }
       .mrc-review-heading {
         display: flex;
@@ -4558,6 +4693,14 @@ function StyleBlock() {
         .mrc-review-stage {
           height: min(48dvh, 430px);
           min-height: 270px;
+        }
+        .mrc-reviewer.is-fullscreen .mrc-review-stage {
+          height: 100%;
+          min-height: 0;
+        }
+        .mrc-reviewer.is-fullscreen .mrc-review-details {
+          max-height: 36dvh;
+          padding: 11px 12px calc(11px + env(safe-area-inset-bottom, 0px));
         }
         .mrc-review-arrow {
           width: 38px;
