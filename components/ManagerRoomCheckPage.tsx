@@ -519,7 +519,7 @@ async function compressVideoFile(file: File) {
   }
 }
 
-async function compressImageFile(file: File, maxSide = 1920, quality = 0.86) {
+async function compressImageFile(file: File, maxSide = 1920, quality = 0.88) {
   const img = await fileToImage(file);
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
   const width = Math.max(1, Math.round(img.width * scale));
@@ -2909,6 +2909,7 @@ function MediaPicker({
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const swipeStartXRef = useRef<number | null>(null);
   const previousMediaCountRef = useRef(0);
 
@@ -2916,6 +2917,7 @@ function MediaPicker({
     if (!draftMedia.length) {
       setActiveIndex(0);
       setReviewOpen(false);
+      setDetailsOpen(false);
       previousMediaCountRef.current = 0;
       return;
     }
@@ -2925,6 +2927,10 @@ function MediaPicker({
     previousMediaCountRef.current = draftMedia.length;
     setActiveIndex((current) => Math.min(current, draftMedia.length - 1));
   }, [draftMedia.length]);
+
+  useEffect(() => {
+    setDetailsOpen(false);
+  }, [activeIndex]);
 
   const handlePick = (files: FileList | null) => {
     if (files) void addFiles(files);
@@ -3088,33 +3094,45 @@ function MediaPicker({
             </div>
           ) : null}
 
-          <div className="mrc-review-details">
-            <div className="mrc-review-heading">
-              <div>
-                <strong>{activeItem.media_type === 'video' ? 'Video' : 'Photo'} {activeIndex + 1}</strong>
-                <small>Swipe or use thumbnails to change media</small>
-              </div>
-              <div className="mrc-review-actions">
-                {activeItem.media_type === 'image' ? (
-                  <button
-                    type="button"
-                    className="mrc-review-markup-btn"
-                    onClick={() => setMarkupIndex(activeIndex)}
-                  >
-                    <span aria-hidden="true">&#9998;</span>
-                    {activeItem.marked ? 'Edit Markup' : 'Mark Up'}
-                  </button>
-                ) : null}
+          <div className="mrc-review-quickbar">
+            <div className="mrc-review-quick-info">
+              <strong>{activeItem.media_type === 'video' ? 'Video' : 'Photo'} {activeIndex + 1}</strong>
+              <small>
+                {activeItem.assigned_department}
+                {activeItem.caption.trim() ? ' - Remark added' : ''}
+              </small>
+            </div>
+            <div className={`mrc-review-actions ${activeItem.media_type === 'video' ? 'is-video' : ''}`}>
+              {activeItem.media_type === 'image' ? (
                 <button
                   type="button"
-                  className="mrc-review-remove-btn"
-                  onClick={() => removeDraftMedia(activeItem.id)}
+                  className="mrc-review-markup-btn"
+                  onClick={() => setMarkupIndex(activeIndex)}
                 >
-                  Remove
+                  <span aria-hidden="true">&#9998;</span>
+                  {activeItem.marked ? 'Edit' : 'Mark Up'}
                 </button>
-              </div>
+              ) : null}
+              <button
+                type="button"
+                className={`mrc-review-details-btn ${detailsOpen ? 'is-open' : ''}`}
+                onClick={() => setDetailsOpen((current) => !current)}
+                aria-expanded={detailsOpen}
+              >
+                {detailsOpen ? 'Hide Details' : 'Remark & Assign'}
+              </button>
+              <button
+                type="button"
+                className="mrc-review-remove-btn"
+                onClick={() => removeDraftMedia(activeItem.id)}
+              >
+                Remove
+              </button>
             </div>
+          </div>
 
+          {detailsOpen ? (
+          <div className="mrc-review-details">
             <label className="mrc-review-remark">
               <span>Remark for staff <em>(optional)</em></span>
               <textarea
@@ -3144,6 +3162,7 @@ function MediaPicker({
               </div>
             </div>
           </div>
+          ) : null}
         </div>
           ) : null}
         </>
@@ -3810,17 +3829,18 @@ function StyleBlock() {
         user-select: none;
       }
       .mrc-reviewer.is-fullscreen .mrc-review-stage {
-        position: absolute;
-        inset: 0;
+        position: relative;
+        inset: auto;
+        flex: 1 1 auto;
         width: 100%;
-        height: 100%;
+        height: auto;
         min-height: 0;
         border-radius: 0;
         touch-action: none;
       }
       .mrc-reviewer.is-fullscreen .mrc-review-counter,
       .mrc-reviewer.is-fullscreen .mrc-review-marked {
-        top: calc(64px + env(safe-area-inset-top, 0px));
+        top: 12px;
       }
       .mrc-review-stage > img,
       .mrc-review-stage > video {
@@ -3897,12 +3917,9 @@ function StyleBlock() {
         position: relative;
         z-index: 7;
         flex: 0 0 auto;
-        margin-top: auto;
+        margin-top: 0;
         background: rgba(2,6,23,.82);
         backdrop-filter: blur(10px);
-      }
-      .mrc-reviewer.is-fullscreen .mrc-review-thumbnails + .mrc-review-details {
-        margin-top: 0;
       }
       .mrc-review-thumb {
         position: relative;
@@ -3970,13 +3987,43 @@ function StyleBlock() {
         z-index: 7;
         flex: 0 0 auto;
         max-height: 38dvh;
-        margin-top: auto;
+        margin-top: 0;
         overflow-y: auto;
         padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-        border-radius: 18px 18px 0 0;
+        border-radius: 0;
         background: rgba(255,255,255,.97);
         box-shadow: 0 -12px 34px rgba(2,6,23,.35);
         backdrop-filter: blur(12px);
+      }
+      .mrc-review-quickbar {
+        position: relative;
+        z-index: 7;
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 9px 10px calc(9px + env(safe-area-inset-bottom, 0px));
+        color: #fff;
+        background: #0f172a;
+        box-shadow: 0 -8px 24px rgba(2,6,23,.3);
+      }
+      .mrc-review-quick-info {
+        min-width: 70px;
+        display: grid;
+        gap: 1px;
+      }
+      .mrc-review-quick-info strong {
+        font-size: 13px;
+      }
+      .mrc-review-quick-info small {
+        overflow: hidden;
+        max-width: 150px;
+        color: #bfdbfe;
+        font-size: 10px;
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .mrc-review-heading {
         display: flex;
@@ -4005,6 +4052,7 @@ function StyleBlock() {
         flex-wrap: wrap;
       }
       .mrc-review-markup-btn,
+      .mrc-review-details-btn,
       .mrc-review-remove-btn {
         min-height: 40px;
         border-radius: 11px;
@@ -4025,6 +4073,15 @@ function StyleBlock() {
       .mrc-review-markup-btn span {
         font-size: 17px;
         line-height: 1;
+      }
+      .mrc-review-details-btn {
+        border: 1px solid #64748b;
+        background: #1e293b;
+        color: #fff;
+      }
+      .mrc-review-details-btn.is-open {
+        border-color: #93c5fd;
+        background: #1e3a8a;
       }
       .mrc-review-remove-btn {
         border: 1px solid #fecaca;
@@ -4695,28 +4752,40 @@ function StyleBlock() {
           min-height: 270px;
         }
         .mrc-reviewer.is-fullscreen .mrc-review-stage {
-          height: 100%;
+          flex: 1 1 auto;
+          height: auto;
           min-height: 0;
         }
         .mrc-reviewer.is-fullscreen .mrc-review-details {
-          max-height: 36dvh;
+          max-height: min(42dvh, 360px);
           padding: 11px 12px calc(11px + env(safe-area-inset-bottom, 0px));
+        }
+        .mrc-review-quickbar {
+          align-items: stretch;
+          gap: 7px;
+          padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        }
+        .mrc-review-quick-info {
+          display: none;
+        }
+        .mrc-review-quickbar .mrc-review-actions {
+          width: 100%;
+          display: grid;
+          grid-template-columns: minmax(0, .9fr) minmax(0, 1.35fr) auto;
+          gap: 7px;
+        }
+        .mrc-review-quickbar .mrc-review-actions.is-video {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+        .mrc-review-quickbar .mrc-review-actions > button {
+          min-width: 0;
+          padding: 0 10px;
+          white-space: nowrap;
         }
         .mrc-review-arrow {
           width: 38px;
           height: 50px;
           margin-top: -25px;
-        }
-        .mrc-review-heading {
-          align-items: stretch;
-          flex-direction: column;
-        }
-        .mrc-review-actions {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-        }
-        .mrc-review-markup-btn {
-          width: 100%;
         }
       }
     `}</style>
