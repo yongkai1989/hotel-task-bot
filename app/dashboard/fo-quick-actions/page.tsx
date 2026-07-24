@@ -49,7 +49,6 @@ type TrackedItem = {
 };
 
 type TaskKind = 'Guest Request' | 'Complaint' | 'Follow-up' | 'Other';
-type MainView = 'TASKS' | 'REMINDERS';
 type ReminderView = 'OPEN' | 'DONE';
 
 const TASK_KINDS: TaskKind[] = ['Guest Request', 'Complaint', 'Follow-up', 'Other'];
@@ -83,7 +82,6 @@ export default function FoQuickActionsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [accessToken, setAccessToken] = useState('');
-  const [mainView, setMainView] = useState<MainView>('TASKS');
   const [reminderView, setReminderView] = useState<ReminderView>('OPEN');
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [reminders, setReminders] = useState<ShiftReminder[]>([]);
@@ -112,13 +110,12 @@ export default function FoQuickActionsPage() {
   const [newItemNotes, setNewItemNotes] = useState('');
 
   const isSuperuser = String(profile?.role || '').toUpperCase() === 'SUPERUSER';
-  const normalizedEmail = String(profile?.email || '').trim().toLowerCase();
   const canAccess =
     isSuperuser ||
     String(profile?.role || '').toUpperCase() === 'FO' ||
     profile?.can_access_fo_checklist === true;
 
-  const loadData = useCallback(async (email: string, quiet = false) => {
+  const loadData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     else setRefreshing(true);
     setError('');
@@ -142,10 +139,13 @@ export default function FoQuickActionsPage() {
       if (reminderResult.error) throw reminderResult.error;
       if (itemResult.error) throw itemResult.error;
 
-      const ownTasks = ((taskPayload?.tasks || []) as DashboardTask[])
-        .filter((task) => String(task.created_by_email || '').toLowerCase() === email)
+      const foTasks = ((taskPayload?.tasks || []) as DashboardTask[])
+        .filter((task) => (
+          String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
+          || task.department === 'FO'
+        ))
         .slice(0, 40);
-      setTasks(ownTasks);
+      setTasks(foTasks);
       setReminders((reminderResult.data || []) as ShiftReminder[]);
       setItems((itemResult.data || []) as TrackedItem[]);
     } catch (nextError: any) {
@@ -172,7 +172,7 @@ export default function FoQuickActionsPage() {
         const nextProfile = payload.user as Profile;
         setProfile(nextProfile);
         setAccessToken(session.access_token);
-        await loadData(String(nextProfile.email || '').trim().toLowerCase());
+        await loadData();
       } catch (nextError: any) {
         if (mounted) {
           setError(nextError?.message || 'Unable to verify FO access.');
@@ -198,13 +198,8 @@ export default function FoQuickActionsPage() {
     setSuccess('');
   }
 
-  function toggleDepartment(department: 'HK' | 'MT') {
-    setTaskDepartments((current) => {
-      if (current.includes(department)) {
-        return current.length === 1 ? current : current.filter((value) => value !== department);
-      }
-      return [...current, department];
-    });
+  function selectDepartments(choice: 'HK' | 'MT' | 'BOTH') {
+    setTaskDepartments(choice === 'BOTH' ? ['HK', 'MT'] : [choice]);
   }
 
   async function createTask(event: FormEvent) {
@@ -397,7 +392,11 @@ export default function FoQuickActionsPage() {
   }
 
   async function archiveItem(itemId: string) {
-    if (!isSuperuser || !window.confirm('Remove this item from FO tracking?')) return;
+    const item = items.find((row) => row.id === itemId);
+    const warning = item?.current_status === 'LOANED'
+      ? `This item is currently loaned to ${item.loaned_to_name || 'someone'}. Remove it from active tracking anyway?`
+      : 'Remove this item from FO tracking?';
+    if (!isSuperuser || !window.confirm(warning)) return;
     clearNotices();
     setBusyKey(`item-${itemId}`);
     try {
@@ -431,7 +430,7 @@ export default function FoQuickActionsPage() {
           <p>Assign guest tasks, hand over reminders, and see where FO items are.</p>
         </div>
         <div className="header-actions">
-          <button type="button" className="secondary" disabled={refreshing} onClick={() => void loadData(normalizedEmail, true)}>
+          <button type="button" className="secondary" disabled={refreshing} onClick={() => void loadData(true)}>
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           <Link href="/dashboard">Dashboard</Link>
@@ -489,7 +488,7 @@ export default function FoQuickActionsPage() {
                   <button type="button" onClick={() => { setLoaningItemId(item.id); setLoanedToName(''); }}>Loan Out</button>
                 </>
               )}
-              {isSuperuser && item.current_status === 'AVAILABLE' ? (
+              {isSuperuser ? (
                 <button type="button" className="archive-link" onClick={() => void archiveItem(item.id)}>Remove</button>
               ) : null}
             </article>
@@ -497,93 +496,131 @@ export default function FoQuickActionsPage() {
         </div>
       </section>
 
-      <nav className="main-tabs" aria-label="FO Quick Action category">
-        <button type="button" className={mainView === 'TASKS' ? 'active' : ''} onClick={() => setMainView('TASKS')}>
-          <span>Tasks</span><b>{openTasks.length}</b><small>Assign to departments</small>
-        </button>
-        <button type="button" className={mainView === 'REMINDERS' ? 'active' : ''} onClick={() => setMainView('REMINDERS')}>
-          <span>Reminders</span><b>{openReminders.length}</b><small>Next-shift follow-up</small>
-        </button>
-      </nav>
+      <section className="command-board">
+        <section className="command-column task-command">
+          <div className="command-title">
+            <div><span className="eyebrow">DEPARTMENT TASKS</span><h2>Assign and follow up</h2><p>FO-created tasks and every task assigned to FO.</p></div>
+            <span className="command-count">{openTasks.length}<small>open</small></span>
+          </div>
 
-      {mainView === 'TASKS' ? (
-        <section className="workspace-grid">
-          <form className="action-panel create-panel" onSubmit={createTask}>
-            <div className="section-heading">
-              <div><span className="eyebrow">QUICK ASSIGN</span><h2>Create department task</h2></div>
-              {customerWaiting ? <span className="urgent-pill">Customer waiting</span> : null}
-            </div>
-
-            <label>Type</label>
-            <div className="choice-row">
+          <form className="quick-form task-form" onSubmit={createTask}>
+            <div className="choice-row type-row">
               {TASK_KINDS.map((kind) => <button type="button" key={kind} className={taskKind === kind ? 'selected' : ''} onClick={() => setTaskKind(kind)}>{kind}</button>)}
             </div>
-
             <div className="field-grid">
               <label>Room / Area<input value={taskLocation} onChange={(event) => setTaskLocation(event.target.value)} placeholder="e.g. 1205 or Lobby" maxLength={80} /></label>
-              <label>Assign to<div className="choice-row department-row"><button type="button" className={taskDepartments.includes('HK') ? 'selected hk' : ''} onClick={() => toggleDepartment('HK')}>Housekeeping</button><button type="button" className={taskDepartments.includes('MT') ? 'selected mt' : ''} onClick={() => toggleDepartment('MT')}>Maintenance</button></div></label>
+              <label>Assign to<div className="choice-row department-row">
+                <button type="button" className={taskDepartments.length === 1 && taskDepartments[0] === 'HK' ? 'selected hk' : ''} onClick={() => selectDepartments('HK')}>Housekeeping</button>
+                <button type="button" className={taskDepartments.length === 1 && taskDepartments[0] === 'MT' ? 'selected mt' : ''} onClick={() => selectDepartments('MT')}>Maintenance</button>
+                <button type="button" className={taskDepartments.length === 2 ? 'selected both' : ''} onClick={() => selectDepartments('BOTH')}>Both</button>
+              </div></label>
             </div>
-
-            <label>What is needed?<textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} placeholder="Type the guest request, complaint, or work needed..." maxLength={800} rows={3} /></label>
-            <label className="waiting-toggle"><input type="checkbox" checked={customerWaiting} onChange={(event) => setCustomerWaiting(event.target.checked)} /><span><b>Customer is waiting</b><small>Keep the existing urgent reminder active for this task.</small></span></label>
-            <button className="primary-action" disabled={busyKey === 'create-task'}>{busyKey === 'create-task' ? 'Assigning...' : `Assign to ${taskDepartments.join(' + ')}`}</button>
+            <label>Task details<textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} placeholder="Guest request, complaint, or work needed..." maxLength={800} rows={2} /></label>
+            <div className="form-footer">
+              <label className="waiting-toggle"><input type="checkbox" checked={customerWaiting} onChange={(event) => setCustomerWaiting(event.target.checked)} /><span><b>Customer waiting</b><small>Use the existing urgent reminder.</small></span></label>
+              <button className="primary-action" disabled={busyKey === 'create-task'}>{busyKey === 'create-task' ? 'Assigning...' : `Assign to ${taskDepartments.join(' + ')}`}</button>
+            </div>
           </form>
 
-          <section className="action-panel list-panel">
-            <div className="section-heading"><div><span className="eyebrow">FOLLOW-UP</span><h2>Tasks created by FO</h2></div><span className="count">{openTasks.length} open</span></div>
-            <div className="compact-list">
-              {visibleTasks.length ? visibleTasks.map((task) => (
-                <article key={task.id} className={`compact-card ${task.status.toLowerCase()}`}>
-                  <div className="card-title"><div><b>{task.task_code}</b><strong>{task.room}</strong><span className={`dept ${task.department.toLowerCase()}`}>{task.department}</span></div><em>{task.status}</em></div>
-                  <p>{task.task_text}</p>
-                  <small>{task.customer_waiting ? 'CUSTOMER WAITING - ' : ''}{formatDateTime(task.created_at)}</small>
-                </article>
-              )) : <div className="empty">No FO-created tasks found.</div>}
-            </div>
-          </section>
+          <div className="list-heading"><strong>Task follow-up</strong><small>Created by fo@hotelhallmark.com or assigned to FO</small></div>
+          <div className="compact-list command-list">
+            {visibleTasks.length ? visibleTasks.map((task) => (
+              <article key={task.id} className={`compact-card ${task.status.toLowerCase()}`}>
+                <div className="card-title"><div><b>{task.task_code}</b><strong>{task.room}</strong><span className={`dept ${task.department.toLowerCase()}`}>{task.department}</span></div><em>{task.status}</em></div>
+                <p>{task.task_text}</p>
+                <small>{task.customer_waiting ? 'CUSTOMER WAITING - ' : ''}{formatDateTime(task.created_at)}</small>
+              </article>
+            )) : <div className="empty">No matching FO tasks.</div>}
+          </div>
         </section>
-      ) : (
-        <section className="workspace-grid">
-          <form className="action-panel create-panel" onSubmit={createReminder}>
-            <div className="section-heading"><div><span className="eyebrow">SHIFT HANDOVER</span><h2>Add internal reminder</h2></div></div>
-            <label>Reminder<textarea value={reminderText} onChange={(event) => setReminderText(event.target.value)} placeholder="What must the next shift follow up?" maxLength={1000} rows={4} /></label>
-            <label>Room / Guest / Reference <small>(optional)</small><input value={reminderReference} onChange={(event) => setReminderReference(event.target.value)} placeholder="e.g. Room 805 - Lost & Found" maxLength={160} /></label>
-            <div className="info-note">Completion always requires the staff member&apos;s name, even though FO shares one login.</div>
-            <button className="primary-action" disabled={busyKey === 'create-reminder'}>{busyKey === 'create-reminder' ? 'Adding...' : 'Add Reminder'}</button>
+
+        <section className="command-column reminder-command">
+          <div className="command-title">
+            <div><span className="eyebrow">SHIFT REMINDERS</span><h2>Handover and follow up</h2><p>Internal notes that remain visible until completed.</p></div>
+            <span className="command-count reminder">{openReminders.length}<small>open</small></span>
+          </div>
+
+          <form className="quick-form reminder-form" onSubmit={createReminder}>
+            <label>Reminder<textarea value={reminderText} onChange={(event) => setReminderText(event.target.value)} placeholder="What must the next shift follow up?" maxLength={1000} rows={2} /></label>
+            <div className="reminder-create-row">
+              <label>Room / Guest / Reference <small>(optional)</small><input value={reminderReference} onChange={(event) => setReminderReference(event.target.value)} placeholder="e.g. Room 805 - Lost & Found" maxLength={160} /></label>
+              <button className="primary-action" disabled={busyKey === 'create-reminder'}>{busyKey === 'create-reminder' ? 'Adding...' : 'Add Reminder'}</button>
+            </div>
           </form>
 
-          <section className="action-panel list-panel">
-            <div className="section-heading">
-              <div><span className="eyebrow">FOLLOW-UP</span><h2>Shift reminders</h2></div>
-              <div className="mini-tabs"><button type="button" className={reminderView === 'OPEN' ? 'active' : ''} onClick={() => setReminderView('OPEN')}>Open {openReminders.length}</button><button type="button" className={reminderView === 'DONE' ? 'active' : ''} onClick={() => setReminderView('DONE')}>Completed</button></div>
-            </div>
-            <div className="compact-list">
-              {visibleReminders.length ? visibleReminders.map((reminder) => (
-                <article key={reminder.id} className={`reminder-card ${reminder.status.toLowerCase()}`}>
-                  <div className="card-title"><strong>{reminder.reference_text || 'General handover'}</strong><em>{reminder.status}</em></div>
-                  <p>{reminder.reminder_text}</p>
-                  <small>Added by {reminder.created_by_name || 'FO'} - {formatDateTime(reminder.created_at)}</small>
-                  {reminder.status === 'DONE' ? (
-                    <div className="completed-by">Completed by <b>{reminder.completed_by_name}</b> - {formatDateTime(reminder.completed_at)}</div>
-                  ) : completingReminderId === reminder.id ? (
-                    <div className="completion-row">
-                      <input autoFocus value={completionName} onChange={(event) => setCompletionName(event.target.value)} placeholder="Your name (required)" maxLength={120} onKeyDown={(event) => { if (event.key === 'Enter') void completeReminder(reminder.id); }} />
-                      <button type="button" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void completeReminder(reminder.id)}>Confirm Done</button>
-                      <button type="button" className="secondary" onClick={() => { setCompletingReminderId(null); setCompletionName(''); }}>Cancel</button>
-                    </div>
-                  ) : (
-                    <button type="button" className="complete-btn" onClick={() => { setCompletingReminderId(reminder.id); setCompletionName(''); }}>Mark Complete</button>
-                  )}
-                  {isSuperuser ? <button type="button" className="delete-link" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void deleteReminder(reminder.id)}>Delete</button> : null}
-                </article>
-              )) : <div className="empty">{reminderView === 'OPEN' ? 'No open reminders. The next shift is clear.' : 'No completed reminders yet.'}</div>}
-            </div>
-          </section>
+          <div className="list-heading reminder-list-heading">
+            <div><strong>Reminder follow-up</strong><small>Name is required when completing</small></div>
+            <div className="mini-tabs"><button type="button" className={reminderView === 'OPEN' ? 'active' : ''} onClick={() => setReminderView('OPEN')}>Open {openReminders.length}</button><button type="button" className={reminderView === 'DONE' ? 'active' : ''} onClick={() => setReminderView('DONE')}>Completed</button></div>
+          </div>
+          <div className="compact-list command-list">
+            {visibleReminders.length ? visibleReminders.map((reminder) => (
+              <article key={reminder.id} className={`reminder-card ${reminder.status.toLowerCase()}`}>
+                <div className="card-title"><strong>{reminder.reference_text || 'General handover'}</strong><em>{reminder.status}</em></div>
+                <p>{reminder.reminder_text}</p>
+                <small>Added by {reminder.created_by_name || 'FO'} - {formatDateTime(reminder.created_at)}</small>
+                {reminder.status === 'DONE' ? (
+                  <div className="completed-by">Completed by <b>{reminder.completed_by_name}</b> - {formatDateTime(reminder.completed_at)}</div>
+                ) : completingReminderId === reminder.id ? (
+                  <div className="completion-row">
+                    <input autoFocus value={completionName} onChange={(event) => setCompletionName(event.target.value)} placeholder="Your name (required)" maxLength={120} onKeyDown={(event) => { if (event.key === 'Enter') void completeReminder(reminder.id); }} />
+                    <button type="button" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void completeReminder(reminder.id)}>Confirm Done</button>
+                    <button type="button" className="secondary" onClick={() => { setCompletingReminderId(null); setCompletionName(''); }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button type="button" className="complete-btn" onClick={() => { setCompletingReminderId(reminder.id); setCompletionName(''); }}>Mark Complete</button>
+                )}
+                {isSuperuser ? <button type="button" className="delete-link" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void deleteReminder(reminder.id)}>Delete</button> : null}
+              </article>
+            )) : <div className="empty">{reminderView === 'OPEN' ? 'No open reminders. The next shift is clear.' : 'No completed reminders yet.'}</div>}
+          </div>
         </section>
-      )}
+      </section>
       <Styles />
+      <ProfessionalStyles />
     </main>
   );
+}
+
+function ProfessionalStyles() {
+  return <style jsx global>{`
+    .command-board{max-width:1450px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+    .command-column{min-width:0;overflow:hidden;border:1px solid #d7e1ec;border-radius:16px;background:#fff;box-shadow:0 12px 32px rgba(24,49,82,.08)}
+    .command-column.task-command{border-top:4px solid #2462c9}
+    .command-column.reminder-command{border-top:4px solid #7255b5}
+    .command-title{padding:17px 18px 14px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:1px solid #e2e8f0;background:linear-gradient(135deg,#fbfdff,#f4f7fb)}
+    .command-title h2{margin:3px 0;font-size:19px;letter-spacing:-.02em}
+    .command-title p{margin:0;color:#718197;font-size:10px}
+    .command-count{flex:0 0 auto;min-width:52px;border-radius:12px;padding:7px 10px;background:#eaf2ff;color:#174f9e;text-align:center;font-size:20px;font-weight:950;line-height:1}
+    .command-count.reminder{background:#f1edfb;color:#6548a3}
+    .command-count small{display:block;margin-top:4px;font-size:8px;text-transform:uppercase;letter-spacing:.08em}
+    .quick-form{padding:14px 16px;border-bottom:1px solid #e3e9f0;background:#fff}
+    .quick-form label{display:grid;gap:5px;color:#435873;font-size:10px;font-weight:900}
+    .quick-form label small{font-weight:600}
+    .quick-form input,.quick-form textarea{width:100%;border:1px solid #c9d5e3;border-radius:9px;padding:9px 10px;background:#fbfcfe;color:#10223c;font:inherit;resize:vertical}
+    .quick-form .type-row{margin-bottom:9px}
+    .quick-form .field-grid{margin-bottom:9px}
+    .department-row{flex-wrap:nowrap}
+    .department-row button{flex:1;padding-left:7px;padding-right:7px}
+    .choice-row button.both.selected{border-color:#7054b3;background:#f1edfb;color:#60449e;box-shadow:inset 0 0 0 1px #7054b3}
+    .form-footer{display:grid;grid-template-columns:1.35fr .65fr;gap:8px;align-items:stretch;margin-top:9px}
+    .form-footer .waiting-toggle{margin:0;min-height:46px}
+    .form-footer .primary-action{margin:0;min-height:46px}
+    .reminder-create-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;margin-top:9px}
+    .reminder-create-row .primary-action{width:auto;min-width:125px;margin:0;min-height:40px}
+    .list-heading{padding:11px 16px 8px;display:flex;justify-content:space-between;align-items:end;gap:10px;background:#f8fafc}
+    .list-heading strong{display:block;font-size:11px;color:#253c59}
+    .list-heading small{display:block;margin-top:2px;color:#7a899b;font-size:8px}
+    .reminder-list-heading>div:first-child{min-width:0}
+    .command-list{max-height:430px;padding:8px 10px 12px;background:#f8fafc}
+    .command-list .compact-card,.command-list .reminder-card{box-shadow:0 2px 7px rgba(25,48,78,.04)}
+    .dept.fo{background:#f1edfb;color:#6548a3}
+    .task-command .primary-action{background:linear-gradient(135deg,#1e67d2,#164d9d)}
+    .reminder-command .primary-action{background:linear-gradient(135deg,#7758b8,#5c4098)}
+    .item-panel{border-top:4px solid #1d9a61}
+    .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
+    @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
+  `}</style>;
 }
 
 function Styles() {
