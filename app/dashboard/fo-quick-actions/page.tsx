@@ -22,6 +22,7 @@ type DashboardTask = {
   task_text: string;
   status: 'OPEN' | 'DONE';
   customer_waiting?: boolean | null;
+  source_page?: string | null;
   created_by_email?: string | null;
   created_at: string;
   done_at?: string | null;
@@ -142,6 +143,8 @@ export default function FoQuickActionsPage() {
       .filter((task) => (
         String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
         || task.department === 'FO'
+        || String(task.source_page || '').trim().toUpperCase() === 'FO_QUICK_ACTIONS'
+        || task.customer_waiting === true
       ))
       .slice(0, 40);
     setTasks(foTasks);
@@ -294,6 +297,7 @@ export default function FoQuickActionsPage() {
           departments: taskDepartments,
           task_text: taskDescription.trim(),
           customer_waiting: customerWaiting,
+          source_page: 'FO_QUICK_ACTIONS',
         }),
       });
       const payload = await responseJson(response);
@@ -424,10 +428,11 @@ export default function FoQuickActionsPage() {
     clearNotices();
     setBusyKey(`reminder-${reminderId}`);
     try {
-      const { error: rpcError } = await supabase.rpc('delete_fo_shift_reminder', {
+      const { data, error: rpcError } = await supabase.rpc('delete_fo_shift_reminder', {
         p_reminder_id: reminderId,
       });
       if (rpcError) throw rpcError;
+      if (data !== true) throw new Error('Reminder was not found or has already been deleted.');
       setReminders((current) => current.filter((row) => row.id !== reminderId));
       setSuccess('Reminder deleted.');
     } catch (nextError: any) {
@@ -706,19 +711,25 @@ export default function FoQuickActionsPage() {
                 <p>{reminder.reminder_text}</p>
                 <small>Added by {reminder.created_by_name || 'FO'} - {formatDateTime(reminder.created_at)}</small>
                 {reminder.status === 'DONE' ? <div className="completed-by">Completed by <b>{reminder.completed_by_name}</b> - {formatDateTime(reminder.completed_at)}</div> : null}
-                {reminderAction?.id === reminder.id ? (
-                  <div className="completion-row">
-                    <input autoFocus value={reminderActorName} onChange={(event) => setReminderActorName(event.target.value)} placeholder="Your name (required)" maxLength={120} onKeyDown={(event) => { if (event.key === 'Enter') void changeReminderStatus(reminder.id, reminderAction.action); }} />
-                    <button type="button" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void changeReminderStatus(reminder.id, reminderAction.action)}>{reminderAction.action === 'COMPLETE' ? 'Confirm Done' : 'Confirm Re-open'}</button>
-                    <button type="button" className="secondary" onClick={() => { setReminderAction(null); setReminderActorName(''); }}>Cancel</button>
-                  </div>
-                ) : (
-                  <button type="button" className={`complete-btn ${reminder.status === 'DONE' ? 'reopen' : ''}`} onClick={() => { setReminderAction({ id: reminder.id, action: reminder.status === 'DONE' ? 'REOPEN' : 'COMPLETE' }); setReminderActorName(''); }}>
-                    <span className="status-action-icon" aria-hidden="true">{reminder.status === 'DONE' ? '↻' : '✓'}</span>
-                    <span>{reminder.status === 'DONE' ? 'Re-open Reminder' : 'Mark as Done'}</span>
-                  </button>
-                )}
-                {isSuperuser ? <button type="button" className="delete-link" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void deleteReminder(reminder.id)}>Delete</button> : null}
+                <div className={`reminder-action-row ${reminderAction?.id === reminder.id ? 'editing' : ''}`}>
+                  {reminderAction?.id === reminder.id ? (
+                    <div className="completion-row">
+                      <input autoFocus value={reminderActorName} onChange={(event) => setReminderActorName(event.target.value)} placeholder="Your name (required)" maxLength={120} onKeyDown={(event) => { if (event.key === 'Enter') void changeReminderStatus(reminder.id, reminderAction.action); }} />
+                      <button type="button" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void changeReminderStatus(reminder.id, reminderAction.action)}>{reminderAction.action === 'COMPLETE' ? 'Confirm Done' : 'Confirm Re-open'}</button>
+                      <button type="button" className="secondary" onClick={() => { setReminderAction(null); setReminderActorName(''); }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button type="button" className={`complete-btn ${reminder.status === 'DONE' ? 'reopen' : ''}`} onClick={() => { setReminderAction({ id: reminder.id, action: reminder.status === 'DONE' ? 'REOPEN' : 'COMPLETE' }); setReminderActorName(''); }}>
+                      <span className="status-action-icon" aria-hidden="true">{reminder.status === 'DONE' ? '\u21bb' : '\u2713'}</span>
+                      <span>{reminder.status === 'DONE' ? 'Re-open Reminder' : 'Mark as Done'}</span>
+                    </button>
+                  )}
+                  {isSuperuser ? (
+                    <button type="button" className="reminder-delete-btn" disabled={busyKey === `reminder-${reminder.id}`} onClick={() => void deleteReminder(reminder.id)}>
+                      Delete Reminder
+                    </button>
+                  ) : null}
+                </div>
               </article>
             )) : <div className="empty">{reminderView === 'OPEN' ? 'No open reminders. The next shift is clear.' : 'No completed reminders yet.'}</div>}
           </div>
@@ -782,7 +793,11 @@ function ProfessionalStyles() {
     .task-status-btn.reopen,.complete-btn.reopen{background:linear-gradient(135deg,#416b9f,#294b76);box-shadow:0 3px 9px rgba(41,75,118,.18)}
     .status-action-icon{width:20px;height:20px;border-radius:999px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:12px;font-weight:950;line-height:1}
     .task-delete-btn{border:1px solid #e1a8a4;border-radius:9px;padding:7px 13px;background:#fff5f4;color:#ad332d;font-size:10px;font-weight:900;cursor:pointer}
-    .reminder-card>.complete-btn{width:100%;margin-top:10px}
+    .reminder-action-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:stretch;margin-top:10px}
+    .reminder-action-row>.complete-btn{width:100%;margin:0}
+    .reminder-action-row .completion-row{margin:0}
+    .reminder-delete-btn{border:1px solid #dc8f89;border-radius:9px;padding:7px 12px;background:#fff1f0;color:#a92e27;font-size:10px;font-weight:900;cursor:pointer}
+    .reminder-delete-btn:hover{border-color:#c94b43;background:#ffe4e2}
     @keyframes foWaitingFlash{0%,100%{background:#fff1f1;box-shadow:0 0 0 2px rgba(220,38,38,.14),0 5px 15px rgba(185,28,28,.12)}50%{background:#fca5a5;box-shadow:0 0 0 4px rgba(220,38,38,.28),0 7px 20px rgba(185,28,28,.25)}}
     @media(prefers-reduced-motion:reduce){.compact-card.waiting-overdue{animation:none;background:#fff1f1}}
     .task-command .primary-action{background:linear-gradient(135deg,#1e67d2,#164d9d)}
@@ -790,7 +805,7 @@ function ProfessionalStyles() {
     .item-panel{border-top:4px solid #1d9a61}
     .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
     @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}}
-    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}}
   `}</style>;
 }
 
