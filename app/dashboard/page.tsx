@@ -80,7 +80,6 @@ const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const DASHBOARD_PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
 const MANUAL_TASK_REFRESH_MIN_MS = 45000;
-const DASHBOARD_AUTO_REFRESH_MS = 600000;
 const INSIGHTS_REFRESH_MIN_MS = 600000;
 const PROFILE_REFRESH_MIN_MS = 1800000;
 const MAX_RENDERED_TASK_CARDS = 60;
@@ -976,7 +975,6 @@ export default function DashboardPage() {
 
   const lastTasksFingerprintRef = useRef('');
   const hasHydratedFromCacheRef = useRef(false);
-  const lastVisibilityCheckRef = useRef(0);
   const lastTasksRequestAtRef = useRef(0);
   const tasksRequestInFlightRef = useRef<Promise<boolean> | null>(null);
   const lastInsightsRequestAtRef = useRef(0);
@@ -1258,26 +1256,34 @@ export default function DashboardPage() {
   }, [profileKey]);
 
   useEffect(() => {
-    lastVisibilityCheckRef.current = Date.now();
-  }, [profileKey]);
-
-  useEffect(() => {
     if (!profileKey) return;
-    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const supabase = getSupabaseSafe();
+    if (!supabase) return;
+    let refreshTimer: number | null = null;
 
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      if (loginOpen || createModalOpen || editModalOpen || passwordModalOpen || imageModalOpen) return;
+    const channel = supabase
+      .channel(`dashboard-task-sync-${profileKey}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks' },
+        () => {
+          if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+          refreshTimer = window.setTimeout(() => {
+            void loadTasks(false, {
+              silent: true,
+              onlyIfChanged: true,
+              force: true,
+            });
+          }, 250);
+        }
+      )
+      .subscribe();
 
-      const now = Date.now();
-      if (now - lastVisibilityCheckRef.current < DASHBOARD_AUTO_REFRESH_MS) return;
-
-      lastVisibilityCheckRef.current = now;
-      void loadTasks(false, { silent: true, onlyIfChanged: true });
-    }, DASHBOARD_AUTO_REFRESH_MS);
-
-    return () => window.clearInterval(timer);
-  }, [profileKey, loginOpen, createModalOpen, editModalOpen, passwordModalOpen, imageModalOpen]);
+    return () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [profileKey]);
 
   async function getAccessToken() {
     const supabase = getSupabaseSafe();
