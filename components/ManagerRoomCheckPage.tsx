@@ -746,9 +746,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           ? await fileToImage(item.file)
           : await remoteImageToImage(existingMarkupMedia?.media_url || '');
         if (cancelled) return;
-        const maxWidth = Math.max(220, Math.min(980, window.innerWidth - 44));
-        const maxHeight = Math.max(260, window.innerHeight - 188);
-        const scale = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+        // Keep the saved markup sharp. CSS scales this full canvas down for drawing
+        // instead of permanently reducing the file to the phone's preview size.
+        const scale = Math.min(1, 1920 / Math.max(img.width, img.height));
         canvas.width = Math.max(1, Math.round(img.width * scale));
         canvas.height = Math.max(1, Math.round(img.height * scale));
         const ctx = canvas.getContext('2d');
@@ -2237,7 +2237,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     const item = markupIndex !== null ? draftMedia[markupIndex] : null;
     if (!canvas || (!item && !existingMarkupMedia)) return;
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.82)
+      canvas.toBlob(resolve, 'image/jpeg', 0.88)
     );
     if (!blob) return;
     const baseName = item?.file.name || `room-check-${existingMarkupMedia?.id || Date.now()}.jpg`;
@@ -3796,7 +3796,7 @@ function StyleBlock() {
         height: clamp(300px, 50dvh, 560px);
         overflow: hidden;
         display: grid;
-        place-items: center;
+        place-items: start center;
         background:
           radial-gradient(circle at 50% 35%, rgba(51,65,85,.52), transparent 46%),
           #0b1120;
@@ -3819,12 +3819,14 @@ function StyleBlock() {
       }
       .mrc-review-stage > img,
       .mrc-review-stage > video {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
         max-width: 100%;
         max-height: 100%;
-        object-fit: contain;
-        object-position: center;
+        object-fit: contain !important;
+        object-position: center top !important;
         display: block;
         background: transparent;
       }
@@ -4485,7 +4487,10 @@ function StyleBlock() {
         padding-bottom: 92px;
       }
       .mrc-markup canvas {
+        width: auto;
+        height: auto;
         max-width: 100%;
+        max-height: calc(100dvh - 176px);
         border-radius: 16px;
         border: 1px solid #cbd5e1;
         touch-action: pan-y pinch-zoom;
