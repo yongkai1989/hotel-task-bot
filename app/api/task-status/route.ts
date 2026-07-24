@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
 
     const { data: existingTask, error: existingTaskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, status, room, department, task_text, created_at')
+      .select('id, status, room, department, task_text, created_at, customer_waiting')
       .eq('id', taskId)
       .single();
 
@@ -147,6 +147,12 @@ export async function POST(req: NextRequest) {
       updateData.done_at = null;
       updateData.done_by_name = null;
       updateData.reopened_at = now;
+      if (existingTask.customer_waiting === true) {
+        updateData.customer_waiting_due_at = new Date(
+          Date.now() + 15 * 60 * 1000
+        ).toISOString();
+        updateData.customer_waiting_reminder_sent_at = null;
+      }
       eventType = 'REOPENED';
     }
 
