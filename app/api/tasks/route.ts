@@ -477,7 +477,7 @@ async function sendCustomerWaitingRemindersWithBudget() {
 
 async function sendCustomerWaitingReminders() {
   try {
-    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
 
     const { data: dueTasks, error } = await supabaseAdmin
       .from('tasks')
@@ -489,14 +489,14 @@ async function sendCustomerWaitingReminders() {
         department,
         task_text,
         chat_id,
-        created_at
+        created_at,
+        customer_waiting_due_at
       `
       )
       .eq('customer_waiting', true)
       .eq('status', 'OPEN')
       .is('customer_waiting_reminder_sent_at', null)
-      .is('last_updated_by_name', null)
-      .lte('created_at', cutoff)
+      .lte('customer_waiting_due_at', nowIso)
       .limit(10);
 
     if (error || !dueTasks?.length) return;
@@ -513,7 +513,6 @@ async function sendCustomerWaitingReminders() {
         .eq('customer_waiting', true)
         .eq('status', 'OPEN')
         .is('customer_waiting_reminder_sent_at', null)
-        .is('last_updated_by_name', null)
         .select('id')
         .maybeSingle();
 
@@ -577,6 +576,8 @@ export async function GET() {
         edited_by_email,
         image_url,
         customer_waiting,
+        customer_waiting_due_at,
+        customer_waiting_follow_up_count,
         customer_waiting_reminder_sent_at
       `
       )
@@ -677,6 +678,9 @@ export async function POST(req: NextRequest) {
     let imageUrls = normalizeImageUrls(body);
     let imageCaptions = normalizeImageCaptions(body, imageUrls.length);
     const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
+    const customerWaitingDueAt = customerWaiting
+      ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+      : null;
 
     if (!room) {
       return jsonNoCache({ ok: false, error: 'Room/area and description is required' }, 400);
@@ -739,6 +743,8 @@ export async function POST(req: NextRequest) {
           chat_id: telegramChatId,
           image_url: firstImageUrl,
           customer_waiting: customerWaiting,
+          customer_waiting_due_at: customerWaitingDueAt,
+          customer_waiting_follow_up_count: 0,
           customer_waiting_reminder_sent_at: null,
           reopened_at: null,
         })
@@ -763,6 +769,8 @@ export async function POST(req: NextRequest) {
           edited_by_name,
           edited_by_email,
           customer_waiting,
+          customer_waiting_due_at,
+          customer_waiting_follow_up_count,
           customer_waiting_reminder_sent_at,
           created_at
         `
