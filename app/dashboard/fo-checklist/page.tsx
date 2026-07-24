@@ -827,6 +827,11 @@ export default function FoChecklistPage() {
         if (submissionError) throw submissionError;
         submissionId = createdSubmission.id;
         createdNewSubmission = true;
+        setTodaySubmission(createdSubmission as Submission);
+        setTodaySubmissionsByTemplateId((current) => ({
+          ...current,
+          [selectedTemplate.id]: createdSubmission as Submission,
+        }));
       } else {
         const { error: updateSubmissionError } = await supabase
           .from('fo_checklist_submissions')
@@ -862,11 +867,11 @@ export default function FoChecklistPage() {
         p_submission_id: submissionId,
         p_rows: activeCashRows.map((row, index) => ({
           id: row.id || null,
-          person_name: row.personName.trim(),
-          has_cash: row.hasCash,
-          cash_amount: row.hasCash ? Number(row.cashAmount || 0) : 0,
-          excess_amount: Number(row.excessAmount || 0),
-          line_number: index + 1,
+          personName: row.personName.trim(),
+          hasCash: row.hasCash,
+          cashAmount: row.hasCash ? Number(row.cashAmount || 0) : 0,
+          excessAmount: Number(row.excessAmount || 0),
+          lineNumber: index + 1,
         })),
       });
 
