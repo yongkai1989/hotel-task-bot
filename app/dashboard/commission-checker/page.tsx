@@ -36,17 +36,18 @@ type NameMatch = {
   matchType: 'Exact' | 'Likely';
 };
 
-type ReservationGuestName2Match = {
+type ReservationFieldMatch = {
   reservationNumber: string;
   commissionRow: number;
-  pmsGuestName2: string;
+  pmsSourceColumn: 'Guest Name 2' | 'Group' | 'Comment';
+  pmsSourceValue: string;
   pmsRow: number;
   pmsOtaRef: string;
 };
 
 type ReportRow = CsvRow & {
   normalizedReservation: string;
-  matchKind: 'ota' | 'guest-name' | 'guest-name-2-id' | 'no-commission' | 'none';
+  matchKind: 'ota' | 'guest-name' | 'reservation-field-id' | 'no-commission' | 'none';
 };
 
 const COMMISSION_COLUMN = 'reservation number';
@@ -54,6 +55,8 @@ const PMS_COLUMN = 'OTA Ref. No';
 const COMMISSION_GUEST_NAME_COLUMN = 'Guest name';
 const PMS_GUEST_NAME_COLUMN = 'Guest Name 1';
 const PMS_GUEST_NAME_2_COLUMN = 'Guest Name 2';
+const PMS_GROUP_COLUMN = 'Group';
+const PMS_COMMENT_COLUMN = 'Comment';
 const STATUS_COLUMN = 'status';
 const COMMISSION_AMOUNT_COLUMN = 'Commission amount';
 const REPORT_HEADERS = [
@@ -100,11 +103,12 @@ const NAME_MATCH_HEADERS = [
   'PMS CSV Row',
   'PMS OTA Ref. No',
 ];
-const GUEST_NAME_2_MATCH_HEADERS = [
+const RESERVATION_FIELD_MATCH_HEADERS = [
   'Match Type',
   'Reservation Number',
   'Booking.com CSV Row',
-  'PMS Guest Name 2',
+  'PMS Matched Column',
+  'PMS Matched Value',
   'PMS CSV Row',
   'PMS OTA Ref. No',
 ];
@@ -290,17 +294,15 @@ function buildCommissionReportRows(
   if (!commissionCsv || !pmsCsv) return [];
 
   const pmsOtaSet = new Set(pmsCsv.ids.map((item) => item.normalized));
-  const pmsGuestName2Values = pmsCsv.rows
-    .map((row) => normalizeBookingId(row[findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN)] || ''))
-    .filter(Boolean);
   const noCommissionSet = new Set(commissionCsv.noCommissionIds.map((item) => item.normalized));
-  const guestName2MatchedSet = new Set(
-    commissionCsv.ids
-      .filter((item) => pmsGuestName2Values.some((value) => value.includes(item.normalized)))
-      .map((item) => item.normalized)
+  const reservationFieldMatchedSet = new Set(
+    findReservationFieldMatches(
+      commissionCsv.ids.filter((item) => !pmsOtaSet.has(item.normalized)),
+      pmsCsv
+    ).map((match) => normalizeBookingId(match.reservationNumber))
   );
   const guestName1Candidates = commissionCsv.ids.filter(
-    (item) => !pmsOtaSet.has(item.normalized) && !guestName2MatchedSet.has(item.normalized)
+    (item) => !pmsOtaSet.has(item.normalized) && !reservationFieldMatchedSet.has(item.normalized)
   );
   const guestName1MatchedSet = new Set(
     findGuestNameMatches(guestName1Candidates, commissionCsv, pmsCsv)
@@ -325,17 +327,17 @@ function buildCommissionReportRows(
 
       const isNoCommission = noCommissionSet.has(normalizedReservation);
       const otaMatched = pmsOtaSet.has(normalizedReservation);
-      const guestName2IdMatched = guestName2MatchedSet.has(normalizedReservation);
+      const reservationFieldIdMatched = reservationFieldMatchedSet.has(normalizedReservation);
       const guestNameMatched = guestName1MatchedSet.has(normalizedReservation);
-      const isMatched = otaMatched || guestNameMatched || guestName2IdMatched;
+      const isMatched = otaMatched || reservationFieldIdMatched || guestNameMatched;
       const folio = folioByReservation[normalizedReservation] || '';
 
       const matchKind: ReportRow['matchKind'] = isNoCommission
         ? 'no-commission'
         : otaMatched
           ? 'ota'
-          : guestName2IdMatched
-              ? 'guest-name-2-id'
+          : reservationFieldIdMatched
+              ? 'reservation-field-id'
               : guestNameMatched
                 ? 'guest-name'
                 : 'none';
@@ -361,7 +363,7 @@ function buildCommissionReportRows(
               ? 'Matched by PMS OTA Ref. No'
               : matchKind === 'guest-name'
                 ? 'Matched by guest name'
-                : 'Reservation number found in PMS Guest Name 2'
+                : 'Reservation number found in ABS Guest Name 2, Group, or Comment'
             : folio
               ? `Folio: ${folio}`
               : 'Click to add folio number',
@@ -418,37 +420,47 @@ function findGuestNameMatches(
   });
 }
 
-function findReservationGuestName2Matches(
+function findReservationFieldMatches(
   disputes: ParsedCsv['ids'],
   pmsCsv: ParsedCsv | null
-): ReservationGuestName2Match[] {
+): ReservationFieldMatch[] {
   if (!pmsCsv || !disputes.length) return [];
 
-  const pmsGuestName2Column = findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN);
   const pmsOtaColumn = findColumn(pmsCsv.headers, PMS_COLUMN);
-  if (!pmsGuestName2Column) return [];
+  const sourceColumns: Array<{
+    label: ReservationFieldMatch['pmsSourceColumn'];
+    column: string;
+  }> = [
+    { label: 'Guest Name 2', column: findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN) },
+    { label: 'Group', column: findColumn(pmsCsv.headers, PMS_GROUP_COLUMN) },
+    { label: 'Comment', column: findColumn(pmsCsv.headers, PMS_COMMENT_COLUMN) },
+  ].filter((source) => !!source.column);
 
-  const normalizedDisputes = disputes
-    .map((dispute) => ({
-      dispute,
-      normalizedReservationNumber: normalizeBookingId(dispute.raw),
-    }))
-    .filter((item) => item.normalizedReservationNumber);
+  if (!sourceColumns.length) return [];
 
-  return pmsCsv.rows.flatMap((row, index) => {
-    const pmsGuestName2 = String(row[pmsGuestName2Column] || '').trim();
-    const normalizedGuestName2 = normalizeBookingId(pmsGuestName2);
-    if (!normalizedGuestName2) return [];
+  return disputes.flatMap((dispute) => {
+    const normalizedReservationNumber = normalizeBookingId(dispute.raw);
+    if (!normalizedReservationNumber) return [];
 
-    return normalizedDisputes
-      .filter((item) => normalizedGuestName2.includes(item.normalizedReservationNumber))
-      .map(({ dispute }) => ({
-      reservationNumber: dispute.raw,
-      commissionRow: dispute.rowNumber,
-      pmsGuestName2,
-      pmsRow: index + 2,
-      pmsOtaRef: pmsOtaColumn ? String(row[pmsOtaColumn] || '').trim() : '',
-    }));
+    for (const source of sourceColumns) {
+      for (let index = 0; index < pmsCsv.rows.length; index += 1) {
+        const row = pmsCsv.rows[index];
+        const sourceValue = String(row[source.column] || '').trim();
+        const normalizedSourceValue = normalizeBookingId(sourceValue);
+        if (!normalizedSourceValue.includes(normalizedReservationNumber)) continue;
+
+        return [{
+          reservationNumber: dispute.raw,
+          commissionRow: dispute.rowNumber,
+          pmsSourceColumn: source.label,
+          pmsSourceValue: sourceValue,
+          pmsRow: index + 2,
+          pmsOtaRef: pmsOtaColumn ? String(row[pmsOtaColumn] || '').trim() : '',
+        }];
+      }
+    }
+
+    return [];
   });
 }
 
@@ -694,17 +706,17 @@ export default function CommissionCheckerPage() {
     [commissionCsv, pmsCsv, folioByReservation]
   );
 
-  const reservationGuestName2Matches = useMemo(
-    () => findReservationGuestName2Matches(result?.missing || [], pmsCsv),
+  const reservationFieldMatches = useMemo(
+    () => findReservationFieldMatches(result?.missing || [], pmsCsv),
     [pmsCsv, result]
   );
-  const guestName2MatchSet = useMemo(
-    () => new Set(reservationGuestName2Matches.map((match) => normalizeBookingId(match.reservationNumber))),
-    [reservationGuestName2Matches]
+  const reservationFieldMatchSet = useMemo(
+    () => new Set(reservationFieldMatches.map((match) => normalizeBookingId(match.reservationNumber))),
+    [reservationFieldMatches]
   );
   const guestName1Candidates = useMemo(
-    () => (result?.missing || []).filter((item) => !guestName2MatchSet.has(item.normalized)),
-    [guestName2MatchSet, result]
+    () => (result?.missing || []).filter((item) => !reservationFieldMatchSet.has(item.normalized)),
+    [reservationFieldMatchSet, result]
   );
   const nameMatches = useMemo(
     () => findGuestNameMatches(guestName1Candidates, commissionCsv, pmsCsv),
@@ -713,6 +725,12 @@ export default function CommissionCheckerPage() {
   const nameMatchSet = useMemo(
     () => new Set(nameMatches.map((match) => normalizeBookingId(match.reservationNumber))),
     [nameMatches]
+  );
+  const finalUnmatchedCount = useMemo(
+    () => (result?.missing || []).filter(
+      (item) => !reservationFieldMatchSet.has(item.normalized) && !nameMatchSet.has(item.normalized)
+    ).length,
+    [nameMatchSet, reservationFieldMatchSet, result]
   );
   const visibleDisputeHeaders = useMemo(
     () => (commissionCsv ? buildDisputeHeaders(commissionCsv.headers) : DISPUTE_BASE_HEADERS),
@@ -732,15 +750,15 @@ export default function CommissionCheckerPage() {
       .sort((left, right) => {
         const leftId = normalizeBookingId(left['Reservation Number']);
         const rightId = normalizeBookingId(right['Reservation Number']);
-        const leftNoMatch = !nameMatchSet.has(leftId) && !guestName2MatchSet.has(leftId);
-        const rightNoMatch = !nameMatchSet.has(rightId) && !guestName2MatchSet.has(rightId);
+        const leftNoMatch = !nameMatchSet.has(leftId) && !reservationFieldMatchSet.has(leftId);
+        const rightNoMatch = !nameMatchSet.has(rightId) && !reservationFieldMatchSet.has(rightId);
         if (leftNoMatch !== rightNoMatch) return leftNoMatch ? -1 : 1;
 
         const leftArrival = getCell(left, commissionCsv?.headers || [], ['Arrival date', 'Check-in', 'Check in', 'Arrival']);
         const rightArrival = getCell(right, commissionCsv?.headers || [], ['Arrival date', 'Check-in', 'Check in', 'Arrival']);
         return parseSortableDate(leftArrival) - parseSortableDate(rightArrival);
       });
-  }, [commissionCsv, folioByReservation, guestName2MatchSet, nameMatchSet, result]);
+  }, [commissionCsv, folioByReservation, nameMatchSet, reservationFieldMatchSet, result]);
   const nameMatchRows = useMemo(
     () => nameMatches.map((match) => ({
       'Match Type': match.matchType,
@@ -753,16 +771,17 @@ export default function CommissionCheckerPage() {
     })),
     [nameMatches]
   );
-  const guestName2MatchRows = useMemo(
-    () => reservationGuestName2Matches.map((match) => ({
-      'Match Type': 'Reservation number found in PMS Guest Name 2',
+  const reservationFieldMatchRows = useMemo(
+    () => reservationFieldMatches.map((match) => ({
+      'Match Type': 'Reservation number found outside OTA Ref.',
       'Reservation Number': match.reservationNumber,
       'Booking.com CSV Row': String(match.commissionRow),
-      'PMS Guest Name 2': match.pmsGuestName2,
+      'PMS Matched Column': match.pmsSourceColumn,
+      'PMS Matched Value': match.pmsSourceValue,
       'PMS CSV Row': String(match.pmsRow),
       'PMS OTA Ref. No': match.pmsOtaRef || '-',
     })),
-    [reservationGuestName2Matches]
+    [reservationFieldMatches]
   );
 
   async function handleFile(file: File, type: 'commission' | 'pms') {
@@ -789,7 +808,7 @@ export default function CommissionCheckerPage() {
         <div>
           <div className="cc-eyebrow">Management Workspace</div>
           <h1>Commission Checker</h1>
-          <p>Compare Booking.com commission reservations against PMS OTA Ref. No before approving payment.</p>
+          <p>Cross-check Booking.com reservations against ABS OTA Ref., Guest Name 2, Group, Comment, and Guest Name 1.</p>
         </div>
         <Link href="/dashboard" className="cc-secondary-link">Back to Dashboard</Link>
       </section>
@@ -808,7 +827,7 @@ export default function CommissionCheckerPage() {
         <FileBox
           title="PMS Transaction CSV"
           eyebrow="PMS Export"
-          description="Upload the Transaction Enquiry file from your PMS."
+          description="Upload the ABS Transaction Enquiry file containing OTA Ref., Guest Name 1/2, Group, and Comment."
           variant="pms"
           parsed={pmsCsv}
           onFile={(file) => void handleFile(file, 'pms')}
@@ -828,10 +847,11 @@ export default function CommissionCheckerPage() {
           <>
             <div className="cc-stats">
               <StatCard label="Payable IDs" value={commissionCsv?.ids.length || 0} tone="blue" />
-              <StatCard label="Matched IDs" value={result.matches.length} tone="green" />
-              <StatCard label="Possible Disputes" value={result.missing.length} tone={result.missing.length ? 'red' : 'green'} />
-              <StatCard label="Name Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
-              <StatCard label="Guest Name 2 Matches" value={reservationGuestName2Matches.length} tone={reservationGuestName2Matches.length ? 'blue' : 'green'} />
+              <StatCard label="OTA Ref Matches" value={result.matches.length} tone="green" />
+              <StatCard label="OTA Ref Missing" value={result.missing.length} tone={result.missing.length ? 'amber' : 'green'} />
+              <StatCard label="Reservation Field Matches" value={reservationFieldMatches.length} tone={reservationFieldMatches.length ? 'blue' : 'green'} />
+              <StatCard label="Guest Name 1 Matches" value={nameMatches.length} tone={nameMatches.length ? 'blue' : 'green'} />
+              <StatCard label="Final Unmatched" value={finalUnmatchedCount} tone={finalUnmatchedCount ? 'red' : 'green'} />
               <StatCard label="No Commission" value={commissionCsv?.noCommissionRows.length || 0} tone="amber" />
             </div>
 
@@ -857,11 +877,41 @@ export default function CommissionCheckerPage() {
               </button>
             </div>
 
+            <section className="cc-subsection cc-subsection-purple">
+              <div className="cc-subhead">
+                <div>
+                  <div className="cc-eyebrow">Reservation Number Fallback</div>
+                  <h3>Found in Guest Name 2, Group, or Comment</h3>
+                </div>
+                <span className="cc-soft-badge cc-soft-badge-purple">{reservationFieldMatchRows.length} match(es)</span>
+              </div>
+              <div className="cc-table-wrap">
+                <table className="cc-table cc-name-table">
+                  <thead>
+                    <tr>{RESERVATION_FIELD_MATCH_HEADERS.map((header) => <th key={header}>{header}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {reservationFieldMatchRows.length ? (
+                      reservationFieldMatchRows.map((row, index) => (
+                        <tr key={`${row['Reservation Number']}-${index}`} className="cc-dispute-row-guest-name-2-match">
+                          {RESERVATION_FIELD_MATCH_HEADERS.map((header) => <td key={header}>{row[header] || '-'}</td>)}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={RESERVATION_FIELD_MATCH_HEADERS.length}>No reservation numbers were found in ABS Guest Name 2, Group, or Comment.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <section className="cc-subsection">
               <div className="cc-subhead">
                 <div>
-                  <div className="cc-eyebrow">Possible Name Matches</div>
-                  <h3>Guest Name Cross-Check</h3>
+                  <div className="cc-eyebrow">Final Fallback</div>
+                  <h3>Guest Name 1 Cross-Check</h3>
                 </div>
                 <span className="cc-soft-badge">{nameMatchRows.length} match(es)</span>
               </div>
@@ -879,37 +929,7 @@ export default function CommissionCheckerPage() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={NAME_MATCH_HEADERS.length}>No guest-name matches found among possible disputes.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="cc-subsection cc-subsection-purple">
-              <div className="cc-subhead">
-                <div>
-                  <div className="cc-eyebrow">Guest Name 2 Cross-Check</div>
-                  <h3>Reservation Number Found in PMS Guest Name 2</h3>
-                </div>
-                <span className="cc-soft-badge cc-soft-badge-purple">{guestName2MatchRows.length} match(es)</span>
-              </div>
-              <div className="cc-table-wrap">
-                <table className="cc-table cc-name-table">
-                  <thead>
-                    <tr>{GUEST_NAME_2_MATCH_HEADERS.map((header) => <th key={header}>{header}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {guestName2MatchRows.length ? (
-                      guestName2MatchRows.map((row, index) => (
-                        <tr key={`${row['Reservation Number']}-${index}`} className="cc-dispute-row-guest-name-2-match">
-                          {GUEST_NAME_2_MATCH_HEADERS.map((header) => <td key={header}>{row[header] || '-'}</td>)}
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={GUEST_NAME_2_MATCH_HEADERS.length}>No reservation numbers were found inside PMS Guest Name 2.</td>
+                        <td colSpan={NAME_MATCH_HEADERS.length}>No exact or similar Guest Name 1 matches were found after the reservation-number checks.</td>
                       </tr>
                     )}
                   </tbody>
@@ -935,11 +955,11 @@ export default function CommissionCheckerPage() {
                       disputeRows.map((row, index) => {
                         const reservationId = normalizeBookingId(row['Reservation Number']);
                         const hasNameMatch = nameMatchSet.has(reservationId);
-                        const hasGuestName2Match = guestName2MatchSet.has(reservationId);
-                        const isNoMatch = !hasNameMatch && !hasGuestName2Match;
+                        const hasReservationFieldMatch = reservationFieldMatchSet.has(reservationId);
+                        const isNoMatch = !hasNameMatch && !hasReservationFieldMatch;
                         const rowClassName = isNoMatch
                           ? 'cc-dispute-row-no-match'
-                          : hasGuestName2Match
+                          : hasReservationFieldMatch
                             ? 'cc-dispute-row-guest-name-2-match'
                             : 'cc-dispute-row-name-match';
 
@@ -963,8 +983,8 @@ export default function CommissionCheckerPage() {
                                 {header === 'Dispute Reason'
                                   ? isNoMatch
                                     ? 'No match found anywhere in PMS'
-                                    : hasGuestName2Match
-                                      ? 'Reservation found in PMS Guest Name 2'
+                                    : hasReservationFieldMatch
+                                      ? 'Reservation found in ABS Guest Name 2, Group, or Comment'
                                       : 'Guest name matched PMS Guest Name 1'
                                   : row[header] || '-'}
                               </td>
@@ -980,7 +1000,7 @@ export default function CommissionCheckerPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="cc-footnote">Red rows have no PMS match and can be clicked to key in a folio number. Blue rows are possible PMS matches by guest name or Guest Name 2.</div>
+              <div className="cc-footnote">Red rows have no ABS match and can be clicked to key in a folio number. Blue rows matched by reservation number in Guest Name 2, Group, or Comment, or by Guest Name 1.</div>
             </section>
           </>
         ) : (
