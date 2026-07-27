@@ -1,1414 +1,2328 @@
 'use client';
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
-type PageTab = 'daily' | 'excess' | 'small-change' | 'history';
-type SourceMode = 'DAILY' | 'EXCESS' | 'SMALL_CHANGE' | 'MIXED';
-type SourcePicker = 'excess' | 'small-change';
-type PermissionValue = boolean | string | number | null | undefined;
-
-type DashboardProfile = {
+type Profile = {
   user_id?: string;
-  email?: string;
-  name?: string;
-  role?: string;
-  user_role?: string;
-  app_role?: string;
-  is_superuser?: PermissionValue;
-  isSuperUser?: PermissionValue;
-  can_access_bank_in_cash?: PermissionValue;
-  can_access_management_tasks?: PermissionValue;
-  permissions?: Record<string, PermissionValue>;
+  email: string;
+  name: string;
+  role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+  can_access_fo_checklist?: boolean;
 };
 
-type CashEntry = {
+type Template = {
   id: string;
-  submission_id: string;
-  shift_title: string;
-  service_date: string;
-  submitted_by_name: string;
-  submitted_by_email: string;
-  person_name: string;
-  cash_amount: number;
-  excess_amount: number;
-  cash_bank_in_id: string | null;
-  excess_bank_in_id: string | null;
-  created_at: string;
-};
-
-type ManualCashEntry = {
-  id: string;
-  service_date: string;
-  description: string;
-  amount: number;
-  bank_in_id: string | null;
-  created_by_name: string;
-  created_by_email: string;
-  created_at: string;
-};
-
-type CashEntryAmendment = {
-  id: string;
-  cash_entry_id: string;
-  previous_amount: number;
-  new_amount: number;
-  reason: string;
-  amended_by_name: string;
-  amended_by_email: string;
-  amended_at: string;
-};
-
-type ExcessWithdrawal = {
-  id: string;
-  cash_entry_id: string;
-  invoice_date: string;
-  reason_for_excess: string;
-  error_staff_name: string;
-  withdrawn_amount: number;
-  withdrawn_by_name: string;
-  withdrawn_by_email: string;
-  withdrawn_at: string;
-};
-
-type BankInSource = {
-  id: string;
-  bank_in_id: string;
-  source_type: 'SHIFT_CASH' | 'MANUAL_CASH' | 'EXCESS' | 'SMALL_CHANGE';
-  source_id: string;
-  source_amount: number;
-};
-
-type DeletedBankInRecord = {
-  id: string;
-  bank_in_id: string;
-  bank_in_date: string;
-  bank_in_snapshot: BankInRecord;
-  deletion_reason: string;
-  deleted_by_name: string;
-  deleted_by_email: string;
-  deleted_at: string;
-};
-
-type DailyCashRow = {
-  id: string;
-  sourceType: 'SHIFT_CASH' | 'MANUAL_CASH';
-  service_date: string;
   title: string;
-  person_name: string;
-  amount: number;
-  bank_in_id: string | null;
-  cashEntry?: CashEntry;
+  is_active: boolean;
+  created_by_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-type SmallChangeEntry = {
+type Question = {
   id: string;
-  source_bank_in_id: string;
-  bank_in_date: string;
-  amount: number;
-  consumed_by_bank_in_id: string | null;
-  created_at: string;
+  template_id: string;
+  question_text: string;
+  question_description?: string | null;
+  answer_mode: 'YES_NO' | 'SHORT_TEXT';
+  sort_order: number;
+  is_required: boolean;
 };
 
-type BankInRecord = {
+type Submission = {
   id: string;
-  bank_in_date: string;
-  source_mode: SourceMode;
-  selected_total: number;
-  banked_amount: number;
-  balance_to_small_change: number;
-  receipt_paths: unknown;
-  created_by_name: string;
-  created_by_email: string;
-  created_at: string;
-  reversed_at: string | null;
-  reversed_by_name: string | null;
-  reversal_reason: string | null;
+  template_id: string;
+  submission_date: string;
+  submitted_by_user_id?: string | null;
+  submitted_by_name?: string | null;
+  submitted_by_email?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-type DailyGroup = {
-  date: string;
-  rows: DailyCashRow[];
-  declared: number;
-  available: number;
-  availableIds: string[];
-  bankedCount: number;
+type AnswerRow = {
+  id?: string;
+  submission_id?: string;
+  question_id: string;
+  answer_yes_no: boolean | null;
+  answer_text: string | null;
+  remark_text?: string | null;
 };
 
-const money = new Intl.NumberFormat('en-MY', {
-  style: 'currency',
-  currency: 'MYR',
-  minimumFractionDigits: 2,
-});
+type DraftQuestion = {
+  existingId?: string;
+  question_text: string;
+  question_description: string;
+  answer_mode: 'YES_NO' | 'SHORT_TEXT';
+  is_required: boolean;
+};
 
-function singaporeDate() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Singapore',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
+type CashRowDraft = {
+  id?: string;
+  personName: string;
+  hasCash: boolean;
+  cashAmount: string;
+  excessAmount: string;
+  cashBankInId?: string | null;
+  excessBankInId?: string | null;
+};
+
+function emptyCashRow(): CashRowDraft {
+  return {
+    personName: '',
+    hasCash: false,
+    cashAmount: '',
+    excessAmount: '',
+    cashBankInId: null,
+    excessBankInId: null,
+  };
 }
 
-function normalizeRole(value: unknown) {
-  return String(value ?? '')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
+type ViewMode = 'LIST' | 'FORM' | 'HISTORY' | 'VIEW_SUBMISSION';
+
+function getTodayLocalDateString() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function isPermissionEnabled(value: unknown) {
-  if (value === true || value === 1) return true;
-  const normalized = String(value ?? '').trim().toLowerCase();
-  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'allowed';
-}
-
-function formatDate(value: string) {
-  if (!value) return '-';
-  const date = new Date(`${value.slice(0, 10)}T00:00:00+08:00`);
-  return new Intl.DateTimeFormat('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Singapore',
-  }).format(date);
-}
-
-function formatDateTime(value: string) {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Singapore',
-  }).format(new Date(value));
-}
-
-function sourceModeLabel(value: SourceMode) {
-  if (value === 'SMALL_CHANGE') return 'BALANCE NOT BANKED IN';
-  return value;
-}
-
-function monthStartTwelveMonthsAgo() {
-  const date = new Date();
-  date.setMonth(date.getMonth() - 11, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
-}
-
-function normaliseReceiptPaths(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-  if (typeof value !== 'string') return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
-  } catch {
-    return [];
+function getFoChecklistServiceDateString() {
+  const d = new Date();
+  if (d.getHours() < 12) {
+    d.setDate(d.getDate() - 1);
   }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-async function compressReceipt(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) throw new Error(`${file.name} is not an image.`);
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const nextImage = new Image();
-      nextImage.onload = () => resolve(nextImage);
-      nextImage.onerror = () => reject(new Error(`Unable to read ${file.name}.`));
-      nextImage.src = objectUrl;
-    });
-
-    const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
-    const scale = longestSide > 1800 ? 1800 / longestSide : 1;
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Image compression is unavailable on this device.');
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error(`Unable to compress ${file.name}.`))),
-        'image/jpeg',
-        0.82,
-      );
-    });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+function formatDate(value?: string | null) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString();
 }
 
-export default function BankInCashPage() {
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
-  const [profile, setProfile] = useState<DashboardProfile | null>(null);
+function formatDateTime(value?: string | null) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString();
+}
+
+function getTemplateSortOrder(title: string) {
+  const normalized = String(title || '').trim().toLowerCase();
+  if (normalized === 'morning shift') return 1;
+  if (normalized === 'afternoon shift') return 2;
+  if (normalized === 'night shift') return 3;
+  return 100;
+}
+
+function sortTemplates(templateList: Template[]) {
+  return [...templateList].sort((a, b) => {
+    const orderDiff = getTemplateSortOrder(a.title) - getTemplateSortOrder(b.title);
+    if (orderDiff !== 0) return orderDiff;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+function getSupabaseSafe() {
+  if (typeof window === 'undefined') return null;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) return null;
+  return createBrowserSupabaseClient();
+}
+
+export default function FoChecklistPage() {
+  const supabase = useMemo(() => getSupabaseSafe(), []);
+  const today = getFoChecklistServiceDateString();
+
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [dataLoading, setDataLoading] = useState(false);
-  const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
-  const [manualEntries, setManualEntries] = useState<ManualCashEntry[]>([]);
-  const [amendments, setAmendments] = useState<CashEntryAmendment[]>([]);
-  const [excessWithdrawals, setExcessWithdrawals] = useState<ExcessWithdrawal[]>([]);
-  const [bankInSources, setBankInSources] = useState<BankInSource[]>([]);
-  const [deletedBankIns, setDeletedBankIns] = useState<DeletedBankInRecord[]>([]);
-  const [smallChange, setSmallChange] = useState<SmallChangeEntry[]>([]);
-  const [bankIns, setBankIns] = useState<BankInRecord[]>([]);
-  const [tab, setTab] = useState<PageTab>('daily');
-  const [month, setMonth] = useState(singaporeDate().slice(0, 7));
-  const [selectedDailyIds, setSelectedDailyIds] = useState<string[]>([]);
-  const [selectedExcessIds, setSelectedExcessIds] = useState<string[]>([]);
-  const [selectedBalanceIds, setSelectedBalanceIds] = useState<string[]>([]);
-  const [bankedAmount, setBankedAmount] = useState('');
-  const [bankInDate, setBankInDate] = useState(singaporeDate());
-  const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [authError, setAuthError] = useState('');
-  const [reverseTarget, setReverseTarget] = useState<BankInRecord | null>(null);
-  const [reverseReason, setReverseReason] = useState('');
-  const [reversing, setReversing] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<BankInRecord | null>(null);
-  const [deleteReason, setDeleteReason] = useState('');
-  const [deleting, setDeleting] = useState(false);
-  const [manualDate, setManualDate] = useState(singaporeDate());
-  const [manualDescription, setManualDescription] = useState('');
-  const [manualAmount, setManualAmount] = useState('');
-  const [addingManual, setAddingManual] = useState(false);
-  const [manualPanelOpen, setManualPanelOpen] = useState(false);
-  const [amendTarget, setAmendTarget] = useState<CashEntry | null>(null);
-  const [amendAmount, setAmendAmount] = useState('');
-  const [amendReason, setAmendReason] = useState('');
-  const [amending, setAmending] = useState(false);
-  const [withdrawTarget, setWithdrawTarget] = useState<CashEntry | null>(null);
-  const [withdrawInvoiceDate, setWithdrawInvoiceDate] = useState(singaporeDate());
-  const [withdrawReason, setWithdrawReason] = useState('');
-  const [withdrawStaffName, setWithdrawStaffName] = useState('');
-  const [withdrawingExcess, setWithdrawingExcess] = useState(false);
-  const [sourcePicker, setSourcePicker] = useState<SourcePicker | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [viewportWidth, setViewportWidth] = useState(1200);
 
-  const role = normalizeRole(profile?.role || profile?.user_role || profile?.app_role);
-  const isSuperuser =
-    role === 'SUPERUSER' ||
-    role.includes('SUPERUSER') ||
-    isPermissionEnabled(profile?.is_superuser) ||
-    isPermissionEnabled(profile?.isSuperUser);
-  const hasAccess =
-    isSuperuser ||
-    isPermissionEnabled(profile?.can_access_bank_in_cash) ||
-    isPermissionEnabled(profile?.permissions?.can_access_bank_in_cash);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [todaySubmission, setTodaySubmission] = useState<Submission | null>(null);
+  const [todaySubmissionsByTemplateId, setTodaySubmissionsByTemplateId] = useState<Record<string, Submission>>({});
+  const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
+  const [cashRows, setCashRows] = useState<CashRowDraft[]>([emptyCashRow()]);
+  const [remarkOpenByQuestionId, setRemarkOpenByQuestionId] = useState<Record<string, boolean>>({});
+  const [pastSubmissions, setPastSubmissions] = useState<Submission[]>([]);
+  const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
+  const [viewingAnswers, setViewingAnswers] = useState<Record<string, AnswerRow>>({});
 
-  const loadData = useCallback(async () => {
-    setDataLoading(true);
-    setError('');
-    const retentionStart = monthStartTwelveMonthsAgo();
-    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, withdrawalResult, sourceResult, deletionResult] = await Promise.all([
-      supabase
-        .from('fo_checklist_cash_entries')
-        .select('*')
-        .gte('service_date', retentionStart)
-        .order('service_date', { ascending: false })
-        .order('line_number', { ascending: true }),
-      supabase
-        .from('cash_manual_entries')
-        .select('*')
-        .gte('service_date', retentionStart)
-        .order('service_date', { ascending: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('cash_small_change')
-        .select('*')
-        .gte('bank_in_date', retentionStart)
-        .order('bank_in_date', { ascending: false }),
-      supabase
-        .from('cash_bank_ins')
-        .select('*')
-        .gte('bank_in_date', retentionStart)
-        .order('bank_in_date', { ascending: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('cash_entry_amendments')
-        .select('*')
-        .gte('amended_at', retentionStart)
-        .order('amended_at', { ascending: false }),
-      supabase
-        .from('cash_excess_withdrawals')
-        .select('*')
-        .gte('withdrawn_at', retentionStart)
-        .order('withdrawn_at', { ascending: false }),
-      supabase
-        .from('cash_bank_in_sources')
-        .select('*'),
-      supabase
-        .from('cash_bank_in_deletions')
-        .select('*')
-        .gte('deleted_at', retentionStart)
-        .order('deleted_at', { ascending: false }),
-    ]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('LIST');
 
-    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || withdrawalResult.error || sourceResult.error || deletionResult.error;
-    if (firstError) {
-      setError(firstError.message);
-    } else {
-      setCashEntries((cashResult.data || []) as CashEntry[]);
-      setManualEntries((manualResult.data || []) as ManualCashEntry[]);
-      setSmallChange((smallChangeResult.data || []) as SmallChangeEntry[]);
-      setBankIns((bankInResult.data || []) as BankInRecord[]);
-      setAmendments((amendmentResult.data || []) as CashEntryAmendment[]);
-      setExcessWithdrawals((withdrawalResult.data || []) as ExcessWithdrawal[]);
-      setBankInSources((sourceResult.data || []) as BankInSource[]);
-      setDeletedBankIns((deletionResult.data || []) as DeletedBankInRecord[]);
-    }
-    setDataLoading(false);
-  }, [supabase]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templateModalMode, setTemplateModalMode] = useState<'CREATE' | 'EDIT'>('CREATE');
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [savingAnswers, setSavingAnswers] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftQuestions, setDraftQuestions] = useState<DraftQuestion[]>([
+    { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
+  ]);
+
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const isSuper = profile?.role === 'SUPERUSER';
+  const normalizedEmail = String(profile?.email || '').toLowerCase();
+  const isNamedFoChecklistUser =
+    normalizedEmail === 'walter@hotelhallmark.com' ||
+    normalizedEmail === 'fenny@hotelhallmark.com';
+  const canAccess =
+    !!profile &&
+    (
+      isSuper ||
+      ((profile.role === 'FO' || isNamedFoChecklistUser) && profile.can_access_fo_checklist === true)
+    );
+  const isMobile = viewportWidth <= 640;
+  const isTablet = viewportWidth > 640 && viewportWidth <= 980;
+
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === selectedTemplateId) || null,
+    [templates, selectedTemplateId]
+  );
+
+  const selectedQuestions = useMemo(
+    () =>
+      questions
+        .filter((question) => question.template_id === selectedTemplateId)
+        .sort((a, b) => a.sort_order - b.sort_order),
+    [questions, selectedTemplateId]
+  );
+
+  const templateTitleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    templates.forEach((template) => map.set(template.id, template.title));
+    return map;
+  }, [templates]);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
+    let mounted = true;
+
+    async function bootstrap() {
       try {
-        if (active) setAuthError('');
+        if (!supabase) throw new Error('Supabase is not configured.');
+
         const {
           data: { session },
           error: sessionError,
         } = await supabase.auth.getSession();
-        if (sessionError || !session?.access_token) {
-          throw new Error('Your dashboard session has expired. Please sign in again.');
+
+        if (sessionError) throw sessionError;
+
+        if (!session?.user) {
+          if (!mounted) return;
+          setProfile(null);
+          return;
         }
-        const response = await fetch(`/api/session-profile?t=${Date.now()}`, {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
+
+        const { data: profileRow, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('user_id, email, name, role, can_access_fo_checklist')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+        if (!mounted) return;
+
+        setProfile({
+          user_id: session.user.id,
+          email: profileRow?.email || session.user.email || '',
+          name: profileRow?.name || session.user.email || 'User',
+          role: (profileRow?.role || 'FO') as Profile['role'],
+          can_access_fo_checklist: profileRow?.can_access_fo_checklist ?? false,
         });
-        const payload = await response.json();
-        const sessionProfile = payload?.user || payload?.profile || payload?.data?.user;
-        if (!response.ok || !sessionProfile) throw new Error(payload?.error || 'Unable to verify access.');
-        if (active) setProfile(sessionProfile as DashboardProfile);
-      } catch (nextError: any) {
-        if (active) setAuthError(nextError?.message || 'Unable to verify access.');
+      } catch (err: any) {
+        if (!mounted) return;
+        setErrorMsg(err?.message || 'Failed to load session');
       } finally {
-        if (active) setAuthLoading(false);
+        if (mounted) setAuthLoading(false);
       }
-    })();
+    }
+
+    void bootstrap();
     return () => {
-      active = false;
+      mounted = false;
     };
   }, [supabase]);
 
   useEffect(() => {
-    if (!authLoading && hasAccess) void loadData();
-  }, [authLoading, hasAccess, loadData]);
+    if (typeof window === 'undefined') return;
+
+    function handleResize() {
+      setViewportWidth(window.innerWidth);
+    }
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
-    setSelectedDailyIds([]);
-    setSelectedExcessIds([]);
-    setSelectedBalanceIds([]);
-    setBankedAmount('');
-    setReceiptFiles([]);
-    setMessage('');
-    setError('');
-    setSourcePicker(null);
-  }, [month]);
-
-  useEffect(() => {
-    setMessage('');
-    setError('');
-    setSourcePicker(null);
-  }, [tab]);
-
-  const dailyCashRows = useMemo<DailyCashRow[]>(
-    () => [
-      ...cashEntries.map((entry) => ({
-        id: entry.id,
-        sourceType: 'SHIFT_CASH' as const,
-        service_date: entry.service_date,
-        title: entry.shift_title,
-        person_name: entry.person_name,
-        amount: Number(entry.cash_amount || 0),
-        bank_in_id: entry.cash_bank_in_id,
-        cashEntry: entry,
-      })),
-      ...manualEntries.map((entry) => ({
-        id: entry.id,
-        sourceType: 'MANUAL_CASH' as const,
-        service_date: entry.service_date,
-        title: 'Manual Cash',
-        person_name: entry.description,
-        amount: Number(entry.amount || 0),
-        bank_in_id: entry.bank_in_id,
-      })),
-    ],
-    [cashEntries, manualEntries],
-  );
-
-  const filteredDailyCash = useMemo(
-    () => dailyCashRows.filter((entry) => entry.service_date.slice(0, 7) === month),
-    [dailyCashRows, month],
-  );
-
-  const dailyGroups = useMemo<DailyGroup[]>(() => {
-    const grouped = new Map<string, DailyCashRow[]>();
-    filteredDailyCash.forEach((entry) => {
-      const current = grouped.get(entry.service_date) || [];
-      current.push(entry);
-      grouped.set(entry.service_date, current);
-    });
-    return Array.from(grouped.entries())
-      .map(([date, rows]) => {
-        const positiveRows = rows.filter((row) => row.amount > 0);
-        const availableRows = positiveRows.filter((row) => !row.bank_in_id);
-        return {
-          date,
-          rows,
-          declared: positiveRows.reduce((sum, row) => sum + row.amount, 0),
-          available: availableRows.reduce((sum, row) => sum + row.amount, 0),
-          availableIds: availableRows.map((row) => row.id),
-          bankedCount: positiveRows.filter((row) => !!row.bank_in_id).length,
-        };
-      })
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [filteredDailyCash]);
-
-  const excessRows = useMemo(
-    () =>
-      cashEntries
-        .filter((entry) => entry.service_date.slice(0, 7) === month)
-        .filter((entry) => Number(entry.excess_amount) > 0)
-        .sort((a, b) => b.service_date.localeCompare(a.service_date)),
-    [cashEntries, month],
-  );
-
-  const excessWithdrawalByEntryId = useMemo(
-    () => new Map(excessWithdrawals.map((withdrawal) => [withdrawal.cash_entry_id, withdrawal])),
-    [excessWithdrawals],
-  );
-
-  const filteredSmallChange = useMemo(
-    () => smallChange.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
-    [smallChange, month],
-  );
-
-  const filteredBankIns = useMemo(
-    () => bankIns.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
-    [bankIns, month],
-  );
-
-  const filteredAmendments = useMemo(
-    () =>
-      amendments.filter((amendment) => {
-        const entry = cashEntries.find((cashEntry) => cashEntry.id === amendment.cash_entry_id);
-        return entry?.service_date.slice(0, 7) === month;
-      }),
-    [amendments, cashEntries, month],
-  );
-
-  const filteredDeletedBankIns = useMemo(
-    () => deletedBankIns.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
-    [deletedBankIns, month],
-  );
-
-  const selectedDailyRows = useMemo(
-    () => dailyCashRows.filter((entry) => selectedDailyIds.includes(entry.id) && !entry.bank_in_id && entry.amount > 0),
-    [dailyCashRows, selectedDailyIds],
-  );
-
-  const selectedExcessRows = useMemo(
-    () =>
-      cashEntries.filter(
-        (entry) =>
-          selectedExcessIds.includes(entry.id) &&
-          !entry.excess_bank_in_id &&
-          !excessWithdrawalByEntryId.has(entry.id) &&
-          Number(entry.excess_amount) > 0,
-      ),
-    [cashEntries, excessWithdrawalByEntryId, selectedExcessIds],
-  );
-
-  const selectedBalanceRows = useMemo(
-    () =>
-      smallChange.filter(
-        (entry) =>
-          selectedBalanceIds.includes(entry.id) &&
-          !entry.consumed_by_bank_in_id &&
-          Number(entry.amount) > 0,
-      ),
-    [selectedBalanceIds, smallChange],
-  );
-
-  const selectedTotal = useMemo(
-    () =>
-      selectedDailyRows.reduce((sum, entry) => sum + entry.amount, 0) +
-      selectedExcessRows.reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0) +
-      selectedBalanceRows.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
-    [selectedBalanceRows, selectedDailyRows, selectedExcessRows],
-  );
-
-  useEffect(() => {
-    setBankedAmount(selectedTotal > 0 ? selectedTotal.toFixed(2) : '');
-  }, [selectedTotal]);
-
-  const cashOnHand = useMemo(() => {
-    const daily = cashEntries
-      .filter((entry) => !entry.cash_bank_in_id)
-      .reduce((sum, entry) => sum + Number(entry.cash_amount || 0), 0);
-    const manual = manualEntries
-      .filter((entry) => !entry.bank_in_id)
-      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    const change = smallChange
-      .filter((entry) => !entry.consumed_by_bank_in_id)
-      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    return daily + manual + change;
-  }, [cashEntries, manualEntries, smallChange]);
-
-  const totalExcessCash = useMemo(
-    () =>
-      cashEntries
-        .filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id))
-        .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0),
-    [cashEntries, excessWithdrawalByEntryId],
-  );
-
-  const availableExcessRows = useMemo(
-    () => excessRows.filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id)),
-    [excessRows, excessWithdrawalByEntryId],
-  );
-
-  const availableBalanceRows = useMemo(
-    () => filteredSmallChange.filter((entry) => !entry.consumed_by_bank_in_id),
-    [filteredSmallChange],
-  );
-
-  const selectedSourceCount =
-    selectedDailyRows.length + selectedExcessRows.length + selectedBalanceRows.length;
-
-  const monthBanked = useMemo(
-    () =>
-      filteredBankIns
-        .filter((entry) => !entry.reversed_at)
-        .reduce((sum, entry) => sum + Number(entry.banked_amount || 0), 0),
-    [filteredBankIns],
-  );
-
-  const toggleIds = (ids: string[], checked: boolean, source: 'daily' | 'excess' | 'balance') => {
-    const updateSelection = (current: string[]) => {
-      const next = new Set(current);
-      ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
-      return Array.from(next);
-    };
-    if (source === 'daily') setSelectedDailyIds(updateSelection);
-    else if (source === 'excess') setSelectedExcessIds(updateSelection);
-    else setSelectedBalanceIds(updateSelection);
-  };
-
-  const handleReceipts = (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    setReceiptFiles(files);
-    event.target.value = '';
-  };
-
-  const addManualCash = async () => {
-    const amount = Number(manualAmount);
-    setError('');
-    setMessage('');
-    if (!manualDate) return setError('Choose the date the cash was received.');
-    if (!manualDescription.trim()) return setError('Describe the missing Front Office declaration.');
-    if (!Number.isFinite(amount) || amount <= 0) return setError('Manual cash amount must be more than zero.');
-
-    setAddingManual(true);
-    const { error: addError } = await supabase.rpc('add_manual_cash_entry', {
-      p_service_date: manualDate,
-      p_description: manualDescription.trim(),
-      p_amount: amount,
-    });
-    if (addError) {
-      setError(addError.message);
-    } else {
-      setMessage(`${money.format(amount)} added to the daily cash ledger.`);
-      setManualDescription('');
-      setManualAmount('');
-      setManualPanelOpen(false);
-      setMonth(manualDate.slice(0, 7));
-      await loadData();
-    }
-    setAddingManual(false);
-  };
-
-  const openAmendment = (entry: CashEntry) => {
-    setAmendTarget(entry);
-    setAmendAmount(Number(entry.cash_amount).toFixed(2));
-    setAmendReason('');
-    setError('');
-  };
-
-  const amendFoCash = async () => {
-    if (!amendTarget) return;
-    const amount = Number(amendAmount);
-    if (!Number.isFinite(amount) || amount < 0) return setError('New cash amount cannot be negative.');
-    if (!amendReason.trim()) return setError('Enter a reason for the amendment.');
-
-    setAmending(true);
-    setError('');
-    const { error: amendError } = await supabase.rpc('amend_fo_cash_entry', {
-      p_cash_entry_id: amendTarget.id,
-      p_new_amount: amount,
-      p_reason: amendReason.trim(),
-    });
-    if (amendError) {
-      setError(amendError.message);
-    } else {
-      setMessage(
-        `${amendTarget.person_name}'s FO cash was amended from ${money.format(Number(amendTarget.cash_amount))} to ${money.format(amount)}.`,
-      );
-      setAmendTarget(null);
-      setAmendAmount('');
-      setAmendReason('');
-      await loadData();
-    }
-    setAmending(false);
-  };
-
-  const openExcessWithdrawal = (entry: CashEntry) => {
-    setWithdrawTarget(entry);
-    setWithdrawInvoiceDate(singaporeDate());
-    setWithdrawReason('');
-    setWithdrawStaffName('');
-    setError('');
-  };
-
-  const withdrawExcessCash = async () => {
-    if (!withdrawTarget) return;
-    if (!withdrawInvoiceDate) return setError('Invoice date is required.');
-    if (!withdrawReason.trim()) return setError('Enter the reason for the excess cash.');
-    if (!withdrawStaffName.trim()) return setError('Enter the name of the staff member who made the error.');
-
-    setWithdrawingExcess(true);
-    setError('');
-    setMessage('');
-    const { error: withdrawError } = await supabase.rpc('withdraw_excess_cash', {
-      p_cash_entry_id: withdrawTarget.id,
-      p_invoice_date: withdrawInvoiceDate,
-      p_reason_for_excess: withdrawReason.trim(),
-      p_error_staff_name: withdrawStaffName.trim(),
-    });
-
-    if (withdrawError) {
-      setError(withdrawError.message);
-    } else {
-      setSelectedExcessIds((current) => current.filter((id) => id !== withdrawTarget.id));
-      setMessage(`${money.format(Number(withdrawTarget.excess_amount))} withdrawn from available Excess Cash.`);
-      setWithdrawTarget(null);
-      setWithdrawReason('');
-      setWithdrawStaffName('');
-      await loadData();
-    }
-    setWithdrawingExcess(false);
-  };
-
-  const submitBankIn = async () => {
-    setError('');
-    setMessage('');
-    const amount = Number(bankedAmount);
-    if (!selectedSourceCount || selectedTotal <= 0) return setError('Select at least one available cash source.');
-    if (!Number.isFinite(amount) || amount <= 0 || amount > selectedTotal) {
-      return setError(`Banked amount must be between RM0.01 and ${money.format(selectedTotal)}.`);
-    }
-    if (!bankInDate) return setError('Choose the bank-in date.');
-    if (!receiptFiles.length) return setError('At least one clear bank-in receipt photo is required.');
-
-    setSubmitting(true);
-    const uploadedPaths: string[] = [];
-    try {
-      for (const file of receiptFiles) {
-        const compressed = await compressReceipt(file);
-        const path = `${bankInDate}/${crypto.randomUUID()}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from('bank-in-receipts')
-          .upload(path, compressed, { contentType: 'image/jpeg', upsert: false });
-        if (uploadError) throw uploadError;
-        uploadedPaths.push(path);
-      }
-
-      const { error: rpcError } = await supabase.rpc('create_cash_bank_in', {
-        p_daily_source_ids: selectedDailyRows.map((entry) => entry.id),
-        p_excess_source_ids: selectedExcessRows.map((entry) => entry.id),
-        p_balance_source_ids: selectedBalanceRows.map((entry) => entry.id),
-        p_banked_amount: amount,
-        p_bank_in_date: bankInDate,
-        p_receipt_paths: uploadedPaths,
-      });
-      if (rpcError) throw rpcError;
-
-      const remainder = Math.max(0, selectedTotal - amount);
-      setMessage(
-        remainder > 0
-          ? `${money.format(amount)} recorded. ${money.format(remainder)} moved to Balance Not Banked In.`
-          : `${money.format(amount)} bank-in recorded successfully.`,
-      );
-      setSelectedDailyIds([]);
-      setSelectedExcessIds([]);
-      setSelectedBalanceIds([]);
-      setReceiptFiles([]);
-      setBankedAmount('');
-      await loadData();
-    } catch (nextError: any) {
-      if (uploadedPaths.length) await supabase.storage.from('bank-in-receipts').remove(uploadedPaths);
-      setError(nextError?.message || 'Unable to save bank-in.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const viewReceipt = async (path: string) => {
-    const popup = window.open('', '_blank');
-    const { data, error: signedError } = await supabase.storage
-      .from('bank-in-receipts')
-      .createSignedUrl(path, 120);
-    if (signedError || !data?.signedUrl) {
-      popup?.close();
-      setError(signedError?.message || 'Unable to open receipt.');
+    if (!profile || !canAccess) {
+      setLoading(false);
       return;
     }
-    if (popup) popup.location.href = data.signedUrl;
-    else window.location.href = data.signedUrl;
-  };
+    void loadTemplatesAndQuestions();
+  }, [profile, canAccess]);
 
-  const reverseBankIn = async () => {
-    if (!reverseTarget || !reverseReason.trim()) return setError('Enter a reversal reason.');
-    setReversing(true);
-    setError('');
-    const { error: reverseError } = await supabase.rpc('reverse_cash_bank_in', {
-      p_bank_in_id: reverseTarget.id,
-      p_reason: reverseReason.trim(),
-    });
-    if (reverseError) {
-      setError(reverseError.message);
-    } else {
-      setMessage(`${money.format(Number(reverseTarget.banked_amount))} bank-in reversed.`);
-      setReverseTarget(null);
-      setReverseReason('');
-      await loadData();
-    }
-    setReversing(false);
-  };
+  useEffect(() => {
+    if (!selectedTemplateId || !profile?.user_id) return;
+    void loadTemplateSubmissionState(selectedTemplateId);
+  }, [selectedTemplateId, profile?.user_id]);
 
-  const deleteBankIn = async () => {
-    if (!deleteTarget || !deleteReason.trim()) return setError('Enter a deletion reason.');
-    if (!deleteTarget.reversed_at) return setError('Reverse this bank-in before deleting it.');
+  async function loadTemplatesAndQuestions() {
+    if (!supabase) return;
 
-    setDeleting(true);
-    setError('');
-    const receiptPaths = normaliseReceiptPaths(deleteTarget.receipt_paths);
-    const { error: deleteError } = await supabase.rpc('delete_cash_bank_in', {
-      p_bank_in_id: deleteTarget.id,
-      p_reason: deleteReason.trim(),
-    });
+    try {
+      setLoading(true);
+      setErrorMsg('');
 
-    if (deleteError) {
-      setError(deleteError.message);
-    } else {
-      let receiptWarning = '';
-      if (receiptPaths.length) {
-        const { error: receiptDeleteError } = await supabase.storage
-          .from('bank-in-receipts')
-          .remove(receiptPaths);
-        if (receiptDeleteError) receiptWarning = ` Receipt cleanup warning: ${receiptDeleteError.message}`;
+      try {
+        await supabase.rpc('cleanup_fo_checklist_history');
+      } catch {
+        // The cleanup RPC exists after the FO checklist SQL is installed.
       }
-      setMessage(`Deleted bank-in ${deleteTarget.id.slice(0, 8).toUpperCase()}.${receiptWarning}`);
-      setDeleteTarget(null);
-      setDeleteReason('');
-      await loadData();
-    }
-    setDeleting(false);
-  };
 
-  if (authLoading) {
-    return <main className="cash-page"><div className="state-card">Checking cash access...</div><Styles /></main>;
+      const [templateRes, questionRes, todaySubmissionRes] = await Promise.all([
+        supabase
+          .from('fo_checklist_templates')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('fo_checklist_questions')
+          .select('*')
+          .order('sort_order', { ascending: true }),
+        supabase
+          .from('fo_checklist_submissions')
+          .select('*')
+          .eq('submission_date', today),
+      ]);
+
+      if (templateRes.error) throw templateRes.error;
+      if (questionRes.error) throw questionRes.error;
+      if (todaySubmissionRes.error) throw todaySubmissionRes.error;
+
+      const nextTemplates = sortTemplates((templateRes.data || []) as Template[]);
+      const nextQuestions = (questionRes.data || []) as Question[];
+      const nextTodaySubmissionsByTemplateId: Record<string, Submission> = {};
+      ((todaySubmissionRes.data || []) as Submission[]).forEach((submission) => {
+        nextTodaySubmissionsByTemplateId[submission.template_id] = submission;
+      });
+
+      setTemplates(nextTemplates);
+      setQuestions(nextQuestions);
+      setTodaySubmissionsByTemplateId(nextTodaySubmissionsByTemplateId);
+
+      if (!selectedTemplateId && nextTemplates.length > 0) {
+        setSelectedTemplateId(nextTemplates[0].id);
+      } else if (
+        selectedTemplateId &&
+        !nextTemplates.find((template) => template.id === selectedTemplateId)
+      ) {
+        setSelectedTemplateId(nextTemplates[0]?.id || null);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to load FO checklists');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  if (authError) {
+  async function loadTemplateSubmissionState(templateId: string) {
+    if (!supabase || !profile?.user_id) return;
+
+    try {
+      setLoading(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const startDate = (() => {
+        const d = new Date(`${today}T00:00:00`);
+        d.setDate(d.getDate() - 29);
+        return d.toISOString().slice(0, 10);
+      })();
+
+      const [submissionRes, pastRes] = await Promise.all([
+        supabase
+          .from('fo_checklist_submissions')
+          .select('*')
+          .eq('template_id', templateId)
+          .eq('submission_date', today)
+          .maybeSingle(),
+        supabase
+          .from('fo_checklist_submissions')
+          .select('*')
+          .gte('submission_date', startDate)
+          .order('submission_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (submissionRes.error) throw submissionRes.error;
+      if (pastRes.error) throw pastRes.error;
+
+      const currentSubmission = submissionRes.data as Submission | null;
+      setTodaySubmission(currentSubmission);
+      setTodaySubmissionsByTemplateId((current) => {
+        const next = { ...current };
+        if (currentSubmission) next[templateId] = currentSubmission;
+        else delete next[templateId];
+        return next;
+      });
+      setPastSubmissions((pastRes.data || []) as Submission[]);
+
+      if (currentSubmission) {
+        const [answerResult, cashResult] = await Promise.all([
+          supabase
+            .from('fo_checklist_answers')
+            .select('*')
+            .eq('submission_id', currentSubmission.id),
+          supabase
+            .from('fo_checklist_cash_entries')
+            .select('*')
+            .eq('submission_id', currentSubmission.id)
+            .order('line_number', { ascending: true }),
+        ]);
+
+        if (answerResult.error) throw answerResult.error;
+        if (cashResult.error) throw cashResult.error;
+
+        const nextAnswers: Record<string, AnswerRow> = {};
+        const nextRemarkOpenByQuestionId: Record<string, boolean> = {};
+        (answerResult.data || []).forEach((row: any) => {
+          nextAnswers[row.question_id] = {
+            id: row.id,
+            submission_id: row.submission_id,
+            question_id: row.question_id,
+            answer_yes_no: row.answer_yes_no,
+            answer_text: row.answer_text,
+            remark_text: row.remark_text,
+          };
+          if (row.remark_text) {
+            nextRemarkOpenByQuestionId[row.question_id] = true;
+          }
+        });
+        setAnswers(nextAnswers);
+        setRemarkOpenByQuestionId(nextRemarkOpenByQuestionId);
+
+        const savedCashRows = cashResult.data || [];
+        setCashRows(
+          savedCashRows.length > 0
+            ? savedCashRows.map((row: any) => ({
+                id: row.id,
+                personName: String(row.person_name || ''),
+                hasCash: Boolean(row.has_cash),
+                cashAmount: Number(row.cash_amount || 0) > 0 ? String(row.cash_amount) : '',
+                excessAmount: Number(row.excess_amount || 0) > 0 ? String(row.excess_amount) : '',
+                cashBankInId: row.cash_bank_in_id || null,
+                excessBankInId: row.excess_bank_in_id || null,
+              }))
+            : [emptyCashRow()],
+        );
+      } else {
+        setAnswers({});
+        setRemarkOpenByQuestionId({});
+        setCashRows([emptyCashRow()]);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to load submission state');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openCreateModal() {
+    setTemplateModalMode('CREATE');
+    setDraftTitle('');
+    setDraftQuestions([
+      { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
+    ]);
+    setShowTemplateModal(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+  }
+
+  function openEditModal() {
+    if (!selectedTemplate) return;
+
+    setTemplateModalMode('EDIT');
+    setDraftTitle(selectedTemplate.title);
+    setDraftQuestions(
+      selectedQuestions.map((question) => ({
+        existingId: question.id,
+        question_text: question.question_text,
+        question_description: question.question_description || '',
+        answer_mode: question.answer_mode,
+        is_required: question.is_required ?? false,
+      }))
+    );
+    setShowTemplateModal(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+  }
+
+  function closeTemplateModal() {
+    if (templateSaving) return;
+    setShowTemplateModal(false);
+  }
+
+  function updateDraftQuestion(index: number, field: keyof DraftQuestion, value: string | boolean) {
+    setDraftQuestions((prev) =>
+      prev.map((question, i) =>
+        i === index ? { ...question, [field]: value } as DraftQuestion : question
+      )
+    );
+  }
+
+  function addDraftQuestion() {
+    setDraftQuestions((prev) => [
+      ...prev,
+      { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
+    ]);
+  }
+
+  function removeDraftQuestion(index: number) {
+    setDraftQuestions((prev) => {
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function moveDraftQuestion(index: number, direction: 'UP' | 'DOWN') {
+    setDraftQuestions((prev) => {
+      const nextIndex = direction === 'UP' ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+
+      const next = [...prev];
+      const current = next[index];
+      next[index] = next[nextIndex];
+      next[nextIndex] = current;
+      return next;
+    });
+  }
+
+  async function handleSaveTemplate() {
+    if (!supabase || !profile?.user_id) return;
+
+    const title = draftTitle.trim();
+    if (!title) {
+      setErrorMsg('Please enter a Checklist Title.');
+      return;
+    }
+
+    const cleanedQuestions = draftQuestions
+      .map((question) => ({
+        ...question,
+        question_text: question.question_text.trim(),
+        question_description: question.question_description.trim(),
+        is_required: question.is_required ?? false,
+      }))
+      .filter((question) => question.question_text);
+
+    if (cleanedQuestions.length === 0) {
+      setErrorMsg('Please add at least one question.');
+      return;
+    }
+
+    try {
+      setTemplateSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      if (templateModalMode === 'CREATE') {
+        const { data: template, error: templateError } = await supabase
+          .from('fo_checklist_templates')
+          .insert([
+            {
+              title,
+              is_active: true,
+              created_by_user_id: profile.user_id,
+              created_by_name: profile.name || profile.email,
+            },
+          ])
+          .select('*')
+          .single();
+
+        if (templateError) throw templateError;
+
+        const questionRows = cleanedQuestions.map((question, index) => ({
+          template_id: template.id,
+          question_text: question.question_text,
+          question_description: question.question_description || null,
+          answer_mode: question.answer_mode,
+          is_required: question.is_required,
+          sort_order: index,
+        }));
+
+        const { error: questionError } = await supabase
+          .from('fo_checklist_questions')
+          .insert(questionRows);
+
+        if (questionError) throw questionError;
+
+        setSelectedTemplateId(template.id);
+        setSuccessMsg('List created successfully.');
+      } else {
+        if (!selectedTemplate) throw new Error('No list selected.');
+
+        const { error: templateError } = await supabase
+          .from('fo_checklist_templates')
+          .update({
+            title,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', selectedTemplate.id);
+
+        if (templateError) throw templateError;
+
+        const keptExistingQuestionIds = new Set(
+          cleanedQuestions
+            .map((question) => question.existingId)
+            .filter(Boolean) as string[]
+        );
+        const removedExistingQuestionIds = selectedQuestions
+          .map((question) => question.id)
+          .filter((questionId) => !keptExistingQuestionIds.has(questionId));
+
+        if (removedExistingQuestionIds.length > 0) {
+          const { error: deleteQuestionsError } = await supabase
+            .from('fo_checklist_questions')
+            .delete()
+            .in('id', removedExistingQuestionIds);
+
+          if (deleteQuestionsError) throw deleteQuestionsError;
+        }
+
+        for (let i = 0; i < cleanedQuestions.length; i += 1) {
+          const question = cleanedQuestions[i];
+
+          if (question.existingId) {
+            const { error: updateError } = await supabase
+              .from('fo_checklist_questions')
+              .update({
+                question_text: question.question_text,
+                question_description: question.question_description || null,
+                answer_mode: question.answer_mode,
+                is_required: question.is_required,
+                sort_order: i,
+              })
+              .eq('id', question.existingId);
+
+            if (updateError) throw updateError;
+          } else {
+            const { error: insertError } = await supabase
+              .from('fo_checklist_questions')
+              .insert([
+                {
+                  template_id: selectedTemplate.id,
+                  question_text: question.question_text,
+                  question_description: question.question_description || null,
+                  answer_mode: question.answer_mode,
+                  is_required: question.is_required,
+                  sort_order: i,
+                },
+              ]);
+
+            if (insertError) throw insertError;
+          }
+        }
+
+        setSuccessMsg('List updated successfully.');
+      }
+
+      setShowTemplateModal(false);
+      await loadTemplatesAndQuestions();
+      if (selectedTemplateId) {
+        await loadTemplateSubmissionState(selectedTemplateId);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save list');
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  async function handleDeleteTemplate(templateId: string) {
+    if (!supabase) return;
+
+    const confirmed = window.confirm(
+      'Delete this list? Existing submission history stays in the database, but the list will be hidden from active use.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingTemplateId(templateId);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const { error } = await supabase
+        .from('fo_checklist_templates')
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', templateId);
+
+      if (error) throw error;
+
+      setSelectedTemplateId(null);
+      setTodaySubmission(null);
+      setAnswers({});
+      setPastSubmissions([]);
+      setViewMode('LIST');
+      setSuccessMsg('List deleted successfully.');
+      await loadTemplatesAndQuestions();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to delete list');
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  }
+
+  function chooseTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    setViewingSubmission(null);
+    setViewingAnswers({});
+    setRemarkOpenByQuestionId({});
+    setViewMode('FORM');
+  }
+
+  function updateAnswer(question: Question, value: boolean | string) {
+    setAnswers((prev) => ({
+      ...prev,
+      [question.id]: {
+        ...prev[question.id],
+        question_id: question.id,
+        answer_yes_no: question.answer_mode === 'YES_NO' ? Boolean(value) : null,
+        answer_text: question.answer_mode === 'SHORT_TEXT' ? String(value) : null,
+      },
+    }));
+  }
+
+  function toggleRemark(questionId: string) {
+    setRemarkOpenByQuestionId((prev) => ({
+      ...prev,
+      [questionId]: !prev[questionId],
+    }));
+  }
+
+  function updateRemark(question: Question, value: string) {
+    setAnswers((prev) => ({
+      ...prev,
+      [question.id]: {
+        ...prev[question.id],
+        question_id: question.id,
+        answer_yes_no: prev[question.id]?.answer_yes_no ?? null,
+        answer_text: prev[question.id]?.answer_text ?? null,
+        remark_text: value,
+      },
+    }));
+  }
+
+  function updateCashRow(index: number, patch: Partial<CashRowDraft>) {
+    setCashRows((current) => current.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, ...patch } : row
+    )));
+  }
+
+  function addCashRow() {
+    setCashRows((current) => [...current, emptyCashRow()]);
+  }
+
+  function removeCashRow(index: number) {
+    setCashRows((current) => {
+      const row = current[index];
+      if (row?.cashBankInId || row?.excessBankInId) return current;
+      const next = current.filter((_, rowIndex) => rowIndex !== index);
+      return next.length ? next : [emptyCashRow()];
+    });
+  }
+
+  async function handleSaveSubmission() {
+    if (!supabase || !profile?.user_id || !selectedTemplate) return;
+
+    for (const question of selectedQuestions) {
+      if (!question.is_required) continue;
+
+      const answer = answers[question.id];
+
+      if (question.answer_mode === 'YES_NO') {
+        if (answer?.answer_yes_no !== true && answer?.answer_yes_no !== false) {
+          setErrorMsg(`Please answer required question: ${question.question_text}`);
+          return;
+        }
+      } else {
+        if (!answer?.answer_text || !answer.answer_text.trim()) {
+          setErrorMsg(`Please answer required question: ${question.question_text}`);
+          return;
+        }
+      }
+    }
+
+    const activeCashRows = cashRows.filter((row) => (
+      row.personName.trim()
+      || row.hasCash
+      || Number(row.cashAmount || 0) > 0
+      || Number(row.excessAmount || 0) > 0
+    ));
+
+    for (const row of activeCashRows) {
+      const cashAmount = Number(row.cashAmount || 0);
+      const excessAmount = Number(row.excessAmount || 0);
+
+      if (!row.personName.trim()) {
+        setErrorMsg('Enter the staff name for every cash declaration row.');
+        return;
+      }
+      if (!Number.isFinite(cashAmount) || cashAmount < 0 || !Number.isFinite(excessAmount) || excessAmount < 0) {
+        setErrorMsg('Cash and excess amounts must be valid amounts of RM0.00 or more.');
+        return;
+      }
+      if (row.hasCash && cashAmount <= 0) {
+        setErrorMsg(`Enter the cash amount submitted by ${row.personName.trim()}.`);
+        return;
+      }
+      if (!row.hasCash && cashAmount > 0) {
+        setErrorMsg(`Tick Cash to submit for ${row.personName.trim()}, or clear the cash amount.`);
+        return;
+      }
+    }
+
+    try {
+      setSavingAnswers(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      let submissionId = todaySubmission?.id || null;
+      let createdNewSubmission = false;
+
+      if (!submissionId) {
+        const { data: createdSubmission, error: submissionError } = await supabase
+          .from('fo_checklist_submissions')
+          .insert([
+            {
+              template_id: selectedTemplate.id,
+              submission_date: today,
+              submitted_by_user_id: profile.user_id,
+              submitted_by_name: profile.name || profile.email,
+              submitted_by_email: profile.email,
+            },
+          ])
+          .select('*')
+          .single();
+
+        if (submissionError) throw submissionError;
+        submissionId = createdSubmission.id;
+        createdNewSubmission = true;
+        setTodaySubmission(createdSubmission as Submission);
+        setTodaySubmissionsByTemplateId((current) => ({
+          ...current,
+          [selectedTemplate.id]: createdSubmission as Submission,
+        }));
+      } else {
+        const { error: updateSubmissionError } = await supabase
+          .from('fo_checklist_submissions')
+          .update({
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', submissionId);
+
+        if (updateSubmissionError) throw updateSubmissionError;
+      }
+
+      const rows = selectedQuestions.map((question) => ({
+        submission_id: submissionId,
+        question_id: question.id,
+        answer_yes_no:
+          question.answer_mode === 'YES_NO'
+            ? answers[question.id]?.answer_yes_no ?? null
+            : null,
+        answer_text:
+          question.answer_mode === 'SHORT_TEXT'
+            ? (answers[question.id]?.answer_text || '').trim() || null
+            : null,
+        remark_text: (answers[question.id]?.remark_text || '').trim() || null,
+      }));
+
+      const { error: answerError } = await supabase
+        .from('fo_checklist_answers')
+        .upsert(rows, { onConflict: 'submission_id,question_id' });
+
+      if (answerError) throw answerError;
+
+      const { error: cashError } = await supabase.rpc('save_fo_checklist_cash_entries', {
+        p_submission_id: submissionId,
+        p_rows: activeCashRows.map((row, index) => ({
+          id: row.id || null,
+          personName: row.personName.trim(),
+          hasCash: row.hasCash,
+          cashAmount: row.hasCash ? Number(row.cashAmount || 0) : 0,
+          excessAmount: Number(row.excessAmount || 0),
+          lineNumber: index + 1,
+        })),
+      });
+
+      if (cashError) throw cashError;
+
+      setSuccessMsg(
+        createdNewSubmission ? 'Checklist submitted successfully.' : 'Checklist answers updated successfully.'
+      );
+
+      await loadTemplateSubmissionState(selectedTemplate.id);
+      void loadTemplatesAndQuestions();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save checklist');
+    } finally {
+      setSavingAnswers(false);
+    }
+  }
+
+  async function openHistorySubmission(submission: Submission) {
+    if (!supabase) return;
+
+    try {
+      setLoading(true);
+      setViewMode('VIEW_SUBMISSION');
+      setViewingSubmission(submission);
+
+      const { data: answerRows, error } = await supabase
+        .from('fo_checklist_answers')
+        .select('*')
+        .eq('submission_id', submission.id);
+
+      if (error) throw error;
+
+      const nextAnswers: Record<string, AnswerRow> = {};
+      (answerRows || []).forEach((row: any) => {
+        nextAnswers[row.question_id] = {
+          id: row.id,
+          submission_id: row.submission_id,
+          question_id: row.question_id,
+          answer_yes_no: row.answer_yes_no,
+          answer_text: row.answer_text,
+          remark_text: row.remark_text,
+        };
+      });
+
+      setViewingAnswers(nextAnswers);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to load submission details');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (authLoading) {
     return (
-      <main className="cash-page">
-        <div className="state-card">
-          <h1>Unable to verify access</h1>
-          <p>{authError}</p>
-          <button type="button" className="primary-button" onClick={() => window.location.reload()}>
-            Retry
-          </button>
-        </div>
-        <Styles />
+      <main style={styles.page}>
+        <div style={styles.centerCard}>Loading...</div>
       </main>
     );
   }
 
-  if (!hasAccess) {
+  if (!profile) {
     return (
-      <main className="cash-page">
-        <div className="state-card">
-          <h1>Access denied</h1>
-          <p>Bank In Cash access has not been granted to this user.</p>
-          <Link href="/dashboard" className="primary-button">Back to Dashboard</Link>
+      <main style={styles.page}>
+        <div style={styles.centerCard}>
+          <div style={styles.centerTitle}>Login required</div>
+          <p style={styles.centerText}>Please log in first, then open this page again.</p>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
-        <Styles />
+      </main>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <main style={styles.page}>
+        <div style={styles.centerCard}>
+          <div style={styles.centerTitle}>Access denied</div>
+          <p style={styles.centerText}>Only authorised Front Office users and superusers can access FO Checklist.</p>
+          <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="cash-page">
-      <header className="page-header">
-        <div>
-          <span className="eyebrow">MANAGEMENT WORKSPACE</span>
-          <h1>Bank In Cash</h1>
-          <p>Reconcile Front Office cash, excess collections, balances not banked in, and receipt evidence.</p>
-        </div>
-        <div className="header-actions">
-          <button type="button" className="icon-button" title="Refresh cash records" onClick={() => void loadData()} disabled={dataLoading}>↻</button>
-          <Link href="/dashboard" className="secondary-button">Dashboard</Link>
-        </div>
-      </header>
-
-      {error ? <div className="notice error">{error}</div> : null}
-      {message ? <div className="notice success">{message}</div> : null}
-
-      <section className="summary-grid" aria-label="Cash summary">
-        <article className="summary-card important"><span>Cash On Hand</span><strong>{money.format(cashOnHand)}</strong><small>Daily cash and balances not banked in</small></article>
-        <article className="summary-card excess-total"><span>Total Excess Cash</span><strong>{money.format(totalExcessCash)}</strong><small>Kept separate from Cash On Hand</small></article>
-        <article className="summary-card"><span>Selected</span><strong>{money.format(selectedTotal)}</strong><small>{selectedSourceCount} source(s)</small></article>
-        <article className="summary-card"><span>Banked This Month</span><strong>{money.format(monthBanked)}</strong><small>Excludes reversals</small></article>
-      </section>
-
-      <section className="workspace-card">
-        <div className="toolbar">
-          <div className="tabs" role="tablist" aria-label="Cash ledgers">
-            <button className={tab === 'daily' ? 'active' : ''} onClick={() => setTab('daily')}>Daily Cash</button>
-            <button className={tab === 'excess' ? 'active' : ''} onClick={() => setTab('excess')}>Excess Cash</button>
-            <button className={tab === 'small-change' ? 'active' : ''} onClick={() => setTab('small-change')}>Balance Not Banked In</button>
-            <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>History</button>
+    <main style={{ ...styles.page, padding: isMobile ? '12px 10px 28px' : styles.page.padding }}>
+      <div style={styles.shell}>
+        <div style={{ ...styles.topBar, ...(isMobile ? styles.topBarMobile : {}) }}>
+          <div>
+            <div style={styles.eyebrow}>Front Office Workspace</div>
+            <div style={styles.pageTitle}>FO Checklist</div>
+            <div style={styles.pageSubTitle}>
+              {profile.name} ({profile.role}) - Daily shift checklist workspace
+            </div>
           </div>
-          <label className="month-field">Month<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+
+          <div style={{ ...styles.topBarActions, ...(isMobile ? styles.topBarActionsMobile : {}) }}>
+            {isSuper ? (
+              <button
+                type="button"
+                onClick={openCreateModal}
+                style={{ ...styles.primaryHeaderBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+              >
+                Create List
+              </button>
+            ) : null}
+            <Link href="/dashboard" style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileCompactBtn : {}) }}>
+              Back to Dashboard
+            </Link>
+          </div>
         </div>
 
-        {dataLoading ? <div className="empty-state">Refreshing ledger...</div> : null}
+        {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
+        {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
 
-        {!dataLoading && tab === 'daily' ? (
-          <div className="ledger-list">
-            <div className="section-heading"><div><span className="eyebrow">SHIFT DECLARATIONS</span><h2>Daily cash submitted to Accounts</h2></div><span>{dailyGroups.length} day(s)</span></div>
-            {!dailyGroups.length ? <div className="empty-state">No Front Office cash declarations for this month.</div> : null}
-            {dailyGroups.map((group) => {
-              const checked = group.availableIds.length > 0 && group.availableIds.every((id) => selectedDailyIds.includes(id));
-              const positiveCount = group.rows.filter((row) => row.amount > 0).length;
-              const state = positiveCount > 0 && group.bankedCount === positiveCount ? 'complete' : group.bankedCount > 0 ? 'partial' : '';
-              return (
-                <article className={`ledger-row ${state}`} key={group.date}>
-                  <label className="select-box">
-                    <input type="checkbox" checked={checked} disabled={!group.availableIds.length} onChange={(event) => toggleIds(group.availableIds, event.target.checked, 'daily')} />
-                    <span>{formatDate(group.date)}</span>
-                  </label>
-                  <div className="shift-lines">
-                    {group.rows.filter((row) => row.amount > 0).map((row) => (
-                      <span className="shift-line" key={row.id}>
-                        <span><b>{row.title}</b> · {row.person_name} · {money.format(row.amount)}{row.sourceType === 'MANUAL_CASH' ? ' · Added manually' : ''}</span>
-                        {row.cashEntry && !row.bank_in_id ? <button type="button" className="amend-button" onClick={() => openAmendment(row.cashEntry!)}>Amend</button> : null}
-                      </span>
-                    ))}
-                    {!positiveCount ? <span>No cash declared for this day.</span> : null}
-                  </div>
-                  <div className="row-total"><small>Daily total</small><strong>{money.format(group.declared)}</strong><small>Available {money.format(group.available)}</small><em>{state === 'complete' ? 'Banked' : state === 'partial' ? 'Partly banked' : 'Open'}</em></div>
-                </article>
-              );
-            })}
-          </div>
+        <div style={styles.modeRow}>
+          <button
+            type="button"
+            onClick={() => setViewMode('LIST')}
+            style={{ ...styles.modeBtn, ...(viewMode === 'LIST' ? styles.modeBtnActive : {}) }}
+          >
+            Checklists
+          </button>
+          {selectedTemplate ? (
+            <button
+              type="button"
+              onClick={() => setViewMode('HISTORY')}
+              style={{ ...styles.modeBtn, ...(viewMode === 'HISTORY' ? styles.modeBtnActive : {}) }}
+            >
+              Last 30 Days
+            </button>
+          ) : null}
+        </div>
+
+        {loading ? (
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.emptyState}>Loading FO checklists...</div>
+          </section>
         ) : null}
 
-        {!dataLoading && tab === 'excess' ? (
-          <div className="ledger-list">
-            <div className="section-heading"><div><span className="eyebrow">EXCESS REGISTER</span><h2>Dated excess cash declarations</h2></div><span>{excessRows.length} entry(s)</span></div>
-            {!excessRows.length ? <div className="empty-state">No excess cash declared for this month.</div> : null}
-            {excessRows.map((row) => {
-              const withdrawal = excessWithdrawalByEntryId.get(row.id);
-              const unavailable = !!row.excess_bank_in_id || !!withdrawal;
-              return (
-                <article className={`compact-row excess-row ${row.excess_bank_in_id ? 'complete' : ''} ${withdrawal ? 'withdrawn' : ''}`} key={row.id}>
-                  <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!withdrawal && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
-                  <div className="excess-entry-copy">
-                    <strong>{row.person_name}</strong>
-                    <span>{formatDate(row.service_date)} · {row.shift_title}</span>
-                    {withdrawal ? <span className="withdrawal-detail">Invoice {formatDate(withdrawal.invoice_date)} · {withdrawal.reason_for_excess} · Error by {withdrawal.error_staff_name}</span> : null}
-                  </div>
-                  <b>{money.format(Number(row.excess_amount))}</b>
-                  <div className="excess-row-actions">
-                    <em>{withdrawal ? 'Withdrawn' : row.excess_bank_in_id ? 'Banked' : 'Open'}</em>
-                    {!unavailable ? <button type="button" className="withdraw-button" onClick={() => openExcessWithdrawal(row)}>Withdraw</button> : null}
-                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} · {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+        {!loading && templates.length === 0 ? (
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.emptyState}>
+              No checklists available yet. {isSuper ? 'Create your first list to get started.' : 'Please ask a superuser to create a list.'}
+            </div>
+          </section>
         ) : null}
 
-        {!dataLoading && tab === 'small-change' ? (
-          <div className="ledger-list">
-            <div className="section-heading"><div><span className="eyebrow">BALANCE NOT BANKED IN</span><h2>Balances retained after partial bank-ins</h2></div><span>{filteredSmallChange.length} entry(s)</span></div>
-            {!filteredSmallChange.length ? <div className="empty-state">No balance-not-banked-in entries for this month.</div> : null}
-            {filteredSmallChange.map((row) => (
-              <article className={`compact-row ${row.consumed_by_bank_in_id ? 'complete' : ''}`} key={row.id}>
-                <input type="checkbox" aria-label={`Select balance from ${row.bank_in_date}`} disabled={!!row.consumed_by_bank_in_id} checked={selectedBalanceIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'balance')} />
-                <div><strong>Balance from {formatDate(row.bank_in_date)}</strong><span>Bank-in reference {row.source_bank_in_id.slice(0, 8).toUpperCase()}</span></div>
-                <b>{money.format(Number(row.amount))}</b>
-                <em>{row.consumed_by_bank_in_id ? 'Banked' : 'Open'}</em>
-              </article>
-            ))}
-          </div>
+        {!loading && viewMode === 'LIST' && templates.length > 0 ? (
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.sectionHeaderRow}>
+              <div>
+                <div style={styles.sectionEyebrow}>Daily Lists</div>
+                <div style={styles.sectionTitle}>Available Checklists</div>
+              </div>
+              <div style={styles.sectionHint}>Resets at 12pm</div>
+            </div>
+            <div
+              style={{
+                ...styles.ChecklistCardGrid,
+                gridTemplateColumns: isMobile
+                  ? '1fr'
+                  : isTablet
+                  ? 'repeat(2, minmax(0, 1fr))'
+                  : 'repeat(3, minmax(0, 1fr))',
+              }}
+            >
+              {templates.map((template, index) => {
+                const templateQuestions = questions.filter((q) => q.template_id === template.id);
+                const selected = selectedTemplateId === template.id;
+                const submittedToday = !!todaySubmissionsByTemplateId[template.id];
+
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => chooseTemplate(template.id)}
+                    style={{
+                      ...styles.ChecklistChooserCard,
+                      ...(selected ? styles.ChecklistChooserCardActive : {}),
+                    }}
+                  >
+                    <div style={styles.shiftCardTop}>
+                      <div style={styles.shiftIcon}>{index + 1}</div>
+                      <div style={{ ...styles.statusPill, ...(submittedToday ? styles.statusSubmitted : styles.statusPending) }}>
+                        {submittedToday ? 'Submitted Today' : 'Pending'}
+                      </div>
+                    </div>
+                    <div style={styles.ChecklistChooserTitle}>{template.title}</div>
+                    <div style={styles.ChecklistChooserMeta}>
+                      {templateQuestions.length} question{templateQuestions.length === 1 ? '' : 's'} - FO daily checklist
+                    </div>
+                    <div style={styles.ChecklistChooserHint}>Open Checklist</div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         ) : null}
 
-        {!dataLoading && tab === 'history' ? (
-          <div className="ledger-list">
-            <div className="section-heading"><div><span className="eyebrow">AUDIT HISTORY</span><h2>Bank-ins and supporting receipts</h2></div><span>{filteredBankIns.length} record(s)</span></div>
-            {!filteredBankIns.length ? <div className="empty-state">No bank-ins recorded for this month.</div> : null}
-            {filteredBankIns.map((record) => {
-              const paths = normaliseReceiptPaths(record.receipt_paths);
-              const recordSources = bankInSources.filter((source) => source.bank_in_id === record.id);
-              const manualSourceCount = recordSources.filter((source) => source.source_type === 'MANUAL_CASH').length;
-              return (
-                <article className={`history-row ${record.reversed_at ? 'reversed' : ''}`} key={record.id}>
-                  <div className="history-main"><span className="mode-pill">{sourceModeLabel(record.source_mode)}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} · {record.created_by_name}</span></div>
-                  <div className="history-detail"><span>Selected {money.format(Number(record.selected_total))}</span><span>Balance not banked in {money.format(Number(record.balance_to_small_change))}</span>{manualSourceCount ? <span>{manualSourceCount} manual cash source(s)</span> : null}<span>{formatDateTime(record.created_at)}</span></div>
-                  <div className="history-actions">
-                    {paths.map((path, index) => <button type="button" className="receipt-button" onClick={() => void viewReceipt(path)} key={path}>Receipt {index + 1}</button>)}
-                    {isSuperuser && !record.reversed_at ? <button type="button" className="danger-button" onClick={() => setReverseTarget(record)}>Reverse</button> : null}
-                    {record.reversed_at ? <span className="reversed-label">Reversed · {record.reversal_reason}</span> : null}
-                    {isSuperuser && record.reversed_at ? <button type="button" className="danger-solid" onClick={() => setDeleteTarget(record)}>Delete</button> : null}
+        {!loading && viewMode === 'FORM' && selectedTemplate ? (
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.ChecklistHeader}>
+              <div>
+                <div style={styles.sectionEyebrow}>Current Shift</div>
+                <div style={styles.sectionTitle}>{selectedTemplate.title}</div>
+                <div style={styles.ChecklistsubMeta}>
+                  {todaySubmission
+                    ? `Submitted on ${formatDateTime(todaySubmission.created_at)}`
+                    : `No submission yet for ${formatDate(today)}`}
+                </div>
+                {todaySubmission?.updated_at && todaySubmission.updated_at !== todaySubmission.created_at ? (
+                  <div style={styles.ChecklistsubMeta}>
+                    Last updated: {formatDateTime(todaySubmission.updated_at)}
                   </div>
-                </article>
-              );
-            })}
-            {filteredAmendments.length ? (
-              <section className="amendment-history" aria-label="FO cash amendment audit trail">
-                <div className="section-heading"><div><span className="eyebrow">AMENDMENT AUDIT</span><h2>FO cash corrections</h2></div><span>{filteredAmendments.length} record(s)</span></div>
-                {filteredAmendments.map((amendment) => {
-                  const entry = cashEntries.find((cashEntry) => cashEntry.id === amendment.cash_entry_id);
+                ) : null}
+              </div>
+
+              <div style={{ ...styles.ChecklistHeaderRight, ...(isMobile ? styles.headerRightMobile : {}) }}>
+                {isSuper ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={openEditModal}
+                      style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+                    >
+                      Edit List
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteTemplate(selectedTemplate.id)}
+                      style={{
+                        ...styles.secondaryBtn,
+                        ...(isMobile ? styles.mobileActionBtn : {}),
+                        color: '#ef4444',
+                        borderColor: '#fecaca',
+                      }}
+                      disabled={deletingTemplateId === selectedTemplate.id}
+                    >
+                      {deletingTemplateId === selectedTemplate.id ? 'Deleting...' : 'Delete List'}
+                    </button>
+                  </>
+                ) : null}
+
+                <div
+                  style={{
+                    ...styles.statusPill,
+                    ...(todaySubmission ? styles.statusSubmitted : styles.statusPending),
+                  }}
+                >
+                  {todaySubmission ? 'Submitted Today' : 'Pending Today'}
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.questionList}>
+              {selectedQuestions.map((question, index) => (
+                <div key={question.id} style={{ ...styles.questionCard, ...(isMobile ? styles.questionCardMobile : {}) }}>
+                  <div style={styles.questionNumber}>Question {index + 1}</div>
+
+                  <div style={styles.questionTitleRow}>
+                    <div style={styles.questionText}>{question.question_text}</div>
+                    {question.is_required ? (
+                      <span style={styles.requiredBadge}>Required</span>
+                    ) : null}
+                  </div>
+
+                  {question.question_description ? (
+                    <div style={styles.questionDescription}>{question.question_description}</div>
+                  ) : null}
+
+                  {question.answer_mode === 'YES_NO' ? (
+                    <div style={styles.answerBtnRow}>
+                      <button
+                        type="button"
+                        onClick={() => updateAnswer(question, true)}
+                        style={{
+                          ...styles.answerChoiceBtn,
+                          ...(answers[question.id]?.answer_yes_no === true
+                            ? styles.answerChoiceBtnActive
+                            : {}),
+                        }}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateAnswer(question, false)}
+                        style={{
+                          ...styles.answerChoiceBtn,
+                          ...(answers[question.id]?.answer_yes_no === false
+                            ? styles.answerChoiceBtnActive
+                            : {}),
+                        }}
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={answers[question.id]?.answer_text || ''}
+                      onChange={(e) => updateAnswer(question, e.target.value)}
+                      style={{ ...styles.textarea, ...(isMobile ? styles.textareaMobile : {}) }}
+                      placeholder="Enter short answer"
+                    />
+                  )}
+
+                  <div style={styles.remarkArea}>
+                    {remarkOpenByQuestionId[question.id] ? (
+                      <textarea
+                        value={answers[question.id]?.remark_text || ''}
+                        onChange={(e) => updateRemark(question, e.target.value)}
+                        style={{ ...styles.remarkTextarea, ...(isMobile ? styles.textareaCompactMobile : {}) }}
+                        placeholder="Add remark for this question"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleRemark(question.id)}
+                        style={styles.addRemarkBtn}
+                      >
+                        + Remark
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <section
+              style={{
+                marginTop: 20,
+                padding: isMobile ? 15 : 20,
+                border: '1px solid #c9dcfb',
+                borderRadius: 18,
+                background: '#f7faff',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={styles.kicker}>SHIFT CASH DECLARATION</div>
+                  <h3 style={{ margin: '4px 0 5px', fontSize: isMobile ? 20 : 23 }}>Cash to Accounts</h3>
+                  <p style={{ margin: 0, color: '#526783', fontSize: 13, lineHeight: 1.45 }}>
+                    Add one row per person. Record excess cash separately from the cash due to Accounts.
+                  </p>
+                </div>
+                <button type="button" onClick={addCashRow} style={styles.secondaryBtn}>
+                  + Add Person
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
+                {cashRows.map((row, index) => {
+                  const cashLocked = Boolean(row.cashBankInId);
+                  const excessLocked = Boolean(row.excessBankInId);
+                  const rowLocked = cashLocked || excessLocked;
+
                   return (
-                    <article className="amendment-row" key={amendment.id}>
-                      <div><strong>{entry?.person_name || 'FO cash entry'}</strong><span>{entry ? `${formatDate(entry.service_date)} · ${entry.shift_title}` : amendment.cash_entry_id.slice(0, 8).toUpperCase()}</span></div>
-                      <div><span>Previous</span><b>{money.format(Number(amendment.previous_amount))}</b></div>
-                      <div><span>New</span><b>{money.format(Number(amendment.new_amount))}</b></div>
-                      <div><strong>{amendment.reason}</strong><span>{amendment.amended_by_name} ({amendment.amended_by_email}) · {formatDateTime(amendment.amended_at)}</span></div>
-                    </article>
+                    <div
+                      key={row.id || `cash-row-${index}`}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px, 1.3fr) minmax(145px, .8fr) minmax(145px, .8fr) minmax(145px, .8fr) auto',
+                        gap: 10,
+                        alignItems: 'end',
+                        padding: 13,
+                        borderRadius: 14,
+                        border: `1px solid ${rowLocked ? '#b8dfc8' : '#dce6f4'}`,
+                        background: rowLocked ? '#f0fbf4' : '#ffffff',
+                      }}
+                    >
+                      <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
+                        Staff / Person Name
+                        <input
+                          value={row.personName}
+                          onChange={(event) => updateCashRow(index, { personName: event.target.value })}
+                          placeholder="Name handling the cash"
+                          disabled={rowLocked}
+                          style={{ ...styles.input, opacity: rowLocked ? 0.7 : 1 }}
+                        />
+                      </label>
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 9, minHeight: 47, padding: '0 12px', border: '1px solid #d4dfed', borderRadius: 12, background: '#f9fbfe', fontWeight: 800, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={row.hasCash}
+                          onChange={(event) => updateCashRow(index, {
+                            hasCash: event.target.checked,
+                            cashAmount: event.target.checked ? row.cashAmount : '',
+                          })}
+                          disabled={cashLocked}
+                        />
+                        Cash to submit
+                      </label>
+
+                      <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
+                        Actual Cash Amount (RM)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={row.cashAmount}
+                          onChange={(event) => updateCashRow(index, { cashAmount: event.target.value })}
+                          disabled={!row.hasCash || cashLocked}
+                          placeholder="0.00"
+                          style={{ ...styles.input, opacity: !row.hasCash || cashLocked ? 0.65 : 1 }}
+                        />
+                      </label>
+
+                      <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
+                        Excess Cash (RM)
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          value={row.excessAmount}
+                          onChange={(event) => updateCashRow(index, { excessAmount: event.target.value })}
+                          disabled={excessLocked}
+                          placeholder="0.00"
+                          style={{ ...styles.input, opacity: excessLocked ? 0.65 : 1 }}
+                        />
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => removeCashRow(index)}
+                        disabled={rowLocked || cashRows.length === 1}
+                        title={rowLocked ? 'A banked row cannot be removed' : 'Remove row'}
+                        style={{
+                          ...styles.secondaryBtn,
+                          color: '#c73535',
+                          opacity: rowLocked || cashRows.length === 1 ? 0.45 : 1,
+                          minHeight: 47,
+                        }}
+                      >
+                        Remove
+                      </button>
+
+                      {rowLocked ? (
+                        <div style={{ gridColumn: '1 / -1', color: '#137044', fontWeight: 800, fontSize: 12 }}>
+                          Banked values are locked to preserve the Accounts audit trail.
+                        </div>
+                      ) : null}
+                    </div>
                   );
                 })}
-              </section>
-            ) : null}
-            {filteredDeletedBankIns.length ? (
-              <section className="deletion-history" aria-label="Deleted bank-in audit trail">
-                <div className="section-heading"><div><span className="danger-kicker">DELETION AUDIT</span><h2>Deleted bank-in records</h2></div><span>{filteredDeletedBankIns.length} record(s)</span></div>
-                {filteredDeletedBankIns.map((deleted) => (
-                  <article className="deletion-row" key={deleted.id}>
-                    <div><strong>{money.format(Number(deleted.bank_in_snapshot?.banked_amount || 0))}</strong><span>{formatDate(deleted.bank_in_date)} · Ref {deleted.bank_in_id.slice(0, 8).toUpperCase()}</span></div>
-                    <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) · {formatDateTime(deleted.deleted_at)}</span></div>
-                  </article>
-                ))}
-              </section>
-            ) : null}
-          </div>
+              </div>
+            </section>
+
+            <div style={{ ...styles.actionRow, ...(isMobile ? styles.actionRowMobile : {}) }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('LIST')}
+                style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+              >
+                Back to Checklists
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveSubmission()}
+                style={{
+                  ...styles.primaryBtn,
+                  ...(isMobile ? styles.mobileActionBtn : {}),
+                  opacity: savingAnswers ? 0.6 : 1,
+                }}
+                disabled={savingAnswers}
+              >
+                {savingAnswers ? 'Saving...' : todaySubmission ? 'Update Answers' : 'Submit Checklist'}
+              </button>
+            </div>
+          </section>
         ) : null}
-      </section>
 
-      {tab !== 'history' ? (
-        <section className="bank-panel">
-          <div className="bank-panel-title">
-            <div>
-              <span className="eyebrow">RECORD BANK-IN</span>
-              <h2>{selectedSourceCount ? 'Review and record deposit' : 'Select cash rows to begin'}</h2>
-              <p>{selectedSourceCount ? `${selectedSourceCount} transaction${selectedSourceCount === 1 ? '' : 's'} currently included` : 'Choose transactions from the ledger above or add another available source below.'}</p>
+        {!loading && viewMode === 'HISTORY' && selectedTemplate ? (
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.sectionTitle}>Last 30 Days Submissions</div>
+
+            {pastSubmissions.length === 0 ? (
+              <div style={styles.emptyState}>No submissions found for the last 30 days.</div>
+            ) : (
+              <div style={styles.historyList}>
+                {pastSubmissions.map((submission) => (
+                  <button
+                    key={submission.id}
+                    type="button"
+                    onClick={() => void openHistorySubmission(submission)}
+                    style={styles.historyCard}
+                  >
+                    <div>
+                      <div style={styles.historyTitle}>
+                        {submission.submitted_by_name || submission.submitted_by_email || 'Unknown'}
+                      </div>
+                      <div style={styles.historyMeta}>
+                        {templateTitleMap.get(submission.template_id) || 'Checklist'} - {formatDate(submission.submission_date)} - {formatDateTime(submission.created_at)}
+                      </div>
+                    </div>
+                    <div style={styles.historyView}>View</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {!loading && viewMode === 'VIEW_SUBMISSION' && viewingSubmission ? (
+          <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+            <div style={styles.ChecklistHeader}>
+              <div>
+                <div style={styles.sectionTitle}>
+                  {templateTitleMap.get(viewingSubmission.template_id) || 'Submission'}
+                </div>
+                <div style={styles.ChecklistsubMeta}>
+                  Submission by {viewingSubmission.submitted_by_name || viewingSubmission.submitted_by_email || '-'}
+                </div>
+                <div style={styles.ChecklistsubMeta}>
+                  {formatDate(viewingSubmission.submission_date)} - {formatDateTime(viewingSubmission.created_at)}
+                </div>
+              </div>
             </div>
-            <div className="selected-total"><span>Selected total</span><strong>{money.format(selectedTotal)}</strong></div>
-          </div>
-          <div className="bank-panel-body">
-            <div className="additional-source-section">
-              <div className="bank-section-label"><span>Optional sources</span><small>Add other available transactions to this same bank-in</small></div>
-              <div className="additional-source-actions" aria-label="Add transactions from another cash ledger">
-                <button type="button" onClick={() => setSourcePicker('small-change')}>
-                  <span className="source-icon" aria-hidden="true">B</span>
-                  <span className="source-copy"><strong>Balance Not Banked In</strong><em>{selectedBalanceRows.length ? `${selectedBalanceRows.length} selected` : `${availableBalanceRows.length} available`}</em></span>
-                  <span className="source-action">{selectedBalanceRows.length ? 'Edit' : 'Add'}</span>
+
+            <div style={styles.questionList}>
+              {questions
+                .filter((q) => q.template_id === viewingSubmission.template_id)
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map((question, index) => (
+                  <div key={question.id} style={{ ...styles.questionCard, ...(isMobile ? styles.questionCardMobile : {}) }}>
+                    <div style={styles.questionNumber}>Question {index + 1}</div>
+
+                    <div style={styles.questionTitleRow}>
+                      <div style={styles.questionText}>{question.question_text}</div>
+                      {question.is_required ? (
+                        <span style={styles.requiredBadge}>Required</span>
+                      ) : null}
+                    </div>
+
+                    {question.question_description ? (
+                      <div style={styles.questionDescription}>{question.question_description}</div>
+                    ) : null}
+
+                    <div style={styles.viewAnswerBox}>
+                      {question.answer_mode === 'YES_NO'
+                        ? viewingAnswers[question.id]?.answer_yes_no === null ||
+                          viewingAnswers[question.id]?.answer_yes_no === undefined
+                          ? '-'
+                          : viewingAnswers[question.id]?.answer_yes_no
+                          ? 'Yes'
+                          : 'No'
+                        : viewingAnswers[question.id]?.answer_text || '-'}
+                    </div>
+
+                    {viewingAnswers[question.id]?.remark_text ? (
+                      <div style={styles.viewRemarkBox}>
+                        <div style={styles.viewRemarkLabel}>Remark</div>
+                        <div>{viewingAnswers[question.id]?.remark_text}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+            </div>
+
+            <div style={{ ...styles.actionRow, ...(isMobile ? styles.actionRowMobile : {}) }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('HISTORY')}
+                style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+              >
+                Back to History
+              </button>
+            </div>
+          </section>
+        ) : null}
+      </div>
+
+      {showTemplateModal ? (
+        <div style={{ ...styles.modalOverlay, ...(isMobile ? styles.modalOverlayMobile : {}) }}>
+          <div
+            style={{ ...styles.modalCard, ...(isMobile ? styles.modalCardMobile : {}) }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalTop}>
+              <div style={styles.modalTitle}>
+                {templateModalMode === 'CREATE' ? 'Create List' : 'Edit List'}
+              </div>
+
+              <button
+                type="button"
+                onClick={closeTemplateModal}
+                style={styles.closeBtn}
+                disabled={templateSaving}
+              >
+                x
+              </button>
+            </div>
+
+            <div style={styles.ChecklistGroup}>
+              <label style={styles.label}>Checklist Title</label>
+              <input
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                style={styles.input}
+                placeholder="Example: Morning Shift"
+                disabled={templateSaving}
+              />
+            </div>
+
+            <div style={styles.createQuestionList}>
+              {draftQuestions.map((question, index) => (
+                <div
+                  key={`${question.existingId || 'new'}-${index}`}
+                  style={{ ...styles.createQuestionCard, ...(isMobile ? styles.createQuestionCardMobile : {}) }}
+                >
+                  <div style={styles.createQuestionHeader}>
+                    <div style={styles.createQuestionTitle}>Question {index + 1}</div>
+                    <div style={styles.questionHeaderActions}>
+                      <button
+                        type="button"
+                        onClick={() => moveDraftQuestion(index, 'UP')}
+                        style={{
+                          ...styles.reorderBtn,
+                          opacity: templateSaving || index === 0 ? 0.45 : 1,
+                        }}
+                        disabled={templateSaving || index === 0}
+                        title="Move question up"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveDraftQuestion(index, 'DOWN')}
+                        style={{
+                          ...styles.reorderBtn,
+                          opacity: templateSaving || index === draftQuestions.length - 1 ? 0.45 : 1,
+                        }}
+                        disabled={templateSaving || index === draftQuestions.length - 1}
+                        title="Move question down"
+                      >
+                        Down
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeDraftQuestion(index)}
+                        style={{
+                          ...styles.removeBtn,
+                          opacity: templateSaving ? 0.45 : 1,
+                        }}
+                        disabled={templateSaving}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.ChecklistGroup}>
+                    <label style={styles.label}>Question</label>
+                    <input
+                      value={question.question_text}
+                      onChange={(e) => updateDraftQuestion(index, 'question_text', e.target.value)}
+                      style={styles.input}
+                      placeholder="Enter question"
+                      disabled={templateSaving}
+                    />
+                  </div>
+
+                  <div style={styles.ChecklistGroup}>
+                    <label style={styles.label}>Description</label>
+                    <textarea
+                      value={question.question_description}
+                      onChange={(e) =>
+                        updateDraftQuestion(index, 'question_description', e.target.value)
+                      }
+                      style={{ ...styles.textareaCompact, ...(isMobile ? styles.textareaCompactMobile : {}) }}
+                      placeholder="Optional description or guidance"
+                      disabled={templateSaving}
+                    />
+                  </div>
+
+                  <div style={styles.ChecklistGroup}>
+                    <label style={styles.label}>Answer Mode</label>
+                    <select
+                      value={question.answer_mode}
+                      onChange={(e) => updateDraftQuestion(index, 'answer_mode', e.target.value)}
+                      style={styles.input}
+                      disabled={templateSaving}
+                    >
+                      <option value="YES_NO">Yes / No</option>
+                      <option value="SHORT_TEXT">Short Text</option>
+                    </select>
+                  </div>
+
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={question.is_required}
+                      onChange={(e) => updateDraftQuestion(index, 'is_required', e.target.checked)}
+                      disabled={templateSaving}
+                    />
+                    <span>Compulsory question</span>
+                  </label>
+
+                  {question.existingId ? (
+                    <div style={styles.lockNotice}>
+                      Removing this question will also remove its saved answers from past FO Checklist submissions.
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ ...styles.modalActionsSpread, ...(isMobile ? styles.actionRowMobile : {}) }}>
+              <button
+                type="button"
+                onClick={addDraftQuestion}
+                style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+                disabled={templateSaving}
+              >
+                Add Question
+              </button>
+
+              <div style={{ ...styles.modalActions, ...(isMobile ? styles.modalActionsMobile : {}) }}>
+                <button
+                  type="button"
+                  onClick={closeTemplateModal}
+                  style={{ ...styles.secondaryBtn, ...(isMobile ? styles.mobileActionBtn : {}) }}
+                  disabled={templateSaving}
+                >
+                  Cancel
                 </button>
-                <button type="button" onClick={() => setSourcePicker('excess')}>
-                  <span className="source-icon excess-icon" aria-hidden="true">E</span>
-                  <span className="source-copy"><strong>Excess Cash</strong><em>{selectedExcessRows.length ? `${selectedExcessRows.length} selected` : `${availableExcessRows.length} available`}</em></span>
-                  <span className="source-action">{selectedExcessRows.length ? 'Edit' : 'Add'}</span>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveTemplate()}
+                  style={{
+                    ...styles.primaryBtn,
+                    ...(isMobile ? styles.mobileActionBtn : {}),
+                    opacity: templateSaving ? 0.6 : 1,
+                  }}
+                  disabled={templateSaving}
+                >
+                  {templateSaving
+                    ? 'Saving...'
+                    : templateModalMode === 'CREATE'
+                    ? 'Create List'
+                    : 'Save Changes'}
                 </button>
               </div>
             </div>
-            <div className="deposit-details">
-              <div className="bank-section-label"><span>Deposit details</span><small>Record the actual amount deposited and attach receipt evidence</small></div>
-              <div className="bank-form">
-                <label>Amount to bank in (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={bankedAmount} onChange={(event) => setBankedAmount(event.target.value)} /></label>
-                <label>Date of bank in<input type="date" value={bankInDate} onChange={(event) => setBankInDate(event.target.value)} /></label>
-                <label className="receipt-upload">Receipt photo(s)<input type="file" accept="image/*" multiple onChange={handleReceipts} /><span>{receiptFiles.length ? `${receiptFiles.length} photo${receiptFiles.length === 1 ? '' : 's'} ready` : 'Choose clear receipt photos'}</span></label>
-              </div>
-            </div>
           </div>
-          <div className="bank-panel-footer">
-            <p className="accounting-note">Any selected amount not deposited remains recorded automatically under Balance Not Banked In.</p>
-            <button type="button" className="primary-button bank-submit" onClick={() => void submitBankIn()} disabled={submitting || !selectedSourceCount}>{submitting ? 'Saving receipt and bank-in...' : 'Record Bank-In'}</button>
-          </div>
-        </section>
-      ) : null}
-
-      {isSuperuser ? (
-        <section className={`manual-panel ${manualPanelOpen ? 'open' : ''}`} aria-labelledby="manual-cash-title">
-          <div className="manual-panel-heading">
-            <div>
-              <span className="danger-kicker">SUPERUSER ONLY</span>
-              <h2 id="manual-cash-title">Missed FO declaration</h2>
-              <p>Manually add cash only when Front Office received it but omitted it from the FO Checklist.</p>
-            </div>
-            <button type="button" className={manualPanelOpen ? 'secondary-button' : 'danger-solid'} onClick={() => setManualPanelOpen((current) => !current)}>
-              {manualPanelOpen ? 'Cancel' : 'Add Missed FO Cash'}
-            </button>
-          </div>
-          {manualPanelOpen ? (
-            <div className="manual-form">
-              <label>Cash date<input type="date" value={manualDate} onChange={(event) => setManualDate(event.target.value)} /></label>
-              <label>Description<input type="text" value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Shift, staff, or reason it was missed" /></label>
-              <label>Amount (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} /></label>
-              <button type="button" className="danger-solid" onClick={() => void addManualCash()} disabled={addingManual}>{addingManual ? 'Adding cash...' : 'Confirm Add Cash'}</button>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      {withdrawTarget ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setWithdrawTarget(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="withdraw-excess-title">
-            <span className="eyebrow">EXCESS CASH RESOLUTION</span>
-            <h2 id="withdraw-excess-title">Withdraw this excess cash?</h2>
-            <p>The transaction will remain in the Excess Cash register as withdrawn and will no longer be included in totals or available for bank-in.</p>
-            <div className="withdrawal-amount">{money.format(Number(withdrawTarget.excess_amount))}</div>
-            <div className="withdrawal-form">
-              <label>Invoice date<input type="date" value={withdrawInvoiceDate} onChange={(event) => setWithdrawInvoiceDate(event.target.value)} /></label>
-              <label>Staff who made the error<input type="text" value={withdrawStaffName} onChange={(event) => setWithdrawStaffName(event.target.value)} placeholder="Enter staff name" /></label>
-              <label className="full-field">Reason for excess cash<textarea value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} placeholder="Explain why the excess occurred and why it is being withdrawn" /></label>
-            </div>
-            <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={() => setWithdrawTarget(null)}>Cancel</button>
-              <button type="button" className="danger-solid" onClick={() => void withdrawExcessCash()} disabled={withdrawingExcess}>{withdrawingExcess ? 'Recording withdrawal...' : 'Confirm Withdrawal'}</button>
-            </div>
-          </section>
         </div>
       ) : null}
-
-      {sourcePicker ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSourcePicker(null)}>
-          <section className="modal source-picker-modal" role="dialog" aria-modal="true" aria-labelledby="source-picker-title">
-            <span className="eyebrow">ADD TO THIS BANK-IN</span>
-            <h2 id="source-picker-title">{sourcePicker === 'excess' ? 'Excess Cash transactions' : 'Balance Not Banked In transactions'}</h2>
-            <p>Showing the same available transactions listed for {month}. Select every transaction to include in this bank-in.</p>
-            <div className="source-picker-list">
-              {sourcePicker === 'excess' ? (
-                availableExcessRows.length ? availableExcessRows.map((row) => (
-                  <label className={`source-picker-row ${selectedExcessIds.includes(row.id) ? 'selected' : ''}`} key={row.id}>
-                    <input type="checkbox" checked={selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
-                    <span><strong>{row.person_name}</strong><small>{formatDate(row.service_date)} · {row.shift_title}</small></span>
-                    <b>{money.format(Number(row.excess_amount))}</b>
-                  </label>
-                )) : <div className="picker-empty">No available Excess Cash transactions for this month.</div>
-              ) : (
-                availableBalanceRows.length ? availableBalanceRows.map((row) => (
-                  <label className={`source-picker-row ${selectedBalanceIds.includes(row.id) ? 'selected' : ''}`} key={row.id}>
-                    <input type="checkbox" checked={selectedBalanceIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'balance')} />
-                    <span><strong>Balance from {formatDate(row.bank_in_date)}</strong><small>Bank-in reference {row.source_bank_in_id.slice(0, 8).toUpperCase()}</small></span>
-                    <b>{money.format(Number(row.amount))}</b>
-                  </label>
-                )) : <div className="picker-empty">No available Balance Not Banked In transactions for this month.</div>
-              )}
-            </div>
-            <div className="source-picker-summary">
-              <span>{sourcePicker === 'excess' ? selectedExcessRows.length : selectedBalanceRows.length} selected</span>
-              <strong>{money.format(
-                sourcePicker === 'excess'
-                  ? selectedExcessRows.reduce((sum, row) => sum + Number(row.excess_amount), 0)
-                  : selectedBalanceRows.reduce((sum, row) => sum + Number(row.amount), 0),
-              )}</strong>
-            </div>
-            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => setSourcePicker(null)}>Done</button></div>
-          </section>
-        </div>
-      ) : null}
-
-      {reverseTarget ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setReverseTarget(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="reverse-title">
-            <span className="danger-kicker">SUPERUSER CONTROL</span>
-            <h2 id="reverse-title">Reverse this bank-in?</h2>
-            <p>This restores the original cash sources. The action is refused if its Balance Not Banked In amount has already been used.</p>
-            <div className="reverse-amount">{money.format(Number(reverseTarget.banked_amount))}</div>
-            <label>Reason for reversal<textarea value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this bank-in must be reopened" /></label>
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setReverseTarget(null)}>Cancel</button><button type="button" className="danger-solid" onClick={() => void reverseBankIn()} disabled={reversing}>{reversing ? 'Reversing...' : 'Confirm Reversal'}</button></div>
-          </section>
-        </div>
-      ) : null}
-
-      {deleteTarget ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDeleteTarget(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
-            <span className="danger-kicker">SUPERUSER DELETE</span>
-            <h2 id="delete-title">Permanently delete this record?</h2>
-            <p>The bank-in has already been reversed, so deleting its history record will not change cash balances. A deletion audit will be retained for 12 months.</p>
-            <div className="reverse-amount">{money.format(Number(deleteTarget.banked_amount))}</div>
-            <label>Reason for deletion<textarea value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)} placeholder="Explain why this reversed record must be deleted" /></label>
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setDeleteTarget(null)}>Cancel</button><button type="button" className="danger-solid" onClick={() => void deleteBankIn()} disabled={deleting}>{deleting ? 'Deleting...' : 'Delete Permanently'}</button></div>
-          </section>
-        </div>
-      ) : null}
-
-      {amendTarget ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setAmendTarget(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="amend-title">
-            <span className="eyebrow">AUDITED CORRECTION</span>
-            <h2 id="amend-title">Amend FO cash amount</h2>
-            <p>{formatDate(amendTarget.service_date)} · {amendTarget.shift_title} · {amendTarget.person_name}</p>
-            <div className="amend-comparison"><span>Previous<strong>{money.format(Number(amendTarget.cash_amount))}</strong></span><span>New<strong>{money.format(Number(amendAmount || 0))}</strong></span></div>
-            <label>New amount (RM)<input inputMode="decimal" type="number" min="0" step="0.01" value={amendAmount} onChange={(event) => setAmendAmount(event.target.value)} /></label>
-            <label>Reason for amendment<textarea value={amendReason} onChange={(event) => setAmendReason(event.target.value)} placeholder="Explain why the FO declaration is incorrect" /></label>
-            <p className="accounting-note">A banked row cannot be amended until its bank-in is reversed by a superuser.</p>
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setAmendTarget(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void amendFoCash()} disabled={amending}>{amending ? 'Saving audit...' : 'Save Amendment'}</button></div>
-          </section>
-        </div>
-      ) : null}
-
-      <Styles />
     </main>
   );
 }
 
-function Styles() {
-  return (
-    <style jsx global>{`
-      * { box-sizing: border-box; }
-      body { margin: 0; background: #f3f7fc; color: #0b1733; }
-      button, input, textarea { font: inherit; }
-      .cash-page { min-height: 100vh; padding: 28px; background: #f3f7fc; }
-      .page-header, .workspace-card, .bank-panel, .manual-panel, .summary-card, .state-card { border: 1px solid #d7e2f1; background: #fff; border-radius: 8px; box-shadow: 0 12px 30px rgba(34, 66, 120, .07); }
-      .page-header { max-width: 1440px; margin: 0 auto 14px; padding: 22px 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-      .page-header h1 { margin: 3px 0 4px; font-size: 30px; line-height: 1; }
-      .page-header p { margin: 0; color: #60718f; font-size: 14px; }
-      .eyebrow, .danger-kicker { display: block; color: #245eea; font-size: 11px; font-weight: 900; letter-spacing: 0; }
-      .danger-kicker { color: #b42318; }
-      .header-actions, .modal-actions { display: flex; align-items: center; gap: 10px; }
-      .icon-button, .secondary-button, .primary-button, .danger-button, .danger-solid, .receipt-button { min-height: 42px; border-radius: 8px; border: 1px solid #ccd9eb; padding: 10px 15px; font-weight: 800; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
-      .icon-button { width: 42px; padding: 0; color: #215ce8; background: #edf4ff; font-size: 21px; }
-      .secondary-button { color: #101a32; background: #fff; }
-      .primary-button { color: #fff; background: #175be8; border-color: #175be8; }
-      .danger-button { color: #b42318; border-color: #f4b8b3; background: #fff5f4; }
-      .danger-solid { color: #fff; border-color: #b42318; background: #b42318; }
-      button:disabled { opacity: .55; cursor: not-allowed; }
-      .notice { max-width: 1440px; margin: 0 auto 12px; border: 1px solid; border-radius: 8px; padding: 13px 16px; font-weight: 800; }
-      .notice.error { color: #b42318; border-color: #fecaca; background: #fff1f2; }
-      .notice.success { color: #067647; border-color: #a7f3d0; background: #ecfdf3; }
-      .manual-panel { max-width: 1440px; margin: 26px auto 0; padding: 16px 18px; border-color: #f0c7c3; background: #fffafa; box-shadow: none; }
-      .manual-panel.open { padding: 18px; }
-      .manual-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-      .manual-panel h2 { margin: 3px 0 5px; font-size: 19px; }
-      .manual-panel p { margin: 0; color: #60718f; font-size: 12px; line-height: 1.45; }
-      .manual-form { display: grid; grid-template-columns: 155px minmax(220px, 1fr) 140px auto; gap: 10px; align-items: end; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0d5d2; }
-      .manual-form label { display: grid; gap: 6px; color: #344563; font-size: 12px; font-weight: 850; }
-      .manual-form input, .modal input { min-height: 42px; min-width: 0; border: 1px solid #cbd8ea; border-radius: 8px; background: #fff; color: #101a32; padding: 9px 12px; }
-      .summary-grid { max-width: 1440px; margin: 0 auto 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-      .summary-card { padding: 18px 20px; display: grid; gap: 3px; border-top: 3px solid #80a7f7; }
-      .summary-card.important { border-top-color: #175be8; }
-      .summary-card.excess-total { border-top-color: #e67e22; background: #fffaf5; }
-      .summary-card span { color: #536887; font-size: 12px; font-weight: 900; text-transform: uppercase; }
-      .summary-card strong { font-size: 27px; }
-      .summary-card small { color: #70819d; }
-      .workspace-card, .bank-panel { max-width: 1440px; margin: 0 auto 14px; overflow: hidden; }
-      .toolbar { padding: 14px 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e4ebf5; }
-      .tabs { display: flex; gap: 5px; padding: 4px; border: 1px solid #d8e3f1; border-radius: 8px; background: #f5f8fc; overflow-x: auto; }
-      .tabs button { white-space: nowrap; border: 0; border-radius: 6px; background: transparent; padding: 9px 13px; color: #536887; font-weight: 850; cursor: pointer; }
-      .tabs button.active { background: #10213e; color: #fff; }
-      .month-field, .bank-form label, .modal label { display: grid; gap: 6px; color: #344563; font-size: 12px; font-weight: 850; }
-      .month-field input, .bank-form input, .modal textarea { min-height: 42px; border: 1px solid #cbd8ea; border-radius: 8px; background: #fff; color: #101a32; padding: 9px 12px; }
-      .ledger-list { padding: 16px; display: grid; gap: 9px; }
-      .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 2px; }
-      .section-heading h2 { margin: 3px 0 0; font-size: 19px; }
-      .section-heading > span { color: #60718f; font-size: 12px; font-weight: 800; }
-      .ledger-row, .compact-row, .history-row { border: 1px solid #dbe5f2; border-left: 4px solid #adc5ed; border-radius: 8px; background: #fff; }
-      .ledger-row { padding: 13px 14px; display: grid; grid-template-columns: minmax(175px, .8fr) minmax(300px, 2fr) minmax(120px, .6fr); gap: 18px; align-items: center; }
-      .ledger-row.complete, .compact-row.complete { background: #f0fdf4; border-color: #a7e6c0; border-left-color: #16a15f; }
-      .ledger-row.partial { background: #fffbeb; border-color: #f8d88b; border-left-color: #f59e0b; }
-      .select-box { display: flex; align-items: center; gap: 10px; font-weight: 900; }
-      .select-box input, .compact-row > input { width: 19px; height: 19px; accent-color: #175be8; }
-      .shift-lines { display: flex; flex-wrap: wrap; gap: 6px 12px; color: #60718f; font-size: 12px; }
-      .shift-lines > span { padding: 5px 8px; background: #f5f8fc; border-radius: 6px; }
-      .shift-line { display: inline-flex; align-items: center; gap: 7px; }
-      .shift-line > span { padding: 0; }
-      .amend-button { border: 0; border-radius: 5px; padding: 3px 6px; background: #dfeaff; color: #175be8; font-size: 10px; font-weight: 900; cursor: pointer; }
-      .row-total { display: grid; justify-items: end; gap: 1px; }
-      .row-total small { color: #60718f; }
-      .row-total strong { font-size: 18px; }
-      .row-total em, .compact-row em { color: #60718f; font-size: 11px; font-style: normal; font-weight: 900; text-transform: uppercase; }
-      .compact-row { padding: 12px 14px; display: grid; grid-template-columns: 24px minmax(220px, 1fr) 120px 90px; align-items: center; gap: 12px; }
-      .compact-row > div { display: grid; gap: 2px; }
-      .compact-row > div span { color: #667995; font-size: 12px; }
-      .compact-row > b, .compact-row > em { text-align: right; }
-      .excess-row { grid-template-columns: 24px minmax(260px, 1fr) 120px minmax(150px, auto); }
-      .excess-row.withdrawn { border-color: #d7dce5; border-left-color: #98a2b3; background: #f1f3f6; color: #667085; }
-      .excess-row.withdrawn > b { color: #7c8491; text-decoration: line-through; }
-      .excess-entry-copy { min-width: 0; }
-      .withdrawal-detail { margin-top: 4px; color: #5e6673 !important; font-weight: 750; }
-      .excess-row-actions { display: flex !important; align-items: flex-end; justify-content: center; flex-direction: column; gap: 5px !important; text-align: right; }
-      .excess-row-actions em { color: #60718f; font-size: 10px; font-style: normal; font-weight: 900; text-transform: uppercase; }
-      .excess-row-actions small { max-width: 210px; color: #7a8493; font-size: 10px; line-height: 1.3; }
-      .withdraw-button { min-height: 32px; border: 1px solid #edb9b5; border-radius: 7px; padding: 6px 10px; color: #b42318; background: #fff5f4; font-size: 11px; font-weight: 900; cursor: pointer; }
-      .withdraw-button:hover { border-color: #d92d20; background: #ffebe9; }
-      .history-row { padding: 14px; display: grid; grid-template-columns: minmax(220px, .8fr) minmax(280px, 1.2fr) minmax(220px, 1fr); gap: 16px; align-items: center; }
-      .history-row.reversed { opacity: .72; border-left-color: #d92d20; background: #fff7f6; }
-      .history-main { display: grid; gap: 3px; }
-      .history-main strong { font-size: 20px; }
-      .history-main > span:last-child, .history-detail span { color: #667995; font-size: 12px; }
-      .mode-pill { width: max-content; padding: 4px 7px; border-radius: 5px; background: #e8f1ff; color: #175be8; font-size: 10px; font-weight: 900; }
-      .history-detail { display: flex; flex-wrap: wrap; gap: 7px 14px; }
-      .history-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
-      .amendment-history { display: grid; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #dbe5f2; }
-      .amendment-row { display: grid; grid-template-columns: minmax(190px, 1fr) 110px 110px minmax(230px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #dbe5f2; border-left: 4px solid #7c5ce7; border-radius: 8px; background: #fbfaff; }
-      .amendment-row > div { display: grid; gap: 2px; }
-      .amendment-row span { color: #667995; font-size: 12px; }
-      .deletion-history { display: grid; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f1c4c0; }
-      .deletion-row { display: grid; grid-template-columns: minmax(190px, .7fr) minmax(260px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #f1c4c0; border-left: 4px solid #d92d20; border-radius: 8px; background: #fff7f6; }
-      .deletion-row > div { display: grid; gap: 2px; }
-      .deletion-row span { color: #80534f; font-size: 12px; }
-      .receipt-button { min-height: 36px; padding: 7px 10px; background: #f4f7fb; color: #1e4fb7; }
-      .reversed-label { color: #b42318; font-size: 12px; font-weight: 800; }
-      .empty-state { margin: 16px; min-height: 80px; border: 1px dashed #cbd8e9; border-radius: 8px; color: #687b98; background: #f8fafd; display: grid; place-items: center; text-align: center; padding: 20px; }
-      .bank-panel { padding: 0; border-color: #ccd9ec; }
-      .bank-panel-title { min-height: 92px; padding: 19px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #e3eaf4; background: linear-gradient(135deg, #ffffff 0%, #f5f8ff 100%); }
-      .bank-panel-title h2 { margin: 4px 0 4px; font-size: 21px; }
-      .bank-panel-title p { margin: 0; color: #677995; font-size: 12px; }
-      .selected-total { min-width: 190px; display: grid; justify-items: end; gap: 2px; }
-      .selected-total span { color: #667995; font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
-      .selected-total strong { color: #175be8; font-size: 30px; line-height: 1.1; }
-      .bank-panel-body { padding: 19px 22px; display: grid; grid-template-columns: minmax(420px, .95fr) minmax(500px, 1.35fr); gap: 24px; }
-      .additional-source-section { padding-right: 24px; border-right: 1px solid #e4eaf3; }
-      .bank-section-label { display: grid; gap: 2px; margin-bottom: 10px; }
-      .bank-section-label span { color: #243650; font-size: 12px; font-weight: 900; }
-      .bank-section-label small { color: #7888a0; font-size: 11px; }
-      .additional-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-      .additional-source-actions button { min-height: 66px; border: 1px solid #d5e0ef; border-radius: 10px; padding: 10px 11px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #16335f; background: #fff; text-align: left; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
-      .additional-source-actions button:hover { border-color: #8aacf0; box-shadow: 0 7px 18px rgba(42, 89, 180, .10); transform: translateY(-1px); }
-      .source-icon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #175be8; background: #eaf1ff; font-size: 13px; font-weight: 950; }
-      .source-icon.excess-icon { color: #b45309; background: #fff1df; }
-      .source-copy { min-width: 0; display: grid; gap: 3px; }
-      .source-copy strong { overflow: hidden; color: #192b48; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-      .source-copy em { color: #6c7e99; font-size: 10px; font-style: normal; }
-      .source-action { padding: 5px 7px; border-radius: 6px; color: #175be8; background: #eef4ff; font-size: 10px; font-weight: 900; }
-      .bank-form { display: grid; grid-template-columns: minmax(145px, .7fr) minmax(150px, .7fr) minmax(210px, 1.2fr); gap: 10px; align-items: end; }
-      .receipt-upload { position: relative; }
-      .receipt-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-      .receipt-upload span { min-height: 42px; border: 1px dashed #87a9e8; border-radius: 8px; background: #f4f7ff; display: flex; align-items: center; padding: 9px 12px; color: #2159c7; }
-      .bank-panel-footer { min-height: 68px; padding: 12px 22px; border-top: 1px solid #e4eaf3; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #fafcff; }
-      .accounting-note { margin: 0; color: #60718f; font-size: 11px; line-height: 1.45; }
-      .bank-submit { min-width: 180px; min-height: 44px; box-shadow: 0 7px 16px rgba(23, 91, 232, .18); }
-      .state-card { max-width: 620px; margin: 15vh auto; padding: 32px; text-align: center; display: grid; justify-items: center; gap: 13px; }
-      .state-card h1, .state-card p { margin: 0; }
-      .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; background: rgba(8, 18, 38, .62); }
-      .modal { width: min(520px, 100%); border-radius: 8px; background: #fff; padding: 24px; box-shadow: 0 28px 80px rgba(0, 0, 0, .28); }
-      .modal h2 { margin: 5px 0 7px; }
-      .modal p { color: #60718f; line-height: 1.5; }
-      .modal textarea { min-height: 95px; resize: vertical; }
-      .withdrawal-amount { margin: 14px 0; padding: 13px; border-radius: 8px; color: #b42318; background: #fff2f1; font-size: 25px; font-weight: 900; text-align: center; }
-      .withdrawal-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
-      .withdrawal-form .full-field { grid-column: 1 / -1; }
-      .source-picker-modal { width: min(680px, 100%); }
-      .source-picker-modal > p { margin: 5px 0 14px; }
-      .source-picker-list { max-height: min(52vh, 460px); overflow-y: auto; display: grid; gap: 7px; padding-right: 3px; }
-      .source-picker-row { min-height: 58px; border: 1px solid #dbe5f2; border-radius: 8px; padding: 10px 12px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; background: #fff; cursor: pointer; }
-      .source-picker-row.selected { border-color: #80a7f7; background: #edf4ff; }
-      .source-picker-row input { width: 19px; height: 19px; accent-color: #175be8; }
-      .source-picker-row > span { display: grid; gap: 2px; }
-      .source-picker-row small { color: #667995; }
-      .source-picker-row > b { white-space: nowrap; }
-      .picker-empty { min-height: 100px; border: 1px dashed #cbd8e9; border-radius: 8px; display: grid; place-items: center; padding: 18px; color: #687b98; text-align: center; }
-      .source-picker-summary { margin-top: 12px; padding: 11px 13px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #f4f7fb; color: #536887; font-size: 12px; font-weight: 800; }
-      .source-picker-summary strong { color: #10213e; font-size: 18px; }
-      .amend-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
-      .amend-comparison span { display: grid; gap: 3px; padding: 11px; border-radius: 8px; background: #f4f7fb; color: #60718f; font-size: 11px; font-weight: 850; }
-      .amend-comparison strong { color: #10213e; font-size: 20px; }
-      .reverse-amount { margin: 16px 0; padding: 13px; border-radius: 8px; background: #fff1f2; color: #b42318; font-size: 25px; font-weight: 900; text-align: center; }
-      .modal-actions { justify-content: flex-end; margin-top: 16px; }
-      @media (max-width: 1100px) {
-        .bank-panel-body { grid-template-columns: 1fr; gap: 18px; }
-        .additional-source-section { padding-right: 0; padding-bottom: 18px; border-right: 0; border-bottom: 1px solid #e4eaf3; }
-      }
-      @media (max-width: 900px) {
-        .cash-page { padding: 14px; }
-        .page-header { align-items: flex-start; }
-        .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .summary-card { padding: 13px; }
-        .summary-card strong { font-size: 21px; }
-        .ledger-row { grid-template-columns: 1fr auto; gap: 10px; }
-        .shift-lines { grid-column: 1 / -1; order: 3; }
-        .history-row { grid-template-columns: 1fr 1fr; }
-        .history-actions { grid-column: 1 / -1; justify-content: flex-start; }
-        .manual-form { grid-template-columns: 1fr 1fr; }
-        .amendment-row { grid-template-columns: 1fr 1fr; }
-        .deletion-row { grid-template-columns: 1fr; }
-        .bank-form { grid-template-columns: 1fr 1fr 1.2fr; }
-      }
-      @media (max-width: 620px) {
-        .cash-page { padding: 10px; }
-        .page-header { padding: 17px; display: grid; }
-        .page-header h1 { font-size: 25px; }
-        .header-actions { width: 100%; justify-content: flex-end; }
-        .summary-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-        .summary-card:first-child, .summary-card.excess-total { grid-column: auto; }
-        .toolbar { align-items: stretch; flex-direction: column-reverse; padding: 10px; }
-        .tabs { width: 100%; }
-        .tabs button { flex: 1; }
-        .month-field { width: 100%; }
-        .ledger-list { padding: 10px; }
-        .section-heading { align-items: flex-start; }
-        .section-heading h2 { font-size: 17px; }
-        .ledger-row { padding: 12px; grid-template-columns: 1fr; }
-        .row-total { justify-items: start; grid-template-columns: auto auto; align-items: baseline; gap: 5px 10px; }
-        .row-total em { grid-column: 1 / -1; }
-        .shift-lines { grid-column: auto; order: initial; display: grid; }
-        .compact-row { grid-template-columns: 22px minmax(0, 1fr) auto; gap: 9px; }
-        .compact-row > em { grid-column: 2 / -1; text-align: left; }
-        .excess-row { grid-template-columns: 22px minmax(0, 1fr) auto; }
-        .excess-row-actions { grid-column: 2 / -1; align-items: flex-start; text-align: left; }
-        .withdrawal-form { grid-template-columns: 1fr; }
-        .withdrawal-form .full-field { grid-column: auto; }
-        .history-row { grid-template-columns: 1fr; }
-        .history-actions { grid-column: auto; }
-        .manual-panel { padding: 14px; }
-        .manual-panel-heading { align-items: flex-start; flex-direction: column; }
-        .manual-panel-heading button { width: 100%; }
-        .manual-form { grid-template-columns: 1fr; }
-        .manual-form .danger-solid { width: 100%; }
-        .amendment-row { grid-template-columns: 1fr 1fr; }
-        .amendment-row > div:first-child, .amendment-row > div:last-child { grid-column: 1 / -1; }
-        .bank-panel { padding: 0; }
-        .bank-panel-title { padding: 16px; align-items: flex-start; flex-direction: column; gap: 12px; }
-        .selected-total { min-width: 0; justify-items: start; }
-        .selected-total strong { font-size: 26px; }
-        .bank-panel-body { padding: 16px; }
-        .bank-form { grid-template-columns: 1fr; }
-        .additional-source-actions { grid-template-columns: 1fr; }
-        .bank-panel-footer { padding: 14px 16px; align-items: stretch; flex-direction: column; }
-        .bank-submit { width: 100%; }
-        .source-picker-modal { padding: 17px; }
-        .source-picker-row { grid-template-columns: 22px minmax(0, 1fr); }
-        .source-picker-row > b { grid-column: 2; }
-        .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
-      }
-    `}</style>
-  );
-}
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: '100vh',
+    background: 'linear-gradient(180deg, #f3f7ff 0%, #f8fafc 34%, #ffffff 100%)',
+    padding: '20px 16px 40px',
+  },
+  shell: {
+    width: '100%',
+    maxWidth: '1180px',
+    margin: '0 auto',
+  },
+  topBar: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '16px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    background: 'rgba(255,255,255,0.9)',
+    border: '1px solid #dbe7f7',
+    borderRadius: '24px',
+    padding: '18px 20px',
+    boxShadow: '0 18px 42px rgba(37, 99, 235, 0.08)',
+    marginBottom: '18px',
+  },
+  topBarMobile: {
+    alignItems: 'stretch',
+    borderRadius: '18px',
+    padding: '16px',
+  },
+  topBarActions: {
+    display: 'flex',
+    gap: '10px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  topBarActionsMobile: {
+    width: '100%',
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+  },
+  eyebrow: {
+    fontSize: '11px',
+    color: '#2563eb',
+    fontWeight: 900,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: '6px',
+  },
+  pageTitle: {
+    fontSize: 'clamp(26px, 4vw, 36px)',
+    fontWeight: 900,
+    color: '#0f172a',
+    lineHeight: 1.1,
+  },
+  pageSubTitle: {
+    fontSize: '14px',
+    color: '#64748b',
+    marginTop: '6px',
+  },
+  panel: {
+    background: 'rgba(255,255,255,0.92)',
+    border: '1px solid #dbe7f7',
+    borderRadius: '24px',
+    padding: '20px',
+    boxShadow: '0 18px 46px rgba(15,23,42,0.06)',
+    marginBottom: '16px',
+  },
+  panelMobile: {
+    borderRadius: '18px',
+    padding: '14px',
+  },
+  sectionHeaderRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'flex-start',
+    marginBottom: '14px',
+  },
+  sectionEyebrow: {
+    fontSize: '11px',
+    color: '#2563eb',
+    fontWeight: 900,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: '4px',
+  },
+  sectionHint: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '999px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  },
+  sectionTitle: {
+    fontSize: 'clamp(20px, 3vw, 26px)',
+    fontWeight: 900,
+    color: '#0f172a',
+    marginBottom: '10px',
+  },
+  modeRow: {
+    display: 'inline-flex',
+    gap: '6px',
+    flexWrap: 'wrap',
+    background: '#eaf2ff',
+    border: '1px solid #dbeafe',
+    borderRadius: '999px',
+    padding: '5px',
+    marginBottom: '16px',
+  },
+  modeBtn: {
+    border: '1px solid transparent',
+    background: 'transparent',
+    color: '#334155',
+    borderRadius: '999px',
+    padding: '10px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  modeBtnActive: {
+    background: '#ffffff',
+    color: '#0f172a',
+    borderColor: '#bfdbfe',
+    boxShadow: '0 8px 18px rgba(37,99,235,0.12)',
+  },
+  mobileActionBtn: {
+    width: '100%',
+    minHeight: '46px',
+  },
+  mobileCompactBtn: {
+    width: 'fit-content',
+    minHeight: '40px',
+    padding: '10px 13px',
+    fontSize: '13px',
+    justifySelf: 'start',
+  },
+  shiftCardTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    alignItems: 'center',
+    marginBottom: '14px',
+  },
+  shiftIcon: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '14px',
+    background: '#eff6ff',
+    color: '#2563eb',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    border: '1px solid #bfdbfe',
+  },
+  statusNeutral: {
+    background: '#f8fafc',
+    color: '#475569',
+    border: '1px solid #e2e8f0',
+  },
+  headerRightMobile: {
+    width: '100%',
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+  },
+  actionRowMobile: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    width: '100%',
+  },
+  modalActionsMobile: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    width: '100%',
+  },
+  modalOverlayMobile: {
+    alignItems: 'flex-end',
+    padding: '10px',
+  },
+  modalCardMobile: {
+    maxHeight: '92vh',
+    borderRadius: '22px 22px 14px 14px',
+    padding: '14px',
+  },
+  questionCardMobile: {
+    padding: '13px',
+    borderRadius: '16px',
+  },
+  createQuestionCardMobile: {
+    padding: '12px',
+    borderRadius: '16px',
+  },
+  textareaMobile: {
+    minHeight: '86px',
+  },
+  textareaCompactMobile: {
+    minHeight: '76px',
+  },
+  ChecklistCardGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '12px',
+  },
+  ChecklistChooserCard: {
+    border: '1px solid #dbe7f7',
+    background: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)',
+    color: '#0f172a',
+    borderRadius: '18px',
+    padding: '16px',
+    textAlign: 'left',
+    cursor: 'pointer',
+    boxShadow: '0 12px 26px rgba(15,23,42,0.045)',
+  },
+  ChecklistChooserCardActive: {
+    borderColor: '#60a5fa',
+    boxShadow: '0 16px 34px rgba(37,99,235,0.14)',
+  },
+  ChecklistChooserTitle: {
+    fontSize: '18px',
+    fontWeight: 900,
+    marginBottom: '8px',
+  },
+  ChecklistChooserMeta: {
+    fontSize: '14px',
+    color: '#64748b',
+    fontWeight: 700,
+    marginBottom: '16px',
+  },
+  ChecklistChooserHint: {
+    fontSize: '13px',
+    color: '#2563eb',
+    fontWeight: 900,
+  },
+  ChecklistHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '16px',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    marginBottom: '14px',
+  },
+  ChecklistHeaderRight: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  ChecklistsubMeta: {
+    fontSize: '14px',
+    color: '#64748b',
+    marginTop: '6px',
+    fontWeight: 700,
+  },
+  statusPill: {
+    borderRadius: '999px',
+    padding: '8px 11px',
+    fontSize: '12px',
+    fontWeight: 900,
+  },
+  statusPending: {
+    background: '#fff7ed',
+    color: '#c2410c',
+    border: '1px solid #fed7aa',
+  },
+  statusSubmitted: {
+    background: '#ecfdf5',
+    color: '#166534',
+    border: '1px solid #bbf7d0',
+  },
+  questionList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+  },
+  questionCard: {
+    border: '1px solid #dbe7f7',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)',
+    borderRadius: '18px',
+    padding: '16px',
+    boxShadow: '0 10px 24px rgba(15,23,42,0.035)',
+  },
+  questionNumber: {
+    fontSize: '12px',
+    color: '#64748b',
+    fontWeight: 800,
+    marginBottom: '8px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  },
+  questionTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '10px',
+    flexWrap: 'wrap',
+  },
+  questionText: {
+    fontSize: '17px',
+    fontWeight: 900,
+    color: '#0f172a',
+    lineHeight: 1.35,
+  },
+  requiredBadge: {
+    background: '#fef2f2',
+    color: '#b91c1c',
+    border: '1px solid #fecaca',
+    borderRadius: '999px',
+    padding: '6px 10px',
+    fontSize: '12px',
+    fontWeight: 800,
+  },
+  questionDescription: {
+    fontSize: '14px',
+    color: '#475569',
+    lineHeight: 1.6,
+    marginTop: '8px',
+    whiteSpace: 'pre-wrap',
+  },
+  answerBtnRow: {
+    display: 'flex',
+    gap: '10px',
+    marginTop: '14px',
+    flexWrap: 'wrap',
+  },
+  answerChoiceBtn: {
+    border: '1px solid #dbe7f7',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '12px',
+    padding: '12px 18px',
+    fontWeight: 900,
+    cursor: 'pointer',
+    minWidth: '110px',
+  },
+  answerChoiceBtnActive: {
+    background: '#2563eb',
+    color: '#ffffff',
+    borderColor: '#2563eb',
+    boxShadow: '0 10px 22px rgba(37,99,235,0.18)',
+  },
+  remarkArea: {
+    marginTop: '12px',
+  },
+  addRemarkBtn: {
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '999px',
+    padding: '8px 11px',
+    fontWeight: 900,
+    fontSize: '12px',
+    cursor: 'pointer',
+  },
+  remarkTextarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    minHeight: '72px',
+    border: '1px solid #bfdbfe',
+    background: '#f8fbff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '11px 13px',
+    fontSize: '14px',
+    outline: 'none',
+    resize: 'vertical',
+  },
+  viewAnswerBox: {
+    marginTop: '14px',
+    border: '1px solid #e2e8f0',
+    background: '#f8fafc',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontWeight: 700,
+    color: '#0f172a',
+    whiteSpace: 'pre-wrap',
+  },
+  viewRemarkBox: {
+    marginTop: '10px',
+    border: '1px solid #bfdbfe',
+    background: '#f8fbff',
+    borderRadius: '14px',
+    padding: '11px 13px',
+    color: '#334155',
+    fontWeight: 700,
+    whiteSpace: 'pre-wrap',
+  },
+  viewRemarkLabel: {
+    color: '#2563eb',
+    fontSize: '12px',
+    fontWeight: 900,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: '5px',
+  },
+  actionRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    flexWrap: 'wrap',
+    marginTop: '18px',
+  },
+  historyList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  historyCard: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    border: '1px solid #e2e8f0',
+    background: '#ffffff',
+    borderRadius: '16px',
+    padding: '14px 16px',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  historyTitle: {
+    fontSize: '16px',
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  historyMeta: {
+    fontSize: '13px',
+    color: '#64748b',
+    marginTop: '4px',
+    fontWeight: 700,
+  },
+  historyView: {
+    fontSize: '13px',
+    color: '#1d4ed8',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  primaryHeaderBtn: {
+    border: 'none',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+    color: '#ffffff',
+    borderRadius: '14px',
+    padding: '12px 16px',
+    fontWeight: 900,
+    cursor: 'pointer',
+    boxShadow: '0 12px 24px rgba(37,99,235,0.24)',
+  },
+  primaryBtn: {
+    border: 'none',
+    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+    color: '#ffffff',
+    borderRadius: '14px',
+    padding: '12px 16px',
+    fontWeight: 900,
+    cursor: 'pointer',
+    boxShadow: '0 12px 24px rgba(37,99,235,0.22)',
+  },
+  secondaryBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '12px 16px',
+    fontWeight: 900,
+    cursor: 'pointer',
+  },
+  errorBox: {
+    marginBottom: '14px',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    border: '1px solid #fecaca',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontWeight: 700,
+  },
+  successBox: {
+    marginBottom: '14px',
+    background: '#ecfdf5',
+    color: '#166534',
+    border: '1px solid #bbf7d0',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontWeight: 700,
+  },
+  emptyState: {
+    border: '1px dashed #cbd5e1',
+    background: '#f8fafc',
+    borderRadius: '16px',
+    padding: '26px',
+    textAlign: 'center',
+    color: '#64748b',
+    fontWeight: 700,
+  },
+  centerCard: {
+    maxWidth: '460px',
+    margin: '80px auto',
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '20px',
+    padding: '26px',
+    textAlign: 'center',
+    boxShadow: '0 14px 32px rgba(15,23,42,0.08)',
+  },
+  centerTitle: {
+    fontSize: '24px',
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: '10px',
+  },
+  centerText: {
+    fontSize: '15px',
+    color: '#64748b',
+    lineHeight: 1.6,
+    marginBottom: '16px',
+  },
+  linkBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textDecoration: 'none',
+    border: '1px solid #0f172a',
+    background: '#0f172a',
+    color: '#ffffff',
+    borderRadius: '14px',
+    padding: '12px 16px',
+    fontWeight: 800,
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15, 23, 42, 0.48)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+    zIndex: 1000,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: '860px',
+    maxHeight: '88vh',
+    overflowY: 'auto',
+    background: '#ffffff',
+    borderRadius: '24px',
+    padding: '20px',
+    boxShadow: '0 20px 50px rgba(15,23,42,0.28)',
+  },
+  modalTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'flex-start',
+    marginBottom: '16px',
+  },
+  modalTitle: {
+    fontSize: '24px',
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  closeBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    width: '38px',
+    height: '38px',
+    borderRadius: '12px',
+    fontSize: '20px',
+    lineHeight: 1,
+    cursor: 'pointer',
+  },
+  createQuestionList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px',
+  },
+  createQuestionCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '18px',
+    background: '#f8fafc',
+    padding: '14px',
+  },
+  createQuestionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'center',
+    marginBottom: '10px',
+  },
+  createQuestionTitle: {
+    fontSize: '16px',
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  questionHeaderActions: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  reorderBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#334155',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  removeBtn: {
+    border: '1px solid #ef4444',
+    background: '#ffffff',
+    color: '#ef4444',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  ChecklistGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginBottom: '14px',
+  },
+  label: {
+    fontSize: '14px',
+    color: '#334155',
+    fontWeight: 800,
+  },
+  checkboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    color: '#334155',
+    fontWeight: 700,
+    marginBottom: '8px',
+  },
+  input: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontSize: '15px',
+    outline: 'none',
+  },
+  textarea: {
+    width: '100%',
+    boxSizing: 'border-box',
+    minHeight: '100px',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontSize: '15px',
+    outline: 'none',
+    resize: 'vertical',
+    marginTop: '14px',
+  },
+  textareaCompact: {
+    width: '100%',
+    boxSizing: 'border-box',
+    minHeight: '88px',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontSize: '15px',
+    outline: 'none',
+    resize: 'vertical',
+  },
+  modalActionsSpread: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginTop: '18px',
+  },
+  modalActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    flexWrap: 'wrap',
+  },
+  lockNotice: {
+    fontSize: '12px',
+    color: '#b45309',
+    fontWeight: 700,
+  },
+};
