@@ -63,7 +63,7 @@ type CashEntryAmendment = {
 type ExcessWithdrawal = {
   id: string;
   cash_entry_id: string;
-  invoice_date: string;
+  folio_number: string;
   reason_for_excess: string;
   error_staff_name: string;
   withdrawn_amount: number;
@@ -287,7 +287,7 @@ export default function BankInCashPage() {
   const [amendReason, setAmendReason] = useState('');
   const [amending, setAmending] = useState(false);
   const [withdrawTarget, setWithdrawTarget] = useState<CashEntry | null>(null);
-  const [withdrawInvoiceDate, setWithdrawInvoiceDate] = useState(singaporeDate());
+  const [withdrawFolioNumber, setWithdrawFolioNumber] = useState('');
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawStaffName, setWithdrawStaffName] = useState('');
   const [withdrawingExcess, setWithdrawingExcess] = useState(false);
@@ -676,7 +676,7 @@ export default function BankInCashPage() {
 
   const openExcessWithdrawal = (entry: CashEntry) => {
     setWithdrawTarget(entry);
-    setWithdrawInvoiceDate(singaporeDate());
+    setWithdrawFolioNumber('');
     setWithdrawReason('');
     setWithdrawStaffName('');
     setError('');
@@ -684,7 +684,7 @@ export default function BankInCashPage() {
 
   const withdrawExcessCash = async () => {
     if (!withdrawTarget) return;
-    if (!withdrawInvoiceDate) return setError('Invoice date is required.');
+    if (!withdrawFolioNumber.trim()) return setError('Folio number of mistake is required.');
     if (!withdrawReason.trim()) return setError('Enter the reason for the excess cash.');
     if (!withdrawStaffName.trim()) return setError('Enter the name of the staff member who made the error.');
 
@@ -693,7 +693,7 @@ export default function BankInCashPage() {
     setMessage('');
     const { error: withdrawError } = await supabase.rpc('withdraw_excess_cash', {
       p_cash_entry_id: withdrawTarget.id,
-      p_invoice_date: withdrawInvoiceDate,
+      p_folio_number: withdrawFolioNumber.trim(),
       p_reason_for_excess: withdrawReason.trim(),
       p_error_staff_name: withdrawStaffName.trim(),
     });
@@ -704,6 +704,7 @@ export default function BankInCashPage() {
       setSelectedExcessIds((current) => current.filter((id) => id !== withdrawTarget.id));
       setMessage(`${money.format(Number(withdrawTarget.excess_amount))} withdrawn from available Excess Cash.`);
       setWithdrawTarget(null);
+      setWithdrawFolioNumber('');
       setWithdrawReason('');
       setWithdrawStaffName('');
       await loadData();
@@ -940,7 +941,7 @@ export default function BankInCashPage() {
                   <div className="excess-entry-copy">
                     <strong>{row.person_name}</strong>
                     <span>{formatDate(row.service_date)} · {row.shift_title}</span>
-                    {withdrawal ? <span className="withdrawal-detail">Invoice {formatDate(withdrawal.invoice_date)} · {withdrawal.reason_for_excess} · Error by {withdrawal.error_staff_name}</span> : null}
+                    {withdrawal ? <span className="withdrawal-detail">Folio {withdrawal.folio_number} · {withdrawal.reason_for_excess} · Error by {withdrawal.error_staff_name}</span> : null}
                   </div>
                   <b>{money.format(Number(row.excess_amount))}</b>
                   <div className="excess-row-actions">
@@ -1094,7 +1095,7 @@ export default function BankInCashPage() {
             <p>The transaction will remain in the Excess Cash register as withdrawn and will no longer be included in totals or available for bank-in.</p>
             <div className="withdrawal-amount">{money.format(Number(withdrawTarget.excess_amount))}</div>
             <div className="withdrawal-form">
-              <label>Invoice date<input type="date" value={withdrawInvoiceDate} onChange={(event) => setWithdrawInvoiceDate(event.target.value)} /></label>
+              <label>Folio Number of Mistake<input type="text" value={withdrawFolioNumber} onChange={(event) => setWithdrawFolioNumber(event.target.value)} placeholder="Enter folio number" /></label>
               <label>Staff who made the error<input type="text" value={withdrawStaffName} onChange={(event) => setWithdrawStaffName(event.target.value)} placeholder="Enter staff name" /></label>
               <label className="full-field">Reason for excess cash<textarea value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} placeholder="Explain why the excess occurred and why it is being withdrawn" /></label>
             </div>
