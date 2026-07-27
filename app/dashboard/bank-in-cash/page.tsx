@@ -18,6 +18,7 @@ type DashboardProfile = {
   app_role?: string;
   is_superuser?: PermissionValue;
   isSuperUser?: PermissionValue;
+  can_access_bank_in_cash?: PermissionValue;
   can_access_management_tasks?: PermissionValue;
   permissions?: Record<string, PermissionValue>;
 };
@@ -57,6 +58,18 @@ type CashEntryAmendment = {
   amended_by_name: string;
   amended_by_email: string;
   amended_at: string;
+};
+
+type ExcessWithdrawal = {
+  id: string;
+  cash_entry_id: string;
+  invoice_date: string;
+  reason_for_excess: string;
+  error_staff_name: string;
+  withdrawn_amount: number;
+  withdrawn_by_name: string;
+  withdrawn_by_email: string;
+  withdrawn_at: string;
 };
 
 type BankInSource = {
@@ -241,6 +254,7 @@ export default function BankInCashPage() {
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
   const [manualEntries, setManualEntries] = useState<ManualCashEntry[]>([]);
   const [amendments, setAmendments] = useState<CashEntryAmendment[]>([]);
+  const [excessWithdrawals, setExcessWithdrawals] = useState<ExcessWithdrawal[]>([]);
   const [bankInSources, setBankInSources] = useState<BankInSource[]>([]);
   const [deletedBankIns, setDeletedBankIns] = useState<DeletedBankInRecord[]>([]);
   const [smallChange, setSmallChange] = useState<SmallChangeEntry[]>([]);
@@ -272,6 +286,11 @@ export default function BankInCashPage() {
   const [amendAmount, setAmendAmount] = useState('');
   const [amendReason, setAmendReason] = useState('');
   const [amending, setAmending] = useState(false);
+  const [withdrawTarget, setWithdrawTarget] = useState<CashEntry | null>(null);
+  const [withdrawInvoiceDate, setWithdrawInvoiceDate] = useState(singaporeDate());
+  const [withdrawReason, setWithdrawReason] = useState('');
+  const [withdrawStaffName, setWithdrawStaffName] = useState('');
+  const [withdrawingExcess, setWithdrawingExcess] = useState(false);
   const [sourcePicker, setSourcePicker] = useState<SourcePicker | null>(null);
 
   const role = normalizeRole(profile?.role || profile?.user_role || profile?.app_role);
@@ -282,14 +301,14 @@ export default function BankInCashPage() {
     isPermissionEnabled(profile?.isSuperUser);
   const hasAccess =
     isSuperuser ||
-    isPermissionEnabled(profile?.can_access_management_tasks) ||
-    isPermissionEnabled(profile?.permissions?.can_access_management_tasks);
+    isPermissionEnabled(profile?.can_access_bank_in_cash) ||
+    isPermissionEnabled(profile?.permissions?.can_access_bank_in_cash);
 
   const loadData = useCallback(async () => {
     setDataLoading(true);
     setError('');
     const retentionStart = monthStartTwelveMonthsAgo();
-    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, sourceResult, deletionResult] = await Promise.all([
+    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, withdrawalResult, sourceResult, deletionResult] = await Promise.all([
       supabase
         .from('fo_checklist_cash_entries')
         .select('*')
@@ -319,6 +338,11 @@ export default function BankInCashPage() {
         .gte('amended_at', retentionStart)
         .order('amended_at', { ascending: false }),
       supabase
+        .from('cash_excess_withdrawals')
+        .select('*')
+        .gte('withdrawn_at', retentionStart)
+        .order('withdrawn_at', { ascending: false }),
+      supabase
         .from('cash_bank_in_sources')
         .select('*'),
       supabase
@@ -328,7 +352,7 @@ export default function BankInCashPage() {
         .order('deleted_at', { ascending: false }),
     ]);
 
-    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || sourceResult.error || deletionResult.error;
+    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || withdrawalResult.error || sourceResult.error || deletionResult.error;
     if (firstError) {
       setError(firstError.message);
     } else {
@@ -337,6 +361,7 @@ export default function BankInCashPage() {
       setSmallChange((smallChangeResult.data || []) as SmallChangeEntry[]);
       setBankIns((bankInResult.data || []) as BankInRecord[]);
       setAmendments((amendmentResult.data || []) as CashEntryAmendment[]);
+      setExcessWithdrawals((withdrawalResult.data || []) as ExcessWithdrawal[]);
       setBankInSources((sourceResult.data || []) as BankInSource[]);
       setDeletedBankIns((deletionResult.data || []) as DeletedBankInRecord[]);
     }
@@ -460,6 +485,11 @@ export default function BankInCashPage() {
     [cashEntries, month],
   );
 
+  const excessWithdrawalByEntryId = useMemo(
+    () => new Map(excessWithdrawals.map((withdrawal) => [withdrawal.cash_entry_id, withdrawal])),
+    [excessWithdrawals],
+  );
+
   const filteredSmallChange = useMemo(
     () => smallChange.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
     [smallChange, month],
@@ -495,9 +525,10 @@ export default function BankInCashPage() {
         (entry) =>
           selectedExcessIds.includes(entry.id) &&
           !entry.excess_bank_in_id &&
+          !excessWithdrawalByEntryId.has(entry.id) &&
           Number(entry.excess_amount) > 0,
       ),
-    [cashEntries, selectedExcessIds],
+    [cashEntries, excessWithdrawalByEntryId, selectedExcessIds],
   );
 
   const selectedBalanceRows = useMemo(
@@ -539,14 +570,14 @@ export default function BankInCashPage() {
   const totalExcessCash = useMemo(
     () =>
       cashEntries
-        .filter((entry) => !entry.excess_bank_in_id)
+        .filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id))
         .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0),
-    [cashEntries],
+    [cashEntries, excessWithdrawalByEntryId],
   );
 
   const availableExcessRows = useMemo(
-    () => excessRows.filter((entry) => !entry.excess_bank_in_id),
-    [excessRows],
+    () => excessRows.filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id)),
+    [excessRows, excessWithdrawalByEntryId],
   );
 
   const availableBalanceRows = useMemo(
@@ -641,6 +672,43 @@ export default function BankInCashPage() {
       await loadData();
     }
     setAmending(false);
+  };
+
+  const openExcessWithdrawal = (entry: CashEntry) => {
+    setWithdrawTarget(entry);
+    setWithdrawInvoiceDate(singaporeDate());
+    setWithdrawReason('');
+    setWithdrawStaffName('');
+    setError('');
+  };
+
+  const withdrawExcessCash = async () => {
+    if (!withdrawTarget) return;
+    if (!withdrawInvoiceDate) return setError('Invoice date is required.');
+    if (!withdrawReason.trim()) return setError('Enter the reason for the excess cash.');
+    if (!withdrawStaffName.trim()) return setError('Enter the name of the staff member who made the error.');
+
+    setWithdrawingExcess(true);
+    setError('');
+    setMessage('');
+    const { error: withdrawError } = await supabase.rpc('withdraw_excess_cash', {
+      p_cash_entry_id: withdrawTarget.id,
+      p_invoice_date: withdrawInvoiceDate,
+      p_reason_for_excess: withdrawReason.trim(),
+      p_error_staff_name: withdrawStaffName.trim(),
+    });
+
+    if (withdrawError) {
+      setError(withdrawError.message);
+    } else {
+      setSelectedExcessIds((current) => current.filter((id) => id !== withdrawTarget.id));
+      setMessage(`${money.format(Number(withdrawTarget.excess_amount))} withdrawn from available Excess Cash.`);
+      setWithdrawTarget(null);
+      setWithdrawReason('');
+      setWithdrawStaffName('');
+      await loadData();
+    }
+    setWithdrawingExcess(false);
   };
 
   const submitBankIn = async () => {
@@ -784,7 +852,7 @@ export default function BankInCashPage() {
       <main className="cash-page">
         <div className="state-card">
           <h1>Access denied</h1>
-          <p>Bank In Cash is available to users with Management Tasks access.</p>
+          <p>Bank In Cash access has not been granted to this user.</p>
           <Link href="/dashboard" className="primary-button">Back to Dashboard</Link>
         </div>
         <Styles />
@@ -863,14 +931,26 @@ export default function BankInCashPage() {
           <div className="ledger-list">
             <div className="section-heading"><div><span className="eyebrow">EXCESS REGISTER</span><h2>Dated excess cash declarations</h2></div><span>{excessRows.length} entry(s)</span></div>
             {!excessRows.length ? <div className="empty-state">No excess cash declared for this month.</div> : null}
-            {excessRows.map((row) => (
-              <article className={`compact-row ${row.excess_bank_in_id ? 'complete' : ''}`} key={row.id}>
-                <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={!!row.excess_bank_in_id} checked={selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
-                <div><strong>{row.person_name}</strong><span>{formatDate(row.service_date)} · {row.shift_title}</span></div>
-                <b>{money.format(Number(row.excess_amount))}</b>
-                <em>{row.excess_bank_in_id ? 'Banked' : 'Open'}</em>
-              </article>
-            ))}
+            {excessRows.map((row) => {
+              const withdrawal = excessWithdrawalByEntryId.get(row.id);
+              const unavailable = !!row.excess_bank_in_id || !!withdrawal;
+              return (
+                <article className={`compact-row excess-row ${row.excess_bank_in_id ? 'complete' : ''} ${withdrawal ? 'withdrawn' : ''}`} key={row.id}>
+                  <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!withdrawal && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
+                  <div className="excess-entry-copy">
+                    <strong>{row.person_name}</strong>
+                    <span>{formatDate(row.service_date)} · {row.shift_title}</span>
+                    {withdrawal ? <span className="withdrawal-detail">Invoice {formatDate(withdrawal.invoice_date)} · {withdrawal.reason_for_excess} · Error by {withdrawal.error_staff_name}</span> : null}
+                  </div>
+                  <b>{money.format(Number(row.excess_amount))}</b>
+                  <div className="excess-row-actions">
+                    <em>{withdrawal ? 'Withdrawn' : row.excess_bank_in_id ? 'Banked' : 'Open'}</em>
+                    {!unavailable ? <button type="button" className="withdraw-button" onClick={() => openExcessWithdrawal(row)}>Withdraw</button> : null}
+                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} · {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : null}
 
@@ -1004,6 +1084,26 @@ export default function BankInCashPage() {
             </div>
           ) : null}
         </section>
+      ) : null}
+
+      {withdrawTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setWithdrawTarget(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="withdraw-excess-title">
+            <span className="eyebrow">EXCESS CASH RESOLUTION</span>
+            <h2 id="withdraw-excess-title">Withdraw this excess cash?</h2>
+            <p>The transaction will remain in the Excess Cash register as withdrawn and will no longer be included in totals or available for bank-in.</p>
+            <div className="withdrawal-amount">{money.format(Number(withdrawTarget.excess_amount))}</div>
+            <div className="withdrawal-form">
+              <label>Invoice date<input type="date" value={withdrawInvoiceDate} onChange={(event) => setWithdrawInvoiceDate(event.target.value)} /></label>
+              <label>Staff who made the error<input type="text" value={withdrawStaffName} onChange={(event) => setWithdrawStaffName(event.target.value)} placeholder="Enter staff name" /></label>
+              <label className="full-field">Reason for excess cash<textarea value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} placeholder="Explain why the excess occurred and why it is being withdrawn" /></label>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setWithdrawTarget(null)}>Cancel</button>
+              <button type="button" className="danger-solid" onClick={() => void withdrawExcessCash()} disabled={withdrawingExcess}>{withdrawingExcess ? 'Recording withdrawal...' : 'Confirm Withdrawal'}</button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {sourcePicker ? (
@@ -1159,6 +1259,16 @@ function Styles() {
       .compact-row > div { display: grid; gap: 2px; }
       .compact-row > div span { color: #667995; font-size: 12px; }
       .compact-row > b, .compact-row > em { text-align: right; }
+      .excess-row { grid-template-columns: 24px minmax(260px, 1fr) 120px minmax(150px, auto); }
+      .excess-row.withdrawn { border-color: #d7dce5; border-left-color: #98a2b3; background: #f1f3f6; color: #667085; }
+      .excess-row.withdrawn > b { color: #7c8491; text-decoration: line-through; }
+      .excess-entry-copy { min-width: 0; }
+      .withdrawal-detail { margin-top: 4px; color: #5e6673 !important; font-weight: 750; }
+      .excess-row-actions { display: flex !important; align-items: flex-end; justify-content: center; flex-direction: column; gap: 5px !important; text-align: right; }
+      .excess-row-actions em { color: #60718f; font-size: 10px; font-style: normal; font-weight: 900; text-transform: uppercase; }
+      .excess-row-actions small { max-width: 210px; color: #7a8493; font-size: 10px; line-height: 1.3; }
+      .withdraw-button { min-height: 32px; border: 1px solid #edb9b5; border-radius: 7px; padding: 6px 10px; color: #b42318; background: #fff5f4; font-size: 11px; font-weight: 900; cursor: pointer; }
+      .withdraw-button:hover { border-color: #d92d20; background: #ffebe9; }
       .history-row { padding: 14px; display: grid; grid-template-columns: minmax(220px, .8fr) minmax(280px, 1.2fr) minmax(220px, 1fr); gap: 16px; align-items: center; }
       .history-row.reversed { opacity: .72; border-left-color: #d92d20; background: #fff7f6; }
       .history-main { display: grid; gap: 3px; }
@@ -1213,6 +1323,9 @@ function Styles() {
       .modal h2 { margin: 5px 0 7px; }
       .modal p { color: #60718f; line-height: 1.5; }
       .modal textarea { min-height: 95px; resize: vertical; }
+      .withdrawal-amount { margin: 14px 0; padding: 13px; border-radius: 8px; color: #b42318; background: #fff2f1; font-size: 25px; font-weight: 900; text-align: center; }
+      .withdrawal-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+      .withdrawal-form .full-field { grid-column: 1 / -1; }
       .source-picker-modal { width: min(680px, 100%); }
       .source-picker-modal > p { margin: 5px 0 14px; }
       .source-picker-list { max-height: min(52vh, 460px); overflow-y: auto; display: grid; gap: 7px; padding-right: 3px; }
@@ -1269,6 +1382,10 @@ function Styles() {
         .shift-lines { grid-column: auto; order: initial; display: grid; }
         .compact-row { grid-template-columns: 22px minmax(0, 1fr) auto; gap: 9px; }
         .compact-row > em { grid-column: 2 / -1; text-align: left; }
+        .excess-row { grid-template-columns: 22px minmax(0, 1fr) auto; }
+        .excess-row-actions { grid-column: 2 / -1; align-items: flex-start; text-align: left; }
+        .withdrawal-form { grid-template-columns: 1fr; }
+        .withdrawal-form .full-field { grid-column: auto; }
         .history-row { grid-template-columns: 1fr; }
         .history-actions { grid-column: auto; }
         .manual-panel { padding: 14px; }
