@@ -35,6 +35,7 @@ export type DashboardUser = {
   can_access_linen_history: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
+  can_access_bank_in_cash: boolean;
   can_access_commission_checker: boolean;
   can_access_admin_settings: boolean;
   can_access_guest_shop_admin: boolean;
@@ -70,6 +71,7 @@ export type DashboardUser = {
     can_access_linen_history: boolean;
     can_access_daily_forms: boolean;
     can_access_management_tasks: boolean;
+    can_access_bank_in_cash: boolean;
     can_access_commission_checker: boolean;
     can_access_admin_settings: boolean;
     can_access_guest_shop_admin: boolean;
@@ -233,6 +235,7 @@ export async function getDashboardUserFromRequest(
         can_access_linen_history,
         can_access_daily_forms,
         can_access_management_tasks,
+        can_access_bank_in_cash,
         can_access_commission_checker,
         can_access_admin_settings,
         can_access_guest_shop_admin,
@@ -298,6 +301,8 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_daily_forms),
       can_access_management_tasks:
         effectiveBoolean(role, profile.can_access_management_tasks),
+      can_access_bank_in_cash:
+        effectiveBoolean(role, profile.can_access_bank_in_cash),
       can_access_commission_checker:
         effectiveBoolean(role, profile.can_access_commission_checker),
       can_access_admin_settings:
