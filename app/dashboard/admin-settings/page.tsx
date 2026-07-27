@@ -29,6 +29,7 @@ type UserProfile = {
   can_access_supervisor_checklist: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
+  can_access_bank_in_cash: boolean;
   can_access_commission_checker: boolean;
   can_access_admin_settings: boolean;
   can_access_guest_shop_admin: boolean;
@@ -79,7 +80,8 @@ const accessFieldDefs: Array<{
   { key: 'can_access_pa_checklist', label: 'PA Checklist', group: 'Public Area' },
   { key: 'can_access_pa_linen_entry', label: 'PA Linen Entry', group: 'Public Area' },
   { key: 'can_access_daily_forms', label: 'Daily Forms', group: 'Management' },
-  { key: 'can_access_management_tasks', label: 'Management Tasks / Bank In Cash / Daily Operations Summary', group: 'Management' },
+  { key: 'can_access_management_tasks', label: 'Management Tasks / Daily Operations Summary', group: 'Management' },
+  { key: 'can_access_bank_in_cash', label: 'Bank In Cash', group: 'Management' },
   { key: 'can_access_commission_checker', label: 'Commission Checker', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
   { key: 'can_access_guest_shop_admin', label: 'Guest Shop Admin', group: 'Front Office' },
@@ -116,6 +118,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_supervisor_checklist: false,
     can_access_daily_forms: false,
     can_access_management_tasks: false,
+    can_access_bank_in_cash: false,
     can_access_commission_checker: false,
     can_access_admin_settings: false,
     can_access_guest_shop_admin: false,
@@ -207,6 +210,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
       toPermissionBoolean(permissionValue('can_access_management_tasks')),
+    can_access_bank_in_cash:
+      toPermissionBoolean(permissionValue('can_access_bank_in_cash')),
     can_access_commission_checker:
       toPermissionBoolean(permissionValue('can_access_commission_checker')),
     can_access_admin_settings:
@@ -264,6 +269,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_supervisor_checklist: toPermissionBoolean(draft.can_access_supervisor_checklist),
     can_access_daily_forms: toPermissionBoolean(draft.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(draft.can_access_management_tasks),
+    can_access_bank_in_cash: toPermissionBoolean(draft.can_access_bank_in_cash),
     can_access_commission_checker: toPermissionBoolean(draft.can_access_commission_checker),
     can_access_admin_settings: toPermissionBoolean(draft.can_access_admin_settings),
     can_access_guest_shop_admin: toPermissionBoolean(draft.can_access_guest_shop_admin),
