@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
 type PageTab = 'daily' | 'excess' | 'small-change' | 'history';
-type SourceMode = 'DAILY' | 'EXCESS' | 'SMALL_CHANGE';
+type SourceMode = 'DAILY' | 'EXCESS' | 'SMALL_CHANGE' | 'MIXED';
+type SourcePicker = 'excess' | 'small-change';
 type PermissionValue = boolean | string | number | null | undefined;
 
 type DashboardProfile = {
@@ -173,6 +174,11 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function sourceModeLabel(value: SourceMode) {
+  if (value === 'SMALL_CHANGE') return 'BALANCE NOT BANKED IN';
+  return value;
+}
+
 function monthStartTwelveMonthsAgo() {
   const date = new Date();
   date.setMonth(date.getMonth() - 11, 1);
@@ -241,7 +247,9 @@ export default function BankInCashPage() {
   const [bankIns, setBankIns] = useState<BankInRecord[]>([]);
   const [tab, setTab] = useState<PageTab>('daily');
   const [month, setMonth] = useState(singaporeDate().slice(0, 7));
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedDailyIds, setSelectedDailyIds] = useState<string[]>([]);
+  const [selectedExcessIds, setSelectedExcessIds] = useState<string[]>([]);
+  const [selectedBalanceIds, setSelectedBalanceIds] = useState<string[]>([]);
   const [bankedAmount, setBankedAmount] = useState('');
   const [bankInDate, setBankInDate] = useState(singaporeDate());
   const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
@@ -263,6 +271,7 @@ export default function BankInCashPage() {
   const [amendAmount, setAmendAmount] = useState('');
   const [amendReason, setAmendReason] = useState('');
   const [amending, setAmending] = useState(false);
+  const [sourcePicker, setSourcePicker] = useState<SourcePicker | null>(null);
 
   const role = normalizeRole(profile?.role || profile?.user_role || profile?.app_role);
   const isSuperuser =
@@ -372,12 +381,21 @@ export default function BankInCashPage() {
   }, [authLoading, hasAccess, loadData]);
 
   useEffect(() => {
-    setSelectedIds([]);
+    setSelectedDailyIds([]);
+    setSelectedExcessIds([]);
+    setSelectedBalanceIds([]);
     setBankedAmount('');
     setReceiptFiles([]);
     setMessage('');
     setError('');
-  }, [tab, month]);
+    setSourcePicker(null);
+  }, [month]);
+
+  useEffect(() => {
+    setMessage('');
+    setError('');
+    setSourcePicker(null);
+  }, [tab]);
 
   const dailyCashRows = useMemo<DailyCashRow[]>(
     () => [
@@ -465,24 +483,40 @@ export default function BankInCashPage() {
     [deletedBankIns, month],
   );
 
-  const selectedTotal = useMemo(() => {
-    if (tab === 'daily') {
-      return dailyCashRows
-        .filter((entry) => selectedIds.includes(entry.id) && !entry.bank_in_id)
-        .reduce((sum, entry) => sum + entry.amount, 0);
-    }
-    if (tab === 'excess') {
-      return cashEntries
-        .filter((entry) => selectedIds.includes(entry.id) && !entry.excess_bank_in_id)
-        .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0);
-    }
-    if (tab === 'small-change') {
-      return smallChange
-        .filter((entry) => selectedIds.includes(entry.id) && !entry.consumed_by_bank_in_id)
-        .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    }
-    return 0;
-  }, [cashEntries, dailyCashRows, selectedIds, smallChange, tab]);
+  const selectedDailyRows = useMemo(
+    () => dailyCashRows.filter((entry) => selectedDailyIds.includes(entry.id) && !entry.bank_in_id && entry.amount > 0),
+    [dailyCashRows, selectedDailyIds],
+  );
+
+  const selectedExcessRows = useMemo(
+    () =>
+      cashEntries.filter(
+        (entry) =>
+          selectedExcessIds.includes(entry.id) &&
+          !entry.excess_bank_in_id &&
+          Number(entry.excess_amount) > 0,
+      ),
+    [cashEntries, selectedExcessIds],
+  );
+
+  const selectedBalanceRows = useMemo(
+    () =>
+      smallChange.filter(
+        (entry) =>
+          selectedBalanceIds.includes(entry.id) &&
+          !entry.consumed_by_bank_in_id &&
+          Number(entry.amount) > 0,
+      ),
+    [selectedBalanceIds, smallChange],
+  );
+
+  const selectedTotal = useMemo(
+    () =>
+      selectedDailyRows.reduce((sum, entry) => sum + entry.amount, 0) +
+      selectedExcessRows.reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0) +
+      selectedBalanceRows.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    [selectedBalanceRows, selectedDailyRows, selectedExcessRows],
+  );
 
   useEffect(() => {
     setBankedAmount(selectedTotal > 0 ? selectedTotal.toFixed(2) : '');
@@ -495,14 +529,32 @@ export default function BankInCashPage() {
     const manual = manualEntries
       .filter((entry) => !entry.bank_in_id)
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    const excess = cashEntries
-      .filter((entry) => !entry.excess_bank_in_id)
-      .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0);
     const change = smallChange
       .filter((entry) => !entry.consumed_by_bank_in_id)
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-    return daily + manual + excess + change;
+    return daily + manual + change;
   }, [cashEntries, manualEntries, smallChange]);
+
+  const totalExcessCash = useMemo(
+    () =>
+      cashEntries
+        .filter((entry) => !entry.excess_bank_in_id)
+        .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0),
+    [cashEntries],
+  );
+
+  const availableExcessRows = useMemo(
+    () => excessRows.filter((entry) => !entry.excess_bank_in_id),
+    [excessRows],
+  );
+
+  const availableBalanceRows = useMemo(
+    () => filteredSmallChange.filter((entry) => !entry.consumed_by_bank_in_id),
+    [filteredSmallChange],
+  );
+
+  const selectedSourceCount =
+    selectedDailyRows.length + selectedExcessRows.length + selectedBalanceRows.length;
 
   const monthBanked = useMemo(
     () =>
@@ -512,12 +564,15 @@ export default function BankInCashPage() {
     [filteredBankIns],
   );
 
-  const toggleIds = (ids: string[], checked: boolean) => {
-    setSelectedIds((current) => {
+  const toggleIds = (ids: string[], checked: boolean, source: 'daily' | 'excess' | 'balance') => {
+    const updateSelection = (current: string[]) => {
       const next = new Set(current);
       ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
       return Array.from(next);
-    });
+    };
+    if (source === 'daily') setSelectedDailyIds(updateSelection);
+    else if (source === 'excess') setSelectedExcessIds(updateSelection);
+    else setSelectedBalanceIds(updateSelection);
   };
 
   const handleReceipts = (event: ChangeEvent<HTMLInputElement>) => {
@@ -586,13 +641,11 @@ export default function BankInCashPage() {
     setAmending(false);
   };
 
-  const sourceMode: SourceMode = tab === 'daily' ? 'DAILY' : tab === 'excess' ? 'EXCESS' : 'SMALL_CHANGE';
-
   const submitBankIn = async () => {
     setError('');
     setMessage('');
     const amount = Number(bankedAmount);
-    if (!selectedIds.length || selectedTotal <= 0) return setError('Select at least one available cash source.');
+    if (!selectedSourceCount || selectedTotal <= 0) return setError('Select at least one available cash source.');
     if (!Number.isFinite(amount) || amount <= 0 || amount > selectedTotal) {
       return setError(`Banked amount must be between RM0.01 and ${money.format(selectedTotal)}.`);
     }
@@ -613,8 +666,9 @@ export default function BankInCashPage() {
       }
 
       const { error: rpcError } = await supabase.rpc('create_cash_bank_in', {
-        p_source_mode: sourceMode,
-        p_source_ids: selectedIds,
+        p_daily_source_ids: selectedDailyRows.map((entry) => entry.id),
+        p_excess_source_ids: selectedExcessRows.map((entry) => entry.id),
+        p_balance_source_ids: selectedBalanceRows.map((entry) => entry.id),
         p_banked_amount: amount,
         p_bank_in_date: bankInDate,
         p_receipt_paths: uploadedPaths,
@@ -624,10 +678,12 @@ export default function BankInCashPage() {
       const remainder = Math.max(0, selectedTotal - amount);
       setMessage(
         remainder > 0
-          ? `${money.format(amount)} recorded. ${money.format(remainder)} moved to Small Change.`
+          ? `${money.format(amount)} recorded. ${money.format(remainder)} moved to Balance Not Banked In.`
           : `${money.format(amount)} bank-in recorded successfully.`,
       );
-      setSelectedIds([]);
+      setSelectedDailyIds([]);
+      setSelectedExcessIds([]);
+      setSelectedBalanceIds([]);
       setReceiptFiles([]);
       setBankedAmount('');
       await loadData();
@@ -740,7 +796,7 @@ export default function BankInCashPage() {
         <div>
           <span className="eyebrow">MANAGEMENT WORKSPACE</span>
           <h1>Bank In Cash</h1>
-          <p>Reconcile Front Office cash, excess collections, small change, and receipt evidence.</p>
+          <p>Reconcile Front Office cash, excess collections, balances not banked in, and receipt evidence.</p>
         </div>
         <div className="header-actions">
           <button type="button" className="icon-button" title="Refresh cash records" onClick={() => void loadData()} disabled={dataLoading}>↻</button>
@@ -766,8 +822,9 @@ export default function BankInCashPage() {
       </section>
 
       <section className="summary-grid" aria-label="Cash summary">
-        <article className="summary-card important"><span>Cash On Hand</span><strong>{money.format(cashOnHand)}</strong><small>All unbanked sources</small></article>
-        <article className="summary-card"><span>Selected</span><strong>{money.format(selectedTotal)}</strong><small>{selectedIds.length} source(s)</small></article>
+        <article className="summary-card important"><span>Cash On Hand</span><strong>{money.format(cashOnHand)}</strong><small>Daily cash and balances not banked in</small></article>
+        <article className="summary-card excess-total"><span>Total Excess Cash</span><strong>{money.format(totalExcessCash)}</strong><small>Kept separate from Cash On Hand</small></article>
+        <article className="summary-card"><span>Selected</span><strong>{money.format(selectedTotal)}</strong><small>{selectedSourceCount} source(s)</small></article>
         <article className="summary-card"><span>Banked This Month</span><strong>{money.format(monthBanked)}</strong><small>Excludes reversals</small></article>
       </section>
 
@@ -776,7 +833,7 @@ export default function BankInCashPage() {
           <div className="tabs" role="tablist" aria-label="Cash ledgers">
             <button className={tab === 'daily' ? 'active' : ''} onClick={() => setTab('daily')}>Daily Cash</button>
             <button className={tab === 'excess' ? 'active' : ''} onClick={() => setTab('excess')}>Excess Cash</button>
-            <button className={tab === 'small-change' ? 'active' : ''} onClick={() => setTab('small-change')}>Small Change</button>
+            <button className={tab === 'small-change' ? 'active' : ''} onClick={() => setTab('small-change')}>Balance Not Banked In</button>
             <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>History</button>
           </div>
           <label className="month-field">Month<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
@@ -789,13 +846,13 @@ export default function BankInCashPage() {
             <div className="section-heading"><div><span className="eyebrow">SHIFT DECLARATIONS</span><h2>Daily cash submitted to Accounts</h2></div><span>{dailyGroups.length} day(s)</span></div>
             {!dailyGroups.length ? <div className="empty-state">No Front Office cash declarations for this month.</div> : null}
             {dailyGroups.map((group) => {
-              const checked = group.availableIds.length > 0 && group.availableIds.every((id) => selectedIds.includes(id));
+              const checked = group.availableIds.length > 0 && group.availableIds.every((id) => selectedDailyIds.includes(id));
               const positiveCount = group.rows.filter((row) => row.amount > 0).length;
               const state = positiveCount > 0 && group.bankedCount === positiveCount ? 'complete' : group.bankedCount > 0 ? 'partial' : '';
               return (
                 <article className={`ledger-row ${state}`} key={group.date}>
                   <label className="select-box">
-                    <input type="checkbox" checked={checked} disabled={!group.availableIds.length} onChange={(event) => toggleIds(group.availableIds, event.target.checked)} />
+                    <input type="checkbox" checked={checked} disabled={!group.availableIds.length} onChange={(event) => toggleIds(group.availableIds, event.target.checked, 'daily')} />
                     <span>{formatDate(group.date)}</span>
                   </label>
                   <div className="shift-lines">
@@ -820,7 +877,7 @@ export default function BankInCashPage() {
             {!excessRows.length ? <div className="empty-state">No excess cash declared for this month.</div> : null}
             {excessRows.map((row) => (
               <article className={`compact-row ${row.excess_bank_in_id ? 'complete' : ''}`} key={row.id}>
-                <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={!!row.excess_bank_in_id} checked={selectedIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked)} />
+                <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={!!row.excess_bank_in_id} checked={selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
                 <div><strong>{row.person_name}</strong><span>{formatDate(row.service_date)} · {row.shift_title}</span></div>
                 <b>{money.format(Number(row.excess_amount))}</b>
                 <em>{row.excess_bank_in_id ? 'Banked' : 'Open'}</em>
@@ -831,11 +888,11 @@ export default function BankInCashPage() {
 
         {!dataLoading && tab === 'small-change' ? (
           <div className="ledger-list">
-            <div className="section-heading"><div><span className="eyebrow">SMALL CHANGE</span><h2>Balances retained after partial bank-ins</h2></div><span>{filteredSmallChange.length} entry(s)</span></div>
-            {!filteredSmallChange.length ? <div className="empty-state">No small-change entries for this month.</div> : null}
+            <div className="section-heading"><div><span className="eyebrow">BALANCE NOT BANKED IN</span><h2>Balances retained after partial bank-ins</h2></div><span>{filteredSmallChange.length} entry(s)</span></div>
+            {!filteredSmallChange.length ? <div className="empty-state">No balance-not-banked-in entries for this month.</div> : null}
             {filteredSmallChange.map((row) => (
               <article className={`compact-row ${row.consumed_by_bank_in_id ? 'complete' : ''}`} key={row.id}>
-                <input type="checkbox" aria-label={`Select small change from ${row.bank_in_date}`} disabled={!!row.consumed_by_bank_in_id} checked={selectedIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked)} />
+                <input type="checkbox" aria-label={`Select balance from ${row.bank_in_date}`} disabled={!!row.consumed_by_bank_in_id} checked={selectedBalanceIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'balance')} />
                 <div><strong>Balance from {formatDate(row.bank_in_date)}</strong><span>Bank-in reference {row.source_bank_in_id.slice(0, 8).toUpperCase()}</span></div>
                 <b>{money.format(Number(row.amount))}</b>
                 <em>{row.consumed_by_bank_in_id ? 'Banked' : 'Open'}</em>
@@ -854,8 +911,8 @@ export default function BankInCashPage() {
               const manualSourceCount = recordSources.filter((source) => source.source_type === 'MANUAL_CASH').length;
               return (
                 <article className={`history-row ${record.reversed_at ? 'reversed' : ''}`} key={record.id}>
-                  <div className="history-main"><span className="mode-pill">{record.source_mode.replace('_', ' ')}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} · {record.created_by_name}</span></div>
-                  <div className="history-detail"><span>Selected {money.format(Number(record.selected_total))}</span><span>Small change {money.format(Number(record.balance_to_small_change))}</span>{manualSourceCount ? <span>{manualSourceCount} manual cash source(s)</span> : null}<span>{formatDateTime(record.created_at)}</span></div>
+                  <div className="history-main"><span className="mode-pill">{sourceModeLabel(record.source_mode)}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} · {record.created_by_name}</span></div>
+                  <div className="history-detail"><span>Selected {money.format(Number(record.selected_total))}</span><span>Balance not banked in {money.format(Number(record.balance_to_small_change))}</span>{manualSourceCount ? <span>{manualSourceCount} manual cash source(s)</span> : null}<span>{formatDateTime(record.created_at)}</span></div>
                   <div className="history-actions">
                     {paths.map((path, index) => <button type="button" className="receipt-button" onClick={() => void viewReceipt(path)} key={path}>Receipt {index + 1}</button>)}
                     {isSuperuser && !record.reversed_at ? <button type="button" className="danger-button" onClick={() => setReverseTarget(record)}>Reverse</button> : null}
@@ -898,15 +955,65 @@ export default function BankInCashPage() {
 
       {tab !== 'history' ? (
         <section className="bank-panel">
-          <div className="bank-panel-title"><div><span className="eyebrow">RECORD BANK-IN</span><h2>{selectedIds.length ? `${selectedIds.length} source(s) selected` : 'Select cash rows above'}</h2></div><strong>{money.format(selectedTotal)}</strong></div>
+          <div className="bank-panel-title"><div><span className="eyebrow">RECORD BANK-IN</span><h2>{selectedSourceCount ? `${selectedSourceCount} source(s) selected` : 'Select cash rows above'}</h2></div><strong>{money.format(selectedTotal)}</strong></div>
+          <div className="additional-source-actions" aria-label="Add transactions from another cash ledger">
+            <button type="button" onClick={() => setSourcePicker('small-change')}>
+              <span>Add from</span>
+              <strong>Balance Not Banked In</strong>
+              <em>{selectedBalanceRows.length ? `${selectedBalanceRows.length} selected` : `${availableBalanceRows.length} available`}</em>
+            </button>
+            <button type="button" onClick={() => setSourcePicker('excess')}>
+              <span>Add from</span>
+              <strong>Excess Cash</strong>
+              <em>{selectedExcessRows.length ? `${selectedExcessRows.length} selected` : `${availableExcessRows.length} available`}</em>
+            </button>
+          </div>
           <div className="bank-form">
             <label>Amount to bank in (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={bankedAmount} onChange={(event) => setBankedAmount(event.target.value)} /></label>
             <label>Date of bank in<input type="date" value={bankInDate} onChange={(event) => setBankInDate(event.target.value)} /></label>
             <label className="receipt-upload">Receipt photo(s)<input type="file" accept="image/*" multiple onChange={handleReceipts} /><span>{receiptFiles.length ? `${receiptFiles.length} photo(s) ready` : 'Choose clear receipt photos'}</span></label>
-            <button type="button" className="primary-button" onClick={() => void submitBankIn()} disabled={submitting || !selectedIds.length}>{submitting ? 'Saving evidence...' : 'Submit Bank-In'}</button>
+            <button type="button" className="primary-button" onClick={() => void submitBankIn()} disabled={submitting || !selectedSourceCount}>{submitting ? 'Saving evidence...' : 'Submit Bank-In'}</button>
           </div>
-          <p className="accounting-note">Only the actual banked amount reduces Cash On Hand. Any selected balance is retained automatically as a dated Small Change entry.</p>
+          <p className="accounting-note">Only the actual banked amount reduces the selected ledgers. Any selected amount not deposited is retained automatically as a dated Balance Not Banked In entry.</p>
         </section>
+      ) : null}
+
+      {sourcePicker ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSourcePicker(null)}>
+          <section className="modal source-picker-modal" role="dialog" aria-modal="true" aria-labelledby="source-picker-title">
+            <span className="eyebrow">ADD TO THIS BANK-IN</span>
+            <h2 id="source-picker-title">{sourcePicker === 'excess' ? 'Excess Cash transactions' : 'Balance Not Banked In transactions'}</h2>
+            <p>Showing the same available transactions listed for {month}. Select every transaction to include in this bank-in.</p>
+            <div className="source-picker-list">
+              {sourcePicker === 'excess' ? (
+                availableExcessRows.length ? availableExcessRows.map((row) => (
+                  <label className={`source-picker-row ${selectedExcessIds.includes(row.id) ? 'selected' : ''}`} key={row.id}>
+                    <input type="checkbox" checked={selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
+                    <span><strong>{row.person_name}</strong><small>{formatDate(row.service_date)} · {row.shift_title}</small></span>
+                    <b>{money.format(Number(row.excess_amount))}</b>
+                  </label>
+                )) : <div className="picker-empty">No available Excess Cash transactions for this month.</div>
+              ) : (
+                availableBalanceRows.length ? availableBalanceRows.map((row) => (
+                  <label className={`source-picker-row ${selectedBalanceIds.includes(row.id) ? 'selected' : ''}`} key={row.id}>
+                    <input type="checkbox" checked={selectedBalanceIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'balance')} />
+                    <span><strong>Balance from {formatDate(row.bank_in_date)}</strong><small>Bank-in reference {row.source_bank_in_id.slice(0, 8).toUpperCase()}</small></span>
+                    <b>{money.format(Number(row.amount))}</b>
+                  </label>
+                )) : <div className="picker-empty">No available Balance Not Banked In transactions for this month.</div>
+              )}
+            </div>
+            <div className="source-picker-summary">
+              <span>{sourcePicker === 'excess' ? selectedExcessRows.length : selectedBalanceRows.length} selected</span>
+              <strong>{money.format(
+                sourcePicker === 'excess'
+                  ? selectedExcessRows.reduce((sum, row) => sum + Number(row.excess_amount), 0)
+                  : selectedBalanceRows.reduce((sum, row) => sum + Number(row.amount), 0),
+              )}</strong>
+            </div>
+            <div className="modal-actions"><button type="button" className="primary-button" onClick={() => setSourcePicker(null)}>Done</button></div>
+          </section>
+        </div>
       ) : null}
 
       {reverseTarget ? (
@@ -914,7 +1021,7 @@ export default function BankInCashPage() {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="reverse-title">
             <span className="danger-kicker">SUPERUSER CONTROL</span>
             <h2 id="reverse-title">Reverse this bank-in?</h2>
-            <p>This restores the original cash sources. The action is refused if its Small Change balance has already been used.</p>
+            <p>This restores the original cash sources. The action is refused if its Balance Not Banked In amount has already been used.</p>
             <div className="reverse-amount">{money.format(Number(reverseTarget.banked_amount))}</div>
             <label>Reason for reversal<textarea value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this bank-in must be reopened" /></label>
             <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setReverseTarget(null)}>Cancel</button><button type="button" className="danger-solid" onClick={() => void reverseBankIn()} disabled={reversing}>{reversing ? 'Reversing...' : 'Confirm Reversal'}</button></div>
@@ -985,9 +1092,10 @@ function Styles() {
       .manual-form { display: grid; grid-template-columns: 155px minmax(220px, 1fr) 140px auto; gap: 10px; align-items: end; }
       .manual-form label { display: grid; gap: 6px; color: #344563; font-size: 12px; font-weight: 850; }
       .manual-form input, .modal input { min-height: 42px; min-width: 0; border: 1px solid #cbd8ea; border-radius: 8px; background: #fff; color: #101a32; padding: 9px 12px; }
-      .summary-grid { max-width: 1440px; margin: 0 auto 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .summary-grid { max-width: 1440px; margin: 0 auto 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
       .summary-card { padding: 18px 20px; display: grid; gap: 3px; border-top: 3px solid #80a7f7; }
       .summary-card.important { border-top-color: #175be8; }
+      .summary-card.excess-total { border-top-color: #e67e22; background: #fffaf5; }
       .summary-card span { color: #536887; font-size: 12px; font-weight: 900; text-transform: uppercase; }
       .summary-card strong { font-size: 27px; }
       .summary-card small { color: #70819d; }
@@ -1044,6 +1152,13 @@ function Styles() {
       .bank-panel-title { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
       .bank-panel-title h2 { margin: 3px 0 0; font-size: 19px; }
       .bank-panel-title > strong { font-size: 25px; color: #175be8; }
+      .additional-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 13px; }
+      .additional-source-actions button { min-height: 58px; border: 1px solid #cbd9ef; border-radius: 8px; padding: 9px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; color: #16335f; background: #f6f9ff; text-align: left; cursor: pointer; }
+      .additional-source-actions button:hover { border-color: #80a7f7; background: #edf4ff; }
+      .additional-source-actions span { grid-row: 1 / 3; color: #175be8; font-size: 20px; }
+      .additional-source-actions strong { font-size: 13px; }
+      .additional-source-actions em { grid-column: 2; color: #667995; font-size: 11px; font-style: normal; }
+      .additional-source-actions button::after { content: '+'; grid-column: 3; grid-row: 1 / 3; color: #175be8; font-size: 22px; font-weight: 700; }
       .bank-form { display: grid; grid-template-columns: minmax(170px, .7fr) minmax(170px, .7fr) minmax(240px, 1.2fr) auto; gap: 12px; align-items: end; }
       .receipt-upload { position: relative; }
       .receipt-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
@@ -1056,6 +1171,18 @@ function Styles() {
       .modal h2 { margin: 5px 0 7px; }
       .modal p { color: #60718f; line-height: 1.5; }
       .modal textarea { min-height: 95px; resize: vertical; }
+      .source-picker-modal { width: min(680px, 100%); }
+      .source-picker-modal > p { margin: 5px 0 14px; }
+      .source-picker-list { max-height: min(52vh, 460px); overflow-y: auto; display: grid; gap: 7px; padding-right: 3px; }
+      .source-picker-row { min-height: 58px; border: 1px solid #dbe5f2; border-radius: 8px; padding: 10px 12px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; background: #fff; cursor: pointer; }
+      .source-picker-row.selected { border-color: #80a7f7; background: #edf4ff; }
+      .source-picker-row input { width: 19px; height: 19px; accent-color: #175be8; }
+      .source-picker-row > span { display: grid; gap: 2px; }
+      .source-picker-row small { color: #667995; }
+      .source-picker-row > b { white-space: nowrap; }
+      .picker-empty { min-height: 100px; border: 1px dashed #cbd8e9; border-radius: 8px; display: grid; place-items: center; padding: 18px; color: #687b98; text-align: center; }
+      .source-picker-summary { margin-top: 12px; padding: 11px 13px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #f4f7fb; color: #536887; font-size: 12px; font-weight: 800; }
+      .source-picker-summary strong { color: #10213e; font-size: 18px; }
       .amend-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
       .amend-comparison span { display: grid; gap: 3px; padding: 11px; border-radius: 8px; background: #f4f7fb; color: #60718f; font-size: 11px; font-weight: 850; }
       .amend-comparison strong { color: #10213e; font-size: 20px; }
@@ -1064,7 +1191,7 @@ function Styles() {
       @media (max-width: 900px) {
         .cash-page { padding: 14px; }
         .page-header { align-items: flex-start; }
-        .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .summary-card { padding: 13px; }
         .summary-card strong { font-size: 21px; }
         .ledger-row { grid-template-columns: 1fr auto; gap: 10px; }
@@ -1083,7 +1210,7 @@ function Styles() {
         .page-header h1 { font-size: 25px; }
         .header-actions { width: 100%; justify-content: flex-end; }
         .summary-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-        .summary-card:first-child { grid-column: 1 / -1; }
+        .summary-card:first-child, .summary-card.excess-total { grid-column: auto; }
         .toolbar { align-items: stretch; flex-direction: column-reverse; padding: 10px; }
         .tabs { width: 100%; }
         .tabs button { flex: 1; }
@@ -1109,6 +1236,10 @@ function Styles() {
         .bank-panel-title > strong { font-size: 21px; }
         .bank-form { grid-template-columns: 1fr; }
         .bank-form .primary-button { width: 100%; }
+        .additional-source-actions { grid-template-columns: 1fr; }
+        .source-picker-modal { padding: 17px; }
+        .source-picker-row { grid-template-columns: 22px minmax(0, 1fr); }
+        .source-picker-row > b { grid-column: 2; }
         .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
       }
     `}</style>
