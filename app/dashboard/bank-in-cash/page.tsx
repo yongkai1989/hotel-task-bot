@@ -267,6 +267,7 @@ export default function BankInCashPage() {
   const [manualDescription, setManualDescription] = useState('');
   const [manualAmount, setManualAmount] = useState('');
   const [addingManual, setAddingManual] = useState(false);
+  const [manualPanelOpen, setManualPanelOpen] = useState(false);
   const [amendTarget, setAmendTarget] = useState<CashEntry | null>(null);
   const [amendAmount, setAmendAmount] = useState('');
   const [amendReason, setAmendReason] = useState('');
@@ -601,6 +602,7 @@ export default function BankInCashPage() {
       setMessage(`${money.format(amount)} added to the daily cash ledger.`);
       setManualDescription('');
       setManualAmount('');
+      setManualPanelOpen(false);
       setMonth(manualDate.slice(0, 7));
       await loadData();
     }
@@ -807,20 +809,6 @@ export default function BankInCashPage() {
       {error ? <div className="notice error">{error}</div> : null}
       {message ? <div className="notice success">{message}</div> : null}
 
-      <section className="manual-panel" aria-labelledby="manual-cash-title">
-        <div>
-          <span className="eyebrow">MISSED FO DECLARATION</span>
-          <h2 id="manual-cash-title">Add cash to the daily ledger</h2>
-          <p>Use this only when Front Office received cash but omitted it from the FO Checklist.</p>
-        </div>
-        <div className="manual-form">
-          <label>Cash date<input type="date" value={manualDate} onChange={(event) => setManualDate(event.target.value)} /></label>
-          <label>Description<input type="text" value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Shift, staff, or reason it was missed" /></label>
-          <label>Amount (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} /></label>
-          <button type="button" className="primary-button" onClick={() => void addManualCash()} disabled={addingManual}>{addingManual ? 'Adding...' : 'Add Cash'}</button>
-        </div>
-      </section>
-
       <section className="summary-grid" aria-label="Cash summary">
         <article className="summary-card important"><span>Cash On Hand</span><strong>{money.format(cashOnHand)}</strong><small>Daily cash and balances not banked in</small></article>
         <article className="summary-card excess-total"><span>Total Excess Cash</span><strong>{money.format(totalExcessCash)}</strong><small>Kept separate from Cash On Hand</small></article>
@@ -955,26 +943,66 @@ export default function BankInCashPage() {
 
       {tab !== 'history' ? (
         <section className="bank-panel">
-          <div className="bank-panel-title"><div><span className="eyebrow">RECORD BANK-IN</span><h2>{selectedSourceCount ? `${selectedSourceCount} source(s) selected` : 'Select cash rows above'}</h2></div><strong>{money.format(selectedTotal)}</strong></div>
-          <div className="additional-source-actions" aria-label="Add transactions from another cash ledger">
-            <button type="button" onClick={() => setSourcePicker('small-change')}>
-              <span>Add from</span>
-              <strong>Balance Not Banked In</strong>
-              <em>{selectedBalanceRows.length ? `${selectedBalanceRows.length} selected` : `${availableBalanceRows.length} available`}</em>
-            </button>
-            <button type="button" onClick={() => setSourcePicker('excess')}>
-              <span>Add from</span>
-              <strong>Excess Cash</strong>
-              <em>{selectedExcessRows.length ? `${selectedExcessRows.length} selected` : `${availableExcessRows.length} available`}</em>
+          <div className="bank-panel-title">
+            <div>
+              <span className="eyebrow">RECORD BANK-IN</span>
+              <h2>{selectedSourceCount ? 'Review and record deposit' : 'Select cash rows to begin'}</h2>
+              <p>{selectedSourceCount ? `${selectedSourceCount} transaction${selectedSourceCount === 1 ? '' : 's'} currently included` : 'Choose transactions from the ledger above or add another available source below.'}</p>
+            </div>
+            <div className="selected-total"><span>Selected total</span><strong>{money.format(selectedTotal)}</strong></div>
+          </div>
+          <div className="bank-panel-body">
+            <div className="additional-source-section">
+              <div className="bank-section-label"><span>Optional sources</span><small>Add other available transactions to this same bank-in</small></div>
+              <div className="additional-source-actions" aria-label="Add transactions from another cash ledger">
+                <button type="button" onClick={() => setSourcePicker('small-change')}>
+                  <span className="source-icon" aria-hidden="true">B</span>
+                  <span className="source-copy"><strong>Balance Not Banked In</strong><em>{selectedBalanceRows.length ? `${selectedBalanceRows.length} selected` : `${availableBalanceRows.length} available`}</em></span>
+                  <span className="source-action">{selectedBalanceRows.length ? 'Edit' : 'Add'}</span>
+                </button>
+                <button type="button" onClick={() => setSourcePicker('excess')}>
+                  <span className="source-icon excess-icon" aria-hidden="true">E</span>
+                  <span className="source-copy"><strong>Excess Cash</strong><em>{selectedExcessRows.length ? `${selectedExcessRows.length} selected` : `${availableExcessRows.length} available`}</em></span>
+                  <span className="source-action">{selectedExcessRows.length ? 'Edit' : 'Add'}</span>
+                </button>
+              </div>
+            </div>
+            <div className="deposit-details">
+              <div className="bank-section-label"><span>Deposit details</span><small>Record the actual amount deposited and attach receipt evidence</small></div>
+              <div className="bank-form">
+                <label>Amount to bank in (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={bankedAmount} onChange={(event) => setBankedAmount(event.target.value)} /></label>
+                <label>Date of bank in<input type="date" value={bankInDate} onChange={(event) => setBankInDate(event.target.value)} /></label>
+                <label className="receipt-upload">Receipt photo(s)<input type="file" accept="image/*" multiple onChange={handleReceipts} /><span>{receiptFiles.length ? `${receiptFiles.length} photo${receiptFiles.length === 1 ? '' : 's'} ready` : 'Choose clear receipt photos'}</span></label>
+              </div>
+            </div>
+          </div>
+          <div className="bank-panel-footer">
+            <p className="accounting-note">Any selected amount not deposited remains recorded automatically under Balance Not Banked In.</p>
+            <button type="button" className="primary-button bank-submit" onClick={() => void submitBankIn()} disabled={submitting || !selectedSourceCount}>{submitting ? 'Saving receipt and bank-in...' : 'Record Bank-In'}</button>
+          </div>
+        </section>
+      ) : null}
+
+      {isSuperuser ? (
+        <section className={`manual-panel ${manualPanelOpen ? 'open' : ''}`} aria-labelledby="manual-cash-title">
+          <div className="manual-panel-heading">
+            <div>
+              <span className="danger-kicker">SUPERUSER ONLY</span>
+              <h2 id="manual-cash-title">Missed FO declaration</h2>
+              <p>Manually add cash only when Front Office received it but omitted it from the FO Checklist.</p>
+            </div>
+            <button type="button" className={manualPanelOpen ? 'secondary-button' : 'danger-solid'} onClick={() => setManualPanelOpen((current) => !current)}>
+              {manualPanelOpen ? 'Cancel' : 'Add Missed FO Cash'}
             </button>
           </div>
-          <div className="bank-form">
-            <label>Amount to bank in (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={bankedAmount} onChange={(event) => setBankedAmount(event.target.value)} /></label>
-            <label>Date of bank in<input type="date" value={bankInDate} onChange={(event) => setBankInDate(event.target.value)} /></label>
-            <label className="receipt-upload">Receipt photo(s)<input type="file" accept="image/*" multiple onChange={handleReceipts} /><span>{receiptFiles.length ? `${receiptFiles.length} photo(s) ready` : 'Choose clear receipt photos'}</span></label>
-            <button type="button" className="primary-button" onClick={() => void submitBankIn()} disabled={submitting || !selectedSourceCount}>{submitting ? 'Saving evidence...' : 'Submit Bank-In'}</button>
-          </div>
-          <p className="accounting-note">Only the actual banked amount reduces the selected ledgers. Any selected amount not deposited is retained automatically as a dated Balance Not Banked In entry.</p>
+          {manualPanelOpen ? (
+            <div className="manual-form">
+              <label>Cash date<input type="date" value={manualDate} onChange={(event) => setManualDate(event.target.value)} /></label>
+              <label>Description<input type="text" value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Shift, staff, or reason it was missed" /></label>
+              <label>Amount (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} /></label>
+              <button type="button" className="danger-solid" onClick={() => void addManualCash()} disabled={addingManual}>{addingManual ? 'Adding cash...' : 'Confirm Add Cash'}</button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1086,10 +1114,12 @@ function Styles() {
       .notice { max-width: 1440px; margin: 0 auto 12px; border: 1px solid; border-radius: 8px; padding: 13px 16px; font-weight: 800; }
       .notice.error { color: #b42318; border-color: #fecaca; background: #fff1f2; }
       .notice.success { color: #067647; border-color: #a7f3d0; background: #ecfdf3; }
-      .manual-panel { max-width: 1440px; margin: 0 auto 14px; padding: 18px 20px; display: grid; grid-template-columns: minmax(240px, .7fr) minmax(520px, 1.5fr); gap: 24px; align-items: end; }
+      .manual-panel { max-width: 1440px; margin: 26px auto 0; padding: 16px 18px; border-color: #f0c7c3; background: #fffafa; box-shadow: none; }
+      .manual-panel.open { padding: 18px; }
+      .manual-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
       .manual-panel h2 { margin: 3px 0 5px; font-size: 19px; }
       .manual-panel p { margin: 0; color: #60718f; font-size: 12px; line-height: 1.45; }
-      .manual-form { display: grid; grid-template-columns: 155px minmax(220px, 1fr) 140px auto; gap: 10px; align-items: end; }
+      .manual-form { display: grid; grid-template-columns: 155px minmax(220px, 1fr) 140px auto; gap: 10px; align-items: end; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0d5d2; }
       .manual-form label { display: grid; gap: 6px; color: #344563; font-size: 12px; font-weight: 850; }
       .manual-form input, .modal input { min-height: 42px; min-width: 0; border: 1px solid #cbd8ea; border-radius: 8px; background: #fff; color: #101a32; padding: 9px 12px; }
       .summary-grid { max-width: 1440px; margin: 0 auto 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -1148,22 +1178,34 @@ function Styles() {
       .receipt-button { min-height: 36px; padding: 7px 10px; background: #f4f7fb; color: #1e4fb7; }
       .reversed-label { color: #b42318; font-size: 12px; font-weight: 800; }
       .empty-state { margin: 16px; min-height: 80px; border: 1px dashed #cbd8e9; border-radius: 8px; color: #687b98; background: #f8fafd; display: grid; place-items: center; text-align: center; padding: 20px; }
-      .bank-panel { padding: 18px; }
-      .bank-panel-title { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
-      .bank-panel-title h2 { margin: 3px 0 0; font-size: 19px; }
-      .bank-panel-title > strong { font-size: 25px; color: #175be8; }
-      .additional-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 13px; }
-      .additional-source-actions button { min-height: 58px; border: 1px solid #cbd9ef; border-radius: 8px; padding: 9px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 3px 8px; color: #16335f; background: #f6f9ff; text-align: left; cursor: pointer; }
-      .additional-source-actions button:hover { border-color: #80a7f7; background: #edf4ff; }
-      .additional-source-actions span { grid-row: 1 / 3; color: #175be8; font-size: 20px; }
-      .additional-source-actions strong { font-size: 13px; }
-      .additional-source-actions em { grid-column: 2; color: #667995; font-size: 11px; font-style: normal; }
-      .additional-source-actions button::after { content: '+'; grid-column: 3; grid-row: 1 / 3; color: #175be8; font-size: 22px; font-weight: 700; }
-      .bank-form { display: grid; grid-template-columns: minmax(170px, .7fr) minmax(170px, .7fr) minmax(240px, 1.2fr) auto; gap: 12px; align-items: end; }
+      .bank-panel { padding: 0; border-color: #ccd9ec; }
+      .bank-panel-title { min-height: 92px; padding: 19px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #e3eaf4; background: linear-gradient(135deg, #ffffff 0%, #f5f8ff 100%); }
+      .bank-panel-title h2 { margin: 4px 0 4px; font-size: 21px; }
+      .bank-panel-title p { margin: 0; color: #677995; font-size: 12px; }
+      .selected-total { min-width: 190px; display: grid; justify-items: end; gap: 2px; }
+      .selected-total span { color: #667995; font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
+      .selected-total strong { color: #175be8; font-size: 30px; line-height: 1.1; }
+      .bank-panel-body { padding: 19px 22px; display: grid; grid-template-columns: minmax(420px, .95fr) minmax(500px, 1.35fr); gap: 24px; }
+      .additional-source-section { padding-right: 24px; border-right: 1px solid #e4eaf3; }
+      .bank-section-label { display: grid; gap: 2px; margin-bottom: 10px; }
+      .bank-section-label span { color: #243650; font-size: 12px; font-weight: 900; }
+      .bank-section-label small { color: #7888a0; font-size: 11px; }
+      .additional-source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+      .additional-source-actions button { min-height: 66px; border: 1px solid #d5e0ef; border-radius: 10px; padding: 10px 11px; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 10px; color: #16335f; background: #fff; text-align: left; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+      .additional-source-actions button:hover { border-color: #8aacf0; box-shadow: 0 7px 18px rgba(42, 89, 180, .10); transform: translateY(-1px); }
+      .source-icon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: #175be8; background: #eaf1ff; font-size: 13px; font-weight: 950; }
+      .source-icon.excess-icon { color: #b45309; background: #fff1df; }
+      .source-copy { min-width: 0; display: grid; gap: 3px; }
+      .source-copy strong { overflow: hidden; color: #192b48; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .source-copy em { color: #6c7e99; font-size: 10px; font-style: normal; }
+      .source-action { padding: 5px 7px; border-radius: 6px; color: #175be8; background: #eef4ff; font-size: 10px; font-weight: 900; }
+      .bank-form { display: grid; grid-template-columns: minmax(145px, .7fr) minmax(150px, .7fr) minmax(210px, 1.2fr); gap: 10px; align-items: end; }
       .receipt-upload { position: relative; }
       .receipt-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-      .receipt-upload span { min-height: 42px; border: 1px dashed #87a9e8; border-radius: 8px; background: #f1f6ff; display: flex; align-items: center; padding: 9px 12px; color: #2159c7; }
-      .accounting-note { margin: 12px 0 0; color: #60718f; font-size: 12px; }
+      .receipt-upload span { min-height: 42px; border: 1px dashed #87a9e8; border-radius: 8px; background: #f4f7ff; display: flex; align-items: center; padding: 9px 12px; color: #2159c7; }
+      .bank-panel-footer { min-height: 68px; padding: 12px 22px; border-top: 1px solid #e4eaf3; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #fafcff; }
+      .accounting-note { margin: 0; color: #60718f; font-size: 11px; line-height: 1.45; }
+      .bank-submit { min-width: 180px; min-height: 44px; box-shadow: 0 7px 16px rgba(23, 91, 232, .18); }
       .state-card { max-width: 620px; margin: 15vh auto; padding: 32px; text-align: center; display: grid; justify-items: center; gap: 13px; }
       .state-card h1, .state-card p { margin: 0; }
       .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; background: rgba(8, 18, 38, .62); }
@@ -1188,6 +1230,10 @@ function Styles() {
       .amend-comparison strong { color: #10213e; font-size: 20px; }
       .reverse-amount { margin: 16px 0; padding: 13px; border-radius: 8px; background: #fff1f2; color: #b42318; font-size: 25px; font-weight: 900; text-align: center; }
       .modal-actions { justify-content: flex-end; margin-top: 16px; }
+      @media (max-width: 1100px) {
+        .bank-panel-body { grid-template-columns: 1fr; gap: 18px; }
+        .additional-source-section { padding-right: 0; padding-bottom: 18px; border-right: 0; border-bottom: 1px solid #e4eaf3; }
+      }
       @media (max-width: 900px) {
         .cash-page { padding: 14px; }
         .page-header { align-items: flex-start; }
@@ -1198,11 +1244,10 @@ function Styles() {
         .shift-lines { grid-column: 1 / -1; order: 3; }
         .history-row { grid-template-columns: 1fr 1fr; }
         .history-actions { grid-column: 1 / -1; justify-content: flex-start; }
-        .manual-panel { grid-template-columns: 1fr; }
         .manual-form { grid-template-columns: 1fr 1fr; }
         .amendment-row { grid-template-columns: 1fr 1fr; }
         .deletion-row { grid-template-columns: 1fr; }
-        .bank-form { grid-template-columns: 1fr 1fr; }
+        .bank-form { grid-template-columns: 1fr 1fr 1.2fr; }
       }
       @media (max-width: 620px) {
         .cash-page { padding: 10px; }
@@ -1227,16 +1272,21 @@ function Styles() {
         .history-row { grid-template-columns: 1fr; }
         .history-actions { grid-column: auto; }
         .manual-panel { padding: 14px; }
+        .manual-panel-heading { align-items: flex-start; flex-direction: column; }
+        .manual-panel-heading button { width: 100%; }
         .manual-form { grid-template-columns: 1fr; }
-        .manual-form .primary-button { width: 100%; }
+        .manual-form .danger-solid { width: 100%; }
         .amendment-row { grid-template-columns: 1fr 1fr; }
         .amendment-row > div:first-child, .amendment-row > div:last-child { grid-column: 1 / -1; }
-        .bank-panel { padding: 14px; }
-        .bank-panel-title { align-items: flex-start; }
-        .bank-panel-title > strong { font-size: 21px; }
+        .bank-panel { padding: 0; }
+        .bank-panel-title { padding: 16px; align-items: flex-start; flex-direction: column; gap: 12px; }
+        .selected-total { min-width: 0; justify-items: start; }
+        .selected-total strong { font-size: 26px; }
+        .bank-panel-body { padding: 16px; }
         .bank-form { grid-template-columns: 1fr; }
-        .bank-form .primary-button { width: 100%; }
         .additional-source-actions { grid-template-columns: 1fr; }
+        .bank-panel-footer { padding: 14px 16px; align-items: stretch; flex-direction: column; }
+        .bank-submit { width: 100%; }
         .source-picker-modal { padding: 17px; }
         .source-picker-row { grid-template-columns: 22px minmax(0, 1fr); }
         .source-picker-row > b { grid-column: 2; }
