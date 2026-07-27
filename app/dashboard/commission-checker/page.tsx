@@ -431,9 +431,9 @@ function findReservationFieldMatches(
     label: ReservationFieldMatch['pmsSourceColumn'];
     column: string;
   }> = [
-    { label: 'Guest Name 2', column: findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN) },
-    { label: 'Group', column: findColumn(pmsCsv.headers, PMS_GROUP_COLUMN) },
-    { label: 'Comment', column: findColumn(pmsCsv.headers, PMS_COMMENT_COLUMN) },
+    { label: 'Guest Name 2' as const, column: findColumn(pmsCsv.headers, PMS_GUEST_NAME_2_COLUMN) },
+    { label: 'Group' as const, column: findColumn(pmsCsv.headers, PMS_GROUP_COLUMN) },
+    { label: 'Comment' as const, column: findColumn(pmsCsv.headers, PMS_COMMENT_COLUMN) },
   ].filter((source) => !!source.column);
 
   if (!sourceColumns.length) return [];
