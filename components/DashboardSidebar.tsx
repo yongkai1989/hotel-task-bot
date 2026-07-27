@@ -33,6 +33,7 @@ type SidebarProfile = {
   can_access_supervisor_checklist?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_bank_in_cash?: boolean;
   can_access_commission_checker?: boolean;
   can_access_admin_settings?: boolean;
   can_access_guest_shop_admin?: boolean;
@@ -68,6 +69,7 @@ type SidebarProfile = {
     | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_bank_in_cash'
     | 'can_access_commission_checker'
     | 'can_access_admin_settings'
     | 'can_access_guest_shop_admin'
@@ -147,6 +149,7 @@ type EffectiveProfile = Required<
     | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_bank_in_cash'
     | 'can_access_commission_checker'
     | 'can_access_admin_settings'
     | 'can_access_guest_shop_admin'
@@ -233,6 +236,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
       isSuperuser || hasAccess(permissionValue('can_access_management_tasks')),
+    can_access_bank_in_cash:
+      isSuperuser || hasAccess(permissionValue('can_access_bank_in_cash')),
     can_access_commission_checker:
       isSuperuser || hasAccess(permissionValue('can_access_commission_checker')),
     can_access_admin_settings:
@@ -758,6 +763,7 @@ export default function DashboardSidebar({
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
+  const canSeeBankInCash = !!effectiveProfile?.can_access_bank_in_cash;
   const effectiveEmail = String(effectiveProfile?.email || '').trim().toLowerCase();
   const effectiveRole = String(effectiveProfile?.role || '').trim().toUpperCase();
   const canSeeStaffMeal =
@@ -827,7 +833,11 @@ export default function DashboardSidebar({
     canSeeSupervisorChecklist;
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
-    canSeeDailyForms || canSeeManagementTasks || canSeeCommissionChecker || canSeeAdminSettings;
+    canSeeDailyForms ||
+    canSeeManagementTasks ||
+    canSeeBankInCash ||
+    canSeeCommissionChecker ||
+    canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeFoQuickActions ||
     canSeeLostFound ||
@@ -862,6 +872,7 @@ export default function DashboardSidebar({
     canSeePALinenEntry,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
+    effectiveProfile?.can_access_bank_in_cash,
     effectiveProfile?.can_access_commission_checker,
     effectiveProfile?.can_access_admin_settings,
     effectiveProfile?.can_access_guest_shop_admin,
@@ -1593,7 +1604,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeManagementTasks ? (
+              {canSeeBankInCash ? (
                 <Link
                   href="/dashboard/bank-in-cash"
                   prefetch={false}
