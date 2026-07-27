@@ -77,7 +77,12 @@ const DISPUTE_HIDDEN_HEADERS = new Set([
   'reservation number',
   'invoice number',
   'persons',
+  'rooms',
+  'number of rooms',
   'commission%',
+  'commission %',
+  'final amount',
+  'commission amount',
   'currency',
   'hotel id',
   'property name',
@@ -91,7 +96,6 @@ const DISPUTE_HIDDEN_HEADERS = new Set([
 const DISPUTE_BASE_HEADERS = [
   'Dispute Reason',
   'Reservation Number',
-  'Folio Number',
   'CSV Row',
 ];
 const NAME_MATCH_HEADERS = [
