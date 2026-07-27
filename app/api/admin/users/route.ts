@@ -52,6 +52,7 @@ function enabledCount(row: any) {
     row?.can_access_linen_history,
     row?.can_access_daily_forms,
     row?.can_access_management_tasks,
+    row?.can_access_bank_in_cash,
     row?.can_access_commission_checker,
     row?.can_access_admin_settings,
     row?.can_access_guest_shop_admin,
@@ -115,6 +116,8 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_daily_forms),
     can_access_management_tasks:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_management_tasks),
+    can_access_bank_in_cash:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_bank_in_cash),
     can_access_commission_checker:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_commission_checker),
     can_access_admin_settings:
@@ -294,6 +297,7 @@ const profileSelect = `
   can_access_linen_history,
   can_access_daily_forms,
   can_access_management_tasks,
+  can_access_bank_in_cash,
   can_access_commission_checker,
   can_access_admin_settings,
   can_access_guest_shop_admin,
