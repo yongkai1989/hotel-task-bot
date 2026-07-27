@@ -1269,7 +1269,7 @@ export default function FoChecklistPage() {
                       </label>
 
                       <label style={{ display: 'grid', gap: 6, fontWeight: 800, fontSize: 12, color: '#253a59' }}>
-                        Cash Amount (RM)
+                        Actual Cash Amount (RM)
                         <input
                           type="number"
                           min="0"
