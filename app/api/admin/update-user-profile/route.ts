@@ -27,6 +27,7 @@ type UpdateBody = {
   can_access_linen_history?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_bank_in_cash?: boolean;
   can_access_commission_checker?: boolean;
   can_access_admin_settings?: boolean;
   can_access_guest_shop_admin?: boolean;
@@ -64,6 +65,7 @@ const permissionKeys = [
   'can_access_linen_history',
   'can_access_daily_forms',
   'can_access_management_tasks',
+  'can_access_bank_in_cash',
   'can_access_commission_checker',
   'can_access_admin_settings',
   'can_access_guest_shop_admin',
@@ -108,6 +110,7 @@ const profileSelect = `
   can_access_linen_history,
   can_access_daily_forms,
   can_access_management_tasks,
+  can_access_bank_in_cash,
   can_access_commission_checker,
   can_access_admin_settings,
   can_access_guest_shop_admin,
@@ -198,6 +201,8 @@ function withPermissions(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_daily_forms),
     can_access_management_tasks:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_management_tasks),
+    can_access_bank_in_cash:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_bank_in_cash),
     can_access_commission_checker:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_commission_checker),
     can_access_admin_settings:
