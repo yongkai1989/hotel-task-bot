@@ -24,6 +24,7 @@ export type DashboardUser = {
   can_access_maintenance_ot: boolean;
   can_access_maintenance_stock_card: boolean;
   can_access_maintenance_damaged: boolean;
+  can_access_hk_schedule: boolean;
   can_access_hk_special_project: boolean;
   can_access_hk_manager_room_check: boolean;
   can_access_chambermaid_entry: boolean;
@@ -60,6 +61,7 @@ export type DashboardUser = {
     can_access_maintenance_ot: boolean;
     can_access_maintenance_stock_card: boolean;
     can_access_maintenance_damaged: boolean;
+    can_access_hk_schedule: boolean;
     can_access_hk_special_project: boolean;
     can_access_hk_manager_room_check: boolean;
     can_access_chambermaid_entry: boolean;
@@ -224,6 +226,7 @@ export async function getDashboardUserFromRequest(
         can_access_maintenance_ot,
         can_access_maintenance_stock_card,
         can_access_maintenance_damaged,
+        can_access_hk_schedule,
         can_access_hk_special_project,
         can_access_hk_manager_room_check,
         can_access_chambermaid_entry,
@@ -279,6 +282,8 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_maintenance_stock_card),
       can_access_maintenance_damaged:
         effectiveBoolean(role, profile.can_access_maintenance_damaged),
+      can_access_hk_schedule:
+        effectiveBoolean(role, profile.can_access_hk_schedule),
       can_access_hk_special_project:
         effectiveBoolean(role, profile.can_access_hk_special_project),
       can_access_hk_manager_room_check:
