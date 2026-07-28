@@ -14,6 +14,7 @@ type CreateBody = {
   can_access_maintenance_ot?: boolean;
   can_access_maintenance_stock_card?: boolean;
   can_access_maintenance_damaged?: boolean;
+  can_access_hk_schedule?: boolean;
   can_access_hk_special_project?: boolean;
   can_access_hk_manager_room_check?: boolean;
   can_access_chambermaid_entry?: boolean;
@@ -80,6 +81,7 @@ function withPermissions(row: any) {
     can_access_maintenance_ot: toPermissionBoolean(row.can_access_maintenance_ot),
     can_access_maintenance_stock_card: toPermissionBoolean(row.can_access_maintenance_stock_card),
     can_access_maintenance_damaged: toPermissionBoolean(row.can_access_maintenance_damaged),
+    can_access_hk_schedule: toPermissionBoolean(row.can_access_hk_schedule),
     can_access_hk_special_project: toPermissionBoolean(row.can_access_hk_special_project),
     can_access_hk_manager_room_check: toPermissionBoolean(row.can_access_hk_manager_room_check),
     can_access_chambermaid_entry: toPermissionBoolean(row.can_access_chambermaid_entry),
@@ -221,6 +223,8 @@ export async function POST(req: NextRequest) {
       can_access_maintenance_ot: toPermissionBoolean(body.can_access_maintenance_ot),
       can_access_maintenance_stock_card: toPermissionBoolean(body.can_access_maintenance_stock_card),
       can_access_maintenance_damaged: toPermissionBoolean(body.can_access_maintenance_damaged),
+      can_access_hk_schedule:
+        role === 'MANAGER' || toPermissionBoolean(body.can_access_hk_schedule),
       can_access_hk_special_project: toPermissionBoolean(body.can_access_hk_special_project),
       can_access_hk_manager_room_check: toPermissionBoolean(body.can_access_hk_manager_room_check),
       can_access_chambermaid_entry: toPermissionBoolean(body.can_access_chambermaid_entry),
@@ -276,6 +280,7 @@ export async function POST(req: NextRequest) {
       payload.can_access_maintenance_ot = true;
       payload.can_access_maintenance_stock_card = true;
       payload.can_access_maintenance_damaged = true;
+      payload.can_access_hk_schedule = true;
       payload.can_access_hk_special_project = true;
       payload.can_access_hk_manager_room_check = true;
       payload.can_access_chambermaid_entry = true;
@@ -321,6 +326,7 @@ export async function POST(req: NextRequest) {
         can_access_maintenance_ot,
         can_access_maintenance_stock_card,
         can_access_maintenance_damaged,
+        can_access_hk_schedule,
         can_access_hk_special_project,
         can_access_hk_manager_room_check,
         can_access_chambermaid_entry,
