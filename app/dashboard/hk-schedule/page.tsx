@@ -16,6 +16,7 @@ type Staff = {
   id: string;
   staff_name: string;
   staff_role: StaffRole;
+  fixed_off_day: number | null;
   is_active: boolean;
   sort_order: number;
 };
@@ -552,13 +553,14 @@ export default function HousekeepingSchedulePage() {
           staff={staff}
           busy={busy}
           onClose={() => setShowStaff(false)}
-          onSave={async (person, name, role, active) => {
+          onSave={async (person, name, role, fixedOffDay, active) => {
             if (!supabase) return;
             setBusy(true);
             const { error: saveError } = await supabase.rpc('save_hk_schedule_staff', {
               p_staff_id: person?.id || null,
               p_staff_name: name,
               p_staff_role: role,
+              p_fixed_off_day: fixedOffDay,
               p_is_active: active,
             });
             setBusy(false);
@@ -635,6 +637,7 @@ export default function HousekeepingSchedulePage() {
               p_weekdays: form.weekdays,
               p_status: form.status,
               p_shift_id: form.status === 'WORK' ? form.shiftId : null,
+              p_apply_fixed_off: form.applyFixedOff,
             });
             setBusy(false);
             if (saveError) return setError(saveError.message);
@@ -675,6 +678,11 @@ function cellTitle(entry: Entry) {
 
 function roleLabel(role: StaffRole) {
   return STAFF_ROLES.find((item) => item.value === role)?.label || role;
+}
+
+function weekdayLabel(day: number | null) {
+  if (!day) return 'No fixed off day';
+  return WEEKDAYS.find((item) => item.value === day)?.label || 'No fixed off day';
 }
 
 function ModalShell({ title, subtitle, children, onClose }: {
@@ -761,11 +769,12 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
 
 function StaffModal({ staff, busy, onClose, onSave, onDelete }: {
   staff: Staff[]; busy: boolean; onClose: () => void;
-  onSave: (person: Staff | null, name: string, role: StaffRole, active: boolean) => void;
+  onSave: (person: Staff | null, name: string, role: StaffRole, fixedOffDay: number | null, active: boolean) => void;
   onDelete: (person: Staff) => void;
 }) {
   const [name, setName] = useState('');
   const [role, setRole] = useState<StaffRole>('MAID');
+  const [fixedOffDay, setFixedOffDay] = useState('');
   return (
     <ModalShell title="Housekeeping staff" subtitle="Add staff or hide former staff without losing records." onClose={onClose}>
       <div className={styles.modalBody}>
@@ -774,20 +783,29 @@ function StaffModal({ staff, busy, onClose, onSave, onDelete }: {
           <select value={role} onChange={(event) => setRole(event.target.value as StaffRole)}>
             {STAFF_ROLES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
+          <select value={fixedOffDay} onChange={(event) => setFixedOffDay(event.target.value)}>
+            <option value="">No fixed off day</option>
+            {WEEKDAYS.map((day) => <option key={day.value} value={day.value}>Off every {day.label}</option>)}
+          </select>
           <button className={styles.primaryButton} disabled={busy || !name.trim()} onClick={() => {
-            onSave(null, name.trim(), role, true); setName('');
+            onSave(null, name.trim(), role, fixedOffDay ? Number(fixedOffDay) : null, true); setName('');
           }}>+ Add staff</button>
         </div>
         <div className={styles.manageList}>
           {staff.map((person) => (
-            <div key={person.id}><span><strong>{person.staff_name}</strong><small>{roleLabel(person.staff_role)} · {person.is_active ? 'Shown in timetable' : 'Hidden from timetable'}</small></span>
+            <div key={person.id}><span><strong>{person.staff_name}</strong><small>{roleLabel(person.staff_role)} · {weekdayLabel(person.fixed_off_day)} · {person.is_active ? 'Shown in timetable' : 'Hidden from timetable'}</small></span>
               <div>
                 <select className={styles.roleSelect} value={person.staff_role} disabled={busy}
-                  onChange={(event) => onSave(person, person.staff_name, event.target.value as StaffRole, person.is_active)}>
+                  onChange={(event) => onSave(person, person.staff_name, event.target.value as StaffRole, person.fixed_off_day, person.is_active)}>
                   {STAFF_ROLES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                 </select>
+                <select className={styles.roleSelect} value={person.fixed_off_day || ''} disabled={busy}
+                  onChange={(event) => onSave(person, person.staff_name, person.staff_role, event.target.value ? Number(event.target.value) : null, person.is_active)}>
+                  <option value="">No fixed off</option>
+                  {WEEKDAYS.map((day) => <option key={day.value} value={day.value}>Off: {day.label}</option>)}
+                </select>
                 {!person.is_active ? <button disabled={busy} className={styles.secondaryButton}
-                  onClick={() => onSave(person, person.staff_name, person.staff_role, true)}>Restore</button> : null}
+                  onClick={() => onSave(person, person.staff_name, person.staff_role, person.fixed_off_day, true)}>Restore</button> : null}
                 <button disabled={busy} className={styles.dangerOutline}
                   onClick={() => onDelete(person)}>Delete</button>
               </div></div>
@@ -853,7 +871,7 @@ function ShiftModal({ shifts, busy, onClose, onSave, onDelete }: {
 
 function BulkModal({ staff, month, shifts, busy, onClose, onSave }: {
   staff: Staff; month: string; shifts: Shift[]; busy: boolean; onClose: () => void;
-  onSave: (form: { start: string; end: string; weekdays: number[]; status: EntryStatus; shiftId: string }) => void;
+  onSave: (form: { start: string; end: string; weekdays: number[]; status: EntryStatus; shiftId: string; applyFixedOff: boolean }) => void;
 }) {
   const bounds = monthBounds(month);
   const activeShifts = shifts.filter((shift) => shift.is_active);
@@ -862,6 +880,7 @@ function BulkModal({ staff, month, shifts, busy, onClose, onSave }: {
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
   const [status, setStatus] = useState<EntryStatus>('WORK');
   const [shiftId, setShiftId] = useState(activeShifts[0]?.id || '');
+  const [applyFixedOff, setApplyFixedOff] = useState(true);
   return (
     <ModalShell title={`Fill dates · ${staff.staff_name}`} subtitle="Apply the same status or shift to selected weekdays." onClose={onClose}>
       <div className={styles.modalBody}>
@@ -880,11 +899,18 @@ function BulkModal({ staff, month, shifts, busy, onClose, onSave }: {
           <option value="">Choose shift</option>{activeShifts.map((shift) => <option key={shift.id} value={shift.id}>
             {shift.shift_name} ({timeText(shift.start_time)} – {timeText(shift.end_time)})
           </option>)}</select></> : null}
+        {staff.fixed_off_day ? (
+          <label className={styles.fixedOffOption}>
+            <input type="checkbox" checked={applyFixedOff} onChange={(event) => setApplyFixedOff(event.target.checked)} />
+            <span><strong>Set every {weekdayLabel(staff.fixed_off_day)} as Off</strong>
+              <small>This overrides the selected shift on the fixed off day.</small></span>
+          </label>
+        ) : <div className={styles.infoBox}>No fixed off day is set for this staff member. You can set one under Staff.</div>}
         <div className={styles.infoBox}>Existing entries in the chosen dates will be replaced. Arrival time and overtime are entered per day.</div>
       </div>
       <footer className={styles.modalFooter}><span /><div><button className={styles.secondaryButton} onClick={onClose}>Cancel</button>
         <button className={styles.primaryButton} disabled={busy || !start || !end || !weekdays.length || (status === 'WORK' && !shiftId)}
-          onClick={() => onSave({ start, end, weekdays, status, shiftId })}>{busy ? 'Applying...' : 'Apply schedule'}</button></div></footer>
+          onClick={() => onSave({ start, end, weekdays, status, shiftId, applyFixedOff })}>{busy ? 'Applying...' : 'Apply schedule'}</button></div></footer>
     </ModalShell>
   );
 }
