@@ -471,7 +471,12 @@ export default function BankInCashPage() {
   );
 
   const filteredDailyCash = useMemo(
-    () => dailyCashRows.filter((entry) => entry.service_date.slice(0, 7) === month),
+    () =>
+      dailyCashRows.filter(
+        (entry) =>
+          entry.service_date.slice(0, 7) === month &&
+          entry.amount > 0,
+      ),
     [dailyCashRows, month],
   );
 
