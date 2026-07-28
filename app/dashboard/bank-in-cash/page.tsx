@@ -91,6 +91,18 @@ type DeletedBankInRecord = {
   deleted_at: string;
 };
 
+type DeletedCashEntryRecord = {
+  id: string;
+  source_type: 'SHIFT_CASH' | 'MANUAL_CASH';
+  source_id: string;
+  service_date: string;
+  entry_snapshot: Record<string, any>;
+  deletion_reason: string;
+  deleted_by_name: string;
+  deleted_by_email: string;
+  deleted_at: string;
+};
+
 type DailyCashRow = {
   id: string;
   sourceType: 'SHIFT_CASH' | 'MANUAL_CASH';
@@ -257,6 +269,7 @@ export default function BankInCashPage() {
   const [excessWithdrawals, setExcessWithdrawals] = useState<ExcessWithdrawal[]>([]);
   const [bankInSources, setBankInSources] = useState<BankInSource[]>([]);
   const [deletedBankIns, setDeletedBankIns] = useState<DeletedBankInRecord[]>([]);
+  const [deletedCashEntries, setDeletedCashEntries] = useState<DeletedCashEntryRecord[]>([]);
   const [smallChange, setSmallChange] = useState<SmallChangeEntry[]>([]);
   const [bankIns, setBankIns] = useState<BankInRecord[]>([]);
   const [tab, setTab] = useState<PageTab>('daily');
@@ -277,6 +290,9 @@ export default function BankInCashPage() {
   const [deleteTarget, setDeleteTarget] = useState<BankInRecord | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [deleteEntryTarget, setDeleteEntryTarget] = useState<DailyCashRow | null>(null);
+  const [deleteEntryReason, setDeleteEntryReason] = useState('');
+  const [deletingEntry, setDeletingEntry] = useState(false);
   const [manualDate, setManualDate] = useState(singaporeDate());
   const [manualDescription, setManualDescription] = useState('');
   const [manualAmount, setManualAmount] = useState('');
@@ -308,7 +324,7 @@ export default function BankInCashPage() {
     setDataLoading(true);
     setError('');
     const retentionStart = monthStartTwelveMonthsAgo();
-    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, withdrawalResult, sourceResult, deletionResult] = await Promise.all([
+    const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, withdrawalResult, sourceResult, deletionResult, cashDeletionResult] = await Promise.all([
       supabase
         .from('fo_checklist_cash_entries')
         .select('*')
@@ -350,9 +366,14 @@ export default function BankInCashPage() {
         .select('*')
         .gte('deleted_at', retentionStart)
         .order('deleted_at', { ascending: false }),
+      supabase
+        .from('cash_entry_deletions')
+        .select('*')
+        .gte('deleted_at', retentionStart)
+        .order('deleted_at', { ascending: false }),
     ]);
 
-    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || withdrawalResult.error || sourceResult.error || deletionResult.error;
+    const firstError = cashResult.error || manualResult.error || smallChangeResult.error || bankInResult.error || amendmentResult.error || withdrawalResult.error || sourceResult.error || deletionResult.error || cashDeletionResult.error;
     if (firstError) {
       setError(firstError.message);
     } else {
@@ -364,6 +385,7 @@ export default function BankInCashPage() {
       setExcessWithdrawals((withdrawalResult.data || []) as ExcessWithdrawal[]);
       setBankInSources((sourceResult.data || []) as BankInSource[]);
       setDeletedBankIns((deletionResult.data || []) as DeletedBankInRecord[]);
+      setDeletedCashEntries((cashDeletionResult.data || []) as DeletedCashEntryRecord[]);
     }
     setDataLoading(false);
   }, [supabase]);
@@ -512,6 +534,11 @@ export default function BankInCashPage() {
   const filteredDeletedBankIns = useMemo(
     () => deletedBankIns.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
     [deletedBankIns, month],
+  );
+
+  const filteredDeletedCashEntries = useMemo(
+    () => deletedCashEntries.filter((entry) => entry.service_date.slice(0, 7) === month),
+    [deletedCashEntries, month],
   );
 
   const selectedDailyRows = useMemo(
@@ -829,6 +856,46 @@ export default function BankInCashPage() {
     setDeleting(false);
   };
 
+  const openCashEntryDeletion = (row: DailyCashRow) => {
+    if (!isSuperuser) return;
+    const linkedToBankIn =
+      !!row.bank_in_id ||
+      !!row.cashEntry?.excess_bank_in_id;
+    if (linkedToBankIn) {
+      setError('This entry is included in a bank-in. Reverse the bank-in before deleting it.');
+      return;
+    }
+    setError('');
+    setDeleteEntryReason('');
+    setDeleteEntryTarget(row);
+  };
+
+  const deleteCashEntry = async () => {
+    if (!deleteEntryTarget || !deleteEntryReason.trim()) {
+      return setError('Enter a deletion reason.');
+    }
+
+    setDeletingEntry(true);
+    setError('');
+    const { error: deleteError } = await supabase.rpc('delete_cash_ledger_entry', {
+      p_source_type: deleteEntryTarget.sourceType,
+      p_source_id: deleteEntryTarget.id,
+      p_reason: deleteEntryReason.trim(),
+    });
+
+    if (deleteError) {
+      setError(deleteError.message);
+    } else {
+      setSelectedDailyIds((current) => current.filter((id) => id !== deleteEntryTarget.id));
+      setSelectedExcessIds((current) => current.filter((id) => id !== deleteEntryTarget.id));
+      setMessage(`Deleted ${deleteEntryTarget.title} entry for ${formatDate(deleteEntryTarget.service_date)}.`);
+      setDeleteEntryTarget(null);
+      setDeleteEntryReason('');
+      await loadData();
+    }
+    setDeletingEntry(false);
+  };
+
   if (authLoading) {
     return <main className="cash-page"><div className="state-card">Checking cash access...</div><Styles /></main>;
   }
@@ -913,13 +980,31 @@ export default function BankInCashPage() {
                     <span>{formatDate(group.date)}</span>
                   </label>
                   <div className="shift-lines">
-                    {group.rows.filter((row) => row.amount > 0).map((row) => (
-                      <span className="shift-line" key={row.id}>
-                        <span><b>{row.title}</b> · {row.person_name} · {money.format(row.amount)}{row.sourceType === 'MANUAL_CASH' ? ' · Added manually' : ''}</span>
-                        {row.cashEntry && !row.bank_in_id ? <button type="button" className="amend-button" onClick={() => openAmendment(row.cashEntry!)}>Amend</button> : null}
-                      </span>
-                    ))}
-                    {!positiveCount ? <span>No cash declared for this day.</span> : null}
+                    {group.rows.filter((row) => row.amount > 0 || isSuperuser).map((row) => {
+                      const deletionLocked = !!row.bank_in_id || !!row.cashEntry?.excess_bank_in_id;
+                      return (
+                        <span className="shift-line" key={row.id}>
+                          <span>
+                            <b>{row.title}</b> · {row.person_name} · {money.format(row.amount)}
+                            {row.sourceType === 'MANUAL_CASH' ? ' · Added manually' : ''}
+                            {row.amount <= 0 ? ' · No cash declared' : ''}
+                          </span>
+                          {row.cashEntry && !row.bank_in_id ? <button type="button" className="amend-button" onClick={() => openAmendment(row.cashEntry!)}>Amend</button> : null}
+                          {isSuperuser ? (
+                            <button
+                              type="button"
+                              className="delete-entry-button"
+                              disabled={deletionLocked}
+                              title={deletionLocked ? 'Reverse the linked bank-in before deleting this entry' : 'Delete this cash entry'}
+                              onClick={() => openCashEntryDeletion(row)}
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                    {!positiveCount && !isSuperuser ? <span>No cash declared for this day.</span> : null}
                   </div>
                   <div className="row-total"><small>Daily total</small><strong>{money.format(group.declared)}</strong><small>Available {money.format(group.available)}</small><em>{state === 'complete' ? 'Banked' : state === 'partial' ? 'Partly banked' : 'Open'}</em></div>
                 </article>
@@ -1007,6 +1092,26 @@ export default function BankInCashPage() {
                 })}
               </section>
             ) : null}
+            {filteredDeletedCashEntries.length ? (
+              <section className="deletion-history" aria-label="Deleted cash entry audit trail">
+                <div className="section-heading"><div><span className="danger-kicker">ENTRY DELETION AUDIT</span><h2>Deleted Daily Cash entries</h2></div><span>{filteredDeletedCashEntries.length} record(s)</span></div>
+                {filteredDeletedCashEntries.map((deleted) => {
+                  const snapshot = deleted.entry_snapshot?.entry || deleted.entry_snapshot || {};
+                  const entryName = deleted.source_type === 'MANUAL_CASH'
+                    ? snapshot.description || 'Manual Cash'
+                    : snapshot.person_name || 'FO cash entry';
+                  const entryAmount = deleted.source_type === 'MANUAL_CASH'
+                    ? Number(snapshot.amount || 0)
+                    : Number(snapshot.cash_amount || 0);
+                  return (
+                    <article className="deletion-row" key={deleted.id}>
+                      <div><strong>{entryName} · {money.format(entryAmount)}</strong><span>{formatDate(deleted.service_date)} · {deleted.source_type === 'MANUAL_CASH' ? 'Manual Cash' : snapshot.shift_title || 'Shift Cash'}</span></div>
+                      <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) · {formatDateTime(deleted.deleted_at)}</span></div>
+                    </article>
+                  );
+                })}
+              </section>
+            ) : null}
             {filteredDeletedBankIns.length ? (
               <section className="deletion-history" aria-label="Deleted bank-in audit trail">
                 <div className="section-heading"><div><span className="danger-kicker">DELETION AUDIT</span><h2>Deleted bank-in records</h2></div><span>{filteredDeletedBankIns.length} record(s)</span></div>
@@ -1085,6 +1190,27 @@ export default function BankInCashPage() {
             </div>
           ) : null}
         </section>
+      ) : null}
+
+      {deleteEntryTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDeleteEntryTarget(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-entry-title">
+            <span className="danger-kicker">SUPERUSER DELETE</span>
+            <h2 id="delete-entry-title">Delete this Daily Cash entry?</h2>
+            <p>This removes the entry from cash totals and bank-in selection. A complete deletion audit will be retained for 12 months.</p>
+            <div className="delete-entry-summary">
+              <strong>{deleteEntryTarget.title}</strong>
+              <span>{formatDate(deleteEntryTarget.service_date)} · {deleteEntryTarget.person_name}</span>
+              <b>{money.format(deleteEntryTarget.amount)}</b>
+            </div>
+            <label>Reason for deletion<textarea value={deleteEntryReason} onChange={(event) => setDeleteEntryReason(event.target.value)} placeholder="Explain why this cash entry must be deleted" /></label>
+            <p className="accounting-note">Entries included in a bank-in cannot be deleted until that bank-in is reversed.</p>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setDeleteEntryTarget(null)}>Cancel</button>
+              <button type="button" className="danger-solid" onClick={() => void deleteCashEntry()} disabled={deletingEntry}>{deletingEntry ? 'Deleting...' : 'Delete Entry'}</button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {withdrawTarget ? (
@@ -1252,6 +1378,8 @@ function Styles() {
       .shift-line { display: inline-flex; align-items: center; gap: 7px; }
       .shift-line > span { padding: 0; }
       .amend-button { border: 0; border-radius: 5px; padding: 3px 6px; background: #dfeaff; color: #175be8; font-size: 10px; font-weight: 900; cursor: pointer; }
+      .delete-entry-button { border: 1px solid #efb5b0; border-radius: 5px; padding: 3px 7px; background: #fff5f4; color: #b42318; font-size: 10px; font-weight: 900; cursor: pointer; }
+      .delete-entry-button:disabled { border-color: #d8dee8; background: #f4f6f8; color: #98a2b3; }
       .row-total { display: grid; justify-items: end; gap: 1px; }
       .row-total small { color: #60718f; }
       .row-total strong { font-size: 18px; }
@@ -1342,6 +1470,10 @@ function Styles() {
       .amend-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
       .amend-comparison span { display: grid; gap: 3px; padding: 11px; border-radius: 8px; background: #f4f7fb; color: #60718f; font-size: 11px; font-weight: 850; }
       .amend-comparison strong { color: #10213e; font-size: 20px; }
+      .delete-entry-summary { margin: 14px 0; padding: 13px 15px; border: 1px solid #f0c7c3; border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; background: #fff7f6; }
+      .delete-entry-summary strong { color: #17233c; }
+      .delete-entry-summary span { grid-column: 1; color: #687b98; font-size: 12px; }
+      .delete-entry-summary b { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: #b42318; font-size: 21px; }
       .reverse-amount { margin: 16px 0; padding: 13px; border-radius: 8px; background: #fff1f2; color: #b42318; font-size: 25px; font-weight: 900; text-align: center; }
       .modal-actions { justify-content: flex-end; margin-top: 16px; }
       @media (max-width: 1100px) {
