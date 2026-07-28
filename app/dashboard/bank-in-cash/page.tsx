@@ -101,6 +101,10 @@ type DeletedCashEntryRecord = {
   deleted_by_name: string;
   deleted_by_email: string;
   deleted_at: string;
+  restored_at: string | null;
+  restored_by_name: string | null;
+  restored_by_email: string | null;
+  restoration_reason: string | null;
 };
 
 type DailyCashRow = {
@@ -293,6 +297,9 @@ export default function BankInCashPage() {
   const [deleteEntryTarget, setDeleteEntryTarget] = useState<DailyCashRow | null>(null);
   const [deleteEntryReason, setDeleteEntryReason] = useState('');
   const [deletingEntry, setDeletingEntry] = useState(false);
+  const [restoreEntryTarget, setRestoreEntryTarget] = useState<DeletedCashEntryRecord | null>(null);
+  const [restoreEntryReason, setRestoreEntryReason] = useState('');
+  const [restoringEntry, setRestoringEntry] = useState(false);
   const [manualDate, setManualDate] = useState(singaporeDate());
   const [manualDescription, setManualDescription] = useState('');
   const [manualAmount, setManualAmount] = useState('');
@@ -901,6 +908,29 @@ export default function BankInCashPage() {
     setDeletingEntry(false);
   };
 
+  const restoreCashEntry = async () => {
+    if (!restoreEntryTarget || !restoreEntryReason.trim()) {
+      return setError('Enter a reason for reversing the deletion.');
+    }
+
+    setRestoringEntry(true);
+    setError('');
+    const { error: restoreError } = await supabase.rpc('restore_deleted_cash_ledger_entry', {
+      p_deletion_id: restoreEntryTarget.id,
+      p_reason: restoreEntryReason.trim(),
+    });
+
+    if (restoreError) {
+      setError(restoreError.message);
+    } else {
+      setMessage(`Restored the deleted cash entry for ${formatDate(restoreEntryTarget.service_date)}.`);
+      setRestoreEntryTarget(null);
+      setRestoreEntryReason('');
+      await loadData();
+    }
+    setRestoringEntry(false);
+  };
+
   if (authLoading) {
     return <main className="cash-page"><div className="state-card">Checking cash access...</div><Styles /></main>;
   }
@@ -1109,9 +1139,22 @@ export default function BankInCashPage() {
                     ? Number(snapshot.amount || 0)
                     : Number(snapshot.cash_amount || 0);
                   return (
-                    <article className="deletion-row" key={deleted.id}>
+                    <article className={`deletion-row cash-entry-deletion ${deleted.restored_at ? 'restored' : ''}`} key={deleted.id}>
                       <div><strong>{entryName} · {money.format(entryAmount)}</strong><span>{formatDate(deleted.service_date)} · {deleted.source_type === 'MANUAL_CASH' ? 'Manual Cash' : snapshot.shift_title || 'Shift Cash'}</span></div>
                       <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) · {formatDateTime(deleted.deleted_at)}</span></div>
+                      <div className="deletion-audit-actions">
+                        {deleted.restored_at ? (
+                          <>
+                            <b>Deletion reversed</b>
+                            <small>{deleted.restoration_reason}</small>
+                            <small>{deleted.restored_by_name} ({deleted.restored_by_email}) · {formatDateTime(deleted.restored_at)}</small>
+                          </>
+                        ) : isSuperuser ? (
+                          <button type="button" className="restore-button" onClick={() => { setRestoreEntryReason(''); setRestoreEntryTarget(deleted); }}>Reverse Deletion</button>
+                        ) : (
+                          <small>Deleted</small>
+                        )}
+                      </div>
                     </article>
                   );
                 })}
@@ -1213,6 +1256,26 @@ export default function BankInCashPage() {
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={() => setDeleteEntryTarget(null)}>Cancel</button>
               <button type="button" className="danger-solid" onClick={() => void deleteCashEntry()} disabled={deletingEntry}>{deletingEntry ? 'Deleting...' : 'Delete Entry'}</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {restoreEntryTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setRestoreEntryTarget(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-entry-title">
+            <span className="eyebrow">SUPERUSER RESTORE</span>
+            <h2 id="restore-entry-title">Reverse this deletion?</h2>
+            <p>The original Daily Cash entry and its saved audit details will be restored. The deletion record will remain visible as reversed.</p>
+            <div className="delete-entry-summary">
+              <strong>{restoreEntryTarget.source_type === 'MANUAL_CASH' ? restoreEntryTarget.entry_snapshot?.entry?.description || 'Manual Cash' : restoreEntryTarget.entry_snapshot?.entry?.person_name || 'FO cash entry'}</strong>
+              <span>{formatDate(restoreEntryTarget.service_date)}</span>
+              <b>{money.format(Number(restoreEntryTarget.source_type === 'MANUAL_CASH' ? restoreEntryTarget.entry_snapshot?.entry?.amount || 0 : restoreEntryTarget.entry_snapshot?.entry?.cash_amount || 0))}</b>
+            </div>
+            <label>Reason for reversing deletion<textarea value={restoreEntryReason} onChange={(event) => setRestoreEntryReason(event.target.value)} placeholder="Explain why this deleted entry must be restored" /></label>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setRestoreEntryTarget(null)}>Cancel</button>
+              <button type="button" className="primary-button" onClick={() => void restoreCashEntry()} disabled={restoringEntry}>{restoringEntry ? 'Restoring...' : 'Restore Entry'}</button>
             </div>
           </section>
         </div>
@@ -1419,6 +1482,13 @@ function Styles() {
       .deletion-row { display: grid; grid-template-columns: minmax(190px, .7fr) minmax(260px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #f1c4c0; border-left: 4px solid #d92d20; border-radius: 8px; background: #fff7f6; }
       .deletion-row > div { display: grid; gap: 2px; }
       .deletion-row span { color: #80534f; font-size: 12px; }
+      .cash-entry-deletion { grid-template-columns: minmax(190px, .7fr) minmax(260px, 1.3fr) minmax(150px, auto); }
+      .cash-entry-deletion.restored { border-color: #a9d9bd; border-left-color: #168a50; background: #f2fbf6; }
+      .deletion-audit-actions { justify-items: end; gap: 3px !important; text-align: right; }
+      .deletion-audit-actions b { color: #167348; font-size: 12px; }
+      .deletion-audit-actions small { max-width: 260px; color: #667995; font-size: 10px; line-height: 1.3; }
+      .restore-button { min-height: 34px; border: 1px solid #91cba9; border-radius: 7px; padding: 7px 11px; color: #126a42; background: #effaf4; font-size: 11px; font-weight: 900; cursor: pointer; }
+      .restore-button:hover { border-color: #168a50; background: #e2f6eb; }
       .receipt-button { min-height: 36px; padding: 7px 10px; background: #f4f7fb; color: #1e4fb7; }
       .reversed-label { color: #b42318; font-size: 12px; font-weight: 800; }
       .empty-state { margin: 16px; min-height: 80px; border: 1px dashed #cbd8e9; border-radius: 8px; color: #687b98; background: #f8fafd; display: grid; place-items: center; text-align: center; padding: 20px; }
@@ -1498,6 +1568,7 @@ function Styles() {
         .manual-form { grid-template-columns: 1fr 1fr; }
         .amendment-row { grid-template-columns: 1fr 1fr; }
         .deletion-row { grid-template-columns: 1fr; }
+        .deletion-audit-actions { justify-items: start; text-align: left; }
         .bank-form { grid-template-columns: 1fr 1fr 1.2fr; }
       }
       @media (max-width: 620px) {
