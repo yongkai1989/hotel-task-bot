@@ -405,7 +405,7 @@ export default function HousekeepingSchedulePage() {
                         return [
                           <tr className={styles.roleDivider} key={`role-${role.value}`}>
                             <th className={styles.staffColumn}>{role.label}</th>
-                            <td colSpan={days.length}><span>{role.label}</span></td>
+                            <td colSpan={days.length} aria-hidden="true" />
                           </tr>,
                           ...people.map((person) => (
                             <tr key={person.id}>
@@ -819,8 +819,8 @@ function ShiftModal({ shifts, busy, onClose, onSave, onDelete }: {
     <ModalShell title="Shift setup" subtitle="Create reusable working hours for fast monthly scheduling." onClose={onClose}>
       <div className={styles.modalBody}>
         <div className={styles.twoColumns}><div><label>Shift name</label><input value={name} placeholder="Morning"
-          onChange={(event) => setName(event.target.value)} /></div><div><label>Short code</label><input value={code} maxLength={8}
-          placeholder="AM" onChange={(event) => setCode(event.target.value.toUpperCase())} /></div></div>
+          onChange={(event) => setName(event.target.value)} /></div><div><label>Short code</label><input value={code} maxLength={20}
+          placeholder="8:30AM-5:00PM" onChange={(event) => setCode(event.target.value.toUpperCase())} /></div></div>
         <div className={styles.twoColumns}><div><label>Starts</label><input type="time" value={start} onChange={(event) => setStart(event.target.value)} /></div>
           <div><label>Ends</label><input type="time" value={end} onChange={(event) => setEnd(event.target.value)} /></div></div>
         <label>Colour</label>
