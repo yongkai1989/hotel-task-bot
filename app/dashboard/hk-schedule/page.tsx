@@ -566,10 +566,12 @@ export default function HousekeepingSchedulePage() {
               p_staff_id: cell.staff.id,
               p_schedule_date: cell.date,
               p_status: form.status,
-              p_shift_id: form.status === 'WORK' ? form.shiftId : null,
+              p_shift_id: form.status === 'WORK' && !form.useCustomHours ? form.shiftId : null,
               p_arrival_time: form.status === 'WORK' && form.arrivalTime ? form.arrivalTime : null,
               p_overtime_minutes: form.status === 'WORK' ? form.overtimeMinutes : 0,
               p_notes: form.notes || null,
+              p_custom_start: form.status === 'WORK' && form.useCustomHours ? form.customStart : null,
+              p_custom_end: form.status === 'WORK' && form.useCustomHours ? form.customEnd : null,
             });
             setBusy(false);
             if (saveError) return setError(saveError.message);
@@ -750,13 +752,26 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
   shifts: Shift[];
   busy: boolean;
   onClose: () => void;
-  onSave: (form: { status: EntryStatus; shiftId: string; arrivalTime: string; overtimeMinutes: number; notes: string }) => void;
+  onSave: (form: {
+    status: EntryStatus;
+    shiftId: string;
+    useCustomHours: boolean;
+    customStart: string;
+    customEnd: string;
+    arrivalTime: string;
+    overtimeMinutes: number;
+    notes: string;
+  }) => void;
   onClear: () => void;
 }) {
   const activeShifts = shifts.filter((shift) => shift.is_active || shift.id === selection.entry?.shift_id);
   const initialArrival = arrivalParts(selection.entry?.arrival_time || null);
+  const existingCustomHours = selection.entry?.status === 'WORK' && !selection.entry.shift_id;
   const [status, setStatus] = useState<EntryStatus>(selection.entry?.status || 'WORK');
   const [shiftId, setShiftId] = useState(selection.entry?.shift_id || activeShifts[0]?.id || '');
+  const [useCustomHours, setUseCustomHours] = useState(existingCustomHours);
+  const [customStart, setCustomStart] = useState(selection.entry?.scheduled_start?.slice(0, 5) || '08:30');
+  const [customEnd, setCustomEnd] = useState(selection.entry?.scheduled_end?.slice(0, 5) || '17:00');
   const [arrivalHour, setArrivalHour] = useState(initialArrival.hour);
   const [arrivalMinute, setArrivalMinute] = useState(initialArrival.minute);
   const [arrivalPeriod, setArrivalPeriod] = useState<'AM' | 'PM'>(initialArrival.period);
@@ -764,8 +779,9 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
   const [notes, setNotes] = useState(selection.entry?.notes || '');
   const arrivalTime = arrivalValue(arrivalHour, arrivalMinute, arrivalPeriod);
   const selectedShift = shifts.find((shift) => shift.id === shiftId);
+  const scheduledStart = useCustomHours ? customStart : selectedShift?.start_time || null;
   const previewEntry = {
-    status, scheduled_start: selectedShift?.start_time || null, arrival_time: arrivalTime || null,
+    status, scheduled_start: scheduledStart, arrival_time: arrivalTime || null,
   } as Entry;
   const late = lateMinutes(previewEntry);
 
@@ -782,12 +798,24 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
         {status === 'WORK' ? (
           <>
             <label>Scheduled shift</label>
-            <select value={shiftId} onChange={(event) => setShiftId(event.target.value)}>
-              <option value="">Choose shift</option>
-              {activeShifts.map((shift) => (
-                <option key={shift.id} value={shift.id}>{shift.shift_name} ({timeText(shift.start_time)} – {timeText(shift.end_time)})</option>
-              ))}
-            </select>
+            <div className={styles.scheduleMode}>
+              <button className={!useCustomHours ? styles.selected : ''} onClick={() => setUseCustomHours(false)}>Saved shift</button>
+              <button className={useCustomHours ? styles.selected : ''} onClick={() => setUseCustomHours(true)}>Ad hoc hours</button>
+            </div>
+            {useCustomHours ? (
+              <div className={styles.customHours}>
+                <div><label>Starts</label><input type="time" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></div>
+                <span>to</span>
+                <div><label>Ends</label><input type="time" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></div>
+              </div>
+            ) : (
+              <select value={shiftId} onChange={(event) => setShiftId(event.target.value)}>
+                <option value="">Choose shift</option>
+                {activeShifts.map((shift) => (
+                  <option key={shift.id} value={shift.id}>{shift.shift_name} ({timeText(shift.start_time)} – {timeText(shift.end_time)})</option>
+                ))}
+              </select>
+            )}
             <div className={styles.twoColumns}>
               <div><label>Actual arrival time</label>
                 <div className={styles.arrivalSelectors}>
@@ -810,7 +838,7 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
               <div><label>Overtime (minutes)</label><input type="number" min="0" max="1440" step="15" value={overtime}
                 placeholder="0" onChange={(event) => setOvertime(event.target.value)} /></div>
             </div>
-            {arrivalTime && selectedShift ? (
+            {arrivalTime && scheduledStart ? (
               <div className={late ? styles.latePreview : styles.onTimePreview}>
                 {late ? `${late} minutes late` : 'On time'}
               </div>
@@ -824,8 +852,13 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
       <footer className={styles.modalFooter}>
         {selection.entry ? <button className={styles.dangerButton} disabled={busy} onClick={onClear}>Clear</button> : <span />}
         <div><button className={styles.secondaryButton} onClick={onClose}>Cancel</button>
-          <button className={styles.primaryButton} disabled={busy || (status === 'WORK' && !shiftId)}
-            onClick={() => onSave({ status, shiftId, arrivalTime, overtimeMinutes: Number(overtime || 0), notes })}>
+          <button className={styles.primaryButton} disabled={busy || (
+            status === 'WORK' && (useCustomHours ? (!customStart || !customEnd) : !shiftId)
+          )}
+            onClick={() => onSave({
+              status, shiftId, useCustomHours, customStart, customEnd,
+              arrivalTime, overtimeMinutes: Number(overtime || 0), notes,
+            })}>
             {busy ? 'Saving...' : 'Save'}
           </button></div>
       </footer>
