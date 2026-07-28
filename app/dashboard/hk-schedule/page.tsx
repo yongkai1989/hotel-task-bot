@@ -545,6 +545,18 @@ export default function HousekeepingSchedulePage() {
             flash(person ? 'Staff record updated.' : 'Staff member added.');
             await loadData();
           }}
+          onDelete={async (person) => {
+            if (!supabase) return;
+            if (!window.confirm(`Delete ${person.staff_name} from the staff list? Existing schedule history will be retained.`)) return;
+            setBusy(true);
+            const { data, error: deleteError } = await supabase.rpc('delete_hk_schedule_staff', {
+              p_staff_id: person.id,
+            });
+            setBusy(false);
+            if (deleteError) return setError(deleteError.message);
+            flash(data === 'ARCHIVED' ? 'Staff removed from scheduling. Historical records were retained.' : 'Staff deleted.');
+            await loadData();
+          }}
         />
       ) : null}
 
@@ -568,6 +580,18 @@ export default function HousekeepingSchedulePage() {
             setBusy(false);
             if (saveError) return setError(saveError.message);
             flash(shift.id ? 'Shift updated.' : 'Shift created.');
+            await loadData();
+          }}
+          onDelete={async (shift) => {
+            if (!supabase) return;
+            if (!window.confirm(`Delete the ${shift.shift_name} shift? Existing schedule history will be retained.`)) return;
+            setBusy(true);
+            const { data, error: deleteError } = await supabase.rpc('delete_hk_schedule_shift', {
+              p_shift_id: shift.id,
+            });
+            setBusy(false);
+            if (deleteError) return setError(deleteError.message);
+            flash(data === 'ARCHIVED' ? 'Shift removed from future scheduling. Historical records were retained.' : 'Shift deleted.');
             await loadData();
           }}
         />
@@ -710,9 +734,10 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
   );
 }
 
-function StaffModal({ staff, busy, onClose, onSave }: {
+function StaffModal({ staff, busy, onClose, onSave, onDelete }: {
   staff: Staff[]; busy: boolean; onClose: () => void;
   onSave: (person: Staff | null, name: string, active: boolean) => void;
+  onDelete: (person: Staff) => void;
 }) {
   const [name, setName] = useState('');
   return (
@@ -727,10 +752,12 @@ function StaffModal({ staff, busy, onClose, onSave }: {
         <div className={styles.manageList}>
           {staff.map((person) => (
             <div key={person.id}><span><strong>{person.staff_name}</strong><small>{person.is_active ? 'Shown in timetable' : 'Hidden from timetable'}</small></span>
-              <button disabled={busy} className={person.is_active ? styles.dangerOutline : styles.secondaryButton}
-                onClick={() => onSave(person, person.staff_name, !person.is_active)}>
-                {person.is_active ? 'Hide' : 'Restore'}
-              </button></div>
+              <div>
+                {!person.is_active ? <button disabled={busy} className={styles.secondaryButton}
+                  onClick={() => onSave(person, person.staff_name, true)}>Restore</button> : null}
+                <button disabled={busy} className={styles.dangerOutline}
+                  onClick={() => onDelete(person)}>Delete</button>
+              </div></div>
           ))}
           {!staff.length ? <p>No staff added yet.</p> : null}
         </div>
@@ -739,9 +766,10 @@ function StaffModal({ staff, busy, onClose, onSave }: {
   );
 }
 
-function ShiftModal({ shifts, busy, onClose, onSave }: {
+function ShiftModal({ shifts, busy, onClose, onSave, onDelete }: {
   shifts: Shift[]; busy: boolean; onClose: () => void;
   onSave: (shift: { id: string | null; name: string; code: string; start: string; end: string; color: ShiftColor; active: boolean }) => void;
+  onDelete: (shift: Shift) => void;
 }) {
   const [editing, setEditing] = useState<Shift | null>(null);
   const [name, setName] = useState('');
@@ -777,10 +805,11 @@ function ShiftModal({ shifts, busy, onClose, onSave }: {
             <div key={shift.id}><span className={styles.shiftLine}><i className={styles[`shift_${shift.color}`]} />
               <span><strong>{shift.shift_code} · {shift.shift_name}</strong><small>{timeText(shift.start_time)} – {timeText(shift.end_time)} · {shift.is_active ? 'Active' : 'Hidden'}</small></span></span>
               <div><button className={styles.secondaryButton} onClick={() => edit(shift)}>Edit</button>
-                <button className={shift.is_active ? styles.dangerOutline : styles.secondaryButton} disabled={busy}
-                  onClick={() => onSave({ id: shift.id, name: shift.shift_name, code: shift.shift_code, start: shift.start_time, end: shift.end_time, color: shift.color, active: !shift.is_active })}>
-                  {shift.is_active ? 'Hide' : 'Restore'}
-                </button></div>
+                {!shift.is_active ? <button className={styles.secondaryButton} disabled={busy}
+                  onClick={() => onSave({ id: shift.id, name: shift.shift_name, code: shift.shift_code, start: shift.start_time, end: shift.end_time, color: shift.color, active: true })}>
+                  Restore
+                </button> : null}
+                <button className={styles.dangerOutline} disabled={busy} onClick={() => onDelete(shift)}>Delete</button></div>
             </div>
           ))}
         </div>
