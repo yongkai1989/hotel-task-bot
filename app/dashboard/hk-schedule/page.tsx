@@ -145,6 +145,23 @@ function minutesFromTime(value: string | null) {
   return hour * 60 + minute;
 }
 
+function arrivalParts(value: string | null) {
+  if (!value) return { hour: '', minute: '00', period: 'AM' as 'AM' | 'PM' };
+  const [hour24, minute] = value.slice(0, 5).split(':').map(Number);
+  return {
+    hour: String(hour24 % 12 || 12),
+    minute: pad(minute),
+    period: (hour24 >= 12 ? 'PM' : 'AM') as 'AM' | 'PM',
+  };
+}
+
+function arrivalValue(hour: string, minute: string, period: 'AM' | 'PM') {
+  if (!hour) return '';
+  let hour24 = Number(hour) % 12;
+  if (period === 'PM') hour24 += 12;
+  return `${pad(hour24)}:${minute || '00'}`;
+}
+
 function lateMinutes(entry: Entry) {
   if (entry.status !== 'WORK' || !entry.scheduled_start || !entry.arrival_time) return 0;
   const start = minutesFromTime(entry.scheduled_start);
@@ -709,11 +726,15 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
   onClear: () => void;
 }) {
   const activeShifts = shifts.filter((shift) => shift.is_active || shift.id === selection.entry?.shift_id);
+  const initialArrival = arrivalParts(selection.entry?.arrival_time || null);
   const [status, setStatus] = useState<EntryStatus>(selection.entry?.status || 'WORK');
   const [shiftId, setShiftId] = useState(selection.entry?.shift_id || activeShifts[0]?.id || '');
-  const [arrivalTime, setArrivalTime] = useState(selection.entry?.arrival_time?.slice(0, 5) || '');
+  const [arrivalHour, setArrivalHour] = useState(initialArrival.hour);
+  const [arrivalMinute, setArrivalMinute] = useState(initialArrival.minute);
+  const [arrivalPeriod, setArrivalPeriod] = useState<'AM' | 'PM'>(initialArrival.period);
   const [overtime, setOvertime] = useState(String(selection.entry?.overtime_minutes || ''));
   const [notes, setNotes] = useState(selection.entry?.notes || '');
+  const arrivalTime = arrivalValue(arrivalHour, arrivalMinute, arrivalPeriod);
   const selectedShift = shifts.find((shift) => shift.id === shiftId);
   const previewEntry = {
     status, scheduled_start: selectedShift?.start_time || null, arrival_time: arrivalTime || null,
@@ -740,7 +761,24 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
               ))}
             </select>
             <div className={styles.twoColumns}>
-              <div><label>Actual arrival time</label><input type="time" value={arrivalTime} onChange={(event) => setArrivalTime(event.target.value)} /></div>
+              <div><label>Actual arrival time</label>
+                <div className={styles.arrivalSelectors}>
+                  <select aria-label="Arrival hour" value={arrivalHour} onChange={(event) => setArrivalHour(event.target.value)}>
+                    <option value="">Hour</option>
+                    {Array.from({ length: 12 }, (_, index) => index + 1).map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+                  </select>
+                  <select aria-label="Arrival minute" value={arrivalMinute} disabled={!arrivalHour}
+                    onChange={(event) => setArrivalMinute(event.target.value)}>
+                    {Array.from({ length: 60 }, (_, index) => pad(index)).map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+                  </select>
+                  <select aria-label="Arrival AM or PM" value={arrivalPeriod} disabled={!arrivalHour}
+                    onChange={(event) => setArrivalPeriod(event.target.value as 'AM' | 'PM')}>
+                    <option value="AM">AM</option><option value="PM">PM</option>
+                  </select>
+                  {arrivalHour ? <button type="button" aria-label="Clear arrival time" title="Clear arrival time"
+                    onClick={() => setArrivalHour('')}>×</button> : null}
+                </div>
+              </div>
               <div><label>Overtime (minutes)</label><input type="number" min="0" max="1440" step="15" value={overtime}
                 placeholder="0" onChange={(event) => setOvertime(event.target.value)} /></div>
             </div>
