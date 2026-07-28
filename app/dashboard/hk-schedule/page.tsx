@@ -437,7 +437,7 @@ export default function HousekeepingSchedulePage() {
                                 return (
                                   <td key={day.value} className={day.weekend ? styles.weekend : ''}>
                                     <button
-                                      className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''}`}
+                                      className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''} ${late > 0 ? styles.lateDay : ''}`}
                                       title={entry ? cellTitle(entry) : `Schedule ${person.staff_name}`}
                                       onClick={() => setCell({ staff: person, date: day.value, entry })}
                                     >
