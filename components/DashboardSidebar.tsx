@@ -20,6 +20,7 @@ type SidebarProfile = {
   can_access_maintenance_ot?: boolean;
   can_access_maintenance_stock_card?: boolean;
   can_access_maintenance_damaged?: boolean;
+  can_access_hk_schedule?: boolean;
   can_access_hk_special_project?: boolean;
   can_access_hk_manager_room_check?: boolean;
   can_access_chambermaid_entry?: boolean;
@@ -57,6 +58,7 @@ type SidebarProfile = {
     | 'can_access_maintenance_ot'
     | 'can_access_maintenance_stock_card'
     | 'can_access_maintenance_damaged'
+    | 'can_access_hk_schedule'
     | 'can_access_hk_special_project'
     | 'can_access_hk_manager_room_check'
     | 'can_access_chambermaid_entry'
@@ -137,6 +139,7 @@ type EffectiveProfile = Required<
     | 'can_access_maintenance_ot'
     | 'can_access_maintenance_stock_card'
     | 'can_access_maintenance_damaged'
+    | 'can_access_hk_schedule'
     | 'can_access_hk_special_project'
     | 'can_access_hk_manager_room_check'
     | 'can_access_chambermaid_entry'
@@ -212,6 +215,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_maintenance_stock_card')),
     can_access_maintenance_damaged:
       isSuperuser || hasAccess(permissionValue('can_access_maintenance_damaged')),
+    can_access_hk_schedule:
+      isSuperuser || hasAccess(permissionValue('can_access_hk_schedule')),
     can_access_hk_special_project:
       isSuperuser || hasAccess(permissionValue('can_access_hk_special_project')),
     can_access_hk_manager_room_check:
@@ -748,6 +753,7 @@ export default function DashboardSidebar({
   const canSeeMaintenanceStockCard = !!effectiveProfile?.can_access_maintenance_stock_card;
   const canSeeMaintenanceDamaged = !!effectiveProfile?.can_access_maintenance_damaged;
 
+  const canSeeHkSchedule = !!effectiveProfile?.can_access_hk_schedule;
   const canSeeHkSpecialProject = !!effectiveProfile?.can_access_hk_special_project;
   const canSeeHkManagerRoomCheck = !!effectiveProfile?.can_access_hk_manager_room_check;
   const canSeeChambermaid = !!effectiveProfile?.can_access_chambermaid_entry;
@@ -821,6 +827,7 @@ export default function DashboardSidebar({
     canSeeMaintenanceStockCard ||
     canSeeMaintenanceDamaged;
   const showHousekeepingGroup =
+    canSeeHkSchedule ||
     canSeeHkSpecialProject ||
     canSeeHkManagerRoomCheck ||
     canSeeChambermaid ||
@@ -858,6 +865,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_maintenance_ot,
     effectiveProfile?.can_access_maintenance_stock_card,
     effectiveProfile?.can_access_maintenance_damaged,
+    effectiveProfile?.can_access_hk_schedule,
     effectiveProfile?.can_access_hk_special_project,
     effectiveProfile?.can_access_hk_manager_room_check,
     effectiveProfile?.can_access_chambermaid_entry,
@@ -1206,6 +1214,17 @@ export default function DashboardSidebar({
               open={housekeepingOpen}
               setOpen={setHousekeepingOpen}
             >
+              {canSeeHkSchedule ? (
+                <Link
+                  href="/dashboard/hk-schedule"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="calendar" sub>Schedule</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeHkSpecialProject ? (
                 <Link
                   href="/dashboard/hk-special-project"
