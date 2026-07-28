@@ -350,6 +350,30 @@ export default function HousekeepingSchedulePage() {
     window.setTimeout(() => setSuccess(''), 3500);
   }
 
+  async function autoFillMonth() {
+    if (!supabase) return;
+    const monthName = new Intl.DateTimeFormat('en-MY', { month: 'long', year: 'numeric' })
+      .format(new Date(`${month}-01T00:00:00`));
+    const confirmed = window.confirm(
+      `Auto fill ${monthName} for every active staff member?\n\n` +
+      'Existing entries for the month will be overwritten. Fixed off days will be marked Off, and all other days will use the shift matching each staff role.'
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError('');
+    const { data, error: fillError } = await supabase.rpc('autofill_hk_schedule_month', {
+      p_month: `${month}-01`,
+    });
+    setBusy(false);
+    if (fillError) {
+      setError(fillError.message);
+      return;
+    }
+    flash(`${Number(data || 0)} schedule entries were auto filled for ${monthName}.`);
+    await loadData();
+  }
+
   if (authLoading) return <PageState title="Checking access..." />;
   if (!profile || !canAccess) {
     return <PageState title="Housekeeping Schedule" message={error || 'You do not have access to this page.'} />;
@@ -364,6 +388,10 @@ export default function HousekeepingSchedulePage() {
           <p>Plan monthly shifts, record attendance, and review punctuality from one timetable.</p>
         </div>
         <div className={styles.heroActions}>
+          <button className={styles.autoFillButton} disabled={busy || !staff.some((person) => person.is_active)}
+            onClick={() => void autoFillMonth()}>
+            {busy ? 'Filling...' : '⚡ Auto Fill Month'}
+          </button>
           <button className={styles.secondaryButton} onClick={() => setShowStaff(true)}>Staff</button>
           <button className={styles.secondaryButton} onClick={() => setShowShifts(true)}>Shift setup</button>
         </div>
