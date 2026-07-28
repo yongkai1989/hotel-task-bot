@@ -41,6 +41,7 @@ function enabledCount(row: any) {
     row?.can_access_maintenance_ot,
     row?.can_access_maintenance_stock_card,
     row?.can_access_maintenance_damaged,
+    row?.can_access_hk_schedule,
     row?.can_access_hk_special_project,
     row?.can_access_hk_manager_room_check,
     row?.can_access_chambermaid_entry,
@@ -93,6 +94,8 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_maintenance_stock_card),
     can_access_maintenance_damaged:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_maintenance_damaged),
+    can_access_hk_schedule:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_hk_schedule),
     can_access_hk_special_project:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_hk_special_project),
     can_access_hk_manager_room_check:
@@ -285,6 +288,7 @@ const profileSelect = `
   can_access_maintenance_ot,
   can_access_maintenance_stock_card,
   can_access_maintenance_damaged,
+  can_access_hk_schedule,
   can_access_hk_special_project,
   can_access_hk_manager_room_check,
   can_access_chambermaid_entry,
