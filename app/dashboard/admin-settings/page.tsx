@@ -16,6 +16,7 @@ type UserProfile = {
   can_access_maintenance_ot: boolean;
   can_access_maintenance_stock_card: boolean;
   can_access_maintenance_damaged: boolean;
+  can_access_hk_schedule: boolean;
   can_access_hk_special_project: boolean;
   can_access_hk_manager_room_check: boolean;
   can_access_chambermaid_entry: boolean;
@@ -66,6 +67,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_maintenance_ot', label: 'Maintenance OT', group: 'Maintenance' },
   { key: 'can_access_maintenance_stock_card', label: 'Maintenance Stock Card', group: 'Maintenance' },
   { key: 'can_access_maintenance_damaged', label: 'Maintenance Damaged', group: 'Maintenance' },
+  { key: 'can_access_hk_schedule', label: 'Schedule', group: 'Housekeeping' },
   { key: 'can_access_hk_special_project', label: 'HK Special Project', group: 'Housekeeping' },
   { key: 'can_access_hk_manager_room_check', label: 'Manager Room Check', group: 'Housekeeping' },
   { key: 'can_access_chambermaid_entry', label: 'Chambermaid Entry', group: 'Housekeeping' },
@@ -105,6 +107,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_maintenance_ot: false,
     can_access_maintenance_stock_card: false,
     can_access_maintenance_damaged: false,
+    can_access_hk_schedule: false,
     can_access_hk_special_project: false,
     can_access_hk_manager_room_check: false,
     can_access_chambermaid_entry: false,
@@ -185,6 +188,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_maintenance_stock_card')),
     can_access_maintenance_damaged:
       toPermissionBoolean(permissionValue('can_access_maintenance_damaged')),
+    can_access_hk_schedule:
+      toPermissionBoolean(permissionValue('can_access_hk_schedule')),
     can_access_hk_special_project:
       toPermissionBoolean(permissionValue('can_access_hk_special_project')),
     can_access_hk_manager_room_check:
@@ -256,6 +261,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_maintenance_ot: toPermissionBoolean(draft.can_access_maintenance_ot),
     can_access_maintenance_stock_card: toPermissionBoolean(draft.can_access_maintenance_stock_card),
     can_access_maintenance_damaged: toPermissionBoolean(draft.can_access_maintenance_damaged),
+    can_access_hk_schedule: toPermissionBoolean(draft.can_access_hk_schedule),
     can_access_hk_special_project: toPermissionBoolean(draft.can_access_hk_special_project),
     can_access_hk_manager_room_check: toPermissionBoolean(draft.can_access_hk_manager_room_check),
     can_access_chambermaid_entry: toPermissionBoolean(draft.can_access_chambermaid_entry),
