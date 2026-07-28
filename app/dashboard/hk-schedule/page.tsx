@@ -15,6 +15,7 @@ type Profile = {
 type Staff = {
   id: string;
   staff_name: string;
+  staff_role: StaffRole;
   is_active: boolean;
   sort_order: number;
 };
@@ -31,6 +32,7 @@ type Shift = {
 
 type EntryStatus = 'WORK' | 'AL' | 'UPL' | 'NO_SHOW' | 'MC' | 'OFF';
 type ShiftColor = 'BLUE' | 'TEAL' | 'PURPLE' | 'AMBER' | 'PINK' | 'SLATE';
+type StaffRole = 'SUPERVISOR' | 'MAID' | 'LINEN_CONTROLLER' | 'PA';
 
 type Entry = {
   id: string;
@@ -89,6 +91,13 @@ const WEEKDAYS = [
 ];
 
 const SHIFT_COLORS: ShiftColor[] = ['BLUE', 'TEAL', 'PURPLE', 'AMBER', 'PINK', 'SLATE'];
+const STAFF_ROLES: Array<{ value: StaffRole; label: string }> = [
+  { value: 'SUPERVISOR', label: 'Supervisor' },
+  { value: 'MAID', label: 'Maid' },
+  { value: 'LINEN_CONTROLLER', label: 'Linen Controller' },
+  { value: 'PA', label: 'P.A.' },
+];
+const STAFF_ROLE_ORDER: StaffRole[] = ['SUPERVISOR', 'MAID', 'LINEN_CONTROLLER', 'PA'];
 
 function pad(value: number) {
   return String(value).padStart(2, '0');
@@ -303,6 +312,7 @@ export default function HousekeepingSchedulePage() {
       };
     }).filter((row) => !misconductOnly || row.noShowDays > 0 || row.lateDays > 0)
       .sort((a, b) =>
+        STAFF_ROLE_ORDER.indexOf(a.staff.staff_role) - STAFF_ROLE_ORDER.indexOf(b.staff.staff_role) ||
         b.noShowDays - a.noShowDays ||
         b.lateMinutes - a.lateMinutes ||
         a.staff.staff_name.localeCompare(b.staff.staff_name)
@@ -389,31 +399,41 @@ export default function HousekeepingSchedulePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {staff.filter((person) => person.is_active).map((person) => (
-                        <tr key={person.id}>
-                          <th className={styles.staffColumn}>
-                            <strong>{person.staff_name}</strong>
-                            <button onClick={() => setBulkStaff(person)}>Fill dates</button>
-                          </th>
-                          {days.map((day) => {
-                            const entry = entryMap.get(`${person.id}:${day.value}`) || null;
-                            const late = entry ? lateMinutes(entry) : 0;
-                            return (
-                              <td key={day.value} className={day.weekend ? styles.weekend : ''}>
-                                <button
-                                  className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''}`}
-                                  title={entry ? cellTitle(entry) : `Schedule ${person.staff_name}`}
-                                  onClick={() => setCell({ staff: person, date: day.value, entry })}
-                                >
-                                  <strong>{entryLabel(entry)}</strong>
-                                  {late > 0 ? <small>+{late}m</small> : null}
-                                  {entry?.overtime_minutes ? <small>OT</small> : null}
-                                </button>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
+                      {STAFF_ROLES.flatMap((role) => {
+                        const people = staff.filter((person) => person.is_active && person.staff_role === role.value);
+                        if (!people.length) return [];
+                        return [
+                          <tr className={styles.roleDivider} key={`role-${role.value}`}>
+                            <th className={styles.staffColumn}>{role.label}</th>
+                            <td colSpan={days.length}><span>{role.label}</span></td>
+                          </tr>,
+                          ...people.map((person) => (
+                            <tr key={person.id}>
+                              <th className={styles.staffColumn}>
+                                <strong>{person.staff_name}</strong>
+                                <button onClick={() => setBulkStaff(person)}>Fill dates</button>
+                              </th>
+                              {days.map((day) => {
+                                const entry = entryMap.get(`${person.id}:${day.value}`) || null;
+                                const late = entry ? lateMinutes(entry) : 0;
+                                return (
+                                  <td key={day.value} className={day.weekend ? styles.weekend : ''}>
+                                    <button
+                                      className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''}`}
+                                      title={entry ? cellTitle(entry) : `Schedule ${person.staff_name}`}
+                                      onClick={() => setCell({ staff: person, date: day.value, entry })}
+                                    >
+                                      <strong>{entryLabel(entry)}</strong>
+                                      {late > 0 ? <small>+{late}m</small> : null}
+                                      {entry?.overtime_minutes ? <small>OT</small> : null}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          )),
+                        ];
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -466,7 +486,7 @@ export default function HousekeepingSchedulePage() {
                 <tbody>
                   {reportRows.map((row) => (
                     <tr key={row.staff.id}>
-                      <th>{row.staff.staff_name}</th>
+                      <th>{row.staff.staff_name}<small className={styles.reportRole}>{roleLabel(row.staff.staff_role)}</small></th>
                       <td>{row.workDays}</td>
                       <td className={row.noShowDays ? styles.dangerValue : ''}>{row.noShowDays}</td>
                       <td className={row.lateDays ? styles.warningValue : ''}>{row.lateDays}</td>
@@ -532,12 +552,13 @@ export default function HousekeepingSchedulePage() {
           staff={staff}
           busy={busy}
           onClose={() => setShowStaff(false)}
-          onSave={async (person, name, active) => {
+          onSave={async (person, name, role, active) => {
             if (!supabase) return;
             setBusy(true);
             const { error: saveError } = await supabase.rpc('save_hk_schedule_staff', {
               p_staff_id: person?.id || null,
               p_staff_name: name,
+              p_staff_role: role,
               p_is_active: active,
             });
             setBusy(false);
@@ -652,6 +673,10 @@ function cellTitle(entry: Entry) {
   ].filter(Boolean).join(' · ');
 }
 
+function roleLabel(role: StaffRole) {
+  return STAFF_ROLES.find((item) => item.value === role)?.label || role;
+}
+
 function ModalShell({ title, subtitle, children, onClose }: {
   title: string; subtitle?: string; children: ReactNode; onClose: () => void;
 }) {
@@ -736,25 +761,33 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
 
 function StaffModal({ staff, busy, onClose, onSave, onDelete }: {
   staff: Staff[]; busy: boolean; onClose: () => void;
-  onSave: (person: Staff | null, name: string, active: boolean) => void;
+  onSave: (person: Staff | null, name: string, role: StaffRole, active: boolean) => void;
   onDelete: (person: Staff) => void;
 }) {
   const [name, setName] = useState('');
+  const [role, setRole] = useState<StaffRole>('MAID');
   return (
     <ModalShell title="Housekeeping staff" subtitle="Add staff or hide former staff without losing records." onClose={onClose}>
       <div className={styles.modalBody}>
-        <div className={styles.inlineForm}>
+        <div className={styles.staffAddForm}>
           <input value={name} maxLength={100} placeholder="Staff full name" onChange={(event) => setName(event.target.value)} />
+          <select value={role} onChange={(event) => setRole(event.target.value as StaffRole)}>
+            {STAFF_ROLES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
           <button className={styles.primaryButton} disabled={busy || !name.trim()} onClick={() => {
-            onSave(null, name.trim(), true); setName('');
+            onSave(null, name.trim(), role, true); setName('');
           }}>+ Add staff</button>
         </div>
         <div className={styles.manageList}>
           {staff.map((person) => (
-            <div key={person.id}><span><strong>{person.staff_name}</strong><small>{person.is_active ? 'Shown in timetable' : 'Hidden from timetable'}</small></span>
+            <div key={person.id}><span><strong>{person.staff_name}</strong><small>{roleLabel(person.staff_role)} · {person.is_active ? 'Shown in timetable' : 'Hidden from timetable'}</small></span>
               <div>
+                <select className={styles.roleSelect} value={person.staff_role} disabled={busy}
+                  onChange={(event) => onSave(person, person.staff_name, event.target.value as StaffRole, person.is_active)}>
+                  {STAFF_ROLES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
                 {!person.is_active ? <button disabled={busy} className={styles.secondaryButton}
-                  onClick={() => onSave(person, person.staff_name, true)}>Restore</button> : null}
+                  onClick={() => onSave(person, person.staff_name, person.staff_role, true)}>Restore</button> : null}
                 <button disabled={busy} className={styles.dangerOutline}
                   onClick={() => onDelete(person)}>Delete</button>
               </div></div>
