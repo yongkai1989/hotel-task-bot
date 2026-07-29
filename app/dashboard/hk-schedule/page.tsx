@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 import styles from './schedule.module.css';
 
@@ -176,19 +176,13 @@ export default function HousekeepingSchedulePage() {
   const [showShifts, setShowShifts] = useState(false);
   const [bulkStaff, setBulkStaff] = useState<Staff | null>(null);
   const [fitAllStaff, setFitAllStaff] = useState(true);
-  const [viewportHeight, setViewportHeight] = useState(800);
+  const [gridHeight, setGridHeight] = useState(520);
+  const gridRef = useRef<HTMLDivElement | null>(null);
 
   const canAccess = !!profile && (
     profile.role.toUpperCase() === 'SUPERUSER' || profile.can_access_hk_schedule
   );
   const canEdit = !!profile && canAccess && !profile.hk_schedule_view_only;
-
-  useEffect(() => {
-    const updateViewportHeight = () => setViewportHeight(window.innerHeight);
-    updateViewportHeight();
-    window.addEventListener('resize', updateViewportHeight);
-    return () => window.removeEventListener('resize', updateViewportHeight);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -310,12 +304,22 @@ export default function HousekeepingSchedulePage() {
     [staff]
   );
   const fittedRowHeight = useMemo(() => {
-    const fixedSpace = viewportHeight <= 720 ? 250 : 275;
-    const tableHeader = 46;
+    const tableHeader = 44;
     const roleRows = activeRoleCount * 25;
-    const available = Math.max(220, viewportHeight - fixedSpace - tableHeader - roleRows);
-    return Math.max(26, Math.min(58, Math.floor(available / Math.max(activeStaffCount, 1))));
-  }, [activeRoleCount, activeStaffCount, viewportHeight]);
+    const available = Math.max(180, gridHeight - tableHeader - roleRows);
+    return Math.max(20, Math.min(58, Math.floor(available / Math.max(activeStaffCount, 1))));
+  }, [activeRoleCount, activeStaffCount, gridHeight]);
+
+  useEffect(() => {
+    if (!fitAllStaff || tab !== 'SCHEDULE' || loading) return;
+    const grid = gridRef.current;
+    if (!grid) return;
+    const updateGridHeight = () => setGridHeight(Math.floor(grid.getBoundingClientRect().height));
+    updateGridHeight();
+    const observer = new ResizeObserver(updateGridHeight);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [fitAllStaff, loading, tab]);
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return staff.map((person) => {
@@ -463,6 +467,7 @@ export default function HousekeepingSchedulePage() {
             {loading ? <PageState title="Loading timetable..." compact /> : (
               staff.length ? (
                 <div
+                  ref={gridRef}
                   className={styles.gridWrap}
                   style={{ '--fit-row-height': `${fittedRowHeight}px` } as CSSProperties}
                 >
@@ -490,7 +495,11 @@ export default function HousekeepingSchedulePage() {
                             <tr key={person.id}>
                               <th className={styles.staffColumn}>
                                 <strong>{person.staff_name}</strong>
-                                {canEdit ? <button onClick={() => setBulkStaff(person)}>Fill dates</button> : null}
+                                {canEdit ? (
+                                  <button onClick={() => setBulkStaff(person)}>
+                                    {fitAllStaff ? 'Fill' : 'Fill dates'}
+                                  </button>
+                                ) : null}
                               </th>
                               {days.map((day) => {
                                 const entry = entryMap.get(`${person.id}:${day.value}`) || null;
