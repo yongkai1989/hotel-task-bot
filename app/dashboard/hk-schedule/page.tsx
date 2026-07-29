@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 import styles from './schedule.module.css';
 
@@ -177,7 +177,9 @@ export default function HousekeepingSchedulePage() {
   const [bulkStaff, setBulkStaff] = useState<Staff | null>(null);
   const [fitAllStaff, setFitAllStaff] = useState(true);
   const [gridHeight, setGridHeight] = useState(520);
+  const [fitRowCorrection, setFitRowCorrection] = useState(0);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const tableRef = useRef<HTMLTableElement | null>(null);
 
   const canAccess = !!profile && (
     profile.role.toUpperCase() === 'SUPERUSER' || profile.can_access_hk_schedule
@@ -303,7 +305,7 @@ export default function HousekeepingSchedulePage() {
     ).length,
     [staff]
   );
-  const fittedRowHeight = useMemo(() => {
+  const calculatedRowHeight = useMemo(() => {
     const tableHeader = 44;
     const roleRows = activeRoleCount * 21;
     const borderAllowance = activeStaffCount + activeRoleCount + 8;
@@ -313,6 +315,7 @@ export default function HousekeepingSchedulePage() {
     );
     return Math.max(14, Math.min(58, Math.floor(available / Math.max(activeStaffCount, 1))));
   }, [activeRoleCount, activeStaffCount, gridHeight]);
+  const fittedRowHeight = Math.max(12, calculatedRowHeight - fitRowCorrection);
 
   useEffect(() => {
     if (!fitAllStaff || tab !== 'SCHEDULE' || loading) return;
@@ -324,6 +327,33 @@ export default function HousekeepingSchedulePage() {
     observer.observe(grid);
     return () => observer.disconnect();
   }, [fitAllStaff, loading, tab]);
+
+  useEffect(() => {
+    setFitRowCorrection(0);
+  }, [activeStaffCount, calculatedRowHeight, monthHalf]);
+
+  useLayoutEffect(() => {
+    if (!fitAllStaff || tab !== 'SCHEDULE' || loading || !activeStaffCount) return;
+    const frame = window.requestAnimationFrame(() => {
+      const grid = gridRef.current;
+      const table = tableRef.current;
+      if (!grid || !table) return;
+      const overflow = Math.ceil(table.scrollHeight - grid.clientHeight);
+      if (overflow <= 0) return;
+      const reduction = Math.ceil(overflow / activeStaffCount) + 1;
+      setFitRowCorrection((current) =>
+        Math.min(calculatedRowHeight - 12, current + reduction)
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    activeStaffCount,
+    calculatedRowHeight,
+    fitAllStaff,
+    fittedRowHeight,
+    loading,
+    tab,
+  ]);
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return staff.map((person) => {
@@ -476,7 +506,7 @@ export default function HousekeepingSchedulePage() {
                   className={styles.gridWrap}
                   style={{ '--fit-row-height': `${fittedRowHeight}px` } as CSSProperties}
                 >
-                  <table className={styles.scheduleTable}>
+                  <table ref={tableRef} className={styles.scheduleTable}>
                     <thead>
                       <tr>
                         <th className={styles.staffColumn}>Staff member</th>
@@ -852,7 +882,7 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
                 ))}
               </select>
             )}
-            <div className={styles.twoColumns}>
+            <div className={styles.entryWorkDetails}>
               <div><label>Attendance</label>
                 <div className={styles.attendanceToggle}>
                   <button type="button" className={`${styles.attendanceChoice} ${!isLate ? styles.onTimeSelected : ''}`}
