@@ -10,6 +10,7 @@ type Profile = {
   name: string;
   role: string;
   can_access_hk_schedule: boolean;
+  hk_schedule_view_only: boolean;
 };
 
 type Staff = {
@@ -197,6 +198,7 @@ export default function HousekeepingSchedulePage() {
   const [success, setSuccess] = useState('');
   const [tab, setTab] = useState<'SCHEDULE' | 'REPORT'>('SCHEDULE');
   const [month, setMonth] = useState(monthKey());
+  const [monthHalf, setMonthHalf] = useState<'FULL' | 'FIRST' | 'SECOND'>('FULL');
   const [reportRange, setReportRange] = useState<'MONTH' | 'SIX_MONTHS'>('MONTH');
   const [misconductOnly, setMisconductOnly] = useState(false);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -210,6 +212,7 @@ export default function HousekeepingSchedulePage() {
   const canAccess = !!profile && (
     profile.role.toUpperCase() === 'SUPERUSER' || profile.can_access_hk_schedule
   );
+  const canEdit = !!profile && canAccess && !profile.hk_schedule_view_only;
 
   useEffect(() => {
     let active = true;
@@ -222,7 +225,7 @@ export default function HousekeepingSchedulePage() {
         if (!user) throw new Error('Please sign in to continue');
         const { data, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id,email,name,role,can_access_hk_schedule')
+          .select('user_id,email,name,role,can_access_hk_schedule,hk_schedule_view_only')
           .eq('user_id', user.id)
           .single();
         if (profileError) throw profileError;
@@ -235,6 +238,7 @@ export default function HousekeepingSchedulePage() {
             can_access_hk_schedule:
               String(row.role || '').toUpperCase() === 'SUPERUSER' ||
               row.can_access_hk_schedule === true,
+            hk_schedule_view_only: row.hk_schedule_view_only === true,
           });
         }
       } catch (err: any) {
@@ -287,8 +291,12 @@ export default function HousekeepingSchedulePage() {
 
   useEffect(() => {
     if (!supabase || !canAccess) return;
-    void supabase.rpc('cleanup_hk_schedule_history').then(() => loadData());
-  }, [canAccess, loadData, supabase]);
+    if (canEdit) {
+      void supabase.rpc('cleanup_hk_schedule_history').then(() => loadData());
+    } else {
+      void loadData();
+    }
+  }, [canAccess, canEdit, loadData, supabase]);
 
   const entryMap = useMemo(() => {
     const map = new Map<string, Entry>();
@@ -308,8 +316,12 @@ export default function HousekeepingSchedulePage() {
         weekend: date.getDay() === 0 || date.getDay() === 6,
         today: value === dateKey(new Date()),
       };
-    });
-  }, [month]);
+    }).filter((day) =>
+      monthHalf === 'FULL' ||
+      (monthHalf === 'FIRST' && day.day <= 15) ||
+      (monthHalf === 'SECOND' && day.day >= 16)
+    );
+  }, [month, monthHalf]);
 
   const reportRows = useMemo<ReportRow[]>(() => {
     return staff.map((person) => {
@@ -351,7 +363,7 @@ export default function HousekeepingSchedulePage() {
   }
 
   async function autoFillMonth() {
-    if (!supabase) return;
+    if (!supabase || !canEdit) return;
     const monthName = new Intl.DateTimeFormat('en-MY', { month: 'long', year: 'numeric' })
       .format(new Date(`${month}-01T00:00:00`));
     const confirmed = window.confirm(
@@ -387,14 +399,16 @@ export default function HousekeepingSchedulePage() {
           <h1>Schedule</h1>
           <p>Plan monthly shifts, record attendance, and review punctuality from one timetable.</p>
         </div>
-        <div className={styles.heroActions}>
-          <button className={styles.autoFillButton} disabled={busy || !staff.some((person) => person.is_active)}
-            onClick={() => void autoFillMonth()}>
-            {busy ? 'Filling...' : '⚡ Auto Fill Month'}
-          </button>
-          <button className={styles.secondaryButton} onClick={() => setShowStaff(true)}>Staff</button>
-          <button className={styles.secondaryButton} onClick={() => setShowShifts(true)}>Shift setup</button>
-        </div>
+        {canEdit ? (
+          <div className={styles.heroActions}>
+            <button className={styles.autoFillButton} disabled={busy || !staff.some((person) => person.is_active)}
+              onClick={() => void autoFillMonth()}>
+              {busy ? 'Filling...' : '⚡ Auto Fill Month'}
+            </button>
+            <button className={styles.secondaryButton} onClick={() => setShowStaff(true)}>Staff</button>
+            <button className={styles.secondaryButton} onClick={() => setShowShifts(true)}>Shift setup</button>
+          </div>
+        ) : <span className={styles.viewOnlyBadge}>View only</span>}
       </section>
 
       {error ? <div className={styles.error}>{error}</div> : null}
@@ -409,11 +423,27 @@ export default function HousekeepingSchedulePage() {
             Report
           </button>
         </div>
-        <div className={styles.monthControl}>
-          <button aria-label="Previous month" onClick={() => setMonth(addMonths(month, -1))}>‹</button>
-          <input type="month" value={month} min={addMonths(monthKey(), -6)} max={addMonths(monthKey(), 12)}
-            onChange={(event) => setMonth(event.target.value || monthKey())} />
-          <button aria-label="Next month" onClick={() => setMonth(addMonths(month, 1))}>›</button>
+        <div className={styles.dateControls}>
+          {tab === 'SCHEDULE' ? (
+            <div className={styles.halfButtons}>
+              <button aria-pressed={monthHalf === 'FIRST'}
+                className={monthHalf === 'FIRST' ? styles.selected : ''}
+                onClick={() => setMonthHalf((current) => current === 'FIRST' ? 'FULL' : 'FIRST')}>
+                First Half
+              </button>
+              <button aria-pressed={monthHalf === 'SECOND'}
+                className={monthHalf === 'SECOND' ? styles.selected : ''}
+                onClick={() => setMonthHalf((current) => current === 'SECOND' ? 'FULL' : 'SECOND')}>
+                Second Half
+              </button>
+            </div>
+          ) : null}
+          <div className={styles.monthControl}>
+            <button aria-label="Previous month" onClick={() => setMonth(addMonths(month, -1))}>‹</button>
+            <input type="month" value={month} min={addMonths(monthKey(), -6)} max={addMonths(monthKey(), 12)}
+              onChange={(event) => setMonth(event.target.value || monthKey())} />
+            <button aria-label="Next month" onClick={() => setMonth(addMonths(month, 1))}>›</button>
+          </div>
         </div>
       </section>
 
@@ -426,7 +456,7 @@ export default function HousekeepingSchedulePage() {
             <span><i className={styles.mcDot} /> MC</span>
             <span><i className={styles.offDot} /> Off</span>
             <span><i className={styles.noShowDot} /> No Show</span>
-            <small>Tap any date to schedule or update attendance.</small>
+            <small>{canEdit ? 'Tap any date to schedule or update attendance.' : 'View-only schedule. Editing is disabled.'}</small>
           </section>
 
           <section className={styles.scheduleCard}>
@@ -457,7 +487,7 @@ export default function HousekeepingSchedulePage() {
                             <tr key={person.id}>
                               <th className={styles.staffColumn}>
                                 <strong>{person.staff_name}</strong>
-                                <button onClick={() => setBulkStaff(person)}>Fill dates</button>
+                                {canEdit ? <button onClick={() => setBulkStaff(person)}>Fill dates</button> : null}
                               </th>
                               {days.map((day) => {
                                 const entry = entryMap.get(`${person.id}:${day.value}`) || null;
@@ -467,7 +497,8 @@ export default function HousekeepingSchedulePage() {
                                     <button
                                       className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''} ${late > 0 ? styles.lateDay : ''}`}
                                       title={entry ? cellTitle(entry) : `Schedule ${person.staff_name}`}
-                                      onClick={() => setCell({ staff: person, date: day.value, entry })}
+                                      disabled={!canEdit}
+                                      onClick={() => canEdit && setCell({ staff: person, date: day.value, entry })}
                                     >
                                       <strong>{entryLabel(entry)}</strong>
                                       {late > 0 ? <small>+{late}m</small> : null}
@@ -487,7 +518,7 @@ export default function HousekeepingSchedulePage() {
                 <div className={styles.empty}>
                   <h2>Add your housekeeping team</h2>
                   <p>Create staff names first, then assign shifts directly in the timetable.</p>
-                  <button className={styles.primaryButton} onClick={() => setShowStaff(true)}>+ Add staff</button>
+                  {canEdit ? <button className={styles.primaryButton} onClick={() => setShowStaff(true)}>+ Add staff</button> : null}
                 </div>
               )
             )}
