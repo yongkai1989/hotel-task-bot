@@ -87,6 +87,19 @@
 .attendanceToggle .onTimeSelected .attendanceIcon{background:#1f9d59;color:#fff}
 .attendanceToggle .lateSelected{border-color:#e79a3b;background:#fff1df;color:#9a3f0b;box-shadow:0 0 0 2px rgba(234,133,25,.13)}
 .attendanceToggle .lateSelected .attendanceIcon{background:#e97817;color:#fff}
+.entryWorkDetails{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:14px;
+  margin:15px 0 16px;
+  padding:14px;
+  border:1px solid #d7e2ef;
+  border-radius:13px;
+  background:#f8fbff;
+}
+.entryWorkDetails>div{min-width:0}
+.entryWorkDetails .attendanceToggle{grid-template-columns:1fr 1fr}
+.entryWorkDetails>div:last-child input{background:#fff}
 
 @media(max-width:760px){
   .page{padding:8px;background:linear-gradient(180deg,#edf3f9,#f7f9fc 280px)}
@@ -110,6 +123,8 @@
   .modalFooter{padding:12px 17px}
   .attendanceToggle{grid-template-columns:1fr}
   .attendanceToggle .attendanceChoice{min-height:58px}
+  .entryWorkDetails{gap:12px;padding:12px}
+  .entryWorkDetails .attendanceToggle{grid-template-columns:1fr 1fr}
 }
 
 .fitToggle{
