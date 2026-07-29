@@ -803,8 +803,16 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
             <div className={styles.twoColumns}>
               <div><label>Attendance</label>
                 <div className={styles.attendanceToggle}>
-                  <button className={!isLate ? styles.onTimeSelected : ''} onClick={() => setIsLate(false)}>On time</button>
-                  <button className={isLate ? styles.lateSelected : ''} onClick={() => setIsLate(true)}>Late</button>
+                  <button type="button" className={`${styles.attendanceChoice} ${!isLate ? styles.onTimeSelected : ''}`}
+                    aria-pressed={!isLate} onClick={() => setIsLate(false)}>
+                    <span className={styles.attendanceIcon}>✓</span>
+                    <span><strong>On time</strong><small>Thumbprint verified</small></span>
+                  </button>
+                  <button type="button" className={`${styles.attendanceChoice} ${isLate ? styles.lateSelected : ''}`}
+                    aria-pressed={isLate} onClick={() => setIsLate(true)}>
+                    <span className={styles.attendanceIcon}>!</span>
+                    <span><strong>Late</strong><small>Count as one late arrival</small></span>
+                  </button>
                 </div>
               </div>
               <div><label>Overtime (minutes)</label><input type="number" min="0" max="1440" step="15" value={overtime}
