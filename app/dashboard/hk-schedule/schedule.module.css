@@ -111,3 +111,94 @@
   .attendanceToggle{grid-template-columns:1fr}
   .attendanceToggle .attendanceChoice{min-height:58px}
 }
+
+.fitToggle{
+  min-height:34px;
+  margin-left:auto;
+  padding:0 12px;
+  border:1px solid #bfd0e5;
+  border-radius:9px;
+  background:#fff;
+  color:#24466f;
+  font:inherit;
+  font-size:12px;
+  font-weight:900;
+  white-space:nowrap;
+  cursor:pointer;
+  box-shadow:0 2px 5px rgba(20,49,84,.06);
+}
+.fitToggle[aria-pressed="true"]{border-color:#8eb5ee;background:#eaf2ff;color:#1553b7}
+
+.fitMode{
+  display:flex;
+  height:calc(100dvh - 118px);
+  min-height:0;
+  box-sizing:border-box;
+  flex-direction:column;
+  overflow:hidden;
+  padding:8px 12px;
+}
+.fitMode .hero,
+.fitMode .toolbar,
+.fitMode .legend,
+.fitMode .scheduleCard{
+  width:100%;
+  box-sizing:border-box;
+  flex:0 0 auto;
+}
+.fitMode .hero{min-height:48px;padding:8px 14px;border-radius:13px}
+.fitMode .hero .eyebrow,
+.fitMode .hero p{display:none}
+.fitMode .hero h1{margin:0;font-size:24px;line-height:1}
+.fitMode .heroActions button{min-height:34px;padding:0 12px}
+.fitMode .viewOnlyBadge{min-height:32px}
+.fitMode .toolbar{top:3px;margin-top:6px;padding:4px 6px;align-items:center;flex-direction:row}
+.fitMode .tabs button{min-height:34px;padding:0 16px}
+.fitMode .halfButtons{padding:2px}
+.fitMode .halfButtons button{min-height:32px}
+.fitMode .monthControl{padding:2px}
+.fitMode .monthControl button,
+.fitMode .monthControl input{height:32px;min-height:32px}
+.fitMode .legend{margin:5px auto;padding:5px 9px;gap:9px;min-height:34px}
+.fitMode .legend small{display:none}
+.fitMode .scheduleCard{min-height:0;flex:1 1 auto}
+.fitMode .gridWrap{height:100%;max-height:none;overflow-x:auto;overflow-y:hidden}
+.fitMode .scheduleTable thead th{height:44px}
+.fitMode .roleDivider th,
+.fitMode .roleDivider td{height:24px!important}
+.fitMode .scheduleTable tbody tr:not(.roleDivider)>td{padding:2px}
+.fitMode .staffColumn{padding:3px 9px!important}
+.fitMode .staffColumn button{margin-top:1px;padding:1px 5px}
+.fitMode .dayCell{
+  height:var(--fit-row-height);
+  min-height:26px;
+  padding:2px;
+  border-radius:6px;
+}
+.fitMode .dayCell strong{font-size:clamp(10px,1.1vw,12px)}
+.fitMode .dayCell small{font-size:9px}
+
+@media(max-width:760px){
+  .fitMode{padding:5px}
+  .fitMode .hero{min-height:42px;align-items:center;flex-direction:row;padding:6px 10px}
+  .fitMode .hero h1{font-size:21px}
+  .fitMode .heroActions{display:flex;width:auto;flex-direction:row;gap:5px}
+  .fitMode .heroActions .autoFillButton{grid-column:auto}
+  .fitMode .heroActions button{width:auto;min-height:32px;padding:0 8px;font-size:11px}
+  .fitMode .toolbar{align-items:center;flex-direction:row;gap:6px}
+  .fitMode .tabs{flex:0 0 auto}
+  .fitMode .tabs button{min-height:34px;padding:0 9px;font-size:12px}
+  .fitMode .dateControls{min-width:0;flex:1;align-items:center;flex-direction:row;gap:5px}
+  .fitMode .halfButtons{width:auto;flex:1}
+  .fitMode .halfButtons button{min-width:0;flex:1;padding:0 5px;font-size:11px}
+  .fitMode .monthControl{width:auto;flex:0 0 auto}
+  .fitMode .monthControl button{display:none}
+  .fitMode .monthControl input{width:118px;padding:0 4px;font-size:13px}
+  .fitMode .legend{gap:6px;font-size:10px}
+  .fitMode .legend span{gap:3px}
+  .fitMode .legend i{width:9px;height:9px}
+  .fitMode .fitToggle{min-height:30px;margin-left:auto;padding:0 8px;font-size:10px}
+  .fitMode .staffColumn{min-width:132px!important;max-width:132px;font-size:12px}
+  .fitMode .scheduleTable thead th{height:42px;min-width:64px}
+  .fitMode .dayCell{min-width:60px}
+}
