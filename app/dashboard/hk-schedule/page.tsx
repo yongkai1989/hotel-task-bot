@@ -305,9 +305,13 @@ export default function HousekeepingSchedulePage() {
   );
   const fittedRowHeight = useMemo(() => {
     const tableHeader = 44;
-    const roleRows = activeRoleCount * 25;
-    const available = Math.max(180, gridHeight - tableHeader - roleRows);
-    return Math.max(20, Math.min(58, Math.floor(available / Math.max(activeStaffCount, 1))));
+    const roleRows = activeRoleCount * 21;
+    const borderAllowance = activeStaffCount + activeRoleCount + 8;
+    const available = Math.max(
+      activeStaffCount * 14,
+      gridHeight - tableHeader - roleRows - borderAllowance
+    );
+    return Math.max(14, Math.min(58, Math.floor(available / Math.max(activeStaffCount, 1))));
   }, [activeRoleCount, activeStaffCount, gridHeight]);
 
   useEffect(() => {
@@ -452,6 +456,7 @@ export default function HousekeepingSchedulePage() {
             <span><i className={styles.mcDot} /> MC</span>
             <span><i className={styles.offDot} /> Off</span>
             <span><i className={styles.noShowDot} /> No Show</span>
+            <span className={styles.staffCount}>{activeStaffCount} staff</span>
             <small>{canEdit ? 'Tap any date to schedule or update attendance.' : 'View-only schedule. Editing is disabled.'}</small>
             <button
               type="button"
