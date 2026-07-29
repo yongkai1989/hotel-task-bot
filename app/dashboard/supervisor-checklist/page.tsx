@@ -861,7 +861,7 @@ export default function SupervisorChecklistPage() {
             <div style={styles.trackerTitle}>
               {trackerRows.length > 0
                 ? `${submittedCount}/${trackerRows.length} supervisors submitted`
-                : 'No supervisors found'}
+                : 'No supervisors scheduled today'}
             </div>
           </div>
           <div style={styles.trackerDate}>{formatDate(today)}</div>
@@ -902,8 +902,8 @@ export default function SupervisorChecklistPage() {
           </div>
         ) : (
           <div style={styles.trackerEmpty}>
-            No housekeeping supervisors are currently listed for this tracker. Grant Supervisor Checklist access to the
-            three supervisor accounts in Admin Settings, and make sure the updated Supervisor Checklist SQL has been run.
+            No housekeeping supervisors are scheduled as working for this checklist date. Off Day, AL, UPL, MC, and
+            No Show are not counted as required submissions.
           </div>
         )}
       </div>
