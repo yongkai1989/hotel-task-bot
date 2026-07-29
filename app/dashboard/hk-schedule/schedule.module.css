@@ -166,17 +166,27 @@
 .fitMode .scheduleTable thead th{height:44px}
 .fitMode .roleDivider th,
 .fitMode .roleDivider td{height:24px!important}
-.fitMode .scheduleTable tbody tr:not(.roleDivider)>td{padding:2px}
-.fitMode .staffColumn{padding:3px 9px!important}
-.fitMode .staffColumn button{margin-top:1px;padding:1px 5px}
+.fitMode .scheduleTable tbody tr:not(.roleDivider){height:var(--fit-row-height)}
+.fitMode .scheduleTable tbody tr:not(.roleDivider)>td{height:var(--fit-row-height);padding:1px}
+.fitMode .staffColumn{
+  height:var(--fit-row-height);
+  padding:1px 8px!important;
+  white-space:nowrap;
+  line-height:1;
+}
+.fitMode .staffColumn strong{display:inline;font-size:12px;line-height:1}
+.fitMode .staffColumn button{display:inline-flex;margin:0 0 0 6px;padding:1px 5px;font-size:9px;vertical-align:middle}
 .fitMode .dayCell{
   height:var(--fit-row-height);
-  min-height:26px;
-  padding:2px;
+  min-height:20px;
+  padding:1px 2px;
   border-radius:6px;
+  flex-direction:row;
+  gap:3px;
+  line-height:1;
 }
 .fitMode .dayCell strong{font-size:clamp(10px,1.1vw,12px)}
-.fitMode .dayCell small{font-size:9px}
+.fitMode .dayCell small{font-size:8px}
 
 @media(max-width:760px){
   .fitMode{padding:5px}
