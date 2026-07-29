@@ -46,7 +46,7 @@ type Entry = {
   shift_code_snapshot: string | null;
   scheduled_start: string | null;
   scheduled_end: string | null;
-  arrival_time: string | null;
+  is_late: boolean;
   overtime_minutes: number;
   notes: string | null;
   updated_by_name: string;
@@ -64,7 +64,6 @@ type ReportRow = {
   workDays: number;
   noShowDays: number;
   lateDays: number;
-  lateMinutes: number;
   overtimeDays: number;
   overtimeMinutes: number;
   alDays: number;
@@ -138,38 +137,6 @@ function timeText(value: string | null) {
   const [hour, minute] = value.slice(0, 5).split(':').map(Number);
   const suffix = hour >= 12 ? 'PM' : 'AM';
   return `${hour % 12 || 12}:${pad(minute)} ${suffix}`;
-}
-
-function minutesFromTime(value: string | null) {
-  if (!value) return null;
-  const [hour, minute] = value.slice(0, 5).split(':').map(Number);
-  return hour * 60 + minute;
-}
-
-function arrivalParts(value: string | null) {
-  if (!value) return { hour: '', minute: '00', period: 'AM' as 'AM' | 'PM' };
-  const [hour24, minute] = value.slice(0, 5).split(':').map(Number);
-  return {
-    hour: String(hour24 % 12 || 12),
-    minute: pad(minute),
-    period: (hour24 >= 12 ? 'PM' : 'AM') as 'AM' | 'PM',
-  };
-}
-
-function arrivalValue(hour: string, minute: string, period: 'AM' | 'PM') {
-  if (!hour) return '';
-  let hour24 = Number(hour) % 12;
-  if (period === 'PM') hour24 += 12;
-  return `${pad(hour24)}:${minute || '00'}`;
-}
-
-function lateMinutes(entry: Entry) {
-  if (entry.status !== 'WORK' || !entry.scheduled_start || !entry.arrival_time) return 0;
-  const start = minutesFromTime(entry.scheduled_start);
-  let arrival = minutesFromTime(entry.arrival_time);
-  if (start === null || arrival === null) return 0;
-  if (start >= 18 * 60 && arrival < 12 * 60) arrival += 24 * 60;
-  return Math.max(0, arrival - start);
 }
 
 function durationText(total: number) {
@@ -326,13 +293,11 @@ export default function HousekeepingSchedulePage() {
   const reportRows = useMemo<ReportRow[]>(() => {
     return staff.map((person) => {
       const rows = entries.filter((entry) => entry.staff_id === person.id);
-      const late = rows.map(lateMinutes);
       return {
         staff: person,
         workDays: rows.filter((entry) => entry.status === 'WORK').length,
         noShowDays: rows.filter((entry) => entry.status === 'NO_SHOW').length,
-        lateDays: late.filter((minutes) => minutes > 0).length,
-        lateMinutes: late.reduce((sum, minutes) => sum + minutes, 0),
+        lateDays: rows.filter((entry) => entry.status === 'WORK' && entry.is_late).length,
         overtimeDays: rows.filter((entry) => entry.overtime_minutes > 0).length,
         overtimeMinutes: rows.reduce((sum, entry) => sum + Number(entry.overtime_minutes || 0), 0),
         alDays: rows.filter((entry) => entry.status === 'AL').length,
@@ -344,7 +309,7 @@ export default function HousekeepingSchedulePage() {
       .sort((a, b) =>
         STAFF_ROLE_ORDER.indexOf(a.staff.staff_role) - STAFF_ROLE_ORDER.indexOf(b.staff.staff_role) ||
         b.noShowDays - a.noShowDays ||
-        b.lateMinutes - a.lateMinutes ||
+        b.lateDays - a.lateDays ||
         a.staff.staff_name.localeCompare(b.staff.staff_name)
       );
   }, [entries, misconductOnly, staff]);
@@ -352,9 +317,8 @@ export default function HousekeepingSchedulePage() {
   const reportTotals = useMemo(() => reportRows.reduce((totals, row) => ({
     noShow: totals.noShow + row.noShowDays,
     lateDays: totals.lateDays + row.lateDays,
-    lateMinutes: totals.lateMinutes + row.lateMinutes,
     overtimeMinutes: totals.overtimeMinutes + row.overtimeMinutes,
-  }), { noShow: 0, lateDays: 0, lateMinutes: 0, overtimeMinutes: 0 }), [reportRows]);
+  }), { noShow: 0, lateDays: 0, overtimeMinutes: 0 }), [reportRows]);
 
   function flash(message: string) {
     setSuccess(message);
@@ -368,7 +332,8 @@ export default function HousekeepingSchedulePage() {
       .format(new Date(`${month}-01T00:00:00`));
     const confirmed = window.confirm(
       `Auto fill ${monthName} for every active staff member?\n\n` +
-      'Existing entries for the month will be overwritten. Fixed off days will be marked Off, and all other days will use the shift matching each staff role.'
+      'Existing entries for the month will be overwritten. Fixed off days will be marked Off, and all other days will use the shift matching each staff role.\n\n' +
+      'P.A. staff will follow the Night/Noon rotation, use Mid on Friday and Saturday, and use the 12-hour shift when their partner is off.'
     );
     if (!confirmed) return;
 
@@ -491,17 +456,17 @@ export default function HousekeepingSchedulePage() {
                               </th>
                               {days.map((day) => {
                                 const entry = entryMap.get(`${person.id}:${day.value}`) || null;
-                                const late = entry ? lateMinutes(entry) : 0;
+                                const late = entry?.status === 'WORK' && entry.is_late;
                                 return (
                                   <td key={day.value} className={day.weekend ? styles.weekend : ''}>
                                     <button
-                                      className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''} ${late > 0 ? styles.lateDay : ''}`}
+                                      className={`${styles.dayCell} ${entry ? styles[`status_${entry.status}`] : ''} ${late ? styles.lateDay : ''}`}
                                       title={entry ? cellTitle(entry) : `Schedule ${person.staff_name}`}
                                       disabled={!canEdit}
                                       onClick={() => canEdit && setCell({ staff: person, date: day.value, entry })}
                                     >
                                       <strong>{entryLabel(entry)}</strong>
-                                      {late > 0 ? <small>+{late}m</small> : null}
+                                      {late ? <small>LATE</small> : null}
                                       {entry?.overtime_minutes ? <small>OT</small> : null}
                                     </button>
                                   </td>
@@ -547,7 +512,6 @@ export default function HousekeepingSchedulePage() {
           <div className={styles.summaryGrid}>
             <SummaryCard label="No Show" value={`${reportTotals.noShow} day${reportTotals.noShow === 1 ? '' : 's'}`} tone="red" />
             <SummaryCard label="Late arrivals" value={`${reportTotals.lateDays} day${reportTotals.lateDays === 1 ? '' : 's'}`} tone="amber" />
-            <SummaryCard label="Total time late" value={durationText(reportTotals.lateMinutes)} tone="amber" />
             <SummaryCard label="Overtime recorded" value={durationText(reportTotals.overtimeMinutes)} tone="blue" />
           </div>
 
@@ -556,7 +520,7 @@ export default function HousekeepingSchedulePage() {
               <table className={styles.reportTable}>
                 <thead>
                   <tr>
-                    <th>Staff</th><th>Work</th><th>No Show</th><th>Late days</th><th>Total late</th>
+                    <th>Staff</th><th>Work</th><th>No Show</th><th>Late days</th>
                     <th>OT days</th><th>Total OT</th><th>AL</th><th>UPL</th><th>MC</th><th>Off</th>
                   </tr>
                 </thead>
@@ -567,18 +531,17 @@ export default function HousekeepingSchedulePage() {
                       <td>{row.workDays}</td>
                       <td className={row.noShowDays ? styles.dangerValue : ''}>{row.noShowDays}</td>
                       <td className={row.lateDays ? styles.warningValue : ''}>{row.lateDays}</td>
-                      <td className={row.lateMinutes ? styles.warningValue : ''}>{durationText(row.lateMinutes)}</td>
                       <td>{row.overtimeDays}</td><td>{durationText(row.overtimeMinutes)}</td>
                       <td>{row.alDays}</td><td>{row.uplDays}</td><td>{row.mcDays}</td><td>{row.offDays}</td>
                     </tr>
                   ))}
-                  {!reportRows.length ? <tr><td colSpan={11} className={styles.noRows}>No records in this period.</td></tr> : null}
+                  {!reportRows.length ? <tr><td colSpan={10} className={styles.noRows}>No records in this period.</td></tr> : null}
                 </tbody>
               </table>
             )}
           </div>
           <p className={styles.reportNote}>
-            Late time is calculated from the scheduled shift start to the recorded arrival time. Only six months of historical entries are retained.
+            Late arrivals are counted by occurrence. Only six months of historical entries are retained.
           </p>
         </section>
       )}
@@ -598,11 +561,12 @@ export default function HousekeepingSchedulePage() {
               p_schedule_date: cell.date,
               p_status: form.status,
               p_shift_id: form.status === 'WORK' && !form.useCustomHours ? form.shiftId : null,
-              p_arrival_time: form.status === 'WORK' && form.arrivalTime ? form.arrivalTime : null,
+              p_arrival_time: null,
               p_overtime_minutes: form.status === 'WORK' ? form.overtimeMinutes : 0,
               p_notes: form.notes || null,
               p_custom_start: form.status === 'WORK' && form.useCustomHours ? form.customStart : null,
               p_custom_end: form.status === 'WORK' && form.useCustomHours ? form.customEnd : null,
+              p_is_late: form.status === 'WORK' && form.isLate,
             });
             setBusy(false);
             if (saveError) return setError(saveError.message);
@@ -745,11 +709,10 @@ function entryLabel(entry: Entry | null) {
 
 function cellTitle(entry: Entry) {
   if (entry.status !== 'WORK') return STATUS_OPTIONS.find((item) => item.value === entry.status)?.label || entry.status;
-  const late = lateMinutes(entry);
   return [
     entry.shift_name_snapshot,
     `${timeText(entry.scheduled_start)} – ${timeText(entry.scheduled_end)}`,
-    entry.arrival_time ? `Arrived ${timeText(entry.arrival_time)}${late ? ` (${late} min late)` : ''}` : '',
+    entry.is_late ? 'Late' : 'On time',
     entry.overtime_minutes ? `OT ${durationText(entry.overtime_minutes)}` : '',
   ].filter(Boolean).join(' · ');
 }
@@ -789,32 +752,22 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
     useCustomHours: boolean;
     customStart: string;
     customEnd: string;
-    arrivalTime: string;
+    isLate: boolean;
     overtimeMinutes: number;
     notes: string;
   }) => void;
   onClear: () => void;
 }) {
   const activeShifts = shifts.filter((shift) => shift.is_active || shift.id === selection.entry?.shift_id);
-  const initialArrival = arrivalParts(selection.entry?.arrival_time || null);
   const existingCustomHours = selection.entry?.status === 'WORK' && !selection.entry.shift_id;
   const [status, setStatus] = useState<EntryStatus>(selection.entry?.status || 'WORK');
   const [shiftId, setShiftId] = useState(selection.entry?.shift_id || activeShifts[0]?.id || '');
   const [useCustomHours, setUseCustomHours] = useState(existingCustomHours);
   const [customStart, setCustomStart] = useState(selection.entry?.scheduled_start?.slice(0, 5) || '08:30');
   const [customEnd, setCustomEnd] = useState(selection.entry?.scheduled_end?.slice(0, 5) || '17:00');
-  const [arrivalHour, setArrivalHour] = useState(initialArrival.hour);
-  const [arrivalMinute, setArrivalMinute] = useState(initialArrival.minute);
-  const [arrivalPeriod, setArrivalPeriod] = useState<'AM' | 'PM'>(initialArrival.period);
+  const [isLate, setIsLate] = useState(selection.entry?.is_late === true);
   const [overtime, setOvertime] = useState(String(selection.entry?.overtime_minutes || ''));
   const [notes, setNotes] = useState(selection.entry?.notes || '');
-  const arrivalTime = arrivalValue(arrivalHour, arrivalMinute, arrivalPeriod);
-  const selectedShift = shifts.find((shift) => shift.id === shiftId);
-  const scheduledStart = useCustomHours ? customStart : selectedShift?.start_time || null;
-  const previewEntry = {
-    status, scheduled_start: scheduledStart, arrival_time: arrivalTime || null,
-  } as Entry;
-  const late = lateMinutes(previewEntry);
 
   return (
     <ModalShell title={selection.staff.staff_name} subtitle={displayDate(selection.date)} onClose={onClose}>
@@ -848,32 +801,15 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
               </select>
             )}
             <div className={styles.twoColumns}>
-              <div><label>Actual arrival time</label>
-                <div className={styles.arrivalSelectors}>
-                  <select aria-label="Arrival hour" value={arrivalHour} onChange={(event) => setArrivalHour(event.target.value)}>
-                    <option value="">Hour</option>
-                    {Array.from({ length: 12 }, (_, index) => index + 1).map((hour) => <option key={hour} value={hour}>{hour}</option>)}
-                  </select>
-                  <select aria-label="Arrival minute" value={arrivalMinute} disabled={!arrivalHour}
-                    onChange={(event) => setArrivalMinute(event.target.value)}>
-                    {Array.from({ length: 60 }, (_, index) => pad(index)).map((minute) => <option key={minute} value={minute}>{minute}</option>)}
-                  </select>
-                  <select aria-label="Arrival AM or PM" value={arrivalPeriod} disabled={!arrivalHour}
-                    onChange={(event) => setArrivalPeriod(event.target.value as 'AM' | 'PM')}>
-                    <option value="AM">AM</option><option value="PM">PM</option>
-                  </select>
-                  {arrivalHour ? <button type="button" aria-label="Clear arrival time" title="Clear arrival time"
-                    onClick={() => setArrivalHour('')}>×</button> : null}
+              <div><label>Attendance</label>
+                <div className={styles.attendanceToggle}>
+                  <button className={!isLate ? styles.onTimeSelected : ''} onClick={() => setIsLate(false)}>On time</button>
+                  <button className={isLate ? styles.lateSelected : ''} onClick={() => setIsLate(true)}>Late</button>
                 </div>
               </div>
               <div><label>Overtime (minutes)</label><input type="number" min="0" max="1440" step="15" value={overtime}
                 placeholder="0" onChange={(event) => setOvertime(event.target.value)} /></div>
             </div>
-            {arrivalTime && scheduledStart ? (
-              <div className={late ? styles.latePreview : styles.onTimePreview}>
-                {late ? `${late} minutes late` : 'On time'}
-              </div>
-            ) : null}
           </>
         ) : null}
         <label>Notes (optional)</label>
@@ -885,10 +821,10 @@ function EntryModal({ selection, shifts, busy, onClose, onSave, onClear }: {
         <div><button className={styles.secondaryButton} onClick={onClose}>Cancel</button>
           <button className={styles.primaryButton} disabled={busy || (
             status === 'WORK' && (useCustomHours ? (!customStart || !customEnd) : !shiftId)
-          )}
+            )}
             onClick={() => onSave({
               status, shiftId, useCustomHours, customStart, customEnd,
-              arrivalTime, overtimeMinutes: Number(overtime || 0), notes,
+              isLate, overtimeMinutes: Number(overtime || 0), notes,
             })}>
             {busy ? 'Saving...' : 'Save'}
           </button></div>
