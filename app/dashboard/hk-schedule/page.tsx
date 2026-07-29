@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 import styles from './schedule.module.css';
 
@@ -175,11 +175,20 @@ export default function HousekeepingSchedulePage() {
   const [showStaff, setShowStaff] = useState(false);
   const [showShifts, setShowShifts] = useState(false);
   const [bulkStaff, setBulkStaff] = useState<Staff | null>(null);
+  const [fitAllStaff, setFitAllStaff] = useState(true);
+  const [viewportHeight, setViewportHeight] = useState(800);
 
   const canAccess = !!profile && (
     profile.role.toUpperCase() === 'SUPERUSER' || profile.can_access_hk_schedule
   );
   const canEdit = !!profile && canAccess && !profile.hk_schedule_view_only;
+
+  useEffect(() => {
+    const updateViewportHeight = () => setViewportHeight(window.innerHeight);
+    updateViewportHeight();
+    window.addEventListener('resize', updateViewportHeight);
+    return () => window.removeEventListener('resize', updateViewportHeight);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -290,6 +299,24 @@ export default function HousekeepingSchedulePage() {
     );
   }, [month, monthHalf]);
 
+  const activeStaffCount = useMemo(
+    () => staff.filter((person) => person.is_active).length,
+    [staff]
+  );
+  const activeRoleCount = useMemo(
+    () => STAFF_ROLES.filter((role) =>
+      staff.some((person) => person.is_active && person.staff_role === role.value)
+    ).length,
+    [staff]
+  );
+  const fittedRowHeight = useMemo(() => {
+    const fixedSpace = viewportHeight <= 720 ? 250 : 275;
+    const tableHeader = 46;
+    const roleRows = activeRoleCount * 25;
+    const available = Math.max(220, viewportHeight - fixedSpace - tableHeader - roleRows);
+    return Math.max(26, Math.min(58, Math.floor(available / Math.max(activeStaffCount, 1))));
+  }, [activeRoleCount, activeStaffCount, viewportHeight]);
+
   const reportRows = useMemo<ReportRow[]>(() => {
     return staff.map((person) => {
       const rows = entries.filter((entry) => entry.staff_id === person.id);
@@ -357,7 +384,7 @@ export default function HousekeepingSchedulePage() {
   }
 
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} ${tab === 'SCHEDULE' && fitAllStaff ? styles.fitMode : ''}`}>
       <section className={styles.hero}>
         <div>
           <span className={styles.eyebrow}>HOUSEKEEPING WORKFORCE</span>
@@ -422,12 +449,23 @@ export default function HousekeepingSchedulePage() {
             <span><i className={styles.offDot} /> Off</span>
             <span><i className={styles.noShowDot} /> No Show</span>
             <small>{canEdit ? 'Tap any date to schedule or update attendance.' : 'View-only schedule. Editing is disabled.'}</small>
+            <button
+              type="button"
+              className={styles.fitToggle}
+              aria-pressed={fitAllStaff}
+              onClick={() => setFitAllStaff((current) => !current)}
+            >
+              {fitAllStaff ? 'Roomier rows' : 'Fit all staff'}
+            </button>
           </section>
 
           <section className={styles.scheduleCard}>
             {loading ? <PageState title="Loading timetable..." compact /> : (
               staff.length ? (
-                <div className={styles.gridWrap}>
+                <div
+                  className={styles.gridWrap}
+                  style={{ '--fit-row-height': `${fittedRowHeight}px` } as CSSProperties}
+                >
                   <table className={styles.scheduleTable}>
                     <thead>
                       <tr>
