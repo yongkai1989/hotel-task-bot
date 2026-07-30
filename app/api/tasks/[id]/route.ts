@@ -24,6 +24,88 @@ function normalizeDept(value: string) {
   return null;
 }
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const taskId = String(params.id || '').trim();
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+
+    if (!user) {
+      return jsonNoCache(
+        { ok: false, error: authError || 'Unauthorized' },
+        401
+      );
+    }
+
+    if (!taskId) {
+      return jsonNoCache({ ok: false, error: 'Invalid task id' }, 400);
+    }
+
+    const { data: task, error: taskError } = await supabaseAdmin
+      .from('tasks')
+      .select(
+        `
+        id,
+        task_code,
+        room,
+        department,
+        task_text,
+        status,
+        created_at,
+        created_by_name,
+        created_by_email,
+        source_page,
+        done_at,
+        done_by_name,
+        last_updated_by_name,
+        edited_at,
+        edited_by_name,
+        edited_by_email,
+        image_url,
+        customer_waiting,
+        customer_waiting_due_at,
+        customer_waiting_follow_up_count,
+        customer_waiting_reminder_sent_at
+      `
+      )
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (taskError) {
+      return jsonNoCache({ ok: false, error: taskError.message }, 500);
+    }
+
+    if (!task) {
+      return jsonNoCache({ ok: false, error: 'Task not found' }, 404);
+    }
+
+    const { data: images, error: imagesError } = await supabaseAdmin
+      .from('task_images')
+      .select('id, image_url, caption')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: true });
+
+    if (imagesError) {
+      return jsonNoCache({ ok: false, error: imagesError.message }, 500);
+    }
+
+    return jsonNoCache({
+      ok: true,
+      task: {
+        ...task,
+        task_images: images || [],
+      },
+    });
+  } catch (error: any) {
+    return jsonNoCache(
+      { ok: false, error: error?.message || 'Unknown error' },
+      500
+    );
+  }
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
