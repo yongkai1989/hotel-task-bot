@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 
@@ -47,6 +47,8 @@ type PriceGuideData = {
 type PageMode = 'MENU' | 'DISPLAY' | 'EDIT';
 
 const GUIDE_ID = 'hallmark-crown-2026';
+const GUIDE_BROADCAST_CHANNEL = 'front-office-price-guide-display';
+const GUIDE_BROADCAST_EVENT = 'guide-updated';
 const EDITOR_EMAILS = ['fenny@hotelhallmark.com'];
 const RATE_KEYS: Array<{ key: RateKey; label: string }> = [
   { key: 'weekday', label: 'Weekday Sun-Thu' },
@@ -163,6 +165,8 @@ async function exitFullscreenSafe() {
 
 export default function PriceGuidePage() {
   const supabase = useMemo(() => getSupabaseSafe(), []);
+  const guideBroadcastChannelRef = useRef<any>(null);
+  const modeRef = useRef<PageMode>('MENU');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [guide, setGuide] = useState<PriceGuideData>(DEFAULT_GUIDE);
@@ -176,6 +180,10 @@ export default function PriceGuidePage() {
 
   const canView = canViewPriceGuide(profile);
   const canEdit = canEditPriceGuide(profile);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     const updateMobile = () => setIsMobile(window.innerWidth <= 760);
@@ -250,35 +258,47 @@ export default function PriceGuidePage() {
   }, [supabase]);
 
   useEffect(() => {
-    if (!supabase || mode !== 'DISPLAY') return;
+    if (!supabase) return;
 
     let cancelled = false;
+    let hasConnected = false;
     const channel = supabase
-      .channel('front-office-price-guide-live')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'front_office_price_guide', filter: `id=eq.${GUIDE_ID}` },
-        (payload) => {
-          if (payload.new) {
-            const nextGuide = readGuideData(payload.new);
-            setGuide(nextGuide);
-          } else {
-            void loadGuide().catch(() => undefined);
-          }
-        }
-      )
-      .subscribe();
+      .channel(GUIDE_BROADCAST_CHANNEL)
+      .on('broadcast', { event: GUIDE_BROADCAST_EVENT }, ({ payload }) => {
+        if (cancelled || !payload?.guide) return;
+        const nextGuide = readGuideData({ guide_json: payload.guide });
+        setGuide(nextGuide);
+      })
+      .subscribe((status) => {
+        if (cancelled || status !== 'SUBSCRIBED') return;
+        guideBroadcastChannelRef.current = channel;
 
-    const interval = window.setInterval(() => {
-      if (!cancelled) void loadGuide().catch(() => undefined);
-    }, 30000);
+        // A reconnect may have missed a broadcast while this device was offline.
+        if (hasConnected && modeRef.current !== 'EDIT') {
+          void loadGuide().catch(() => undefined);
+        }
+        hasConnected = true;
+      });
+
+    const refreshWhenVisible = () => {
+      if (modeRef.current !== 'EDIT' && document.visibilityState === 'visible') {
+        void loadGuide().catch(() => undefined);
+      }
+    };
+
+    window.addEventListener('online', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (guideBroadcastChannelRef.current === channel) {
+        guideBroadcastChannelRef.current = null;
+      }
+      window.removeEventListener('online', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
       void supabase.removeChannel(channel);
     };
-  }, [mode, supabase]);
+  }, [supabase]);
 
 function updateDraftField(
   key: 'hotelName' | 'title' | 'effectiveLabel' | 'currencyNote' | 'cancellationPolicy',
@@ -332,6 +352,11 @@ function updateDraftField(
 
       if (error) throw error;
       setGuide(draft);
+      await guideBroadcastChannelRef.current?.send({
+        type: 'broadcast',
+        event: GUIDE_BROADCAST_EVENT,
+        payload: { guide: draft },
+      });
       setMessage('Price guide updated. The display screen will refresh automatically.');
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save price guide.');
