@@ -1259,29 +1259,112 @@ export default function DashboardPage() {
     if (!profileKey) return;
     const supabase = getSupabaseSafe();
     if (!supabase) return;
-    let refreshTimer: number | null = null;
+    const refreshTimers = new Map<string, number>();
 
-    const channel = supabase
-      .channel(`dashboard-task-sync-${profileKey}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        () => {
-          if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-          refreshTimer = window.setTimeout(() => {
-            void loadTasks(false, {
-              silent: true,
-              onlyIfChanged: true,
-              force: true,
-            });
-          }, 250);
-        }
-      )
-      .subscribe();
+    const removeTaskFromState = (taskId: string) => {
+      setTasks((current) => {
+        const next = current.filter((task) => String(task.id) !== taskId);
+        saveTasksToCache(next);
+        return next;
+      });
+    };
+
+    const refreshOneTask = async (taskId: string) => {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+
+      if (response.status === 404) {
+        removeTaskFromState(taskId);
+        return;
+      }
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok || !payload?.task) {
+        throw new Error(payload?.error || 'Unable to synchronize task');
+      }
+
+      setTasks((current) => {
+        const taskIndex = current.findIndex((task) => String(task.id) === taskId);
+        const next =
+          taskIndex >= 0
+            ? current.map((task, index) => (index === taskIndex ? payload.task : task))
+            : [payload.task, ...current];
+
+        next.sort(
+          (a, b) =>
+            Date.parse(String(b.created_at || '')) -
+            Date.parse(String(a.created_at || ''))
+        );
+        saveTasksToCache(next);
+        return next;
+      });
+    };
+
+    let channel: any = null;
+
+    const handleTaskChange = (payload: any) => {
+      const taskId = String(payload?.new?.id || payload?.old?.id || '').trim();
+      if (!taskId) {
+        void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
+        return;
+      }
+
+      const existingTimer = refreshTimers.get(taskId);
+      if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+
+      if (payload?.eventType === 'DELETE') {
+        refreshTimers.delete(taskId);
+        removeTaskFromState(taskId);
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        refreshTimers.delete(taskId);
+        void refreshOneTask(taskId).catch(() => {
+          // A manual refresh remains available if a transient sync request fails.
+        });
+      }, 250);
+      refreshTimers.set(taskId, timer);
+    };
+
+    const startChannel = () => {
+      if (channel || document.visibilityState !== 'visible') return;
+      channel = supabase
+        .channel(`dashboard-task-sync-${profileKey}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'tasks' },
+          handleTaskChange
+        )
+        .subscribe();
+    };
+
+    const stopChannel = () => {
+      refreshTimers.forEach((timer) => window.clearTimeout(timer));
+      refreshTimers.clear();
+      if (!channel) return;
+      const activeChannel = channel;
+      channel = null;
+      void supabase.removeChannel(activeChannel);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startChannel();
+        void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
+      } else {
+        stopChannel();
+      }
+    };
+
+    startChannel();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-      void supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopChannel();
     };
   }, [profileKey]);
 
