@@ -103,6 +103,15 @@ function customerWaitingTimer(task: DashboardTask, now: number) {
   };
 }
 
+function belongsOnFoQuickActions(task: DashboardTask) {
+  return (
+    String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
+    || task.department === 'FO'
+    || String(task.source_page || '').trim().toUpperCase() === 'FO_QUICK_ACTIONS'
+    || task.customer_waiting === true
+  );
+}
+
 export default function FoQuickActionsPage() {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -151,12 +160,7 @@ export default function FoQuickActionsPage() {
     });
     const taskPayload = await responseJson(taskResponse);
     const foTasks = ((taskPayload?.tasks || []) as DashboardTask[])
-      .filter((task) => (
-        String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
-        || task.department === 'FO'
-        || String(task.source_page || '').trim().toUpperCase() === 'FO_QUICK_ACTIONS'
-        || task.customer_waiting === true
-      ));
+      .filter(belongsOnFoQuickActions);
     setTasks(foTasks);
   }, []);
 
@@ -222,27 +226,118 @@ export default function FoQuickActionsPage() {
 
   useEffect(() => {
     if (!accessToken || !canAccess) return;
-    let refreshTimer: number | null = null;
+    const refreshTimers = new Map<string, number>();
 
-    const channel = supabase
-      .channel(`fo-quick-actions-task-sync-${profile?.user_id || 'user'}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tasks' },
-        () => {
-          if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-          refreshTimer = window.setTimeout(() => {
-            void loadFoTasks().catch((nextError: any) => {
-              setError(nextError?.message || 'Unable to synchronize FO tasks.');
-            });
-          }, 250);
-        }
-      )
-      .subscribe();
+    const removeTaskFromState = (taskId: string) => {
+      setTasks((current) =>
+        current.filter((task) => String(task.id) !== taskId)
+      );
+    };
+
+    const refreshOneTask = async (taskId: string) => {
+      const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+
+      if (response.status === 404) {
+        removeTaskFromState(taskId);
+        return;
+      }
+
+      const payload = await responseJson(response);
+      const nextTask = payload?.task as DashboardTask;
+      if (!nextTask || !belongsOnFoQuickActions(nextTask)) {
+        removeTaskFromState(taskId);
+        return;
+      }
+
+      setTasks((current) => {
+        const existingIndex = current.findIndex(
+          (task) => String(task.id) === taskId
+        );
+        const next =
+          existingIndex >= 0
+            ? current.map((task, index) =>
+                index === existingIndex ? nextTask : task
+              )
+            : [nextTask, ...current];
+
+        return next.sort(
+          (a, b) =>
+            Date.parse(String(b.created_at || '')) -
+            Date.parse(String(a.created_at || ''))
+        );
+      });
+    };
+
+    let channel: any = null;
+
+    const handleTaskChange = (payload: any) => {
+      const taskId = String(payload?.new?.id || payload?.old?.id || '').trim();
+      if (!taskId) {
+        void loadFoTasks().catch((nextError: any) => {
+          setError(nextError?.message || 'Unable to synchronize FO tasks.');
+        });
+        return;
+      }
+
+      const existingTimer = refreshTimers.get(taskId);
+      if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+
+      if (payload?.eventType === 'DELETE') {
+        refreshTimers.delete(taskId);
+        removeTaskFromState(taskId);
+        return;
+      }
+
+      const timer = window.setTimeout(() => {
+        refreshTimers.delete(taskId);
+        void refreshOneTask(taskId).catch((nextError: any) => {
+          setError(nextError?.message || 'Unable to synchronize FO task.');
+        });
+      }, 250);
+      refreshTimers.set(taskId, timer);
+    };
+
+    const startChannel = () => {
+      if (channel || document.visibilityState !== 'visible') return;
+      channel = supabase
+        .channel(`fo-quick-actions-task-sync-${profile?.user_id || 'user'}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'tasks' },
+          handleTaskChange
+        )
+        .subscribe();
+    };
+
+    const stopChannel = () => {
+      refreshTimers.forEach((timer) => window.clearTimeout(timer));
+      refreshTimers.clear();
+      if (!channel) return;
+      const activeChannel = channel;
+      channel = null;
+      void supabase.removeChannel(activeChannel);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startChannel();
+        void loadFoTasks().catch((nextError: any) => {
+          setError(nextError?.message || 'Unable to synchronize FO tasks.');
+        });
+      } else {
+        stopChannel();
+      }
+    };
+
+    startChannel();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-      void supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopChannel();
     };
   }, [accessToken, canAccess, loadFoTasks, profile?.user_id, supabase]);
 
