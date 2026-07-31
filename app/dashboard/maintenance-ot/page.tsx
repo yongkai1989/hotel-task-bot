@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import css from './maintenanceOt.module.css';
 
 type DashboardUser = {
   user_id?: string;
@@ -32,6 +33,7 @@ type MaintenanceOtStaff = {
 };
 
 type ViewMode = 'ENTRY' | 'PAST' | 'REPORT';
+type EntryMode = 'SINGLE' | 'BULK';
 type TimeSlot = { start: string; end: string };
 
 const DEFAULT_STAFF_OPTIONS = ['Izzuddin', 'Yazid', 'Panjang', 'Jimmy', 'Paiz', 'Ezwan', 'Harraz'];
@@ -113,13 +115,44 @@ function calculateHours(startTime: string, endTime: string): number {
   const [endHour, endMin] = endTime.split(':').map(Number);
   if ([startHour, startMin, endHour, endMin].some(Number.isNaN)) return 0;
   const startTotal = startHour * 60 + startMin;
-  const endTotal = endHour * 60 + endMin;
-  if (endTotal <= startTotal) return 0;
+  let endTotal = endHour * 60 + endMin;
+  if (endTotal === startTotal) return 0;
+  if (endTotal < startTotal) endTotal += 24 * 60;
   return Math.round((((endTotal - startTotal) / 60) * 100)) / 100;
 }
 
 function sumSlotHours(slots: TimeSlot[]) {
   return Math.round(slots.reduce((sum, slot) => sum + calculateHours(slot.start, slot.end), 0) * 100) / 100;
+}
+
+function isOvernightSlot(slot: TimeSlot) {
+  if (!slot.start || !slot.end) return false;
+  const [startHour, startMin] = slot.start.split(':').map(Number);
+  const [endHour, endMin] = slot.end.split(':').map(Number);
+  if ([startHour, startMin, endHour, endMin].some(Number.isNaN)) return false;
+  return endHour * 60 + endMin < startHour * 60 + startMin;
+}
+
+function serializeSlot(slot: TimeSlot) {
+  return `${slot.start}-${slot.end}${isOvernightSlot(slot) ? '+1' : ''}`;
+}
+
+function formatSlot(slot: TimeSlot) {
+  return `${slot.start} - ${slot.end}${isOvernightSlot(slot) ? ' +1' : ''}`;
+}
+
+function SlotDisplay({ slots }: { slots: TimeSlot[] }) {
+  return (
+    <>
+      {slots.map((slot, index) => (
+        <span key={`${slot.start}-${slot.end}-${index}`}>
+          {index > 0 ? ', ' : ''}
+          {slot.start} - {slot.end}
+          {isOvernightSlot(slot) ? <sup style={{ marginLeft: '3px', color: '#b45309', fontWeight: 900 }}>+1</sup> : null}
+        </span>
+      ))}
+    </>
+  );
 }
 
 function formatHours(hours: number) {
@@ -142,10 +175,27 @@ function entryToSlots(entry: MaintenanceOtEntry): TimeSlot[] {
   if (raw.length > 0 && raw.every((part) => part.includes('-'))) {
     return raw.map((part) => {
       const [start, end] = part.split('-').map((s) => s.trim());
-      return { start: start || '', end: end || '' };
+      return { start: start || '', end: (end || '').replace(/\+1$/, '') };
     });
   }
   return [{ start: entry.start_time || '', end: entry.end_time || '' }];
+}
+
+function isFutureDate(value: string) {
+  return value > getTodayLocalDateString();
+}
+
+function monthCalendar(monthValue: string) {
+  const [year, month] = monthValue.split('-').map(Number);
+  if (!year || !month) return [] as Array<string | null>;
+  const firstWeekdayMondayBased = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  const lastDay = new Date(year, month, 0).getDate();
+  const cells: Array<string | null> = Array(firstWeekdayMondayBased).fill(null);
+  for (let day = 1; day <= lastDay; day += 1) {
+    cells.push(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
 }
 
 function normalizeStaffList(values: string[]) {
@@ -172,6 +222,7 @@ export default function MaintenanceOtPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   const [viewMode, setViewMode] = useState<ViewMode>('ENTRY');
+  const [entryMode, setEntryMode] = useState<EntryMode>('SINGLE');
   const [entries, setEntries] = useState<MaintenanceOtEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -183,6 +234,10 @@ export default function MaintenanceOtPage() {
   const [otDate, setOtDate] = useState(getTodayLocalDateString());
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([{ start: '', end: '' }]);
   const [reason, setReason] = useState('');
+  const [bulkMonth, setBulkMonth] = useState(getCurrentMonthString());
+  const [bulkDates, setBulkDates] = useState<string[]>([]);
+  const [bulkTimeSlots, setBulkTimeSlots] = useState<TimeSlot[]>([{ start: '', end: '' }]);
+  const [bulkReason, setBulkReason] = useState('');
 
   const [pastDate, setPastDate] = useState(getYesterdayLocalDateString());
   const [reportMonth, setReportMonth] = useState(getCurrentMonthString());
@@ -228,6 +283,14 @@ export default function MaintenanceOtPage() {
   const yesterday = getYesterdayLocalDateString();
   const totalHours = useMemo(() => sumSlotHours(timeSlots), [timeSlots]);
   const needsReason = totalHours > 3;
+  const bulkTotalHours = useMemo(() => sumSlotHours(bulkTimeSlots), [bulkTimeSlots]);
+  const bulkNeedsReason = bulkTotalHours > 3;
+  const bulkCalendarCells = useMemo(() => monthCalendar(bulkMonth), [bulkMonth]);
+  const bulkExistingDates = useMemo(() => new Set(
+    entries
+      .filter((entry) => entry.staff_name.toLowerCase() === staffName.trim().toLowerCase())
+      .map((entry) => entry.ot_date)
+  ), [entries, staffName]);
 
   async function loadStaffOptions() {
     const supabase = getSupabaseSafe();
@@ -253,7 +316,6 @@ export default function MaintenanceOtPage() {
     try {
       setPageLoading(true);
       setErrorMsg('');
-      setSuccessMsg('');
       const { data, error } = await supabase
         .from('maintenance_ot_entries')
         .select('*')
@@ -289,6 +351,9 @@ export default function MaintenanceOtPage() {
     setOtDate(getTodayLocalDateString());
     setTimeSlots([{ start: '', end: '' }]);
     setReason('');
+    setBulkDates([]);
+    setBulkTimeSlots([{ start: '', end: '' }]);
+    setBulkReason('');
   }
 
   function updateSlot(index: number, field: keyof TimeSlot, value: string) {
@@ -301,6 +366,25 @@ export default function MaintenanceOtPage() {
 
   function removeSlot(index: number) {
     setTimeSlots((prev) => prev.length === 1 ? prev : prev.filter((_, i) => i !== index));
+  }
+
+  function updateBulkSlot(index: number, field: keyof TimeSlot, value: string) {
+    setBulkTimeSlots((prev) => prev.map((slot, i) => i === index ? { ...slot, [field]: value } : slot));
+  }
+
+  function addBulkSlot() {
+    setBulkTimeSlots((prev) => [...prev, { start: '', end: '' }]);
+  }
+
+  function removeBulkSlot(index: number) {
+    setBulkTimeSlots((prev) => prev.length === 1 ? prev : prev.filter((_, i) => i !== index));
+  }
+
+  function toggleBulkDate(date: string) {
+    if (isFutureDate(date)) return;
+    setBulkDates((prev) => prev.includes(date)
+      ? prev.filter((item) => item !== date)
+      : [...prev, date].sort());
   }
 
   async function handleAddStaffName() {
@@ -385,65 +469,151 @@ export default function MaintenanceOtPage() {
     if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Failed to send Telegram alert');
   }
 
-  async function handleSubmit() {
+  function validateSubmission(
+    dates: string[],
+    slots: TimeSlot[],
+    submitReason: string
+  ) {
+    if (!staffName.trim()) return 'Please select a staff name.';
+    if (dates.length === 0) return 'Please select at least one OT date.';
+    if (dates.some((date) => !date)) return 'Please select a valid OT date.';
+    if (dates.some(isFutureDate)) return 'Future OT dates cannot be submitted.';
+    if (slots.some((slot) => !slot.start || !slot.end)) return 'Please complete all OT time rows.';
+    if (slots.some((slot) => calculateHours(slot.start, slot.end) <= 0)) {
+      return 'Start and end time cannot be the same.';
+    }
+    const hours = sumSlotHours(slots);
+    if (hours > 3 && !submitReason.trim()) return 'Reason is required for OT exceeding 3 hours.';
+    return '';
+  }
+
+  async function saveOtDates(
+    dates: string[],
+    slots: TimeSlot[],
+    submitReason: string,
+    successText: string
+  ) {
     const supabase = getSupabaseSafe();
-    if (!supabase) return setErrorMsg('Supabase is not configured.');
-    if (!profile?.user_id) return setErrorMsg('User not found.');
+    if (!supabase) throw new Error('Supabase is not configured.');
+    if (!profile?.user_id) throw new Error('User not found.');
 
     const trimmedStaff = staffName.trim();
-    const trimmedReason = reason.trim();
+    const trimmedReason = submitReason.trim();
+    const hours = sumSlotHours(slots);
+    const startTimeStore = slots.map(serializeSlot).join(' | ');
+    const endTimeStore = slots[slots.length - 1]?.end || '';
+    const uniqueDates = Array.from(new Set(dates)).sort();
 
-    if (!trimmedStaff) return setErrorMsg('Please select a staff name.');
-    if (otDate !== today && otDate !== yesterday) return setErrorMsg('OT Date must be today or yesterday.');
-    if (timeSlots.some((slot) => !slot.start || !slot.end)) return setErrorMsg('Please complete all OT time rows.');
-    if (timeSlots.some((slot) => calculateHours(slot.start, slot.end) <= 0)) return setErrorMsg('Each OT time row must have an end time later than start time.');
-    if (needsReason && !trimmedReason) return setErrorMsg('Reason is required for OT exceeding 3 hours.');
+    if (editingId) {
+      const { error } = await supabase
+        .from('maintenance_ot_entries')
+        .update({
+          staff_name: trimmedStaff,
+          ot_date: uniqueDates[0],
+          start_time: startTimeStore,
+          end_time: endTimeStore,
+          total_hours: hours,
+          reason: trimmedReason || null,
+        })
+        .eq('id', editingId);
+      if (error) throw error;
+    } else {
+      const dateSet = new Set(uniqueDates);
+      const existingRows = entries.filter((entry) =>
+        entry.staff_name.trim().toLowerCase() === trimmedStaff.toLowerCase()
+        && dateSet.has(entry.ot_date)
+      );
+      const existingDates = new Set(existingRows.map((entry) => entry.ot_date));
+      const existingIds = existingRows.map((entry) => entry.id);
 
-    const startTimeStore = timeSlots.map((slot) => `${slot.start}-${slot.end}`).join(' | ');
-    const endTimeStore = timeSlots[timeSlots.length - 1]?.end || '';
+      if (existingIds.length > 0) {
+        const { error } = await supabase
+          .from('maintenance_ot_entries')
+          .update({
+            start_time: startTimeStore,
+            end_time: endTimeStore,
+            total_hours: hours,
+            reason: trimmedReason || null,
+          })
+          .in('id', existingIds);
+        if (error) throw error;
+      }
+
+      const newDates = uniqueDates.filter((date) => !existingDates.has(date));
+      if (newDates.length > 0) {
+        const { error } = await supabase
+          .from('maintenance_ot_entries')
+          .insert(newDates.map((date) => ({
+            staff_name: trimmedStaff,
+            ot_date: date,
+            start_time: startTimeStore,
+            end_time: endTimeStore,
+            total_hours: hours,
+            reason: trimmedReason || null,
+            created_by_user_id: profile.user_id,
+            created_by_name: profile.name || profile.email,
+          })));
+        if (error) throw error;
+      }
+    }
+
+    await sendTelegramIfNeeded(trimmedStaff, hours, trimmedReason);
+    setSuccessMsg(successText);
+    setEditingId(null);
+    setTimeSlots([{ start: '', end: '' }]);
+    setReason('');
+    setBulkDates([]);
+    setBulkTimeSlots([{ start: '', end: '' }]);
+    setBulkReason('');
+    await loadEntries();
+  }
+
+  async function handleSubmit(slotsOverride?: TimeSlot[]) {
+    if (saving) return;
+    const slots = slotsOverride || timeSlots;
+    const validationError = validateSubmission([otDate], slots, reason);
+    if (validationError) return setErrorMsg(validationError);
 
     try {
       setSaving(true);
       setErrorMsg('');
       setSuccessMsg('');
-
-      if (editingId) {
-        const { error } = await supabase
-          .from('maintenance_ot_entries')
-          .update({
-            staff_name: trimmedStaff,
-            ot_date: otDate,
-            start_time: startTimeStore,
-            end_time: endTimeStore,
-            total_hours: totalHours,
-            reason: trimmedReason || null,
-          })
-          .eq('id', editingId);
-        if (error) throw error;
-        await sendTelegramIfNeeded(trimmedStaff, totalHours, trimmedReason);
-        setSuccessMsg('OT entry updated successfully.');
-      } else {
-        const { error } = await supabase
-          .from('maintenance_ot_entries')
-          .insert([{
-            staff_name: trimmedStaff,
-            ot_date: otDate,
-            start_time: startTimeStore,
-            end_time: endTimeStore,
-            total_hours: totalHours,
-            reason: trimmedReason || null,
-            created_by_user_id: profile.user_id,
-            created_by_name: profile.name || profile.email,
-          }]);
-        if (error) throw error;
-        await sendTelegramIfNeeded(trimmedStaff, totalHours, trimmedReason);
-        setSuccessMsg('OT entry submitted successfully.');
-      }
-
-      resetForm();
-      await loadEntries();
+      await saveOtDates(
+        [otDate],
+        slots,
+        reason,
+        editingId ? 'OT entry updated successfully.' : 'OT entry saved successfully.'
+      );
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save OT entry');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleQuickSubmit(start: string, end: string) {
+    const quickSlots = [{ start, end }];
+    await handleSubmit(quickSlots);
+  }
+
+  async function handleBulkSubmit() {
+    if (saving) return;
+    const validationError = validateSubmission(bulkDates, bulkTimeSlots, bulkReason);
+    if (validationError) return setErrorMsg(validationError);
+
+    try {
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+      const count = bulkDates.length;
+      await saveOtDates(
+        bulkDates,
+        bulkTimeSlots,
+        bulkReason,
+        `${count} OT ${count === 1 ? 'date' : 'dates'} saved successfully. Existing dates were updated.`
+      );
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to save bulk OT entries');
     } finally {
       setSaving(false);
     }
@@ -452,9 +622,10 @@ export default function MaintenanceOtPage() {
   function handleEdit(entry: MaintenanceOtEntry) {
     setEditingId(entry.id);
     setStaffName(entry.staff_name);
-    setOtDate(entry.ot_date === yesterday ? yesterday : today);
+    setOtDate(entry.ot_date);
     setTimeSlots(entryToSlots(entry));
     setReason(entry.reason || '');
+    setEntryMode('SINGLE');
     setViewMode('ENTRY');
     setErrorMsg('');
     setSuccessMsg('');
@@ -519,7 +690,7 @@ export default function MaintenanceOtPage() {
     const body = reportSummary.length
       ? reportSummary.map((staff, index) => {
           const rows = staff.entries.map((entry) => {
-            const slotText = entryToSlots(entry).map((slot) => `${slot.start} - ${slot.end}`).join(', ');
+            const slotText = entryToSlots(entry).map(formatSlot).join(', ');
             return `
               <tr>
                 <td>${formatDate(entry.ot_date)}</td>
@@ -657,13 +828,28 @@ export default function MaintenanceOtPage() {
             <section style={styles.panel}>
               <div style={styles.sectionTitle}>{editingId ? 'Edit OT Entry' : 'Add OT Entry'}</div>
 
-              <div style={styles.todayBar}>
-                <span style={styles.todayLabel}>OT Date</span>
-                <select value={otDate} onChange={(e) => setOtDate(e.target.value)} style={styles.dateSelect} disabled={saving}>
-                  <option value={today}>{formatDateLong(today)}</option>
-                  <option value={yesterday}>{formatDateLong(yesterday)}</option>
-                </select>
-              </div>
+              {!editingId ? (
+                <div style={styles.entryModeRow}>
+                  <button
+                    type="button"
+                    onClick={() => setEntryMode('SINGLE')}
+                    style={{ ...styles.entryModeBtn, ...(entryMode === 'SINGLE' ? styles.entryModeBtnActive : {}) }}
+                  >
+                    <span style={styles.entryModeTitle}>Single date</span>
+                    <span style={styles.entryModeHint}>Quick preset or custom time</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEntryMode('BULK')}
+                    style={{ ...styles.entryModeBtn, ...(entryMode === 'BULK' ? styles.entryModeBtnActive : {}) }}
+                  >
+                    <span style={styles.entryModeTitle}>Bulk dates</span>
+                    <span style={styles.entryModeHint}>One time for many dates</span>
+                  </button>
+                </div>
+              ) : (
+                <div style={styles.editNotice}>Editing an existing submission. Change the details below and save.</div>
+              )}
 
               {isSuperuser ? (
                 <div style={styles.staffManagerBox}>
@@ -714,11 +900,50 @@ export default function MaintenanceOtPage() {
                 </select>
               </div>
 
+              {entryMode === 'SINGLE' ? (
+                <>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>OT Date</label>
+                    <input
+                      type="date"
+                      value={otDate}
+                      max={today}
+                      onChange={(e) => setOtDate(e.target.value)}
+                      style={styles.dateInput}
+                      disabled={saving}
+                    />
+                  </div>
+
+                  {!editingId ? (
+                    <div style={styles.quickSection}>
+                      <div style={styles.quickHeading}>
+                        <div>
+                          <div style={styles.quickTitle}>One-tap submission</div>
+                          <div style={styles.quickHint}>Choose the staff and date, then tap the usual time.</div>
+                        </div>
+                        <span style={styles.quickBadge}>3 hours</span>
+                      </div>
+                      <div style={styles.quickGrid}>
+                        <button type="button" onClick={() => void handleQuickSubmit('18:00', '21:00')} style={styles.quickBtn} disabled={saving}>
+                          <strong>6:00 PM – 9:00 PM</strong>
+                          <span>{saving ? 'Saving…' : 'Tap to submit'}</span>
+                        </button>
+                        <button type="button" onClick={() => void handleQuickSubmit('20:00', '23:00')} style={styles.quickBtn} disabled={saving}>
+                          <strong>8:00 PM – 11:00 PM</strong>
+                          <span>{saving ? 'Saving…' : 'Tap to submit'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div style={styles.customDivider}><span>{editingId ? 'OT time' : 'Or customise the time'}</span></div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>OT Time</label>
                 <div style={styles.slotList}>
                   {timeSlots.map((slot, index) => (
-                    <div key={index} style={styles.slotRow}>
+                    <div key={index} style={styles.slotWrap}>
+                      <div style={styles.slotRow}>
                       <select value={slot.start} onChange={(e) => updateSlot(index, 'start', e.target.value)} style={styles.slotSelect} disabled={saving}>
                         <option value="">From</option>
                         {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
@@ -742,6 +967,8 @@ export default function MaintenanceOtPage() {
                       >
                         −
                       </button>
+                      </div>
+                      {isOvernightSlot(slot) ? <div style={styles.nextDayHint}>Ends next day <strong>+1</strong></div> : null}
                     </div>
                   ))}
                 </div>
@@ -766,13 +993,134 @@ export default function MaintenanceOtPage() {
               <div style={styles.actionRow}>
                 {editingId ? <button type="button" onClick={resetForm} style={styles.secondaryActionBtn} disabled={saving}>Cancel Edit</button> : null}
                 <button type="button" onClick={() => void handleSubmit()} style={styles.primaryBtn} disabled={saving}>
-                  {saving ? 'Saving...' : editingId ? 'Update Entry' : 'Submit Entry'}
+                  {saving ? 'Saving...' : editingId ? 'Update Entry' : 'Submit Custom Time'}
                 </button>
               </div>
+                </>
+              ) : (
+                <>
+                  <div style={styles.bulkIntro}>
+                    <strong>1. Set the OT time</strong>
+                    <span>The same time will be applied to every green date selected below.</span>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>OT Time</label>
+                    <div style={styles.slotList}>
+                      {bulkTimeSlots.map((slot, index) => (
+                        <div key={index} style={styles.slotWrap}>
+                          <div style={styles.slotRow}>
+                            <select value={slot.start} onChange={(e) => updateBulkSlot(index, 'start', e.target.value)} style={styles.slotSelect} disabled={saving}>
+                              <option value="">From</option>
+                              {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
+                            </select>
+                            <span style={styles.toLabel}>to</span>
+                            <select value={slot.end} onChange={(e) => updateBulkSlot(index, 'end', e.target.value)} style={styles.slotSelect} disabled={saving}>
+                              <option value="">To</option>
+                              {TIME_OPTIONS.map((time) => <option key={time} value={time}>{time}</option>)}
+                            </select>
+                            <button type="button" onClick={addBulkSlot} style={styles.iconBtn} disabled={saving} title="Add another OT row">+</button>
+                            <button
+                              type="button"
+                              onClick={() => removeBulkSlot(index)}
+                              style={{ ...styles.iconBtn, opacity: bulkTimeSlots.length === 1 ? 0.45 : 1 }}
+                              disabled={saving || bulkTimeSlots.length === 1}
+                              title="Remove this OT row"
+                            >
+                              −
+                            </button>
+                          </div>
+                          {isOvernightSlot(slot) ? <div style={styles.nextDayHint}>Ends next day <strong>+1</strong></div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={styles.totalRow}>
+                    <span style={styles.totalLabel}>Hours applied to each date</span>
+                    <span style={styles.totalValue}>{formatHours(bulkTotalHours)}</span>
+                  </div>
+
+                  <div style={styles.bulkCalendarHeader}>
+                    <div>
+                      <strong>2. Choose the dates</strong>
+                      <span>Selected dates turn green. Future dates cannot be selected.</span>
+                    </div>
+                    <input
+                      type="month"
+                      value={bulkMonth}
+                      max={getCurrentMonthString()}
+                      onChange={(e) => {
+                        setBulkMonth(e.target.value);
+                        setBulkDates([]);
+                      }}
+                      style={styles.monthInput}
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <div className={css.calendarCard}>
+                    <div className={css.weekdays}>
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => <span key={day}>{day}</span>)}
+                    </div>
+                    <div className={css.calendarGrid}>
+                      {bulkCalendarCells.map((date, index) => {
+                        if (!date) return <span key={`blank-${index}`} className={css.blankDate} />;
+                        const selected = bulkDates.includes(date);
+                        const disabled = isFutureDate(date);
+                        const existing = bulkExistingDates.has(date);
+                        return (
+                          <button
+                            key={date}
+                            type="button"
+                            onClick={() => toggleBulkDate(date)}
+                            disabled={disabled || saving}
+                            className={[
+                              css.dateButton,
+                              selected ? css.dateSelected : '',
+                              existing && !selected ? css.dateExisting : '',
+                            ].filter(Boolean).join(' ')}
+                            aria-pressed={selected}
+                            title={existing ? 'An OT entry already exists. Saving will update it.' : undefined}
+                          >
+                            <span>{Number(date.slice(-2))}</span>
+                            {selected ? <small>✓</small> : existing ? <small>Saved</small> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={styles.selectionSummary}>
+                    <strong>{bulkDates.length}</strong>
+                    <span>{bulkDates.length === 1 ? 'date selected' : 'dates selected'}</span>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>{bulkNeedsReason ? 'Reason for Exceeding 3 Hours' : 'Reason (Optional)'}</label>
+                    <textarea
+                      value={bulkReason}
+                      onChange={(e) => setBulkReason(e.target.value)}
+                      style={styles.textarea}
+                      placeholder={bulkNeedsReason ? 'This reason will apply to all selected dates' : 'Optional note applied to all selected dates'}
+                      disabled={saving}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleBulkSubmit()}
+                    style={{ ...styles.primaryBtn, ...styles.bulkSaveBtn }}
+                    disabled={saving || bulkDates.length === 0}
+                  >
+                    {saving ? 'Saving dates...' : `Save ${bulkDates.length || ''} Selected ${bulkDates.length === 1 ? 'Date' : 'Dates'}`}
+                  </button>
+                </>
+              )}
             </section>
 
-            <section style={styles.panel}>
-              <div style={styles.sectionTitle}>{otDate === today ? 'Today Entries' : 'Yesterday Entries'}</div>
+            {entryMode === 'SINGLE' ? <section style={styles.panel}>
+              <div style={styles.sectionTitle}>Entries for {formatDateLong(otDate)}</div>
               {pageLoading ? <div style={styles.emptyState}>Loading OT entries...</div> : selectedDateEntries.length === 0 ? <div style={styles.emptyState}>No OT entries for {formatDate(otDate)}.</div> : (
                 <div style={styles.cardsWrap}>
                   {selectedDateEntries.map((entry) => {
@@ -782,7 +1130,7 @@ export default function MaintenanceOtPage() {
                         <div style={styles.entryTopRow}>
                           <div>
                             <div style={styles.entryTitle}>{entry.staff_name}</div>
-                            <div style={styles.entrySubTitle}>{slots.map((slot) => `${slot.start} - ${slot.end}`).join(', ')}</div>
+                            <div style={styles.entrySubTitle}><SlotDisplay slots={slots} /></div>
                           </div>
                           <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
                             {formatHours(entry.total_hours)} hrs
@@ -818,7 +1166,7 @@ export default function MaintenanceOtPage() {
                   })}
                 </div>
               )}
-            </section>
+            </section> : null}
           </>
         ) : null}
 
@@ -841,7 +1189,7 @@ export default function MaintenanceOtPage() {
                       <div style={styles.entryTopRow}>
                         <div>
                           <div style={styles.entryTitle}>{entry.staff_name}</div>
-                          <div style={styles.entrySubTitle}>{formatDate(entry.ot_date)} · {slots.map((slot) => `${slot.start} - ${slot.end}`).join(', ')}</div>
+                          <div style={styles.entrySubTitle}>{formatDate(entry.ot_date)} · <SlotDisplay slots={slots} /></div>
                         </div>
                         <div style={{ ...styles.hourBadge, ...(safeNumber(entry.total_hours) > 3 ? styles.hourBadgeAlert : styles.hourBadgeNormal) }}>
                           {formatHours(entry.total_hours)} hrs
@@ -898,7 +1246,7 @@ export default function MaintenanceOtPage() {
                         <div style={styles.reportEntryList}>
                           {staff.entries.map((entry) => (
                             <div key={entry.id} style={styles.reportEntryRow}>
-                              {formatDate(entry.ot_date)} · {entryToSlots(entry).map((slot) => `${slot.start} - ${slot.end}`).join(', ')} · {formatHours(entry.total_hours)} hrs{entry.reason ? ` · ${entry.reason}` : ''}
+                              {formatDate(entry.ot_date)} · <SlotDisplay slots={entryToSlots(entry)} /> · {formatHours(entry.total_hours)} hrs{entry.reason ? ` · ${entry.reason}` : ''}
                             </div>
                           ))}
                         </div>
@@ -931,6 +1279,12 @@ const styles: Record<string, React.CSSProperties> = {
   modeRow: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' },
   modeBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '999px', padding: '11px 10px', fontWeight: 800, cursor: 'pointer', minWidth: 0, whiteSpace: 'normal' },
   modeBtnActive: { background: '#0f172a', color: '#ffffff', borderColor: '#0f172a' },
+  entryModeRow: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', marginBottom: '16px' },
+  entryModeBtn: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '14px', padding: '12px 14px', cursor: 'pointer', textAlign: 'left', minWidth: 0 },
+  entryModeBtnActive: { background: '#eff6ff', color: '#1d4ed8', borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.12)' },
+  entryModeTitle: { fontSize: '15px', fontWeight: 800 },
+  entryModeHint: { fontSize: '12px', fontWeight: 600, opacity: 0.8, lineHeight: 1.35 },
+  editNotice: { marginBottom: '14px', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1e40af', borderRadius: '12px', padding: '11px 13px', fontWeight: 700, fontSize: '13px' },
   todayBar: { display: 'inline-flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '14px', padding: '10px 14px', marginBottom: '14px' },
   todayLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
   todayValue: { fontSize: '16px', fontWeight: 800, color: '#0f172a' },
@@ -949,16 +1303,31 @@ const styles: Record<string, React.CSSProperties> = {
   dateInput: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px 10px', fontSize: '14px', outline: 'none', WebkitAppearance: 'none' },
   select: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 10px', fontSize: '15px', outline: 'none', cursor: 'pointer' },
   textarea: { width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', minHeight: '110px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },
+  quickSection: { border: '1px solid #bfdbfe', background: 'linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%)', borderRadius: '16px', padding: '13px', marginBottom: '16px' },
+  quickHeading: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '11px' },
+  quickTitle: { fontSize: '15px', color: '#0f172a', fontWeight: 800 },
+  quickHint: { marginTop: '3px', fontSize: '12px', color: '#64748b', fontWeight: 600, lineHeight: 1.35 },
+  quickBadge: { flexShrink: 0, borderRadius: '999px', background: '#dbeafe', color: '#1d4ed8', padding: '5px 8px', fontSize: '11px', fontWeight: 800 },
+  quickGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '9px' },
+  quickBtn: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', border: '1px solid #2563eb', background: '#2563eb', color: '#ffffff', borderRadius: '13px', padding: '12px', minHeight: '62px', cursor: 'pointer', textAlign: 'left', boxShadow: '0 8px 18px rgba(37,99,235,0.18)' },
+  customDivider: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', margin: '3px 0 14px' },
   slotList: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  slotRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 22px minmax(0, 1fr)', gap: '7px', alignItems: 'center' },
+  slotWrap: { minWidth: 0 },
+  slotRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 20px minmax(0, 1fr) 38px 38px', gap: '6px', alignItems: 'center' },
   slotSelect: { width: '100%', minWidth: 0, boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '11px 8px', fontSize: '14px', outline: 'none', cursor: 'pointer' },
   toLabel: { fontWeight: 700, color: '#475569' },
   iconBtn: { width: '38px', height: '38px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', fontSize: '22px', lineHeight: 1, cursor: 'pointer' },
+  nextDayHint: { display: 'inline-flex', gap: '5px', alignItems: 'center', marginTop: '6px', marginLeft: 'calc(50% + 14px)', borderRadius: '999px', background: '#fef3c7', color: '#92400e', padding: '5px 9px', fontSize: '11px', fontWeight: 700 },
   totalRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '12px 14px', marginBottom: '14px' },
   totalLabel: { fontSize: '14px', fontWeight: 700, color: '#475569' },
   totalValue: { fontSize: '22px', fontWeight: 800, color: '#0f172a' },
   filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: '12px', flexWrap: 'wrap', marginBottom: '14px', minWidth: 0 },
   actionRow: { display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', marginTop: '6px', minWidth: 0 },
+  bulkIntro: { display: 'flex', flexDirection: 'column', gap: '4px', borderLeft: '4px solid #2563eb', background: '#eff6ff', color: '#1e3a8a', borderRadius: '10px', padding: '11px 13px', marginBottom: '14px', fontSize: '13px', lineHeight: 1.4 },
+  bulkCalendarHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', margin: '4px 0 10px', color: '#0f172a' },
+  monthInput: { minWidth: '165px', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px', fontSize: '14px', fontWeight: 800, outline: 'none' },
+  selectionSummary: { display: 'flex', alignItems: 'baseline', gap: '7px', margin: '11px 0 14px', color: '#166534' },
+  bulkSaveBtn: { width: '100%', minHeight: '48px', fontSize: '15px', background: '#166534' },
   primaryBtn: { border: 'none', background: '#0f172a', color: '#ffffff', borderRadius: '12px', padding: '12px 14px', fontWeight: 700, cursor: 'pointer', minWidth: 0 },
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontWeight: 700, minWidth: 0 },
   secondaryActionBtn: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '10px 14px', fontWeight: 700, cursor: 'pointer' },
