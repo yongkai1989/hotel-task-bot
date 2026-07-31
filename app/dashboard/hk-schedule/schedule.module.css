@@ -186,7 +186,14 @@
 .fitMode .legend{margin:5px auto;padding:5px 9px;gap:9px;min-height:34px}
 .fitMode .legend small{display:none}
 .fitMode .scheduleCard{min-height:0;flex:1 1 auto}
-.fitMode .gridWrap{height:100%;max-height:none;overflow-x:auto;overflow-y:hidden}
+.fitMode .gridWrap{
+  height:100%;
+  max-height:none;
+  overflow-x:auto;
+  overflow-y:auto;
+  scrollbar-gutter:stable;
+  overscroll-behavior:contain;
+}
 .fitMode .scheduleTable thead th{height:44px}
 .fitMode .scheduleTable th,
 .fitMode .scheduleTable td{box-sizing:border-box}
