@@ -7,6 +7,7 @@ import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 type PageTab = 'daily' | 'excess' | 'small-change' | 'history';
 type SourceMode = 'DAILY' | 'EXCESS' | 'SMALL_CHANGE' | 'MIXED';
 type SourcePicker = 'excess' | 'small-change';
+type BankStatusFilter = 'NOT_BANKED' | 'BANKED' | null;
 type PermissionValue = boolean | string | number | null | undefined;
 
 type DashboardProfile = {
@@ -278,6 +279,8 @@ export default function BankInCashPage() {
   const [bankIns, setBankIns] = useState<BankInRecord[]>([]);
   const [tab, setTab] = useState<PageTab>('daily');
   const [month, setMonth] = useState(singaporeDate().slice(0, 7));
+  const [showAllMonths, setShowAllMonths] = useState(false);
+  const [bankStatusFilter, setBankStatusFilter] = useState<BankStatusFilter>(null);
   const [selectedDailyIds, setSelectedDailyIds] = useState<string[]>([]);
   const [selectedExcessIds, setSelectedExcessIds] = useState<string[]>([]);
   const [selectedBalanceIds, setSelectedBalanceIds] = useState<string[]>([]);
@@ -444,7 +447,7 @@ export default function BankInCashPage() {
     setMessage('');
     setError('');
     setSourcePicker(null);
-  }, [month]);
+  }, [bankStatusFilter, month, showAllMonths]);
 
   useEffect(() => {
     setMessage('');
@@ -481,10 +484,15 @@ export default function BankInCashPage() {
     () =>
       dailyCashRows.filter(
         (entry) =>
-          entry.service_date.slice(0, 7) === month &&
+          (showAllMonths || entry.service_date.slice(0, 7) === month) &&
+          (bankStatusFilter === 'NOT_BANKED'
+            ? !entry.bank_in_id
+            : bankStatusFilter === 'BANKED'
+              ? !!entry.bank_in_id
+              : true) &&
           entry.amount > 0,
       ),
-    [dailyCashRows, month],
+    [bankStatusFilter, dailyCashRows, month, showAllMonths],
   );
 
   const dailyGroups = useMemo<DailyGroup[]>(() => {
@@ -510,47 +518,72 @@ export default function BankInCashPage() {
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [filteredDailyCash]);
 
-  const excessRows = useMemo(
-    () =>
-      cashEntries
-        .filter((entry) => entry.service_date.slice(0, 7) === month)
-        .filter((entry) => Number(entry.excess_amount) > 0)
-        .sort((a, b) => b.service_date.localeCompare(a.service_date)),
-    [cashEntries, month],
-  );
-
   const excessWithdrawalByEntryId = useMemo(
     () => new Map(excessWithdrawals.map((withdrawal) => [withdrawal.cash_entry_id, withdrawal])),
     [excessWithdrawals],
   );
 
+  const excessRows = useMemo(
+    () =>
+      cashEntries
+        .filter((entry) => showAllMonths || entry.service_date.slice(0, 7) === month)
+        .filter((entry) => Number(entry.excess_amount) > 0)
+        .filter((entry) =>
+          bankStatusFilter === 'NOT_BANKED'
+            ? !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id)
+            : bankStatusFilter === 'BANKED'
+              ? !!entry.excess_bank_in_id
+              : true,
+        )
+        .sort((a, b) => b.service_date.localeCompare(a.service_date)),
+    [bankStatusFilter, cashEntries, excessWithdrawalByEntryId, month, showAllMonths],
+  );
+
   const filteredSmallChange = useMemo(
-    () => smallChange.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
-    [smallChange, month],
+    () =>
+      smallChange.filter(
+        (entry) =>
+          (showAllMonths || entry.bank_in_date.slice(0, 7) === month) &&
+          (bankStatusFilter === 'NOT_BANKED'
+            ? !entry.consumed_by_bank_in_id
+            : bankStatusFilter === 'BANKED'
+              ? !!entry.consumed_by_bank_in_id
+              : true),
+      ),
+    [bankStatusFilter, month, showAllMonths, smallChange],
   );
 
   const filteredBankIns = useMemo(
-    () => bankIns.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
-    [bankIns, month],
+    () =>
+      bankIns.filter(
+        (entry) =>
+          (showAllMonths || entry.bank_in_date.slice(0, 7) === month) &&
+          (bankStatusFilter === 'NOT_BANKED'
+            ? false
+            : bankStatusFilter === 'BANKED'
+              ? !entry.reversed_at
+              : true),
+      ),
+    [bankIns, bankStatusFilter, month, showAllMonths],
   );
 
   const filteredAmendments = useMemo(
     () =>
       amendments.filter((amendment) => {
         const entry = cashEntries.find((cashEntry) => cashEntry.id === amendment.cash_entry_id);
-        return entry?.service_date.slice(0, 7) === month;
+        return !!entry && (showAllMonths || entry.service_date.slice(0, 7) === month);
       }),
-    [amendments, cashEntries, month],
+    [amendments, cashEntries, month, showAllMonths],
   );
 
   const filteredDeletedBankIns = useMemo(
-    () => deletedBankIns.filter((entry) => entry.bank_in_date.slice(0, 7) === month),
-    [deletedBankIns, month],
+    () => deletedBankIns.filter((entry) => showAllMonths || entry.bank_in_date.slice(0, 7) === month),
+    [deletedBankIns, month, showAllMonths],
   );
 
   const filteredDeletedCashEntries = useMemo(
-    () => deletedCashEntries.filter((entry) => entry.service_date.slice(0, 7) === month),
-    [deletedCashEntries, month],
+    () => deletedCashEntries.filter((entry) => showAllMonths || entry.service_date.slice(0, 7) === month),
+    [deletedCashEntries, month, showAllMonths],
   );
 
   const selectedDailyRows = useMemo(
@@ -1030,7 +1063,7 @@ export default function BankInCashPage() {
         <article className="summary-card important"><span>Cash On Hand</span><strong>{money.format(cashOnHand)}</strong><small>Daily cash and balances not banked in</small></article>
         <article className="summary-card excess-total"><span>Total Excess Cash</span><strong>{money.format(totalExcessCash)}</strong><small>Kept separate from Cash On Hand</small></article>
         <article className="summary-card"><span>Selected</span><strong>{money.format(selectedTotal)}</strong><small>{selectedSourceCount} source(s)</small></article>
-        <article className="summary-card"><span>Banked This Month</span><strong>{money.format(monthBanked)}</strong><small>Excludes reversals</small></article>
+        <article className="summary-card"><span>{showAllMonths ? 'Banked in All Records' : 'Banked This Month'}</span><strong>{money.format(monthBanked)}</strong><small>Excludes reversals</small></article>
       </section>
 
       <section className="workspace-card">
@@ -1041,7 +1074,23 @@ export default function BankInCashPage() {
             <button className={tab === 'small-change' ? 'active' : ''} onClick={() => setTab('small-change')}>Balance Not Banked In</button>
             <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>History</button>
           </div>
-          <label className="month-field">Month<input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+          <div className="toolbar-controls" aria-label="Ledger filters">
+            <label className={`filter-option ${showAllMonths ? 'selected' : ''}`}>
+              <input type="checkbox" checked={showAllMonths} onChange={(event) => setShowAllMonths(event.target.checked)} />
+              <span>Show All<small>All retained months</small></span>
+            </label>
+            <div className="status-filters" aria-label="Bank-in status">
+              <label className={`filter-option ${bankStatusFilter === 'NOT_BANKED' ? 'selected' : ''}`}>
+                <input type="checkbox" checked={bankStatusFilter === 'NOT_BANKED'} onChange={() => setBankStatusFilter((current) => current === 'NOT_BANKED' ? null : 'NOT_BANKED')} />
+                <span>Not Banked In</span>
+              </label>
+              <label className={`filter-option ${bankStatusFilter === 'BANKED' ? 'selected' : ''}`}>
+                <input type="checkbox" checked={bankStatusFilter === 'BANKED'} onChange={() => setBankStatusFilter((current) => current === 'BANKED' ? null : 'BANKED')} />
+                <span>Banked In</span>
+              </label>
+            </div>
+            <label className={`month-field ${showAllMonths ? 'disabled' : ''}`}>Month<input type="month" value={month} disabled={showAllMonths} onChange={(event) => setMonth(event.target.value)} /></label>
+          </div>
         </div>
 
         {dataLoading ? <div className="empty-state">Refreshing ledger...</div> : null}
@@ -1049,7 +1098,7 @@ export default function BankInCashPage() {
         {!dataLoading && tab === 'daily' ? (
           <div className="ledger-list">
             <div className="section-heading"><div><span className="eyebrow">SHIFT DECLARATIONS</span><h2>Daily cash submitted to Accounts</h2></div><span>{dailyGroups.length} day(s)</span></div>
-            {!dailyGroups.length ? <div className="empty-state">No Front Office cash declarations for this month.</div> : null}
+            {!dailyGroups.length ? <div className="empty-state">No Front Office cash declarations match the selected filters.</div> : null}
             {dailyGroups.map((group) => {
               const checked = group.availableIds.length > 0 && group.availableIds.every((id) => selectedDailyIds.includes(id));
               const positiveCount = group.rows.filter((row) => row.amount > 0).length;
@@ -1097,7 +1146,7 @@ export default function BankInCashPage() {
         {!dataLoading && tab === 'excess' ? (
           <div className="ledger-list">
             <div className="section-heading"><div><span className="eyebrow">EXCESS REGISTER</span><h2>Dated excess cash declarations</h2></div><span>{excessRows.length} entry(s)</span></div>
-            {!excessRows.length ? <div className="empty-state">No excess cash declared for this month.</div> : null}
+            {!excessRows.length ? <div className="empty-state">No excess cash declarations match the selected filters.</div> : null}
             {excessRows.map((row) => {
               const withdrawal = excessWithdrawalByEntryId.get(row.id);
               const unavailable = !!row.excess_bank_in_id || !!withdrawal;
@@ -1124,7 +1173,7 @@ export default function BankInCashPage() {
         {!dataLoading && tab === 'small-change' ? (
           <div className="ledger-list">
             <div className="section-heading"><div><span className="eyebrow">BALANCE NOT BANKED IN</span><h2>Balances retained after partial bank-ins</h2></div><span>{filteredSmallChange.length} entry(s)</span></div>
-            {!filteredSmallChange.length ? <div className="empty-state">No balance-not-banked-in entries for this month.</div> : null}
+            {!filteredSmallChange.length ? <div className="empty-state">No balance-not-banked-in entries match the selected filters.</div> : null}
             {filteredSmallChange.map((row) => (
               <article className={`compact-row ${row.consumed_by_bank_in_id ? 'complete' : ''}`} key={row.id}>
                 <input type="checkbox" aria-label={`Select balance from ${row.bank_in_date}`} disabled={!!row.consumed_by_bank_in_id} checked={selectedBalanceIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'balance')} />
@@ -1139,7 +1188,7 @@ export default function BankInCashPage() {
         {!dataLoading && tab === 'history' ? (
           <div className="ledger-list">
             <div className="section-heading"><div><span className="eyebrow">AUDIT HISTORY</span><h2>Bank-ins and supporting receipts</h2></div><span>{filteredBankIns.length} record(s)</span></div>
-            {!filteredBankIns.length ? <div className="empty-state">No bank-ins recorded for this month.</div> : null}
+            {!filteredBankIns.length ? <div className="empty-state">No bank-in history records match the selected filters.</div> : null}
             {filteredBankIns.map((record) => {
               const paths = normaliseReceiptPaths(record.receipt_paths);
               const recordSources = bankInSources.filter((source) => source.bank_in_id === record.id);
@@ -1378,7 +1427,7 @@ export default function BankInCashPage() {
           <section className="modal source-picker-modal" role="dialog" aria-modal="true" aria-labelledby="source-picker-title">
             <span className="eyebrow">ADD TO THIS BANK-IN</span>
             <h2 id="source-picker-title">{sourcePicker === 'excess' ? 'Excess Cash transactions' : 'Balance Not Banked In transactions'}</h2>
-            <p>Showing the same available transactions listed for {month}. Select every transaction to include in this bank-in.</p>
+            <p>Showing the same available transactions in the current ledger view. Select every transaction to include in this bank-in.</p>
             <div className="source-picker-list">
               {sourcePicker === 'excess' ? (
                 availableExcessRows.length ? availableExcessRows.map((row) => (
@@ -1501,8 +1550,18 @@ function Styles() {
       .tabs { display: flex; gap: 5px; padding: 4px; border: 1px solid #d8e3f1; border-radius: 8px; background: #f5f8fc; overflow-x: auto; }
       .tabs button { white-space: nowrap; border: 0; border-radius: 6px; background: transparent; padding: 9px 13px; color: #536887; font-weight: 850; cursor: pointer; }
       .tabs button.active { background: #10213e; color: #fff; }
+      .toolbar-controls { display: flex; align-items: flex-end; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+      .status-filters { display: flex; align-items: stretch; gap: 6px; }
+      .filter-option { min-height: 42px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; border: 1px solid #cbd8ea; border-radius: 8px; padding: 7px 10px; color: #405471; background: #fff; font-size: 11px; font-weight: 850; cursor: pointer; user-select: none; }
+      .filter-option:hover { border-color: #8cacdf; background: #f7faff; }
+      .filter-option.selected { border-color: #6c9fea; color: #174fae; background: #edf4ff; box-shadow: inset 0 0 0 1px #bad2f6; }
+      .filter-option input { width: 16px; height: 16px; margin: 0; accent-color: #175be8; cursor: pointer; }
+      .filter-option > span { display: grid; gap: 1px; white-space: nowrap; }
+      .filter-option small { color: #71829c; font-size: 9px; font-weight: 700; }
       .month-field, .bank-form label, .modal label { display: grid; gap: 6px; color: #344563; font-size: 12px; font-weight: 850; }
       .month-field input, .bank-form input, .modal textarea { min-height: 42px; border: 1px solid #cbd8ea; border-radius: 8px; background: #fff; color: #101a32; padding: 9px 12px; }
+      .month-field.disabled { opacity: .55; }
+      .month-field.disabled input { cursor: not-allowed; }
       .ledger-list { padding: 16px; display: grid; gap: 9px; }
       .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 2px; }
       .section-heading h2 { margin: 3px 0 0; font-size: 19px; }
@@ -1646,6 +1705,8 @@ function Styles() {
       @media (max-width: 900px) {
         .cash-page { padding: 14px; }
         .page-header { align-items: flex-start; }
+        .toolbar { align-items: stretch; flex-direction: column; }
+        .toolbar-controls { justify-content: flex-start; }
         .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .summary-card { padding: 13px; }
         .summary-card strong { font-size: 21px; }
@@ -1669,6 +1730,10 @@ function Styles() {
         .toolbar { align-items: stretch; flex-direction: column-reverse; padding: 10px; }
         .tabs { width: 100%; }
         .tabs button { flex: 1; }
+        .toolbar-controls { display: grid; grid-template-columns: 1fr; gap: 7px; }
+        .status-filters { display: grid; grid-template-columns: 1fr 1fr; }
+        .filter-option { min-width: 0; }
+        .filter-option > span { white-space: normal; }
         .month-field { width: 100%; }
         .ledger-list { padding: 10px; }
         .section-heading { align-items: flex-start; }
