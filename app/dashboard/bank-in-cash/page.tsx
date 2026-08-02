@@ -931,6 +931,52 @@ export default function BankInCashPage() {
     setRestoringEntry(false);
   };
 
+  const describeBankInSource = (source: BankInSource) => {
+    const fallbackReference = `Reference ${source.source_id.slice(0, 8).toUpperCase()}`;
+
+    if (source.source_type === 'SHIFT_CASH') {
+      const entry = cashEntries.find((row) => row.id === source.source_id);
+      return {
+        type: 'Daily Cash',
+        title: entry?.person_name || 'FO cash declaration',
+        detail: entry
+          ? `${formatDate(entry.service_date)} · ${entry.shift_title}`
+          : fallbackReference,
+      };
+    }
+
+    if (source.source_type === 'MANUAL_CASH') {
+      const entry = manualEntries.find((row) => row.id === source.source_id);
+      return {
+        type: 'Manual Cash',
+        title: entry?.description || 'Missed FO declaration',
+        detail: entry
+          ? `${formatDate(entry.service_date)} · Added by ${entry.created_by_name}`
+          : fallbackReference,
+      };
+    }
+
+    if (source.source_type === 'EXCESS') {
+      const entry = cashEntries.find((row) => row.id === source.source_id);
+      return {
+        type: 'Excess Cash',
+        title: entry?.person_name || 'FO excess cash',
+        detail: entry
+          ? `${formatDate(entry.service_date)} · ${entry.shift_title}`
+          : fallbackReference,
+      };
+    }
+
+    const entry = smallChange.find((row) => row.id === source.source_id);
+    return {
+      type: 'Balance Not Banked In',
+      title: entry ? `Balance from ${formatDate(entry.bank_in_date)}` : 'Previous balance',
+      detail: entry
+        ? `Original bank-in ${entry.source_bank_in_id.slice(0, 8).toUpperCase()}`
+        : fallbackReference,
+    };
+  };
+
   if (authLoading) {
     return <main className="cash-page"><div className="state-card">Checking cash access...</div><Styles /></main>;
   }
@@ -1108,6 +1154,32 @@ export default function BankInCashPage() {
                     {record.reversed_at ? <span className="reversed-label">Reversed · {record.reversal_reason}</span> : null}
                     {isSuperuser && record.reversed_at ? <button type="button" className="danger-solid" onClick={() => setDeleteTarget(record)}>Delete</button> : null}
                   </div>
+                  <section className="history-breakdown" aria-label={`Transactions included in bank-in ${record.id.slice(0, 8).toUpperCase()}`}>
+                    <div className="breakdown-heading">
+                      <div><strong>Transactions included</strong><span>{recordSources.length} selected transaction{recordSources.length === 1 ? '' : 's'}</span></div>
+                      <b>{money.format(Number(record.selected_total))}</b>
+                    </div>
+                    {recordSources.length ? (
+                      <div className="breakdown-list">
+                        {recordSources.map((source, index) => {
+                          const detail = describeBankInSource(source);
+                          return (
+                            <div className="breakdown-row" key={source.id}>
+                              <span className="breakdown-number">{index + 1}</span>
+                              <div className="breakdown-copy">
+                                <span className="breakdown-type">{detail.type}</span>
+                                <strong>{detail.title}</strong>
+                                <small>{detail.detail}</small>
+                              </div>
+                              <b>{money.format(Number(source.source_amount))}</b>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="breakdown-empty">No individual source rows were stored for this older bank-in record.</p>
+                    )}
+                  </section>
                 </article>
               );
             })}
@@ -1474,6 +1546,22 @@ function Styles() {
       .mode-pill { width: max-content; padding: 4px 7px; border-radius: 5px; background: #e8f1ff; color: #175be8; font-size: 10px; font-weight: 900; }
       .history-detail { display: flex; flex-wrap: wrap; gap: 7px 14px; }
       .history-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+      .history-breakdown { grid-column: 1 / -1; overflow: hidden; border: 1px solid #d8e3f1; border-radius: 8px; background: #f8fafd; }
+      .breakdown-heading { min-height: 48px; padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid #dfe7f2; background: #eef4fc; }
+      .breakdown-heading > div { display: grid; gap: 2px; }
+      .breakdown-heading strong { color: #182a46; font-size: 13px; }
+      .breakdown-heading span { color: #667995; font-size: 11px; }
+      .breakdown-heading > b { color: #173d80; font-size: 14px; white-space: nowrap; }
+      .breakdown-list { display: grid; }
+      .breakdown-row { min-height: 54px; padding: 8px 12px; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #e2e9f2; background: #fff; }
+      .breakdown-row:last-child { border-bottom: 0; }
+      .breakdown-number { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #2759ad; background: #e7effd; font-size: 10px; font-weight: 900; }
+      .breakdown-copy { min-width: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 2px 8px; }
+      .breakdown-copy strong { overflow: hidden; color: #172944; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .breakdown-copy small { grid-column: 1 / -1; color: #667995; font-size: 10px; }
+      .breakdown-type { padding: 3px 6px; border-radius: 5px; color: #1e56b8; background: #edf3ff; font-size: 9px; font-weight: 900; text-transform: uppercase; white-space: nowrap; }
+      .breakdown-row > b { color: #172944; font-size: 13px; white-space: nowrap; }
+      .breakdown-empty { margin: 0; padding: 14px; color: #687b98; font-size: 12px; }
       .amendment-history { display: grid; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #dbe5f2; }
       .amendment-row { display: grid; grid-template-columns: minmax(190px, 1fr) 110px 110px minmax(230px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #dbe5f2; border-left: 4px solid #7c5ce7; border-radius: 8px; background: #fbfaff; }
       .amendment-row > div { display: grid; gap: 2px; }
@@ -1597,6 +1685,13 @@ function Styles() {
         .withdrawal-form .full-field { grid-column: auto; }
         .history-row { grid-template-columns: 1fr; }
         .history-actions { grid-column: auto; }
+        .history-breakdown { grid-column: auto; }
+        .breakdown-heading { min-height: 44px; padding: 8px 10px; }
+        .breakdown-row { padding: 8px 10px; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; }
+        .breakdown-copy { grid-template-columns: 1fr; gap: 2px; }
+        .breakdown-copy small { grid-column: auto; }
+        .breakdown-copy strong { white-space: normal; }
+        .breakdown-type { width: max-content; }
         .manual-panel { padding: 14px; }
         .manual-panel-heading { align-items: flex-start; flex-direction: column; }
         .manual-panel-heading button { width: 100%; }
