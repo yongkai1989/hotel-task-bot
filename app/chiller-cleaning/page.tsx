@@ -19,7 +19,7 @@ type UploadKind = 'before' | 'after';
 type ChillerStatus = 'missing' | 'partial' | 'complete';
 type BranchId = 'regency' | 'grand';
 
-const CHILLERS = [
+const ALL_CHILLERS = [
   'Chiller 1',
   'Chiller 2',
   'Chiller 3',
@@ -31,6 +31,11 @@ const CHILLERS = [
   'Microwave 1',
   'Microwave 2',
 ];
+
+const CHILLERS_BY_BRANCH: Record<BranchId, string[]> = {
+  regency: ALL_CHILLERS,
+  grand: ALL_CHILLERS.filter((name) => name !== 'Grease Trap 3'),
+};
 
 const BRANCH_DETAILS: Record<BranchId, { name: string; shortName: string }> = {
   regency: { name: 'Regency F&B Routine Duties', shortName: 'Regency' },
@@ -70,6 +75,7 @@ function statusLabel(status: ChillerStatus) {
 
 export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: BranchId } = {}) {
   const branchDetails = BRANCH_DETAILS[branch];
+  const chillers = CHILLERS_BY_BRANCH[branch];
   const tokenKey = `chiller_cleaning_staff_token_v3_${branch}`;
   const [token, setToken] = useState('');
   const [passcode, setPasscode] = useState('');
@@ -267,7 +273,7 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
         </div>
 
         <div className="chillerGrid">
-          {CHILLERS.map((chiller) => {
+          {chillers.map((chiller) => {
             const record = recordMap.get(chiller);
             const status = statusFor(record);
             const active = selectedChiller === chiller;
