@@ -321,6 +321,7 @@ export default function ChillerCleaningAdminPage() {
 
   const selectedCurrentRecord = recordMap.get(`${currentWeek?.start}|${resetChiller}`);
   const activeBranchDetails = BRANCHES.find((branch) => branch.id === activeBranch) || BRANCHES[0];
+  const completedThisWeek = currentRecords.filter((record) => statusFor(record) === 'complete').length;
 
   return (
     <main className="adminPage">
@@ -378,27 +379,40 @@ export default function ChillerCleaningAdminPage() {
       {error ? <div className="alert error">{error}</div> : null}
       {notice ? <div className="alert success">{notice}</div> : null}
 
-      <section className="statusGrid">
-        {CHILLERS.map((chiller) => {
-          const record = recordMap.get(`${currentWeek?.start}|${chiller}`);
-          const status = statusFor(record);
-          return (
-            <button
-              key={chiller}
-              type="button"
-              className={`statusCard ${status}`}
-              onClick={() => {
-                setActiveTab('history');
-                setHistoryMode('all');
-                setActiveChiller(chiller);
-              }}
-            >
-              <span>{chiller}</span>
-              <strong>{statusLabel(status)}</strong>
-              <small>{record?.staff_name || 'No staff name yet'}</small>
-            </button>
-          );
-        })}
+      <section className="statusSection">
+        <div className="statusSectionHead">
+          <div>
+            <span>Weekly overview</span>
+            <h2>Routine duty status</h2>
+          </div>
+          <div className="completionSummary">
+            <strong>{completedThisWeek}/{CHILLERS.length}</strong>
+            <small>completed</small>
+          </div>
+        </div>
+        <div className="statusGrid">
+          {CHILLERS.map((chiller) => {
+            const record = recordMap.get(`${currentWeek?.start}|${chiller}`);
+            const status = statusFor(record);
+            return (
+              <button
+                key={chiller}
+                type="button"
+                aria-pressed={activeTab === 'history' && activeChiller === chiller}
+                className={`statusCard ${status} ${activeTab === 'history' && activeChiller === chiller ? 'selected' : ''}`}
+                onClick={() => {
+                  setActiveTab('history');
+                  setHistoryMode('all');
+                  setActiveChiller(chiller);
+                }}
+              >
+                <span>{chiller}</span>
+                <strong>{statusLabel(status)}</strong>
+                <small>{record?.staff_name || 'No staff name yet'}</small>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <nav className="tabs">
@@ -1048,5 +1062,367 @@ const styles = `
       justify-content: space-between;
     }
     .weekSummary strong { white-space: normal; text-align: right; }
+  }
+
+  /* Unified admin workspace */
+  .adminPage {
+    --navy: #10264b;
+    --blue: #2563eb;
+    --blue-dark: #1d4ed8;
+    --line: #d9e3f0;
+    --surface: #ffffff;
+    --surface-soft: #f5f8fc;
+    --text-soft: #60728c;
+    padding: 24px;
+    background: #f3f6fb;
+  }
+  .adminPage, .adminPage * { box-sizing: border-box; }
+  .branchChooser, .hero, .statusSection, .tabs, .panel, .alert {
+    width: min(1180px, 100%);
+    max-width: 1180px;
+  }
+  .branchChooser, .hero, .statusSection, .panel {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    box-shadow: 0 8px 28px rgba(26, 50, 86, .06);
+  }
+  .branchChooser {
+    margin-bottom: 14px;
+    padding: 20px;
+    border-radius: 20px;
+  }
+  .branchChooserHead {
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .branchChooserHead h2 {
+    margin: 3px 0 4px;
+    color: var(--navy);
+    font-size: 24px;
+    line-height: 1.15;
+    letter-spacing: -.025em;
+  }
+  .branchChooserHead p {
+    color: var(--text-soft);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .branchChooserHead b {
+    border: 1px solid #cfe0ff;
+    padding: 7px 11px;
+    background: #eff5ff;
+    color: #1d4ed8;
+  }
+  .branchCards { gap: 10px; }
+  .branchCard {
+    min-height: 88px;
+    gap: 4px;
+    border-color: var(--line);
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: var(--surface-soft);
+    box-shadow: none;
+    transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .branchCard:hover:not(:disabled) {
+    border-color: #9bbcf6;
+    background: #f0f6ff;
+    transform: translateY(-1px);
+  }
+  .branchCard strong {
+    color: var(--navy);
+    font-size: 16px;
+    line-height: 1.25;
+  }
+  .branchCard small { font-size: 11px; }
+  .branchCard.active {
+    border-color: var(--blue);
+    background: linear-gradient(135deg, #1e4fbd, #3269e8);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, .18);
+    transform: none;
+  }
+  .branchCard.active strong { color: #fff; }
+
+  .hero {
+    margin-bottom: 14px;
+    padding: 22px 24px;
+    border-radius: 20px;
+    gap: 24px;
+  }
+  .heroIdentity { gap: 8px; }
+  .hero h1 {
+    max-width: 680px;
+    color: var(--navy);
+    font-size: clamp(30px, 3.4vw, 42px);
+    line-height: 1.08;
+  }
+  .branchBadge {
+    min-height: 26px;
+    border-color: #c7d9f8;
+    padding: 4px 9px;
+    background: #f3f7ff;
+  }
+  .weekSummary {
+    min-height: 36px;
+    margin-top: 1px;
+    border-color: #e0e7f0;
+    padding: 7px 10px;
+    background: #f7f9fc;
+  }
+  .heroActions {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    gap: 8px;
+  }
+  .heroActions > a, .heroActions > button {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    padding: 10px 14px;
+    white-space: nowrap;
+    box-shadow: none;
+    font-size: 13px;
+  }
+  .openBranchBtn { background: var(--blue); }
+  .dangerBtn { background: #c21646; box-shadow: none; }
+
+  .statusSection {
+    margin: 0 auto 14px;
+    padding: 18px;
+    border-radius: 20px;
+  }
+  .statusSectionHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .statusSectionHead h2 {
+    margin-top: 3px;
+    color: var(--navy);
+    font-size: 22px;
+    letter-spacing: -.02em;
+  }
+  .completionSummary {
+    min-width: 88px;
+    display: grid;
+    justify-items: end;
+    gap: 1px;
+    border-radius: 12px;
+    padding: 8px 11px;
+    background: #edf4ff;
+  }
+  .completionSummary strong { color: var(--blue-dark); font-size: 18px; }
+  .completionSummary small { color: var(--text-soft); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+  .statusGrid {
+    max-width: none;
+    margin: 0;
+    gap: 9px;
+  }
+  .statusCard {
+    position: relative;
+    min-height: 104px;
+    align-content: start;
+    gap: 6px;
+    overflow: hidden;
+    border-width: 1px;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: none;
+    transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .statusCard::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: #ef4444;
+  }
+  .statusCard.partial::before { background: #f59e0b; }
+  .statusCard.complete::before { background: #16a34a; }
+  .statusCard:hover { transform: translateY(-1px); }
+  .statusCard.selected {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, .13);
+  }
+  .statusCard span { font-size: 10px; }
+  .statusCard strong { color: var(--navy); font-size: 20px; line-height: 1.15; }
+  .statusCard small { margin-top: auto; font-size: 11px; }
+  .statusCard.missing { border-color: #f3c9cf; background: #fff8f8; }
+  .statusCard.partial { border-color: #f5d9a7; background: #fffbf3; }
+  .statusCard.complete { border-color: #b9e1c6; background: #f5fbf7; }
+
+  .tabs {
+    margin-top: 0;
+    margin-bottom: 14px;
+    gap: 4px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 5px;
+    background: var(--surface);
+    box-shadow: 0 5px 18px rgba(26, 50, 86, .04);
+  }
+  .tabs button {
+    min-height: 38px;
+    border: 0;
+    border-radius: 9px;
+    padding: 8px 15px;
+    color: #50627b;
+    background: transparent;
+    font-size: 13px;
+  }
+  .tabs .active {
+    border-color: var(--blue);
+    background: var(--blue);
+    color: #fff;
+  }
+  .panel {
+    margin-bottom: 24px;
+    border-radius: 20px;
+    padding: 20px;
+  }
+  .panelHead {
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .panelHead h2 {
+    margin-top: 3px;
+    color: var(--navy);
+    font-size: 24px;
+    letter-spacing: -.02em;
+  }
+  .filterRow {
+    gap: 4px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 4px;
+    background: var(--surface-soft);
+  }
+  .filterRow button {
+    min-height: 36px;
+    border: 0;
+    border-radius: 8px;
+    padding: 7px 12px;
+    background: transparent;
+    font-size: 12px;
+  }
+  .filterRow .active { background: var(--navy); }
+  .chillerTabs {
+    gap: 6px;
+    margin-bottom: 16px;
+    border-radius: 14px;
+    padding: 6px;
+    background: var(--surface-soft);
+  }
+  .chillerTabs button {
+    min-height: 36px;
+    border-color: transparent;
+    border-radius: 9px;
+    padding: 7px 11px;
+    background: transparent;
+    color: #4b5e78;
+    font-size: 12px;
+  }
+  .chillerTabs .active {
+    border-color: #c9d9f0;
+    background: #fff;
+    color: var(--blue-dark);
+    box-shadow: 0 2px 8px rgba(26, 50, 86, .08);
+  }
+  .historyList { gap: 10px; }
+  .historyCard {
+    border-color: var(--line);
+    border-radius: 16px;
+    padding: 14px;
+    background: #fff;
+  }
+  .historyCard.complete { border-color: #b9e1c6; }
+  .historyCard.partial { border-color: #f5d9a7; }
+  .historyCard.missing { border-color: #f3c9cf; }
+  .recordHead { align-items: center; margin-bottom: 12px; }
+  .recordHead strong { color: var(--navy); font-size: 16px; }
+  .recordHead span { display: block; margin-top: 3px; font-size: 11px; }
+  .recordHead b { padding: 7px 10px; font-size: 11px; }
+  .thumbGrid { gap: 10px; }
+  .photoTile {
+    border-color: var(--line);
+    border-radius: 12px;
+    background: var(--surface-soft);
+  }
+  .photoTile > div:first-child { align-items: center; padding: 10px 11px; }
+  .photoTile > div:first-child strong { color: var(--navy); font-size: 13px; }
+  .photoTile span { font-size: 10px; }
+  .photoTile button, .missingPhoto { background: #edf2f8; }
+  .empty { border-radius: 14px; background: #f8fafc; }
+
+  .settingsGrid { gap: 12px; }
+  .settingsGrid label {
+    align-content: start;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    background: var(--surface-soft);
+  }
+  input { min-height: 46px; border-radius: 10px; padding: 11px 13px; }
+  .settingsGrid .primaryBtn {
+    min-height: 42px;
+    border-radius: 10px;
+    background: var(--blue);
+  }
+  .dangerPanel { border-color: #efc8cf; background: #fff; }
+  .resetChooser { gap: 6px; }
+  .resetChooser button { border-radius: 10px; }
+  .resetCard { border-radius: 16px; }
+  .alert { border-radius: 12px; }
+
+  button, .openBranchBtn { transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease; }
+  button:focus-visible, .openBranchBtn:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, .28);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 900px) {
+    .adminPage { padding: 14px; }
+    .hero { align-items: stretch; }
+    .heroActions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .heroActions > a, .heroActions > button { white-space: normal; text-align: center; }
+    .statusGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .panelHead { align-items: stretch; }
+    .filterRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 600px) {
+    .adminPage { padding: 10px; }
+    .branchChooser, .hero, .statusSection, .panel { border-radius: 16px; padding: 15px; }
+    .branchChooserHead { align-items: flex-start; }
+    .branchChooserHead b { width: auto; }
+    .branchCards { grid-template-columns: 1fr; }
+    .branchCard { min-height: 78px; }
+    .hero h1 { font-size: clamp(28px, 9vw, 36px); }
+    .heroActions { grid-template-columns: 1fr 1fr; }
+    .heroActions .openBranchBtn { grid-column: 1 / -1; }
+    .weekSummary { width: 100%; justify-content: space-between; }
+    .weekSummary strong { white-space: normal; text-align: right; }
+    .statusSectionHead { align-items: flex-end; }
+    .statusSectionHead h2 { font-size: 20px; }
+    .statusGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+    .statusCard { min-height: 98px; padding: 12px; }
+    .statusCard strong { font-size: 18px; }
+    .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tabs button { padding: 8px 6px; }
+    .panelHead { gap: 12px; }
+    .chillerTabs {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      scrollbar-width: thin;
+    }
+    .chillerTabs button { flex: 0 0 auto; white-space: nowrap; }
+    .thumbGrid { grid-template-columns: 1fr; }
+    .recordHead { align-items: flex-start; }
+    .settingsGrid, .resetLayout { grid-template-columns: 1fr; }
   }
 `;
