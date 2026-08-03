@@ -4,6 +4,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 import { DashboardUser } from './dashboardAuth';
 
 export const CHILLER_BUCKET = 'chiller-cleaning';
+export const GRAND_CHILLER_BUCKET = 'grand-fnb-routine-duties';
 export const DEFAULT_CHILLER_PASSCODE_HASH =
   '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
 export const CHILLER_TRACKING_START = '2026-07-20';
@@ -16,9 +17,17 @@ export const CHILLER_NAMES = [
   'Grease Trap 1',
   'Grease Trap 2',
   'Grease Trap 3',
+  'Microwave 1',
+  'Microwave 2',
+] as const;
+
+export const CHILLER_BRANCHES = [
+  { id: 'regency', name: 'Regency F&B Routine Duties', url: '/regency-fnb-routine-duties' },
+  { id: 'grand', name: 'Grand F&B Routine Duties', url: '/grand-fnb-routine-duties' },
 ] as const;
 
 export type ChillerName = (typeof CHILLER_NAMES)[number];
+export type ChillerBranch = (typeof CHILLER_BRANCHES)[number]['id'];
 export type ChillerKind = 'before' | 'after';
 export type ChillerTokenMode = 'staff' | 'admin' | 'either';
 
@@ -32,6 +41,7 @@ export type ChillerSettings = {
 
 export type ChillerRecord = {
   id: string;
+  branch: ChillerBranch;
   week_start: string;
   week_end: string;
   chiller_name: string;
@@ -50,8 +60,20 @@ export function hashPasscode(passcode: string) {
   return createHash('sha256').update(passcode.trim()).digest('hex');
 }
 
-export function tokenForHash(hash: string) {
-  return createHash('sha256').update(`chiller-cleaning:${hash}`).digest('hex');
+export function tokenForHash(hash: string, scope = 'admin') {
+  return createHash('sha256').update(`chiller-cleaning:${scope}:${hash}`).digest('hex');
+}
+
+export function normalizeChillerBranch(value: unknown): ChillerBranch {
+  return String(value || '').trim().toLowerCase() === 'grand' ? 'grand' : 'regency';
+}
+
+export function chillerBranchDetails(branch: ChillerBranch) {
+  return CHILLER_BRANCHES.find((item) => item.id === branch) || CHILLER_BRANCHES[0];
+}
+
+export function chillerBucketForBranch(branch: ChillerBranch) {
+  return branch === 'grand' ? GRAND_CHILLER_BUCKET : CHILLER_BUCKET;
 }
 
 export function normalizeChillerName(value: unknown): ChillerName {
@@ -60,10 +82,10 @@ export function normalizeChillerName(value: unknown): ChillerName {
   return found || 'Chiller 1';
 }
 
-function normalizeSettings(row: any): ChillerSettings {
+function normalizeSettings(row: any, id = 'singleton'): ChillerSettings {
   const legacyHash = String(row?.passcode_hash || DEFAULT_CHILLER_PASSCODE_HASH);
   return {
-    id: 'singleton',
+    id,
     passcode_hash: legacyHash,
     staff_passcode_hash: String(row?.staff_passcode_hash || legacyHash),
     admin_passcode_hash: String(row?.admin_passcode_hash || legacyHash),
@@ -71,38 +93,77 @@ function normalizeSettings(row: any): ChillerSettings {
   };
 }
 
-export async function getChillerSettings(): Promise<ChillerSettings> {
+export async function getChillerSettings(branch: ChillerBranch = 'regency'): Promise<ChillerSettings> {
+  const id = normalizeChillerBranch(branch);
   const { data, error } = await supabaseAdmin
+    .from('chiller_cleaning_settings')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (data) return normalizeSettings(data, id);
+
+  const { data: legacy } = await supabaseAdmin
     .from('chiller_cleaning_settings')
     .select('*')
     .eq('id', 'singleton')
     .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  if (data) return normalizeSettings(data);
+  const fallback = normalizeSettings(legacy, id);
 
   const { data: inserted, error: insertError } = await supabaseAdmin
     .from('chiller_cleaning_settings')
     .insert({
-      id: 'singleton',
-      passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
-      staff_passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
-      admin_passcode_hash: DEFAULT_CHILLER_PASSCODE_HASH,
+      id,
+      passcode_hash: fallback.staff_passcode_hash,
+      staff_passcode_hash: fallback.staff_passcode_hash,
+      admin_passcode_hash: fallback.admin_passcode_hash,
     } as any)
     .select('*')
     .single();
 
   if (insertError) throw new Error(insertError.message);
-  return normalizeSettings(inserted);
+  return normalizeSettings(inserted, id);
 }
 
-export async function verifyChillerToken(req: NextRequest, mode: ChillerTokenMode = 'either') {
+export async function getChillerAdminSettings(): Promise<ChillerSettings> {
+  const { data, error } = await supabaseAdmin
+    .from('chiller_cleaning_settings')
+    .select('*')
+    .eq('id', 'singleton')
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return normalizeSettings(data, 'singleton');
+
+  const regency = await getChillerSettings('regency');
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('chiller_cleaning_settings')
+    .insert({
+      id: 'singleton',
+      passcode_hash: regency.staff_passcode_hash,
+      staff_passcode_hash: regency.staff_passcode_hash,
+      admin_passcode_hash: regency.admin_passcode_hash,
+    } as any)
+    .select('*')
+    .single();
+  if (insertError) throw new Error(insertError.message);
+  return normalizeSettings(inserted, 'singleton');
+}
+
+export async function verifyChillerToken(
+  req: NextRequest,
+  mode: ChillerTokenMode = 'either',
+  branch: ChillerBranch = 'regency',
+) {
   const token = req.headers.get('x-chiller-token') || '';
   if (!token) return false;
 
-  const settings = await getChillerSettings();
-  const staffToken = tokenForHash(settings.staff_passcode_hash);
-  const adminToken = tokenForHash(settings.admin_passcode_hash);
+  const [settings, adminSettings] = await Promise.all([
+    getChillerSettings(branch),
+    getChillerAdminSettings(),
+  ]);
+  const staffToken = tokenForHash(settings.staff_passcode_hash, `staff:${branch}`);
+  const adminToken = tokenForHash(adminSettings.admin_passcode_hash, 'admin');
 
   if (mode === 'staff') return token === staffToken || token === adminToken;
   if (mode === 'admin') return token === adminToken;
@@ -192,8 +253,10 @@ export function enumerateChillerWeeks(startDate = CHILLER_TRACKING_START, months
 }
 
 export async function signChillerRecord(record: any): Promise<ChillerRecord> {
+  const branch = normalizeChillerBranch(record.branch);
   const signed: ChillerRecord = {
     id: String(record.id),
+    branch,
     week_start: String(record.week_start),
     week_end: String(record.week_end),
     chiller_name: normalizeChillerName(record.chiller_name),
@@ -211,7 +274,9 @@ export async function signChillerRecord(record: any): Promise<ChillerRecord> {
   for (const key of ['before', 'after'] as const) {
     const path = signed[`${key}_path`];
     if (!path) continue;
-    const { data } = await supabaseAdmin.storage.from(CHILLER_BUCKET).createSignedUrl(path, 60 * 60);
+    const { data } = await supabaseAdmin.storage
+      .from(chillerBucketForBranch(branch))
+      .createSignedUrl(path, 60 * 60);
     signed[`${key}_url`] = data?.signedUrl || null;
   }
 
@@ -244,6 +309,7 @@ export function chillerExtensionFor(value: unknown) {
 }
 
 export function chillerStoragePath(
+  branch: ChillerBranch,
   kind: ChillerKind,
   weekStart: string,
   chillerName: string,
@@ -251,7 +317,7 @@ export function chillerStoragePath(
 ) {
   const cleanChiller = normalizeChillerName(chillerName).toLowerCase().replace(/\s+/g, '-');
   const ext = extension ? (extension.startsWith('.') ? extension : `.${extension}`) : '';
-  return `${weekStart}/${cleanChiller}/${kind}-${Date.now()}-${randomUUID()}${ext}`;
+  return `${branch}/${weekStart}/${cleanChiller}/${kind}-${Date.now()}-${randomUUID()}${ext}`;
 }
 
 export async function cleanupOldChillerSubmissions() {
@@ -261,12 +327,16 @@ export async function cleanupOldChillerSubmissions() {
 
   const { data } = await supabaseAdmin
     .from('chiller_cleaning_submissions')
-    .select('id, before_path, after_path')
+    .select('id, branch, before_path, after_path')
     .lt('week_start', cutoffDate);
 
-  const paths = (data || []).flatMap((row: any) => [row.before_path, row.after_path].filter(Boolean));
-  if (paths.length) {
-    await supabaseAdmin.storage.from(CHILLER_BUCKET).remove(paths as string[]);
+  for (const branch of ['regency', 'grand'] as ChillerBranch[]) {
+    const paths = (data || [])
+      .filter((row: any) => normalizeChillerBranch(row.branch) === branch)
+      .flatMap((row: any) => [row.before_path, row.after_path].filter(Boolean));
+    if (paths.length) {
+      await supabaseAdmin.storage.from(chillerBucketForBranch(branch)).remove(paths as string[]);
+    }
   }
 
   await supabaseAdmin.from('chiller_cleaning_submissions').delete().lt('week_start', cutoffDate);
