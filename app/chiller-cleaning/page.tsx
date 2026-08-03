@@ -17,8 +17,8 @@ type ChillerRecord = {
 type Week = { start: string; end: string };
 type UploadKind = 'before' | 'after';
 type ChillerStatus = 'missing' | 'partial' | 'complete';
+type BranchId = 'regency' | 'grand';
 
-const TOKEN_KEY = 'chiller_cleaning_staff_token_v2';
 const CHILLERS = [
   'Chiller 1',
   'Chiller 2',
@@ -28,7 +28,14 @@ const CHILLERS = [
   'Grease Trap 1',
   'Grease Trap 2',
   'Grease Trap 3',
+  'Microwave 1',
+  'Microwave 2',
 ];
+
+const BRANCH_DETAILS: Record<BranchId, { name: string; shortName: string }> = {
+  regency: { name: 'Regency F&B Routine Duties', shortName: 'Regency' },
+  grand: { name: 'Grand F&B Routine Duties', shortName: 'Grand' },
+};
 
 function formatDate(value?: string) {
   if (!value) return '-';
@@ -61,7 +68,9 @@ function statusLabel(status: ChillerStatus) {
   return 'Missing';
 }
 
-export default function ChillerCleaningPage() {
+export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: BranchId } = {}) {
+  const branchDetails = BRANCH_DETAILS[branch];
+  const tokenKey = `chiller_cleaning_staff_token_v3_${branch}`;
   const [token, setToken] = useState('');
   const [passcode, setPasscode] = useState('');
   const [staffName, setStaffName] = useState('');
@@ -97,7 +106,7 @@ export default function ChillerCleaningPage() {
     setError('');
     try {
       const res = await fetch('/api/chiller-cleaning/submissions', {
-        headers: { 'x-chiller-token': currentToken },
+        headers: { 'x-chiller-token': currentToken, 'x-chiller-branch': branch },
         cache: 'no-store',
       });
       const json = await res.json();
@@ -106,7 +115,7 @@ export default function ChillerCleaningPage() {
       setRecords(json.records || []);
     } catch (err: any) {
       setError(err?.message || 'Unable to load submissions');
-      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(tokenKey);
       setToken('');
     } finally {
       setLoading(false);
@@ -114,7 +123,7 @@ export default function ChillerCleaningPage() {
   }
 
   useEffect(() => {
-    const savedToken = sessionStorage.getItem(TOKEN_KEY) || '';
+    const savedToken = sessionStorage.getItem(tokenKey) || '';
     setToken(savedToken);
     if (savedToken) {
       load(savedToken);
@@ -130,11 +139,11 @@ export default function ChillerCleaningPage() {
       const res = await fetch('/api/chiller-cleaning/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode, mode: 'staff' }),
+        body: JSON.stringify({ passcode, mode: 'staff', branch }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || 'Invalid passcode');
-      sessionStorage.setItem(TOKEN_KEY, json.token);
+      sessionStorage.setItem(tokenKey, json.token);
       setToken(json.token);
       setPasscode('');
       await load(json.token);
@@ -169,7 +178,7 @@ export default function ChillerCleaningPage() {
 
       const res = await fetch('/api/chiller-cleaning/submissions', {
         method: 'POST',
-        headers: { 'x-chiller-token': token },
+        headers: { 'x-chiller-token': token, 'x-chiller-branch': branch },
         body: form,
       });
       const json = await res.json();
@@ -187,7 +196,7 @@ export default function ChillerCleaningPage() {
   if (loading) {
     return (
       <main className="page">
-        <section className="centerCard">Loading F&amp;B routine duties...</section>
+        <section className="centerCard">Loading {branchDetails.name}...</section>
         <style jsx>{styles}</style>
       </main>
     );
@@ -197,9 +206,9 @@ export default function ChillerCleaningPage() {
     return (
       <main className="page">
       <section className="loginCard">
-        <div className="loginBadge">Staff access</div>
+        <div className="loginBadge">{branchDetails.shortName} staff access</div>
         <p className="eyebrow">Weekly Cleaning</p>
-        <h1>F&amp;B Routine Duties</h1>
+        <h1>{branchDetails.name}</h1>
         <p className="muted loginIntro">
           Enter the staff passcode to submit this week&apos;s before and after photos.
         </p>
@@ -234,7 +243,7 @@ export default function ChillerCleaningPage() {
     <main className="page">
       <section className="hero">
         <div>
-          <p className="eyebrow">Weekly F&amp;B Routine Duties</p>
+          <p className="eyebrow">{branchDetails.name}</p>
           <h1>{week ? `${formatDate(week.start)} - ${formatDate(week.end)}` : 'Current Week'}</h1>
           <p className="muted">Choose a routine duty first, then submit before and after cleaning photos.</p>
         </div>
