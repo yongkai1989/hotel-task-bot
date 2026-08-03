@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  CHILLER_BUCKET,
   CHILLER_NAMES,
+  ChillerBranch,
   ChillerKind,
+  chillerBucketForBranch,
   chillerStoragePath,
   cleanupOldChillerSubmissions,
   getCurrentChillerWeek,
+  normalizeChillerBranch,
   normalizeChillerName,
   signChillerRecord,
   verifyChillerToken,
@@ -26,12 +28,13 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
-async function getCurrentWeekRows() {
+async function getCurrentWeekRows(branch: ChillerBranch) {
   const week = getCurrentChillerWeek();
   const { start: weekStart, end: weekEnd } = week;
   const { data, error } = await supabaseAdmin
     .from('chiller_cleaning_submissions')
     .select('*')
+    .eq('branch', branch)
     .eq('week_start', weekStart)
     .order('chiller_name', { ascending: true });
 
@@ -42,12 +45,13 @@ async function getCurrentWeekRows() {
 
 export async function GET(req: NextRequest) {
   try {
-    const allowed = await verifyChillerToken(req, 'staff');
+    const branch = normalizeChillerBranch(req.headers.get('x-chiller-branch'));
+    const allowed = await verifyChillerToken(req, 'staff', branch);
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     await cleanupOldChillerSubmissions();
-    const { week, records } = await getCurrentWeekRows();
-    return jsonNoCache({ ok: true, week, current_week: week, chillers: CHILLER_NAMES, records });
+    const { week, records } = await getCurrentWeekRows(branch);
+    return jsonNoCache({ ok: true, branch, week, current_week: week, chillers: CHILLER_NAMES, records });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Unable to load submissions' }, 500);
   }
@@ -55,7 +59,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const allowed = await verifyChillerToken(req, 'staff');
+    const branch = normalizeChillerBranch(req.headers.get('x-chiller-branch'));
+    const allowed = await verifyChillerToken(req, 'staff', branch);
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     const form = await req.formData();
@@ -81,6 +86,7 @@ export async function POST(req: NextRequest) {
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('chiller_cleaning_submissions')
       .select('*')
+      .eq('branch', branch)
       .eq('week_start', week.start)
       .eq('chiller_name', chillerName)
       .maybeSingle();
@@ -95,10 +101,10 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Staff name is required' }, 400);
     }
 
-    const path = chillerStoragePath(kind, week.start, chillerName);
+    const path = chillerStoragePath(branch, kind, week.start, chillerName);
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const { error: uploadError } = await supabaseAdmin.storage.from(CHILLER_BUCKET).upload(path, buffer, {
+    const { error: uploadError } = await supabaseAdmin.storage.from(chillerBucketForBranch(branch)).upload(path, buffer, {
       contentType: file.type || 'image/jpeg',
       upsert: true,
     });
@@ -117,7 +123,7 @@ export async function POST(req: NextRequest) {
     if (existing) {
       const oldPath = existing[`${kind}_path`];
       if (oldPath && oldPath !== path) {
-        await supabaseAdmin.storage.from(CHILLER_BUCKET).remove([oldPath]);
+        await supabaseAdmin.storage.from(chillerBucketForBranch(branch)).remove([oldPath]);
       }
 
       const { data, error } = await supabaseAdmin
@@ -133,6 +139,7 @@ export async function POST(req: NextRequest) {
       const { data, error } = await supabaseAdmin
         .from('chiller_cleaning_submissions')
         .insert({
+          branch,
           week_start: week.start,
           week_end: week.end,
           chiller_name: chillerName,
@@ -147,8 +154,8 @@ export async function POST(req: NextRequest) {
     }
 
     const signed = await signChillerRecord(saved);
-    const { records } = await getCurrentWeekRows();
-    return jsonNoCache({ ok: true, week, current_week: week, record: signed, records, chillers: CHILLER_NAMES });
+    const { records } = await getCurrentWeekRows(branch);
+    return jsonNoCache({ ok: true, branch, week, current_week: week, record: signed, records, chillers: CHILLER_NAMES });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Unable to save submission' }, 500);
   }
