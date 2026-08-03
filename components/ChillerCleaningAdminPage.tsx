@@ -351,12 +351,13 @@ export default function ChillerCleaningAdminPage() {
       </section>
 
       <section className="hero">
-        <div>
-          <span>{activeBranchDetails.name} branch</span>
+        <div className="heroIdentity">
+          <span className="branchBadge">{activeBranchDetails.name} branch</span>
           <h1>{activeBranchDetails.description}</h1>
-          <p>
-            Current week: {formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}
-          </p>
+          <div className="weekSummary" aria-label="Current reporting week">
+            <small>Current week</small>
+            <strong>{formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}</strong>
+          </div>
         </div>
         <div className="heroActions">
           <a className="openBranchBtn" href={activeBranchDetails.url} target="_blank" rel="noreferrer">Open Staff Page</a>
@@ -635,11 +636,50 @@ const styles = `
     max-width: 1180px;
     margin: 0 auto 16px;
     border-radius: 26px;
-    padding: 24px;
+    padding: 28px 30px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 18px;
+    gap: 28px;
+  }
+  .heroIdentity {
+    min-width: 0;
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+  }
+  .branchBadge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    box-sizing: border-box;
+    border: 1px solid #bfd5ff;
+    border-radius: 999px;
+    padding: 5px 10px;
+    background: #eef5ff;
+    color: #1d4ed8;
+  }
+  .weekSummary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+    border: 1px solid #dbe7f6;
+    border-radius: 12px;
+    padding: 8px 11px;
+    background: #f8fbff;
+    color: #334c6c;
+  }
+  .weekSummary small {
+    color: #71839c;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .weekSummary strong {
+    font-size: 13px;
+    white-space: nowrap;
   }
   .branchChooser {
     max-width: 1180px;
@@ -699,13 +739,17 @@ const styles = `
     text-transform: uppercase;
   }
   h1, h2, h3, p { margin: 0; }
-  h1 { font-size: clamp(32px, 5vw, 48px); line-height: 0.95; }
+  h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.08; letter-spacing: -0.035em; }
   h2 { font-size: 28px; }
   p { color: #526983; font-weight: 700; }
   .heroActions, .filterRow, .chillerTabs, .tabs, .modalActions {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+  }
+  .heroActions {
+    flex: 0 0 auto;
+    justify-content: flex-end;
   }
   .openBranchBtn {
     box-sizing: border-box;
@@ -995,5 +1039,14 @@ const styles = `
     .tabs, .chillerTabs { display: grid; grid-template-columns: 1fr; }
     .modalActions { display: grid; grid-template-columns: 1fr; }
     .hero, .panel, .loginCard, .branchChooser { border-radius: 20px; padding: 18px; }
+    .hero { gap: 20px; }
+    .heroIdentity { gap: 9px; }
+    .hero h1 { font-size: clamp(29px, 9.5vw, 38px); line-height: 1.08; }
+    .weekSummary {
+      width: 100%;
+      box-sizing: border-box;
+      justify-content: space-between;
+    }
+    .weekSummary strong { white-space: normal; text-align: right; }
   }
 `;
