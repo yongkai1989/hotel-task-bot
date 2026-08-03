@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  CHILLER_NAMES,
   ChillerBranch,
   canManageChillerCleaning,
   chillerBucketForBranch,
+  chillerNamesForBranch,
   cleanupOldChillerSubmissions,
   getChillerAdminSettings,
   getChillerSettings,
   getCurrentChillerWeek,
   hashPasscode,
   normalizeChillerBranch,
-  normalizeChillerName,
   signChillerRecord,
   tokenForHash,
   verifyChillerToken,
@@ -41,11 +40,14 @@ async function requireManager(req: NextRequest) {
 
 async function loadAdminRecords(branch: ChillerBranch) {
   await cleanupOldChillerSubmissions();
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('chiller_cleaning_submissions')
     .select('*')
     .eq('branch', branch)
-    .gte('week_start', '2026-07-20')
+    .gte('week_start', '2026-07-20');
+
+  if (branch === 'grand') query = query.neq('chiller_name', 'Grease Trap 3');
+  const { data, error } = await query
     .order('week_start', { ascending: false })
     .order('chiller_name', { ascending: true });
 
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
       },
       week,
       current_week: week,
-      chillers: CHILLER_NAMES,
+      chillers: chillerNamesForBranch(branch),
       records,
     });
   } catch (error: any) {
@@ -157,7 +159,13 @@ export async function DELETE(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const branch = normalizeChillerBranch(body?.branch);
-    const chillerName = normalizeChillerName(body?.chiller_name);
+    const requestedChiller = String(body?.chiller_name || '').trim();
+    const chillerName = chillerNamesForBranch(branch).find(
+      (name) => name.toLowerCase() === requestedChiller.toLowerCase(),
+    );
+    if (!chillerName) {
+      return jsonNoCache({ ok: false, error: 'This routine duty is not available for the selected branch' }, 400);
+    }
     const week = getCurrentChillerWeek();
 
     const { data: rows, error: loadError } = await supabaseAdmin
