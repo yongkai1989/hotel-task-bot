@@ -19,8 +19,9 @@ type ChillerRecord = {
 type Week = { start: string; end: string };
 type Tab = 'history' | 'settings' | 'reset';
 type HistoryMode = 'all' | 'overdue';
+type BranchId = 'regency' | 'grand';
 
-const ADMIN_TOKEN_KEY = 'chiller_cleaning_admin_token_v2';
+const ADMIN_TOKEN_KEY = 'chiller_cleaning_admin_token_v3';
 const CHILLERS = [
   'Chiller 1',
   'Chiller 2',
@@ -30,6 +31,22 @@ const CHILLERS = [
   'Grease Trap 1',
   'Grease Trap 2',
   'Grease Trap 3',
+  'Microwave 1',
+  'Microwave 2',
+];
+const BRANCHES: Array<{ id: BranchId; name: string; description: string; url: string }> = [
+  {
+    id: 'regency',
+    name: 'Regency',
+    description: 'Regency F&B Routine Duties',
+    url: '/regency-fnb-routine-duties',
+  },
+  {
+    id: 'grand',
+    name: 'Grand',
+    description: 'Grand F&B Routine Duties',
+    url: '/grand-fnb-routine-duties',
+  },
 ];
 const TRACKING_START = '2026-07-20';
 
@@ -88,6 +105,7 @@ export default function ChillerCleaningAdminPage() {
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<ChillerRecord[]>([]);
   const [currentWeek, setCurrentWeek] = useState<Week | null>(null);
+  const [activeBranch, setActiveBranch] = useState<BranchId>('regency');
   const [activeTab, setActiveTab] = useState<Tab>('history');
   const [activeChiller, setActiveChiller] = useState('Chiller 1');
   const [historyMode, setHistoryMode] = useState<HistoryMode>('all');
@@ -138,7 +156,7 @@ export default function ChillerCleaningAdminPage() {
       .sort((a, b) => b.week.start.localeCompare(a.week.start));
   }, [activeChiller, historyMode, overdueItems, records]);
 
-  async function load(nextToken = token) {
+  async function load(nextToken = token, branch: BranchId = activeBranch) {
     if (!nextToken) {
       setLoading(false);
       return;
@@ -147,7 +165,7 @@ export default function ChillerCleaningAdminPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/chiller-cleaning/admin', {
+      const res = await fetch(`/api/chiller-cleaning/admin?branch=${branch}`, {
         cache: 'no-store',
         headers: { 'x-chiller-token': nextToken },
       });
@@ -155,6 +173,7 @@ export default function ChillerCleaningAdminPage() {
       if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to load routine duty records');
       setRecords(Array.isArray(json.records) ? json.records : []);
       setCurrentWeek(json.week || json.current_week || null);
+      setActiveBranch(branch);
       setToken(nextToken);
       window.sessionStorage.setItem(ADMIN_TOKEN_KEY, nextToken);
     } catch (err: any) {
@@ -214,6 +233,7 @@ export default function ChillerCleaningAdminPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'x-chiller-token': token },
         body: JSON.stringify({
+          branch: activeBranch,
           staff_passcode: staffPasscode,
           admin_passcode: adminPasscode,
         }),
@@ -226,8 +246,8 @@ export default function ChillerCleaningAdminPage() {
       }
       setStaffPasscode('');
       setAdminPasscode('');
-      setNotice('Passcodes updated successfully.');
-      await load(json.token || token);
+      setNotice(`${BRANCHES.find((branch) => branch.id === activeBranch)?.name} passcode settings updated successfully.`);
+      await load(json.token || token, activeBranch);
     } catch (err: any) {
       setError(err?.message || 'Unable to update passcodes');
     } finally {
@@ -243,7 +263,7 @@ export default function ChillerCleaningAdminPage() {
       const res = await fetch('/api/chiller-cleaning/admin', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'x-chiller-token': token },
-        body: JSON.stringify({ chiller_name: resetChiller }),
+        body: JSON.stringify({ branch: activeBranch, chiller_name: resetChiller }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to reset routine duty');
@@ -255,6 +275,17 @@ export default function ChillerCleaningAdminPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function changeBranch(branch: BranchId) {
+    if (branch === activeBranch) return;
+    setActiveChiller('Chiller 1');
+    setResetChiller('Chiller 1');
+    setHistoryMode('all');
+    setStaffPasscode('');
+    setNotice('');
+    setError('');
+    await load(token, branch);
   }
 
   if (loading) {
@@ -289,18 +320,46 @@ export default function ChillerCleaningAdminPage() {
   }
 
   const selectedCurrentRecord = recordMap.get(`${currentWeek?.start}|${resetChiller}`);
+  const activeBranchDetails = BRANCHES.find((branch) => branch.id === activeBranch) || BRANCHES[0];
 
   return (
     <main className="adminPage">
+      <section className="branchChooser" aria-label="Choose F&B branch">
+        <div className="branchChooserHead">
+          <div>
+            <span>Branch workspace</span>
+            <h2>Choose the location to review</h2>
+            <p>Each location has separate staff access, submissions, history, and photo storage.</p>
+          </div>
+          <b>{activeBranchDetails.name} selected</b>
+        </div>
+        <div className="branchCards">
+          {BRANCHES.map((branch) => (
+            <button
+              type="button"
+              key={branch.id}
+              className={`branchCard ${activeBranch === branch.id ? 'active' : ''}`}
+              onClick={() => void changeBranch(branch.id)}
+              disabled={loading}
+            >
+              <span>{branch.name}</span>
+              <strong>{branch.description}</strong>
+              <small>{activeBranch === branch.id ? 'Currently viewing' : 'Open branch records'}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="hero">
         <div>
-          <span>F&amp;B Routine Duties</span>
-          <h1>F&amp;B Routine Duties Admin</h1>
+          <span>{activeBranchDetails.name} branch</span>
+          <h1>{activeBranchDetails.description}</h1>
           <p>
             Current week: {formatDate(currentWeek?.start)} - {formatDate(currentWeek?.end)}
           </p>
         </div>
         <div className="heroActions">
+          <a className="openBranchBtn" href={activeBranchDetails.url} target="_blank" rel="noreferrer">Open Staff Page</a>
           <button type="button" className="ghostBtn" onClick={() => load()} disabled={loading}>Refresh</button>
           <button
             type="button"
@@ -422,7 +481,7 @@ export default function ChillerCleaningAdminPage() {
           <div className="panelHead">
             <div>
               <span>Access Control</span>
-              <h2>Separate Passcodes</h2>
+              <h2>{activeBranchDetails.name} Passcode</h2>
             </div>
           </div>
           <form className="settingsGrid" onSubmit={savePasscodes}>
@@ -434,17 +493,17 @@ export default function ChillerCleaningAdminPage() {
                 onChange={(event) => setStaffPasscode(event.target.value)}
                 placeholder="New staff passcode"
               />
-              <small>Used only for `/chiller-cleaning` photo submission.</small>
+              <small>Used only for {activeBranchDetails.description}. The other branch is not changed.</small>
             </label>
             <label>
-              Admin page passcode
+              Admin page passcode (all branches)
               <input
                 type="password"
                 value={adminPasscode}
                 onChange={(event) => setAdminPasscode(event.target.value)}
                 placeholder="New admin passcode"
               />
-              <small>Used only for this admin page.</small>
+              <small>One admin passcode unlocks this page and both branch workspaces.</small>
             </label>
             <button type="submit" className="primaryBtn" disabled={busy}>
               {busy ? 'Saving...' : 'Save Passcodes'}
@@ -567,7 +626,7 @@ const styles = `
     color: #07152d;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
-  .hero, .panel, .loginCard, .statusCard {
+  .hero, .panel, .loginCard, .statusCard, .branchChooser {
     border: 1px solid #cfe0f5;
     background: rgba(255, 255, 255, 0.9);
     box-shadow: 0 18px 46px rgba(15, 35, 75, 0.08);
@@ -582,6 +641,56 @@ const styles = `
     justify-content: space-between;
     gap: 18px;
   }
+  .branchChooser {
+    max-width: 1180px;
+    box-sizing: border-box;
+    margin: 0 auto 16px;
+    border-radius: 26px;
+    padding: 20px;
+  }
+  .branchChooserHead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 15px;
+  }
+  .branchChooserHead h2 { margin: 4px 0 5px; }
+  .branchChooserHead b {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    padding: 8px 12px;
+    color: #174ba5;
+    background: #e9f2ff;
+    font-size: 12px;
+  }
+  .branchCards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .branchCard {
+    min-height: 112px;
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    gap: 5px;
+    border: 1px solid #cbd9ec;
+    border-radius: 18px;
+    padding: 16px 18px;
+    color: #14233b;
+    background: #f8fbff;
+    text-align: left;
+  }
+  .branchCard strong { font-size: 19px; }
+  .branchCard small { color: #687b96; font-weight: 800; }
+  .branchCard.active {
+    border-color: #2563eb;
+    color: #fff;
+    background: linear-gradient(135deg, #123f9e, #2563eb);
+    box-shadow: 0 14px 30px rgba(37, 99, 235, .2);
+  }
+  .branchCard.active span, .branchCard.active small { color: #dce9ff; }
   span {
     color: #2563eb;
     font-size: 12px;
@@ -597,6 +706,16 @@ const styles = `
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+  }
+  .openBranchBtn {
+    box-sizing: border-box;
+    border: 1px solid #2563eb;
+    border-radius: 14px;
+    padding: 12px 16px;
+    color: #fff;
+    background: #2563eb;
+    font-weight: 1000;
+    text-decoration: none;
   }
   .statusGrid {
     max-width: 1180px;
@@ -862,16 +981,19 @@ const styles = `
   }
   @media (max-width: 900px) {
     .adminPage { padding: 14px; }
-    .hero, .panelHead { flex-direction: column; align-items: stretch; }
+    .hero, .panelHead, .branchChooserHead { flex-direction: column; align-items: stretch; }
+    .branchChooserHead b { width: max-content; }
     .heroActions, .filterRow { display: grid; grid-template-columns: 1fr; }
+    .openBranchBtn { text-align: center; }
     .statusGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .settingsGrid, .resetLayout, .thumbGrid { grid-template-columns: 1fr; }
     .settingsGrid .primaryBtn { justify-self: stretch; }
   }
   @media (max-width: 460px) {
+    .branchCards { grid-template-columns: 1fr; }
     .statusGrid { grid-template-columns: 1fr; }
     .tabs, .chillerTabs { display: grid; grid-template-columns: 1fr; }
     .modalActions { display: grid; grid-template-columns: 1fr; }
-    .hero, .panel, .loginCard { border-radius: 20px; padding: 18px; }
+    .hero, .panel, .loginCard, .branchChooser { border-radius: 20px; padding: 18px; }
   }
 `;
