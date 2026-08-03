@@ -20,6 +20,7 @@ export const CHILLER_NAMES = [
   'Microwave 1',
   'Microwave 2',
 ] as const;
+export const GRAND_CHILLER_NAMES = CHILLER_NAMES.filter((name) => name !== 'Grease Trap 3');
 
 export const CHILLER_BRANCHES = [
   { id: 'regency', name: 'Regency F&B Routine Duties', url: '/regency-fnb-routine-duties' },
@@ -76,9 +77,14 @@ export function chillerBucketForBranch(branch: ChillerBranch) {
   return branch === 'grand' ? GRAND_CHILLER_BUCKET : CHILLER_BUCKET;
 }
 
-export function normalizeChillerName(value: unknown): ChillerName {
+export function chillerNamesForBranch(branch: ChillerBranch) {
+  return branch === 'grand' ? GRAND_CHILLER_NAMES : CHILLER_NAMES;
+}
+
+export function normalizeChillerName(value: unknown, branch?: ChillerBranch): ChillerName {
   const text = String(value || '').trim().toLowerCase();
-  const found = CHILLER_NAMES.find((name) => name.toLowerCase() === text);
+  const availableNames = branch ? chillerNamesForBranch(branch) : CHILLER_NAMES;
+  const found = availableNames.find((name) => name.toLowerCase() === text);
   return found || 'Chiller 1';
 }
 
