@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  CHILLER_NAMES,
   ChillerBranch,
   ChillerKind,
   chillerBucketForBranch,
+  chillerNamesForBranch,
   chillerStoragePath,
   cleanupOldChillerSubmissions,
   getCurrentChillerWeek,
   normalizeChillerBranch,
-  normalizeChillerName,
   signChillerRecord,
   verifyChillerToken,
 } from '../../../../lib/chillerCleaning';
@@ -31,12 +30,14 @@ function jsonNoCache(body: any, status = 200) {
 async function getCurrentWeekRows(branch: ChillerBranch) {
   const week = getCurrentChillerWeek();
   const { start: weekStart, end: weekEnd } = week;
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('chiller_cleaning_submissions')
     .select('*')
     .eq('branch', branch)
-    .eq('week_start', weekStart)
-    .order('chiller_name', { ascending: true });
+    .eq('week_start', weekStart);
+
+  if (branch === 'grand') query = query.neq('chiller_name', 'Grease Trap 3');
+  const { data, error } = await query.order('chiller_name', { ascending: true });
 
   if (error) throw new Error(error.message);
   const records = await Promise.all((data || []).map((row: any) => signChillerRecord(row)));
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
 
     await cleanupOldChillerSubmissions();
     const { week, records } = await getCurrentWeekRows(branch);
-    return jsonNoCache({ ok: true, branch, week, current_week: week, chillers: CHILLER_NAMES, records });
+    return jsonNoCache({ ok: true, branch, week, current_week: week, chillers: chillerNamesForBranch(branch), records });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Unable to load submissions' }, 500);
   }
@@ -64,11 +65,17 @@ export async function POST(req: NextRequest) {
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     const form = await req.formData();
-    const chillerName = normalizeChillerName(form.get('chiller_name'));
+    const requestedChiller = String(form.get('chiller_name') || '').trim();
+    const chillerName = chillerNamesForBranch(branch).find(
+      (name) => name.toLowerCase() === requestedChiller.toLowerCase(),
+    );
     const kind = String(form.get('kind') || '') as ChillerKind;
     const staffName = String(form.get('staff_name') || '').trim();
     const file = form.get('file');
 
+    if (!chillerName) {
+      return jsonNoCache({ ok: false, error: 'This routine duty is not available for the selected branch' }, 400);
+    }
     if (kind !== 'before' && kind !== 'after') {
       return jsonNoCache({ ok: false, error: 'Please choose Before or After photo' }, 400);
     }
@@ -155,7 +162,7 @@ export async function POST(req: NextRequest) {
 
     const signed = await signChillerRecord(saved);
     const { records } = await getCurrentWeekRows(branch);
-    return jsonNoCache({ ok: true, branch, week, current_week: week, record: signed, records, chillers: CHILLER_NAMES });
+    return jsonNoCache({ ok: true, branch, week, current_week: week, record: signed, records, chillers: chillerNamesForBranch(branch) });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Unable to save submission' }, 500);
   }
