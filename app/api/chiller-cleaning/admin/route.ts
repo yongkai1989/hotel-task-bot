@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   CHILLER_NAMES,
+  ChillerBranch,
   canManageChillerCleaning,
+  chillerBucketForBranch,
   cleanupOldChillerSubmissions,
+  getChillerAdminSettings,
   getChillerSettings,
   getCurrentChillerWeek,
   hashPasscode,
+  normalizeChillerBranch,
   normalizeChillerName,
   signChillerRecord,
   tokenForHash,
@@ -35,11 +39,12 @@ async function requireManager(req: NextRequest) {
   return canManageChillerCleaning(user);
 }
 
-async function loadAdminRecords() {
+async function loadAdminRecords(branch: ChillerBranch) {
   await cleanupOldChillerSubmissions();
   const { data, error } = await supabaseAdmin
     .from('chiller_cleaning_submissions')
     .select('*')
+    .eq('branch', branch)
     .gte('week_start', '2026-07-20')
     .order('week_start', { ascending: false })
     .order('chiller_name', { ascending: true });
@@ -53,10 +58,12 @@ export async function GET(req: NextRequest) {
     const allowed = await requireManager(req);
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
-    const [settings, records] = await Promise.all([getChillerSettings(), loadAdminRecords()]);
+    const branch = normalizeChillerBranch(req.nextUrl.searchParams.get('branch'));
+    const [settings, records] = await Promise.all([getChillerSettings(branch), loadAdminRecords(branch)]);
     const week = getCurrentChillerWeek();
     return jsonNoCache({
       ok: true,
+      branch,
       settings: {
         updated_at: settings.updated_at,
       },
@@ -76,6 +83,7 @@ export async function PATCH(req: NextRequest) {
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     const body = await req.json().catch(() => ({}));
+    const branch = normalizeChillerBranch(body?.branch);
     const staffPasscode = String(body?.staff_passcode || '').trim();
     const adminPasscode = String(body?.admin_passcode || '').trim();
 
@@ -89,15 +97,18 @@ export async function PATCH(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Admin passcode must be at least 4 characters' }, 400);
     }
 
-    const current = await getChillerSettings();
+    const [current, currentAdmin] = await Promise.all([
+      getChillerSettings(branch),
+      getChillerAdminSettings(),
+    ]);
     const staffHash = staffPasscode ? hashPasscode(staffPasscode) : current.staff_passcode_hash;
-    const adminHash = adminPasscode ? hashPasscode(adminPasscode) : current.admin_passcode_hash;
+    const adminHash = adminPasscode ? hashPasscode(adminPasscode) : currentAdmin.admin_passcode_hash;
 
     const { data, error } = await supabaseAdmin
       .from('chiller_cleaning_settings')
       .upsert(
         {
-          id: 'singleton',
+          id: branch,
           passcode_hash: staffHash,
           staff_passcode_hash: staffHash,
           admin_passcode_hash: adminHash,
@@ -109,14 +120,30 @@ export async function PATCH(req: NextRequest) {
       .single();
 
     if (error) throw new Error(error.message);
-    const settings = await getChillerSettings();
+
+    if (adminPasscode) {
+      const { error: adminUpdateError } = await supabaseAdmin
+        .from('chiller_cleaning_settings')
+        .upsert(
+          {
+            id: 'singleton',
+            passcode_hash: currentAdmin.passcode_hash,
+            staff_passcode_hash: currentAdmin.staff_passcode_hash,
+            admin_passcode_hash: adminHash,
+            updated_at: new Date().toISOString(),
+          } as any,
+          { onConflict: 'id' },
+        );
+      if (adminUpdateError) throw new Error(adminUpdateError.message);
+    }
 
     return jsonNoCache({
       ok: true,
+      branch,
       settings: {
-        updated_at: data?.updated_at || settings.updated_at,
+        updated_at: data?.updated_at || current.updated_at,
       },
-      token: tokenForHash(settings.admin_passcode_hash),
+      token: tokenForHash(adminHash, 'admin'),
     });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Unable to update passcodes' }, 500);
@@ -129,12 +156,14 @@ export async function DELETE(req: NextRequest) {
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     const body = await req.json().catch(() => ({}));
+    const branch = normalizeChillerBranch(body?.branch);
     const chillerName = normalizeChillerName(body?.chiller_name);
     const week = getCurrentChillerWeek();
 
     const { data: rows, error: loadError } = await supabaseAdmin
       .from('chiller_cleaning_submissions')
       .select('id, before_path, after_path')
+      .eq('branch', branch)
       .eq('week_start', week.start)
       .eq('chiller_name', chillerName);
 
@@ -142,19 +171,20 @@ export async function DELETE(req: NextRequest) {
 
     const paths = (rows || []).flatMap((row: any) => [row.before_path, row.after_path].filter(Boolean));
     if (paths.length) {
-      await supabaseAdmin.storage.from('chiller-cleaning').remove(paths as string[]);
+      await supabaseAdmin.storage.from(chillerBucketForBranch(branch)).remove(paths as string[]);
     }
 
     const { error: deleteError } = await supabaseAdmin
       .from('chiller_cleaning_submissions')
       .delete()
+      .eq('branch', branch)
       .eq('week_start', week.start)
       .eq('chiller_name', chillerName);
 
     if (deleteError) throw new Error(deleteError.message);
 
-    const records = await loadAdminRecords();
-    return jsonNoCache({ ok: true, week, current_week: week, chiller_name: chillerName, records });
+    const records = await loadAdminRecords(branch);
+    return jsonNoCache({ ok: true, branch, week, current_week: week, chiller_name: chillerName, records });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Unable to reset current week' }, 500);
   }
