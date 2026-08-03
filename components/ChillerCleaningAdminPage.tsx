@@ -22,7 +22,7 @@ type HistoryMode = 'all' | 'overdue';
 type BranchId = 'regency' | 'grand';
 
 const ADMIN_TOKEN_KEY = 'chiller_cleaning_admin_token_v3';
-const CHILLERS = [
+const ALL_CHILLERS = [
   'Chiller 1',
   'Chiller 2',
   'Chiller 3',
@@ -34,6 +34,10 @@ const CHILLERS = [
   'Microwave 1',
   'Microwave 2',
 ];
+const CHILLERS_BY_BRANCH: Record<BranchId, string[]> = {
+  regency: ALL_CHILLERS,
+  grand: ALL_CHILLERS.filter((name) => name !== 'Grease Trap 3'),
+};
 const BRANCHES: Array<{ id: BranchId; name: string; description: string; url: string }> = [
   {
     id: 'regency',
@@ -117,6 +121,7 @@ export default function ChillerCleaningAdminPage() {
   const [lightbox, setLightbox] = useState<{ url: string; title: string } | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const chillers = CHILLERS_BY_BRANCH[activeBranch];
 
   const recordMap = useMemo(() => {
     const map = new Map<string, ChillerRecord>();
@@ -125,20 +130,20 @@ export default function ChillerCleaningAdminPage() {
   }, [records]);
 
   const currentRecords = useMemo(
-    () => CHILLERS.map((chiller) => recordMap.get(`${currentWeek?.start}|${chiller}`)),
-    [currentWeek?.start, recordMap],
+    () => chillers.map((chiller) => recordMap.get(`${currentWeek?.start}|${chiller}`)),
+    [chillers, currentWeek?.start, recordMap],
   );
 
   const pastWeeks = useMemo(() => buildPastWeeks(currentWeek?.start), [currentWeek?.start]);
 
   const overdueItems = useMemo(() => {
     return pastWeeks.flatMap((week) =>
-      CHILLERS.map((chiller) => {
+      chillers.map((chiller) => {
         const record = recordMap.get(`${week.start}|${chiller}`);
         return { week, chiller, record, status: statusFor(record) };
       }).filter((item) => item.status !== 'complete'),
     );
-  }, [pastWeeks, recordMap]);
+  }, [chillers, pastWeeks, recordMap]);
 
   const selectedHistory = useMemo(() => {
     if (historyMode === 'overdue') {
@@ -386,12 +391,12 @@ export default function ChillerCleaningAdminPage() {
             <h2>Routine duty status</h2>
           </div>
           <div className="completionSummary">
-            <strong>{completedThisWeek}/{CHILLERS.length}</strong>
+            <strong>{completedThisWeek}/{chillers.length}</strong>
             <small>completed</small>
           </div>
         </div>
         <div className="statusGrid">
-          {CHILLERS.map((chiller) => {
+          {chillers.map((chiller) => {
             const record = recordMap.get(`${currentWeek?.start}|${chiller}`);
             const status = statusFor(record);
             return (
@@ -445,7 +450,7 @@ export default function ChillerCleaningAdminPage() {
           </div>
 
           <div className="chillerTabs">
-            {CHILLERS.map((chiller) => (
+            {chillers.map((chiller) => (
               <button
                 key={chiller}
                 type="button"
@@ -537,7 +542,7 @@ export default function ChillerCleaningAdminPage() {
           </div>
           <div className="resetLayout">
             <div className="resetChooser">
-              {CHILLERS.map((chiller) => (
+              {chillers.map((chiller) => (
                 <button
                   key={chiller}
                   type="button"
