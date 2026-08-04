@@ -18,6 +18,14 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
+function jsonPublicHours(body: any) {
+  return NextResponse.json(body, {
+    headers: {
+      'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=300',
+    },
+  });
+}
+
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
@@ -107,14 +115,14 @@ export async function GET() {
       reason: String(row.reason || ''),
     }));
 
-    return jsonNoCache({
+    return jsonPublicHours({
       ok: true,
       hours: normalizedHours,
       closed_dates: normalizedClosed,
       current: isOpenNow(normalizedHours, normalizedClosed),
     });
   } catch (error: any) {
-    return jsonNoCache({
+    return jsonPublicHours({
       ok: true,
       hours: normalizeHours([]),
       closed_dates: [],
