@@ -15,6 +15,14 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
+function jsonPublicCatalog(body: any) {
+  return NextResponse.json(body, {
+    headers: {
+      'Cache-Control': 'public, max-age=15, s-maxage=30, stale-while-revalidate=300',
+    },
+  });
+}
+
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
@@ -161,10 +169,12 @@ function normalizeOptionGroups(value: any) {
               is_active: option?.is_active === undefined ? true : option.is_active === true,
             };
           })
-          .filter((option: any) => option.name),
+          .filter((option: any) => option.name && option.is_active !== false)
+          .sort((left: any, right: any) => left.sort_order - right.sort_order),
       };
     })
-    .filter((group: any) => group.name);
+    .filter((group: any) => group.name && group.is_active !== false)
+    .sort((left: any, right: any) => left.sort_order - right.sort_order);
 }
 
 function normalizeItem(row: any, optionGroups: any[] = []) {
@@ -339,7 +349,13 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('guest_shop_items')
-      .select('*')
+      .select(`
+        *,
+        option_groups:guest_shop_item_option_groups (
+          *,
+          options:guest_shop_item_options (*)
+        )
+      `)
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true });
 
@@ -356,13 +372,13 @@ export async function GET(req: NextRequest) {
       return true;
     });
 
-    const groupsByItemId = await loadOptionGroups(scopedData.map((row: any) => String(row.id)));
-
-    return jsonNoCache({
+    const payload = {
       ok: true,
       scope,
-      items: scopedData.map((row: any) => normalizeItem(row, groupsByItemId.get(String(row.id)) || [])),
-    });
+      items: scopedData.map((row: any) => normalizeItem(row, normalizeOptionGroups(row.option_groups))),
+    };
+
+    return includeInactive ? jsonNoCache(payload) : jsonPublicCatalog(payload);
   } catch (error: any) {
     return jsonNoCache(
       { ok: false, error: error?.message || 'Failed to load guest shop items', items: [] },
