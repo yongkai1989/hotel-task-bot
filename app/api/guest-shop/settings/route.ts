@@ -31,6 +31,14 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
+function jsonPublicSettings(body: any) {
+  return NextResponse.json(body, {
+    headers: {
+      'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=300',
+    },
+  });
+}
+
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
@@ -123,7 +131,7 @@ export async function GET() {
 
     if (error) throw error;
 
-    return jsonNoCache({ ok: true, settings: normalizeSettings(data || DEFAULT_SETTINGS) });
+    return jsonPublicSettings({ ok: true, settings: normalizeSettings(data || DEFAULT_SETTINGS) });
   } catch (error: any) {
     return jsonNoCache(
       { ok: false, error: error?.message || 'Failed to load guest shop settings', settings: DEFAULT_SETTINGS },
