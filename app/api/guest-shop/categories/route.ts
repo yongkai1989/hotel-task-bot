@@ -15,6 +15,14 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
+function jsonPublicCatalog(body: any) {
+  return NextResponse.json(body, {
+    headers: {
+      'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=300',
+    },
+  });
+}
+
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
@@ -108,7 +116,8 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query;
     if (error) throw error;
 
-    return jsonNoCache({ ok: true, categories: (data || []).map(normalizeCategory) });
+    const payload = { ok: true, categories: (data || []).map(normalizeCategory) };
+    return includeInactive ? jsonNoCache(payload) : jsonPublicCatalog(payload);
   } catch (error: any) {
     return jsonNoCache(
       { ok: false, error: error?.message || 'Failed to load guest shop categories', categories: [] },
