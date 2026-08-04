@@ -123,6 +123,16 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     all: 'All',
     guestShopFilter: 'Guest Shop',
     fnbFilter: 'Food & Beverage',
+    shopEssentials: 'Shop your stay',
+    shopEssentialsBody: 'Room comforts, essentials and hotel services',
+    orderFood: 'Order food & drinks',
+    orderFoodBody: 'Fresh favourites delivered to your room',
+    selectedStore: 'Selected',
+    openNow: 'Open now',
+    browseBy: 'Browse by category',
+    shopHeading: 'Everything you need for a better stay',
+    foodHeading: 'Good food, just a few taps away',
+    productsAvailable: 'choices available',
     fnbClosed: 'F&B is currently closed.',
     guestMenu: 'Guest menu',
     curated: 'Curated for your stay',
@@ -177,6 +187,16 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     all: 'Semua',
     guestShopFilter: 'Kedai Tetamu',
     fnbFilter: 'Makanan & Minuman',
+    shopEssentials: 'Keperluan penginapan',
+    shopEssentialsBody: 'Keselesaan bilik, keperluan dan servis hotel',
+    orderFood: 'Pesan makanan & minuman',
+    orderFoodBody: 'Hidangan segar dihantar ke bilik anda',
+    selectedStore: 'Dipilih',
+    openNow: 'Dibuka sekarang',
+    browseBy: 'Pilih mengikut kategori',
+    shopHeading: 'Semua yang anda perlukan untuk penginapan lebih selesa',
+    foodHeading: 'Hidangan sedap hanya dengan beberapa sentuhan',
+    productsAvailable: 'pilihan tersedia',
     fnbClosed: 'Makanan & Minuman sedang ditutup.',
     guestMenu: 'Menu tetamu',
     curated: 'Pilihan untuk penginapan anda',
@@ -230,6 +250,16 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     viewOrder: '查看订单',
     guestShopFilter: '住客商店',
     fnbFilter: '餐饮',
+    shopEssentials: '住宿用品',
+    shopEssentialsBody: '客房用品、日常必需品与酒店服务',
+    orderFood: '订购餐饮',
+    orderFoodBody: '新鲜美食送到您的房间',
+    selectedStore: '已选择',
+    openNow: '营业中',
+    browseBy: '按类别浏览',
+    shopHeading: '让您的住宿更加舒适便利',
+    foodHeading: '轻点几下，美食送到房间',
+    productsAvailable: '项可选',
     fnbClosed: '餐饮目前暂停服务。',
     guestMenu: '住客菜单',
     curated: '为您的住宿精选',
@@ -287,6 +317,16 @@ COPY.zh = {
   all: '全部',
   guestShopFilter: '住客商店',
   fnbFilter: '餐饮',
+  shopEssentials: '住宿用品',
+  shopEssentialsBody: '客房用品、日常必需品与酒店服务',
+  orderFood: '订购餐饮',
+  orderFoodBody: '新鲜美食送到您的房间',
+  selectedStore: '已选择',
+  openNow: '营业中',
+  browseBy: '按类别浏览',
+  shopHeading: '让您的住宿更加舒适便利',
+  foodHeading: '轻点几下，美食送到房间',
+  productsAvailable: '项可选',
   fnbClosed: '餐饮目前暂停服务。',
   guestMenu: '住客菜单',
   curated: '为您的住宿精选',
@@ -927,53 +967,101 @@ export default function GuestShopPage() {
       </section>
 
       <section id="shop" className="collection">
-        <div className="menu-toolbar">
-          <div className="filter-block">
-            <span>{t.guestShopFilter}</span>
-            <div className="categories" role="tablist" aria-label="Product categories">
-              {guestCategories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  className={activeCategory === category ? 'active' : ''}
-                  onClick={() => {
-                    setActiveCategory(category);
-                    setActiveSubmenu('All');
-                  }}
-                >
-                  {displayCategory(category)}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="storefront-switcher" role="tablist" aria-label="Choose what to shop">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory !== 'FNB'}
+            className={activeCategory !== 'FNB' ? 'storefront-card active' : 'storefront-card'}
+            onClick={() => {
+              setActiveCategory('All');
+              setActiveSubmenu('All');
+            }}
+          >
+            <span className="storefront-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M4 9.5 12 4l8 5.5V20H4Z" />
+                <path d="M8 20v-6h8v6M8.5 10.5h7" />
+              </svg>
+            </span>
+            <span className="storefront-copy">
+              <small>{t.guestShopFilter}</small>
+              <strong>{t.shopEssentials}</strong>
+              <span>{t.shopEssentialsBody}</span>
+            </span>
+            <span className="storefront-status">{activeCategory !== 'FNB' ? t.selectedStore : '›'}</span>
+          </button>
 
-          {fnbSubmenuChoices.length ? (
-            <div className="filter-block fnb-filter-block">
-              <span>{t.fnbFilter}</span>
-              {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || t.fnbClosed}</strong> : null}
-              <div className="submenus fnb-submenus" role="tablist" aria-label="Food and beverage menu">
-                {fnbSubmenuChoices.map((submenu) => (
-                  <button
-                    key={submenu}
-                    type="button"
-                    className={activeCategory === 'FNB' && activeSubmenu === submenu ? 'active' : ''}
-                    onClick={() => {
-                      setActiveCategory('FNB');
-                      setActiveSubmenu(submenu);
-                    }}
-                  >
-                    {displaySubmenuChoice(submenu)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'FNB'}
+            className={activeCategory === 'FNB' ? 'storefront-card active food' : 'storefront-card food'}
+            onClick={() => {
+              setActiveCategory('FNB');
+              setActiveSubmenu('All');
+            }}
+          >
+            <span className="storefront-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M7 3v7M4.5 3v4.5A2.5 2.5 0 0 0 7 10v11M9.5 3v4.5A2.5 2.5 0 0 1 7 10M16 3v18M16 3c3 1.5 4 4 4 7h-4" />
+              </svg>
+            </span>
+            <span className="storefront-copy">
+              <small>{t.fnbFilter}</small>
+              <strong>{t.orderFood}</strong>
+              <span>{t.orderFoodBody}</span>
+            </span>
+            <span className={activeCategory === 'FNB' ? 'storefront-status' : fnbOpenNow ? 'storefront-status open' : 'storefront-status closed'}>
+              {activeCategory === 'FNB' ? t.selectedStore : fnbOpenNow ? t.openNow : t.closed}
+            </span>
+          </button>
         </div>
 
         <div className="collection-head">
           <div>
-            <p className="eyebrow">{t.guestMenu}</p>
-            <h2>{t.curated}</h2>
+            <p className="eyebrow">{activeCategory === 'FNB' ? t.fnbFilter : t.guestShopFilter}</p>
+            <h2>{activeCategory === 'FNB' ? t.foodHeading : t.shopHeading}</h2>
+          </div>
+          <span className="catalog-count">{visibleItems.length} {t.productsAvailable}</span>
+        </div>
+
+        <div className="menu-toolbar">
+          <div className="filter-block">
+            <span>{t.browseBy}</span>
+            {activeCategory === 'FNB' ? (
+              <>
+                {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || t.fnbClosed}</strong> : null}
+                <div className="categories" role="tablist" aria-label="Food and beverage categories">
+                  {fnbSubmenuChoices.map((submenu) => (
+                    <button
+                      key={submenu}
+                      type="button"
+                      className={activeSubmenu === submenu ? 'active' : ''}
+                      onClick={() => setActiveSubmenu(submenu)}
+                    >
+                      {displaySubmenuChoice(submenu)}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="categories" role="tablist" aria-label="Guest shop categories">
+                {guestCategories.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    className={activeCategory === category ? 'active' : ''}
+                    onClick={() => {
+                      setActiveCategory(category);
+                      setActiveSubmenu('All');
+                    }}
+                  >
+                    {displayCategory(category)}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1230,6 +1318,42 @@ export default function GuestShopPage() {
         <b>{cartCount}</b>
       </a>
 
+      <nav className="mobile-commerce-nav" aria-label="Shop navigation">
+        <button
+          type="button"
+          className={activeCategory !== 'FNB' ? 'active' : ''}
+          onClick={() => {
+            setActiveCategory('All');
+            setActiveSubmenu('All');
+            document.getElementById('shop')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 10 12 4l8 6v10H4Z" />
+            <path d="M9 20v-6h6v6" />
+          </svg>
+          {t.guestShopFilter}
+        </button>
+        <button
+          type="button"
+          className={activeCategory === 'FNB' ? 'active' : ''}
+          onClick={() => {
+            setActiveCategory('FNB');
+            setActiveSubmenu('All');
+            document.getElementById('shop')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 3v7M4.5 3v4.5A2.5 2.5 0 0 0 7 10v11M9.5 3v4.5A2.5 2.5 0 0 1 7 10M16 3v18M16 3c3 1.5 4 4 4 7h-4" />
+          </svg>
+          {t.fnbFilter}
+        </button>
+        <a href="#order" className={cartCount ? 'cart-active' : ''}>
+          <span className="mobile-cart-count" aria-hidden="true">{cartCount}</span>
+          {t.cart}
+        </a>
+      </nav>
+
       <style jsx>{`
         :global(body) {
           margin: 0;
@@ -1466,6 +1590,10 @@ export default function GuestShopPage() {
           font-size: 13px;
         }
 
+        .mobile-commerce-nav {
+          display: none;
+        }
+
         .hero-content {
           width: min(760px, calc(100% - 36px));
           padding: clamp(48px, 9vw, 128px) clamp(18px, 4vw, 64px) 160px;
@@ -1538,12 +1666,159 @@ export default function GuestShopPage() {
           padding: clamp(28px, 5vw, 66px) clamp(16px, 4vw, 54px) clamp(34px, 5vw, 76px);
         }
 
+        .storefront-switcher {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+          margin-bottom: 28px;
+        }
+
+        .storefront-card {
+          position: relative;
+          display: grid;
+          grid-template-columns: 54px minmax(0, 1fr) auto;
+          min-height: 116px;
+          align-items: center;
+          gap: 15px;
+          padding: 18px 20px;
+          overflow: hidden;
+          border: 1px solid rgba(91, 74, 50, 0.15);
+          border-radius: 22px;
+          color: #30271f;
+          background: rgba(255, 252, 246, 0.88);
+          box-shadow: 0 16px 40px rgba(44, 34, 23, 0.06);
+          text-align: left;
+          cursor: pointer;
+          transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+        }
+
+        .storefront-card::after {
+          position: absolute;
+          right: -44px;
+          bottom: -64px;
+          width: 180px;
+          height: 180px;
+          border-radius: 50%;
+          background: rgba(213, 164, 83, 0.08);
+          content: "";
+          pointer-events: none;
+        }
+
+        .storefront-card:hover {
+          border-color: rgba(154, 107, 49, 0.32);
+          box-shadow: 0 20px 50px rgba(44, 34, 23, 0.1);
+          transform: translateY(-2px);
+        }
+
+        .storefront-card.active {
+          color: #fffaf0;
+          border-color: #1b1713;
+          background: linear-gradient(135deg, #17130f, #34261a);
+          box-shadow: 0 22px 50px rgba(35, 24, 14, 0.2);
+        }
+
+        .storefront-card.food.active {
+          border-color: #8b551f;
+          background: linear-gradient(135deg, #6f3e18, #b5762f);
+          box-shadow: 0 22px 50px rgba(126, 72, 25, 0.22);
+        }
+
+        .storefront-icon {
+          display: grid;
+          width: 52px;
+          height: 52px;
+          place-items: center;
+          border-radius: 17px;
+          color: #82531f;
+          background: #f4e4bf;
+        }
+
+        .storefront-card.active .storefront-icon {
+          color: #20160d;
+          background: linear-gradient(135deg, #f6dfa5, #d7a24a);
+        }
+
+        .storefront-icon svg {
+          width: 27px;
+          height: 27px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.8;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        .storefront-copy {
+          position: relative;
+          z-index: 1;
+          display: grid;
+          min-width: 0;
+          gap: 3px;
+        }
+
+        .storefront-copy small {
+          color: #9a6b31;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+
+        .storefront-card.active .storefront-copy small {
+          color: #e8c978;
+        }
+
+        .storefront-copy strong {
+          font-size: clamp(17px, 1.7vw, 22px);
+          line-height: 1.15;
+        }
+
+        .storefront-copy > span {
+          color: #74675b;
+          font-size: 13px;
+          line-height: 1.35;
+        }
+
+        .storefront-card.active .storefront-copy > span {
+          color: rgba(255, 250, 240, 0.74);
+        }
+
+        .storefront-status {
+          position: relative;
+          z-index: 1;
+          min-width: max-content;
+          padding: 7px 10px;
+          border: 1px solid rgba(111, 76, 32, 0.14);
+          border-radius: 999px;
+          color: #6d4b24;
+          background: #fbf2df;
+          font-size: 10px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .storefront-card.active .storefront-status {
+          color: #24170c;
+          border-color: transparent;
+          background: #edcb77;
+        }
+
+        .storefront-status.open {
+          color: #17633b;
+          background: #e4f7ea;
+        }
+
+        .storefront-status.closed {
+          color: #9a2727;
+          background: #fee8e8;
+        }
+
         .collection-head {
           display: flex;
           align-items: end;
           justify-content: space-between;
           gap: 22px;
-          margin-bottom: 18px;
+          margin-bottom: 16px;
         }
 
         .collection-head h2 {
@@ -1558,11 +1833,22 @@ export default function GuestShopPage() {
           color: #9a6b31;
         }
 
+        .catalog-count {
+          flex: 0 0 auto;
+          padding: 8px 12px;
+          border: 1px solid rgba(91, 74, 50, 0.12);
+          border-radius: 999px;
+          color: #665647;
+          background: rgba(255, 252, 246, 0.82);
+          font-size: 12px;
+          font-weight: 800;
+        }
+
         .menu-toolbar {
           display: grid;
-          gap: 14px;
-          margin-bottom: 26px;
-          padding: 14px;
+          gap: 10px;
+          margin-bottom: 20px;
+          padding: 12px 14px;
           border: 1px solid rgba(91, 74, 50, 0.11);
           border-radius: 22px;
           background: rgba(255, 252, 246, 0.78);
@@ -1572,11 +1858,6 @@ export default function GuestShopPage() {
         .filter-block {
           display: grid;
           gap: 10px;
-        }
-
-        .fnb-filter-block {
-          padding-top: 13px;
-          border-top: 1px solid rgba(91, 74, 50, 0.1);
         }
 
         .filter-block > span {
@@ -2239,18 +2520,98 @@ export default function GuestShopPage() {
         }
 
         @media (max-width: 820px) {
+          .guest-shop {
+            padding-bottom: calc(82px + env(safe-area-inset-bottom));
+          }
+
+          .floating-cart {
+            display: none;
+          }
+
+          .mobile-commerce-nav {
+            position: fixed;
+            right: 10px;
+            bottom: max(10px, env(safe-area-inset-bottom));
+            left: 10px;
+            z-index: 80;
+            display: grid;
+            grid-template-columns: 1fr 1fr minmax(82px, 0.8fr);
+            gap: 5px;
+            padding: 6px;
+            border: 1px solid rgba(73, 55, 35, 0.16);
+            border-radius: 19px;
+            background: rgba(255, 252, 246, 0.95);
+            box-shadow: 0 20px 55px rgba(35, 25, 14, 0.24);
+            backdrop-filter: blur(18px);
+          }
+
+          .mobile-commerce-nav button,
+          .mobile-commerce-nav a {
+            position: relative;
+            display: flex;
+            min-width: 0;
+            min-height: 50px;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 8px;
+            border: 0;
+            border-radius: 14px;
+            color: #625547;
+            background: transparent;
+            font: inherit;
+            font-size: 11px;
+            font-weight: 900;
+            text-align: center;
+            text-decoration: none;
+            cursor: pointer;
+          }
+
+          .mobile-commerce-nav svg {
+            width: 17px;
+            height: 17px;
+            flex: 0 0 auto;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+          }
+
+          .mobile-commerce-nav button.active {
+            color: #fff9ed;
+            background: #1b1713;
+            box-shadow: 0 10px 24px rgba(27, 23, 19, 0.2);
+          }
+
+          .mobile-commerce-nav a.cart-active {
+            color: #20170d;
+            background: linear-gradient(135deg, #f2d68c, #d8a34a);
+          }
+
+          .mobile-cart-count {
+            display: grid;
+            min-width: 24px;
+            height: 24px;
+            place-items: center;
+            border-radius: 50%;
+            color: #fff9ed;
+            background: #1b1713;
+            font-size: 11px;
+          }
+
           .hero {
-            min-height: 100svh;
+            min-height: min(520px, 76svh);
             display: flex;
             flex-direction: column;
           }
 
           .hero-image {
-            inset: 0 0 auto;
-            height: 58svh;
-            min-height: 360px;
+            inset: 0;
+            height: 100%;
+            min-height: 0;
             padding: 8px;
-            object-position: center top;
+            object-position: center;
           }
 
           .nav {
@@ -2296,34 +2657,99 @@ export default function GuestShopPage() {
           .hero-content {
             width: auto;
             margin-top: auto;
-            padding: 18px 16px 34px;
+            padding: 18px 16px 28px;
           }
 
           .hero-content h1 {
-            font-size: 52px;
+            margin: 10px 0 12px;
+            font-size: clamp(40px, 11vw, 52px);
+            line-height: 0.94;
+          }
+
+          .hero-copy {
+            display: -webkit-box;
+            overflow: hidden;
+            font-size: 15px;
+            line-height: 1.5;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+          }
+
+          .hero-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 9px;
+            margin-top: 18px;
+          }
+
+          .hero-actions a {
+            min-height: 46px;
+            padding: 0 12px;
           }
 
           .collection {
+            padding-top: 20px;
             padding-right: 16px;
             padding-left: 16px;
           }
 
-          .menu-toolbar {
-            gap: 12px;
+          .storefront-switcher {
+            gap: 10px;
             margin-bottom: 20px;
-            padding: 12px;
+          }
+
+          .storefront-card {
+            grid-template-columns: 44px minmax(0, 1fr);
+            min-height: 104px;
+            gap: 10px;
+            padding: 14px;
+            border-radius: 18px;
+          }
+
+          .storefront-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+          }
+
+          .storefront-copy strong {
+            font-size: 17px;
+          }
+
+          .storefront-copy > span {
+            display: none;
+          }
+
+          .storefront-status {
+            grid-column: 1 / -1;
+            width: fit-content;
+            margin-top: -3px;
+            padding: 5px 8px;
+            font-size: 9px;
+          }
+
+          .menu-toolbar {
+            gap: 10px;
+            margin-bottom: 16px;
+            padding: 10px 12px;
             border-radius: 18px;
           }
 
           .collection-head {
-            align-items: stretch;
-            flex-direction: column;
-            margin-bottom: 14px;
+            align-items: flex-end;
+            flex-direction: row;
+            margin-bottom: 12px;
           }
 
           .collection-head h2 {
-            font-size: 36px;
+            font-size: clamp(27px, 8vw, 36px);
             line-height: 1.04;
+          }
+
+          .catalog-count {
+            padding: 6px 9px;
+            font-size: 10px;
+            white-space: nowrap;
           }
 
           .categories {
@@ -2376,11 +2802,7 @@ export default function GuestShopPage() {
 
         @media (max-width: 520px) {
           .guest-shop {
-            padding-bottom: 76px;
-          }
-
-          .hero-content h1 {
-            font-size: 46px;
+            padding-bottom: calc(82px + env(safe-area-inset-bottom));
           }
 
           .nav {
@@ -2392,7 +2814,34 @@ export default function GuestShopPage() {
           }
 
           .hero-actions a {
-            width: 100%;
+            width: auto;
+            font-size: 12px;
+          }
+
+          .storefront-card {
+            min-height: 98px;
+            padding: 12px 10px;
+          }
+
+          .storefront-copy small {
+            font-size: 8px;
+            letter-spacing: 0.08em;
+          }
+
+          .storefront-copy strong {
+            font-size: 14px;
+            line-height: 1.16;
+          }
+
+          .storefront-status {
+            padding: 4px 7px;
+            font-size: 8px;
+          }
+
+          .collection-head {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 8px;
           }
 
           .categories {
@@ -2546,12 +2995,10 @@ export default function GuestShopPage() {
             box-sizing: border-box;
           }
 
-          .floating-cart {
-            right: 14px;
-            bottom: 14px;
-            min-height: 52px;
-            padding: 0 14px;
-            font-size: 14px;
+          .mobile-commerce-nav button,
+          .mobile-commerce-nav a {
+            padding: 0 5px;
+            font-size: 10px;
           }
         }
       `}</style>
