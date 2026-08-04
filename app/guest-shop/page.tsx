@@ -383,6 +383,17 @@ function money(value: number) {
   return `RM${value.toFixed(2)}`;
 }
 
+async function fetchWithTimeout(url: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function localizedText(defaultText: string, bmText: string | undefined, zhText: string | undefined, language: LanguageCode) {
   if (language === 'ms') return bmText || defaultText;
   if (language === 'zh') return zhText || defaultText;
@@ -596,7 +607,7 @@ export default function GuestShopPage() {
 
     async function loadHeroSettings() {
       try {
-        const settingsRes = await fetch('/api/guest-shop/settings', { cache: 'no-store' });
+        const settingsRes = await fetch('/api/guest-shop/settings');
         const settingsJson = await settingsRes.json();
         if (!alive || !settingsJson?.ok || !settingsJson.settings) return;
 
@@ -626,43 +637,57 @@ export default function GuestShopPage() {
       }
     }
 
-    async function loadShop() {
+    async function loadCategories() {
+      try {
+        const categoriesRes = await fetchWithTimeout('/api/guest-shop/categories', 7000);
+        const categoriesJson = await categoriesRes.json();
+        if (!alive || !categoriesJson?.ok || !Array.isArray(categoriesJson.categories)) return;
+
+        const nextCategories = categoriesJson.categories
+          .filter((category: any) => category?.is_active !== false)
+          .map((category: any) => String(category?.name || '').trim())
+          .filter(Boolean);
+
+        if (nextCategories.length) {
+          setCategories((current) => [
+            'All',
+            ...Array.from(new Set([...nextCategories, ...current.filter((category) => category !== 'All')])),
+          ]);
+        }
+        setCategoryTranslations(
+          Object.fromEntries(
+            categoriesJson.categories
+              .map((category: any) => [
+                String(category?.name || '').trim(),
+                { ms: String(category?.name_ms || ''), zh: String(category?.name_zh || '') },
+              ])
+              .filter(([name]: [string, any]) => Boolean(name))
+          )
+        );
+      } catch {
+        // Item categories are used as a fallback when this optional request is unavailable.
+      }
+    }
+
+    async function loadFnbHours() {
+      try {
+        const fnbHoursRes = await fetchWithTimeout('/api/guest-shop/fnb-hours', 7000);
+        const fnbHoursJson = await fnbHoursRes.json();
+        if (!alive || !fnbHoursJson?.ok || !fnbHoursJson.current) return;
+
+        setFnbOpenNow(fnbHoursJson.current.open !== false);
+        setFnbClosedReason(String(fnbHoursJson.current.reason || 'F&B is currently closed.'));
+      } catch {
+        // Keep F&B available when its optional operating-hours request is unavailable.
+      }
+    }
+
+    async function loadItems() {
       try {
         setShopLoadError('');
-        const [itemsRes, categoriesRes, fnbHoursRes] = await Promise.all([
-          fetch('/api/guest-shop/items', { cache: 'no-store' }),
-          fetch('/api/guest-shop/categories', { cache: 'no-store' }),
-          fetch('/api/guest-shop/fnb-hours', { cache: 'no-store' }).catch(() => null),
-        ]);
-
+        const itemsRes = await fetchWithTimeout('/api/guest-shop/items', 12000);
         const json = await itemsRes.json();
-        const categoriesJson = await categoriesRes.json();
-        const fnbHoursJson = fnbHoursRes ? await fnbHoursRes.json().catch(() => ({})) : {};
         if (!alive) return;
-
-        if (fnbHoursJson?.ok && fnbHoursJson.current) {
-          setFnbOpenNow(fnbHoursJson.current.open !== false);
-          setFnbClosedReason(String(fnbHoursJson.current.reason || 'F&B is currently closed.'));
-        }
-
-        if (categoriesJson?.ok && Array.isArray(categoriesJson.categories)) {
-          const nextCategories = categoriesJson.categories
-            .filter((category: any) => category?.is_active !== false)
-            .map((category: any) => String(category?.name || '').trim())
-            .filter(Boolean);
-
-          if (nextCategories.length) setCategories(['All', ...nextCategories]);
-          setCategoryTranslations(
-            Object.fromEntries(
-              categoriesJson.categories
-                .map((category: any) => [
-                  String(category?.name || '').trim(),
-                  { ms: String(category?.name_ms || ''), zh: String(category?.name_zh || '') },
-                ])
-                .filter(([name]: [string, any]) => Boolean(name))
-            )
-          );
-        }
 
         if (!itemsRes.ok || !json?.ok || !Array.isArray(json.items)) {
           throw new Error(String(json?.error || 'Unable to load the guest menu.'));
@@ -711,14 +736,20 @@ export default function GuestShopPage() {
       } catch (error: any) {
         if (!alive) return;
         setItems([]);
-        setShopLoadError(error?.message || 'Unable to load the guest menu.');
+        setShopLoadError(
+          error?.name === 'AbortError'
+            ? 'The menu is taking too long to respond. Please refresh and try again.'
+            : error?.message || 'Unable to load the guest menu.'
+        );
       } finally {
         if (alive) setShopLoading(false);
       }
     }
 
     loadHeroSettings();
-    loadShop();
+    void loadCategories();
+    void loadFnbHours();
+    void loadItems();
 
     return () => {
       alive = false;
