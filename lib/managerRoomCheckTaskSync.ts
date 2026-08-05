@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabaseAdmin';
+import { broadcastTaskChange } from './taskBroadcastServer';
 
 type LinkedTask = {
   id?: string;
@@ -215,6 +216,7 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
         })
         .eq('id', task.id);
       if (updateError) throw updateError;
+      await broadcastTaskChange(task.id, 'UPDATE');
     }
   }
 
@@ -227,6 +229,7 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
     if (eventDeleteResult.error) throw eventDeleteResult.error;
     const { error: orphanDeleteError } = await supabaseAdmin.from('tasks').delete().in('id', orphanTaskIds);
     if (orphanDeleteError) throw orphanDeleteError;
+    await Promise.all(orphanTaskIds.map((taskId) => broadcastTaskChange(taskId, 'DELETE')));
   }
   return reconciled;
 }

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { sendTelegramTaskCard, Dept } from '../../../lib/telegram';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { reconcileManagerRoomCheckTasks } from '../../../lib/managerRoomCheckTaskSync';
+import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -866,6 +867,7 @@ export async function POST(req: NextRequest) {
         ...task,
         task_images: finalImagesError ? [] : taskImages || [],
       });
+      await broadcastTaskChange(task.id, 'INSERT');
 
       if (telegramWarning) {
         warnings.push(telegramWarning);

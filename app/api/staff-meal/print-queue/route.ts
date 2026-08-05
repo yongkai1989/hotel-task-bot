@@ -312,6 +312,13 @@ export async function GET(req: NextRequest) {
     if (!auth.ok) return jsonNoCache({ ok: false, error: auth.error, jobs: [] }, 401);
 
     const role = getPrinterRole(req);
+    const isOneTimeStaffMealRun = req.nextUrl.searchParams.get('one_time') === 'true';
+
+    // Staff Meal prints only on the explicitly launched weekly run. This also
+    // protects the database if an obsolete bridge process keeps polling.
+    if (role === 'STAFF_MEAL' && !isOneTimeStaffMealRun) {
+      return jsonNoCache({ ok: true, jobs: [], polling_disabled: true });
+    }
 
     const { data, error } = await supabaseAdmin
       .from('staff_meal_print_jobs')

@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import {
+  readTaskBroadcastPayload,
+  TASK_BROADCAST_CHANNEL,
+  TASK_BROADCAST_EVENT,
+} from '../../../lib/taskRealtime';
 
 type Profile = {
   user_id: string;
@@ -275,8 +280,9 @@ export default function FoQuickActionsPage() {
 
     let channel: any = null;
 
-    const handleTaskChange = (payload: any) => {
-      const taskId = String(payload?.new?.id || payload?.old?.id || '').trim();
+    const handleTaskChange = (message: any) => {
+      const payload = readTaskBroadcastPayload(message?.payload);
+      const taskId = payload?.id || '';
       if (!taskId) {
         void loadFoTasks().catch((nextError: any) => {
           setError(nextError?.message || 'Unable to synchronize FO tasks.');
@@ -302,13 +308,14 @@ export default function FoQuickActionsPage() {
       refreshTimers.set(taskId, timer);
     };
 
-    const startChannel = () => {
+    const startChannel = async () => {
       if (channel || document.visibilityState !== 'visible') return;
+      await supabase.realtime.setAuth();
       channel = supabase
-        .channel(`fo-quick-actions-task-sync-${profile?.user_id || 'user'}`)
+        .channel(TASK_BROADCAST_CHANNEL, { config: { private: true } })
         .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'tasks' },
+          'broadcast',
+          { event: TASK_BROADCAST_EVENT },
           handleTaskChange
         )
         .subscribe();
@@ -325,7 +332,7 @@ export default function FoQuickActionsPage() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        startChannel();
+        void startChannel();
         void loadFoTasks().catch((nextError: any) => {
           setError(nextError?.message || 'Unable to synchronize FO tasks.');
         });
@@ -334,7 +341,7 @@ export default function FoQuickActionsPage() {
       }
     };
 
-    startChannel();
+    void startChannel();
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {

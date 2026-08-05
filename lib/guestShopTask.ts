@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { sendTelegramTaskCard } from './telegram';
+import { broadcastTaskChange } from './taskBroadcastServer';
 
 const FO_DEPARTMENT = 'FO' as const;
 
@@ -117,6 +118,7 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
     event_text: `${orderType === 'FNB' ? 'F&B' : 'Guest Shop'} paid order created from Billplz payment ${paymentRef}`,
     actor_name: 'Guest Shop',
   });
+  await broadcastTaskChange(task.id, 'INSERT');
 
   if (!chatId) {
     await supabaseAdmin.from('task_events').insert({
