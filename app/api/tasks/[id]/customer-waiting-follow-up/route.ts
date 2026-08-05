@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../../lib/dashboardAuth';
+import { broadcastTaskChange } from '../../../../../lib/taskBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -67,6 +68,8 @@ export async function POST(
     if (!task) {
       return jsonNoCache({ ok: false, error: 'Updated task was not returned' }, 500);
     }
+
+    await broadcastTaskChange(taskId, 'UPDATE');
 
     return jsonNoCache({
       ok: true,

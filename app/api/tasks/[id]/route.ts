@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 import { deleteLinkedManagerRoomCheck } from '../../../../lib/managerRoomCheckTaskSync';
+import { broadcastTaskChange } from '../../../../lib/taskBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -214,6 +215,8 @@ export async function PATCH(
       )
       .eq('task_id', taskId)
       .order('created_at', { ascending: true });
+
+    await broadcastTaskChange(taskId, 'UPDATE');
 
     return jsonNoCache({
       ok: true,
@@ -431,6 +434,8 @@ export async function PUT(
       .eq('task_id', taskId)
       .order('created_at', { ascending: true });
 
+    await broadcastTaskChange(taskId, 'UPDATE');
+
     return jsonNoCache({
       ok: true,
       task: {
@@ -528,6 +533,8 @@ export async function DELETE(
         500
       );
     }
+
+    await broadcastTaskChange(taskId, 'DELETE');
 
     return jsonNoCache({
       ok: true,

@@ -4,6 +4,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
+import {
+  readTaskBroadcastPayload,
+  TASK_BROADCAST_CHANNEL,
+  TASK_BROADCAST_EVENT,
+} from '../../lib/taskRealtime';
 import Link from 'next/link';
 
 type TaskImage = {
@@ -1304,8 +1309,9 @@ export default function DashboardPage() {
 
     let channel: any = null;
 
-    const handleTaskChange = (payload: any) => {
-      const taskId = String(payload?.new?.id || payload?.old?.id || '').trim();
+    const handleTaskChange = (message: any) => {
+      const payload = readTaskBroadcastPayload(message?.payload);
+      const taskId = payload?.id || '';
       if (!taskId) {
         void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
         return;
@@ -1329,13 +1335,14 @@ export default function DashboardPage() {
       refreshTimers.set(taskId, timer);
     };
 
-    const startChannel = () => {
+    const startChannel = async () => {
       if (channel || document.visibilityState !== 'visible') return;
+      await supabase.realtime.setAuth();
       channel = supabase
-        .channel(`dashboard-task-sync-${profileKey}`)
+        .channel(TASK_BROADCAST_CHANNEL, { config: { private: true } })
         .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'tasks' },
+          'broadcast',
+          { event: TASK_BROADCAST_EVENT },
           handleTaskChange
         )
         .subscribe();
@@ -1352,14 +1359,14 @@ export default function DashboardPage() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        startChannel();
+        void startChannel();
         void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
       } else {
         stopChannel();
       }
     };
 
-    startChannel();
+    void startChannel();
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { buildTaskInlineKeyboard, buildTaskMessageText } from '../../../lib/telegram';
 import { syncLinkedManagerRoomCheckStatus } from '../../../lib/managerRoomCheckTaskSync';
+import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -178,6 +179,7 @@ export async function POST(req: NextRequest) {
     });
 
     await refreshTelegramTaskCard(task.id);
+    await broadcastTaskChange(task.id, 'UPDATE');
 
     return jsonNoCache({ ok: true, task });
   } catch (error: any) {

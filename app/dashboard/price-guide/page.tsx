@@ -287,7 +287,6 @@ export default function PriceGuidePage() {
     };
 
     window.addEventListener('online', refreshWhenVisible);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
       cancelled = true;
@@ -295,7 +294,6 @@ export default function PriceGuidePage() {
         guideBroadcastChannelRef.current = null;
       }
       window.removeEventListener('online', refreshWhenVisible);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
       void supabase.removeChannel(channel);
     };
   }, [supabase]);
