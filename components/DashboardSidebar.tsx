@@ -1582,7 +1582,7 @@ export default function DashboardSidebar({
 
               {canSeeBreakfastPublicLinks ? (
                 <Link
-                  href="/restaurant-kiosk"
+                  href="/breakfast-guest"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
@@ -1593,7 +1593,7 @@ export default function DashboardSidebar({
 
               {canSeeBreakfastPublicLinks ? (
                 <Link
-                  href="/restaurant-kiosk?mode=kiosk"
+                  href="/breakfast-kiosk"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
