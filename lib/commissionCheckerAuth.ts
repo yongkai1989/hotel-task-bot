@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from './supabaseAdmin';
 
@@ -53,6 +53,55 @@ export function commissionCheckerPasscodeMatches(email: string, passcode: string
   } catch {
     return false;
   }
+}
+
+function passcodeEncryptionKey() {
+  return createHash('sha256')
+    .update(`commission-checker-passcode:${signingSecret()}`)
+    .digest();
+}
+
+export function encryptCommissionCheckerPasscode(passcode: string) {
+  if (!/^\d{6}$/.test(passcode)) throw new Error('Commission Checker passcode must contain six digits');
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', passcodeEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(passcode, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ['v1', iv.toString('base64url'), tag.toString('base64url'), encrypted.toString('base64url')].join('.');
+}
+
+export function decryptCommissionCheckerPasscode(value: string) {
+  try {
+    const [version, encodedIv, encodedTag, encodedCiphertext, extra] = String(value || '').split('.');
+    if (version !== 'v1' || !encodedIv || !encodedTag || !encodedCiphertext || extra) return null;
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      passcodeEncryptionKey(),
+      Buffer.from(encodedIv, 'base64url')
+    );
+    decipher.setAuthTag(Buffer.from(encodedTag, 'base64url'));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(encodedCiphertext, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8');
+    return /^\d{6}$/.test(decrypted) ? decrypted : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function recoverCommissionCheckerPasscode(email: string, storedHash: string) {
+  const normalizedHash = String(storedHash || '').toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalizedHash)) return null;
+
+  for (let value = 0; value < 1_000_000; value += 1) {
+    const passcode = value.toString().padStart(6, '0');
+    if (hashCommissionCheckerPasscode(email, passcode) === normalizedHash) return passcode;
+    if (value > 0 && value % 10_000 === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+  return null;
 }
 
 function decodeCommissionCheckerToken(token: string): CommissionCheckerToken | null {
