@@ -36,6 +36,7 @@ export type DashboardUser = {
   can_access_linen_history: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
+  can_access_daily_operations_summary: boolean;
   can_access_bank_in_cash: boolean;
   can_access_commission_checker: boolean;
   can_access_admin_settings: boolean;
@@ -43,12 +44,15 @@ export type DashboardUser = {
   can_access_linen_admin: boolean;
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
+  can_access_fo_quick_actions: boolean;
   can_access_supervisor_checklist: boolean;
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
   can_access_fnb_checklist: boolean;
   can_access_fnb_menu_admin: boolean;
   can_access_fnb_orders: boolean;
+  can_access_breakfast_vouchers: boolean;
+  can_access_staff_meal: boolean;
   can_access_pa_checklist: boolean;
   can_access_pa_linen_entry: boolean;
   permissions: {
@@ -73,6 +77,7 @@ export type DashboardUser = {
     can_access_linen_history: boolean;
     can_access_daily_forms: boolean;
     can_access_management_tasks: boolean;
+    can_access_daily_operations_summary: boolean;
     can_access_bank_in_cash: boolean;
     can_access_commission_checker: boolean;
     can_access_admin_settings: boolean;
@@ -80,12 +85,15 @@ export type DashboardUser = {
     can_access_linen_admin: boolean;
     can_access_lost_found: boolean;
     can_access_fo_checklist: boolean;
+    can_access_fo_quick_actions: boolean;
     can_access_supervisor_checklist: boolean;
     can_access_price_guide: boolean;
     can_access_guest_laundry: boolean;
     can_access_fnb_checklist: boolean;
     can_access_fnb_menu_admin: boolean;
     can_access_fnb_orders: boolean;
+    can_access_breakfast_vouchers: boolean;
+    can_access_staff_meal: boolean;
     can_access_pa_checklist: boolean;
     can_access_pa_linen_entry: boolean;
   };
@@ -238,6 +246,7 @@ export async function getDashboardUserFromRequest(
         can_access_linen_history,
         can_access_daily_forms,
         can_access_management_tasks,
+        can_access_daily_operations_summary,
         can_access_bank_in_cash,
         can_access_commission_checker,
         can_access_admin_settings,
@@ -245,12 +254,15 @@ export async function getDashboardUserFromRequest(
         can_access_linen_admin,
         can_access_lost_found,
         can_access_fo_checklist,
+        can_access_fo_quick_actions,
         can_access_supervisor_checklist,
         can_access_price_guide,
         can_access_guest_laundry,
         can_access_fnb_checklist,
         can_access_fnb_menu_admin,
         can_access_fnb_orders,
+        can_access_breakfast_vouchers,
+        can_access_staff_meal,
         can_access_pa_checklist,
         can_access_pa_linen_entry
         `
@@ -306,6 +318,8 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_daily_forms),
       can_access_management_tasks:
         effectiveBoolean(role, profile.can_access_management_tasks),
+      can_access_daily_operations_summary:
+        effectiveBoolean(role, profile.can_access_daily_operations_summary),
       can_access_bank_in_cash:
         effectiveBoolean(role, profile.can_access_bank_in_cash),
       can_access_commission_checker:
@@ -320,6 +334,8 @@ export async function getDashboardUserFromRequest(
         effectiveBoolean(role, profile.can_access_lost_found),
       can_access_fo_checklist:
         effectiveFoChecklist(role, profile.email || authUser.email, profile.can_access_fo_checklist),
+      can_access_fo_quick_actions:
+        effectiveBoolean(role, profile.can_access_fo_quick_actions),
       can_access_supervisor_checklist:
         effectiveBoolean(role, profile.can_access_supervisor_checklist),
       can_access_price_guide:
@@ -348,6 +364,10 @@ export async function getDashboardUserFromRequest(
             savedBoolean(profile.can_access_fnb_menu_admin)
           );
         })(),
+      can_access_breakfast_vouchers:
+        effectiveBoolean(role, profile.can_access_breakfast_vouchers),
+      can_access_staff_meal:
+        effectiveBoolean(role, profile.can_access_staff_meal),
       can_access_fnb_orders:
         (() => {
           const email = String(profile.email || authUser.email || '').trim().toLowerCase();
