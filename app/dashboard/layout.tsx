@@ -38,6 +38,7 @@ type DashboardUser = {
   can_access_fo_checklist?: boolean;
   can_access_fo_quick_actions?: boolean;
   can_access_supervisor_checklist?: boolean;
+  can_access_guest_shop_orders?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
     | 'can_edit_task'
@@ -68,7 +69,8 @@ type DashboardUser = {
     | 'can_access_fo_quick_actions'
     | 'can_access_breakfast_vouchers'
     | 'can_access_staff_meal'
-    | 'can_access_supervisor_checklist',
+    | 'can_access_supervisor_checklist'
+    | 'can_access_guest_shop_orders',
     unknown
   >>;
 };
