@@ -14,13 +14,15 @@ type AccessRow = {
   last_login_at: string | null;
   passcode_generated_at: string | null;
   passcode_expires_at: string | null;
+  passcode_never_expires: boolean;
 };
 
 type IssuedPasscode = {
   email: string;
   label: string;
   passcode: string;
-  expiresAt: string;
+  expiresAt: string | null;
+  neverExpires: boolean;
 };
 
 function formatDate(value: string | null) {
@@ -31,6 +33,7 @@ function formatDate(value: string | null) {
 }
 
 function passcodeState(row: AccessRow) {
+  if (row.passcode_never_expires) return { label: 'Permanent code', tone: 'permanent' };
   if (!row.passcode_expires_at) return { label: 'Code required', tone: 'missing' };
   if (new Date(row.passcode_expires_at).getTime() <= Date.now()) return { label: 'Expired', tone: 'expired' };
   return { label: `Valid until ${formatDate(row.passcode_expires_at)}`, tone: 'valid' };
@@ -88,7 +91,8 @@ export default function CommissionCheckerAccessAdminPage() {
       email: json.access?.email || fallbackEmail,
       label: json.access?.label || fallbackLabel,
       passcode: String(json.passcode || ''),
-      expiresAt: String(json.passcode_expires_at || ''),
+      expiresAt: json.passcode_expires_at ? String(json.passcode_expires_at) : null,
+      neverExpires: json.passcode_never_expires === true || json.access?.passcode_never_expires === true,
     });
     setCopied(false);
   }
@@ -191,8 +195,8 @@ export default function CommissionCheckerAccessAdminPage() {
             </div>
             <div className="code">{issued.passcode}</div>
             <div className="issued-meta">
-              <span>Expires {formatDate(issued.expiresAt)}</span>
-              <small>This code is shown only once.</small>
+              <span>{issued.neverExpires ? 'This code does not expire' : `Expires ${formatDate(issued.expiresAt)}`}</span>
+              <small>This code is shown only once. Save it securely.</small>
             </div>
             <button type="button" onClick={() => void copyPasscode()}>{copied ? 'Copied' : 'Copy login details'}</button>
             <button type="button" className="dismiss" onClick={() => setIssued(null)}>Done</button>
@@ -204,6 +208,9 @@ export default function CommissionCheckerAccessAdminPage() {
             <div className="section-kicker">Create staff login</div>
             <h2>Add username and generate code</h2>
             <p>The email is used only as a username. No OTP or email will be sent.</p>
+            {email.trim().toLowerCase() === 'ryan.tan@hotelhallmark.com' ? (
+              <div className="permanent-note">Ryan's generated code will remain valid until it is manually regenerated or disabled.</div>
+            ) : null}
           </div>
           <form onSubmit={addAccess} className="add-form">
             <div className="field">
@@ -302,7 +309,7 @@ export default function CommissionCheckerAccessAdminPage() {
         .identity span, .dates span { overflow: hidden; color: #64748b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
         .dates small { color: #94a3b8; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
         .code-status { border-radius: 999px; padding: 7px 10px; text-align: center; font-size: 11px; font-weight: 850; }
-        .code-status.valid { background: #dcfce7; color: #166534; }
+        .code-status.valid, .code-status.permanent { background: #dcfce7; color: #166534; }
         .code-status.expired { background: #fee2e2; color: #b91c1c; }
         .code-status.missing { background: #fef3c7; color: #92400e; }
         .row-actions { display: flex; gap: 7px; }
@@ -313,6 +320,7 @@ export default function CommissionCheckerAccessAdminPage() {
         .alert { margin-bottom: 14px; border-radius: 14px; padding: 12px 14px; font-size: 13px; font-weight: 750; }
         .alert.error { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; }
         .alert.success { border: 1px solid #bbf7d0; background: #ecfdf5; color: #166534; }
+        .permanent-note { margin-top: 12px; border-radius: 12px; padding: 10px 12px; background: #ecfdf5; color: #166534; font-size: 12px; font-weight: 800; line-height: 1.45; }
         .security-note { margin-top: 14px; border: 1px solid #dbeafe; border-radius: 16px; padding: 13px 15px; background: #eff6ff; color: #1e3a8a; font-size: 12px; line-height: 1.55; font-weight: 750; }
         @media (max-width: 900px) { .hero, .add-panel { grid-template-columns: 1fr; display: grid; } .add-form { grid-template-columns: 1fr 1fr; } .add-form > button { grid-column: 1 / -1; } .issued-card { grid-template-columns: 1fr auto; } .issued-meta { grid-column: 1 / -1; } .access-row { grid-template-columns: 10px 1fr auto; } .dates { grid-column: 2; } .code-status { grid-column: 3; grid-row: 1; } .row-actions { grid-column: 2 / -1; } }
         @media (max-width: 560px) { .admin-page { padding: 12px 10px 32px; } .hero, .panel { border-radius: 18px; } .hero { padding: 18px; } .hero-actions, .add-form { display: grid; grid-template-columns: 1fr; } .add-form > button { grid-column: auto; } .issued-card { grid-template-columns: 1fr; text-align: center; } .code { font-size: 36px; } .issued-card button { width: 100%; } .access-row { gap: 10px; padding: 12px; } .code-status { grid-column: 2 / -1; grid-row: auto; text-align: left; } .row-actions { display: grid; grid-template-columns: 1fr 1fr; } }
