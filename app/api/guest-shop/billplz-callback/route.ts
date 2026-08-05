@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
+import { broadcastFnbOrderChange } from '../../../../lib/fnbOrderBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -195,6 +196,7 @@ async function markKitchenPendingIfNeeded(order: any) {
 
   // Keep Billplz payment verification safe even if the kitchen SQL has not been installed yet.
   if (error) return;
+  await broadcastFnbOrderChange('UPDATE');
 }
 
 export async function POST(req: NextRequest) {
