@@ -38,16 +38,22 @@ type Profile = {
   name: string;
   role: string;
   can_access_fnb_orders?: boolean;
+  can_access_guest_shop_orders?: boolean;
 };
+
+type OrderMode = 'FNB' | 'GUEST_SHOP';
 
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
 }
 
-function canAccessKitchen(profile: Profile | null) {
+function canAccessOrders(profile: Profile | null, mode: OrderMode) {
   if (!profile) return false;
   const role = String(profile.role || '').trim().toUpperCase();
   const email = normalizeEmail(profile.email);
+  if (mode === 'GUEST_SHOP') {
+    return role === 'SUPERUSER' || profile.can_access_guest_shop_orders === true || email === 'fenny@hotelhallmark.com';
+  }
   return (
     role === 'SUPERUSER' ||
     role === 'FNB' ||
@@ -140,7 +146,8 @@ function countdownText(seconds: number) {
 
 const CUSTOM_ALARM_SRC = '/sounds/fnb-order-alert.mp3';
 
-export default function FnbOrdersPage() {
+export function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode }) {
+  const isGuestShop = mode === 'GUEST_SHOP';
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const alarmRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -152,6 +159,8 @@ export default function FnbOrdersPage() {
   const [error, setError] = useState('');
   const [alarmEnabled, setAlarmEnabled] = useState(true);
   const [tick, setTick] = useState(0);
+  const [search, setSearch] = useState('');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const pendingOrders = orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE');
   const pendingCount = pendingOrders.length;
@@ -162,8 +171,20 @@ export default function FnbOrdersPage() {
     if (!earliest || Date.parse(deadline) < Date.parse(earliest)) return deadline;
     return earliest;
   }, null);
-  const access = canAccessKitchen(profile);
-  const canDeleteHistory = canDeleteKitchenHistory(profile);
+  const access = canAccessOrders(profile, mode);
+  const canDeleteHistory = isGuestShop
+    ? String(profile?.role || '').toUpperCase() === 'SUPERUSER'
+    : canDeleteKitchenHistory(profile);
+  const filteredOrders = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return orders;
+    return orders.filter((order) =>
+      [order.room_number, order.guest_name, order.payment_reference, itemSummary(order.items_json)]
+        .join(' ')
+        .toLowerCase()
+        .includes(needle)
+    );
+  }, [orders, search]);
 
   useEffect(() => {
     let alive = true;
@@ -186,6 +207,7 @@ export default function FnbOrdersPage() {
           name: String(json.user?.name || json.user?.email || 'User'),
           role: String(json.user?.role || '').toUpperCase(),
           can_access_fnb_orders: json.user?.can_access_fnb_orders === true,
+          can_access_guest_shop_orders: json.user?.can_access_guest_shop_orders === true,
         });
       } catch (err: any) {
         if (alive) setError(err?.message || 'Failed to load F&B kitchen page');
@@ -198,7 +220,7 @@ export default function FnbOrdersPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     if (!access) return;
@@ -326,17 +348,21 @@ export default function FnbOrdersPage() {
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
 
-      const res = await fetch(`/api/guest-shop/kitchen-orders?status=${encodeURIComponent(view)}`, {
+      const endpoint = isGuestShop ? '/api/guest-shop/fulfillment-orders' : '/api/guest-shop/kitchen-orders';
+      const res = await fetch(`${endpoint}?status=${encodeURIComponent(view)}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load orders');
       const nextOrders = Array.isArray(json.orders) ? json.orders : [];
-      if (forceSet) setOrders(nextOrders);
+      if (forceSet) {
+        setOrders(nextOrders);
+        setLastUpdatedAt(new Date());
+      }
       return nextOrders;
     } catch (err: any) {
-      setError(err?.message || 'Failed to load F&B orders');
+      setError(err?.message || `Failed to load ${isGuestShop ? 'Guest Shop' : 'F&B'} orders`);
       return [];
     }
   }
@@ -349,7 +375,7 @@ export default function FnbOrdersPage() {
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
 
-      const res = await fetch('/api/guest-shop/kitchen-orders', {
+      const res = await fetch(isGuestShop ? '/api/guest-shop/fulfillment-orders' : '/api/guest-shop/kitchen-orders', {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -369,10 +395,14 @@ export default function FnbOrdersPage() {
           ? 'Order rejected. Marked for refund follow-up.'
           : action === 'REPRINT'
             ? 'Order queued for reprint.'
-            : 'Order updated.'
+            : action === 'DELIVERED'
+              ? 'Order marked as delivered.'
+              : action === 'REOPEN'
+                ? 'Order reopened.'
+                : 'Order updated.'
       );
 
-      if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT'].includes(action)) {
+      if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT', 'DELIVERED'].includes(action)) {
         const pendingAfterAction = await loadOrders('PENDING', true);
         if (!pendingAfterAction.length) {
           setActiveTab('ACTIVE');
@@ -382,6 +412,7 @@ export default function FnbOrdersPage() {
         await loadOrders(activeTab, true);
       }
     } catch (err: any) {
+      if (String(err?.message || '').includes('already updated')) await loadOrders(activeTab, true);
       setError(err?.message || 'Failed to update order');
     } finally {
       setBusyId('');
@@ -389,7 +420,7 @@ export default function FnbOrdersPage() {
   }
 
   async function deleteHistoryOrder(order: KitchenOrder) {
-    const confirmed = window.confirm(`Delete F&B history order for Room ${order.room_number || '-'}?`);
+    const confirmed = window.confirm(`Delete ${isGuestShop ? 'Guest Shop' : 'F&B'} history order for Room ${order.room_number || '-'}?`);
     if (!confirmed) return;
 
     try {
@@ -399,7 +430,8 @@ export default function FnbOrdersPage() {
       const token = await getToken();
       if (!token) throw new Error('Please log in again');
 
-      const res = await fetch(`/api/guest-shop/kitchen-orders?id=${encodeURIComponent(order.id)}`, {
+      const endpoint = isGuestShop ? '/api/guest-shop/fulfillment-orders' : '/api/guest-shop/kitchen-orders';
+      const res = await fetch(`${endpoint}?id=${encodeURIComponent(order.id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -415,7 +447,7 @@ export default function FnbOrdersPage() {
   }
 
   if (loading) {
-    return <main style={styles.page}><div style={styles.centerCard}>Loading F&B Orders...</div></main>;
+    return <main style={styles.page}><div style={styles.centerCard}>Loading {isGuestShop ? 'Guest Shop' : 'F&B'} Orders...</div></main>;
   }
 
   if (!access) {
@@ -423,7 +455,7 @@ export default function FnbOrdersPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <h1>Access denied</h1>
-          <p>F&B Orders is available to F&B, Superuser, and Fenny.</p>
+          <p>You do not have access to {isGuestShop ? 'Guest Shop' : 'F&B'} Orders.</p>
           <Link href="/dashboard" style={styles.darkButton}>Back to Dashboard</Link>
         </div>
       </main>
@@ -434,9 +466,9 @@ export default function FnbOrdersPage() {
     <main style={styles.page}>
       <section style={styles.hero}>
         <div>
-          <div style={styles.eyebrow}>Kitchen Workspace</div>
-          <h1 style={styles.title}>F&B Orders</h1>
-          <p style={styles.subtitle}>Paid F&B orders requiring kitchen acceptance and delivery updates.</p>
+          <div style={styles.eyebrow}>{isGuestShop ? 'Guest Services Workspace' : 'Kitchen Workspace'}</div>
+          <h1 style={styles.title}>{isGuestShop ? 'Guest Shop Orders' : 'F&B Orders'}</h1>
+          <p style={styles.subtitle}>{isGuestShop ? 'Live paid orders from acknowledgment through room delivery.' : 'Paid F&B orders requiring kitchen acceptance and delivery updates.'}</p>
         </div>
         <div style={styles.heroActions}>
           <button type="button" onClick={() => setAlarmEnabled((value) => !value)} style={alarmEnabled ? styles.alarmOnButton : styles.lightButton}>
@@ -454,7 +486,7 @@ export default function FnbOrdersPage() {
         <section style={styles.acceptancePrompt}>
           <div style={styles.promptPulse}>New</div>
           <div style={styles.promptMain}>
-            <div style={styles.eyebrow}>Pending Kitchen Acceptance</div>
+            <div style={styles.eyebrow}>{isGuestShop ? 'New Paid Guest Shop Order' : 'Pending Kitchen Acceptance'}</div>
             <h2 style={styles.promptTitle}>Room {promptOrder.room_number || '-'} - {promptOrder.guest_name || 'Guest'}</h2>
             <p style={styles.promptItems}>{itemSummary(promptOrder.items_json)}</p>
             <div style={styles.promptMeta}>
@@ -464,7 +496,12 @@ export default function FnbOrdersPage() {
             </div>
           </div>
           <div style={styles.promptActions}>
-            {[15, 30, 45].map((minutes) => (
+            {isGuestShop ? (
+              <>
+                <button type="button" disabled={!!busyId} onClick={() => updateOrder(promptOrder, 'ACCEPT')} style={styles.primaryButton}>Acknowledge &amp; Prepare</button>
+                <button type="button" disabled={!!busyId} onClick={() => updateOrder(promptOrder, 'DELIVERED')} style={styles.deliveredButton}>Mark Delivered</button>
+              </>
+            ) : [15, 30, 45].map((minutes) => (
               <button
                 key={minutes}
                 type="button"
@@ -475,17 +512,26 @@ export default function FnbOrdersPage() {
                 Accept {minutes}m
               </button>
             ))}
-            <button type="button" disabled={!!busyId} onClick={() => updateOrder(promptOrder, 'REJECT')} style={styles.dangerButton}>
-              Reject
-            </button>
+            {!isGuestShop ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(promptOrder, 'REJECT')} style={styles.dangerButton}>Reject</button> : null}
           </div>
         </section>
       ) : null}
 
       <section style={styles.statsGrid}>
-        <div style={styles.statCard}><span>Pending Acceptance</span><strong>{pendingCount}</strong><small style={styles.statSubtext}>Needs kitchen decision</small></div>
+        <div style={styles.statCard}><span>{isGuestShop ? 'New Orders' : 'Pending Acceptance'}</span><strong>{pendingCount}</strong><small style={styles.statSubtext}>{isGuestShop ? 'Needs acknowledgment' : 'Needs kitchen decision'}</small></div>
         <div style={styles.statCard}><span>In Progress</span><strong>{orders.filter((order) => ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)).length}</strong><small style={styles.statSubtext}>Preparing now</small></div>
-        <div style={styles.statCard}><span>Refund Follow-up</span><strong>{orders.filter((order) => order.refund_required).length}</strong><small style={styles.statSubtext}>Rejected or timed out</small></div>
+        <div style={styles.statCard}><span>{isGuestShop ? 'Visible Orders' : 'Refund Follow-up'}</span><strong>{isGuestShop ? orders.length : orders.filter((order) => order.refund_required).length}</strong><small style={styles.statSubtext}>{isGuestShop ? 'In selected view' : 'Rejected or timed out'}</small></div>
+      </section>
+
+      <section style={styles.toolRow}>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search room, guest, item or payment reference"
+          aria-label="Search orders"
+          style={styles.searchInput}
+        />
+        <span style={styles.updatedText}>{lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit' })}` : 'Connecting...'}</span>
       </section>
 
       <nav style={styles.tabs}>
@@ -497,12 +543,14 @@ export default function FnbOrdersPage() {
       </nav>
 
       <section style={styles.orderList}>
-        {orders.length ? orders.map((order) => {
+        {filteredOrders.length ? filteredOrders.map((order) => {
           const acceptRemaining = secondsLeft(order.kitchen_accept_deadline_at);
           const readyRemaining = secondsLeft(readyDeadline(order));
-          const deadlineLabel = order.kitchen_status === 'PENDING_ACCEPTANCE' ? 'Accept By' : 'Ready In';
+          const deadlineLabel = isGuestShop ? 'Order Received' : order.kitchen_status === 'PENDING_ACCEPTANCE' ? 'Accept By' : 'Ready In';
           const deadlineValue =
-            order.kitchen_status === 'PENDING_ACCEPTANCE'
+            isGuestShop
+              ? formatTime(order.paid_at)
+              : order.kitchen_status === 'PENDING_ACCEPTANCE'
               ? countdownText(acceptRemaining)
               : ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)
                 ? readyDeadline(order)
@@ -548,7 +596,12 @@ export default function FnbOrdersPage() {
               <div style={styles.actions}>
                 {order.kitchen_status === 'PENDING_ACCEPTANCE' ? (
                   <>
-                    {[15, 30, 45].map((minutes) => (
+                    {isGuestShop ? (
+                      <>
+                        <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'ACCEPT')} style={styles.primaryButton}>Acknowledge &amp; Prepare</button>
+                        <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} style={styles.deliveredButton}>Mark Delivered</button>
+                      </>
+                    ) : [15, 30, 45].map((minutes) => (
                       <button
                         key={minutes}
                         type="button"
@@ -559,20 +612,19 @@ export default function FnbOrdersPage() {
                         Accept {minutes}m
                       </button>
                     ))}
-                    <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REJECT')} style={styles.dangerButton}>
-                      Reject
-                    </button>
+                    {!isGuestShop ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REJECT')} style={styles.dangerButton}>Reject</button> : null}
                   </>
                 ) : null}
 
                 {['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status) ? (
-                  <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} style={styles.primaryButton}>
+                  <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} style={styles.deliveredButton}>
                     Delivered
                   </button>
                 ) : null}
-                <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REPRINT')} style={styles.secondaryButton}>
+                {!isGuestShop ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REPRINT')} style={styles.secondaryButton}>
                   Reprint Order
-                </button>
+                </button> : null}
+                {isGuestShop && isHistory && canDeleteHistory ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REOPEN')} style={styles.secondaryButton}>Reopen</button> : null}
                 {isHistory && canDeleteHistory ? (
                   <button type="button" disabled={!!busyId} onClick={() => deleteHistoryOrder(order)} style={styles.deleteButton}>
                     Delete History
@@ -582,11 +634,15 @@ export default function FnbOrdersPage() {
             </article>
           );
         }) : (
-          <div style={styles.emptyState}>No F&B orders in this view.</div>
+          <div style={styles.emptyState}>{search ? 'No orders match your search.' : `No ${isGuestShop ? 'Guest Shop' : 'F&B'} orders in this view.`}</div>
         )}
       </section>
     </main>
   );
+}
+
+export default function FnbOrdersPage() {
+  return <OrderOperationsPage mode="FNB" />;
 }
 
 const styles: Record<string, any> = {
@@ -701,6 +757,29 @@ const styles: Record<string, any> = {
     color: '#047857',
     fontWeight: 900,
   },
+  toolRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: 16,
+    background: '#fff',
+    border: '1px solid #d6e2f1',
+    flexWrap: 'wrap',
+  },
+  searchInput: {
+    flex: '1 1 280px',
+    minWidth: 0,
+    minHeight: 44,
+    padding: '0 14px',
+    borderRadius: 12,
+    border: '1px solid #c8d7e8',
+    fontSize: 16,
+    fontWeight: 700,
+    background: '#f8fbff',
+  },
+  updatedText: { color: '#64748b', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' },
   acceptancePrompt: {
     position: 'sticky',
     top: 12,
@@ -913,6 +992,16 @@ const styles: Record<string, any> = {
     borderRadius: 13,
     border: 0,
     background: '#2563eb',
+    color: '#fff',
+    fontWeight: 900,
+    cursor: 'pointer',
+  },
+  deliveredButton: {
+    minHeight: 42,
+    padding: '0 14px',
+    borderRadius: 13,
+    border: 0,
+    background: '#15803d',
     color: '#fff',
     fontWeight: 900,
     cursor: 'pointer',
