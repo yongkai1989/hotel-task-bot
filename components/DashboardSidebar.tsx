@@ -48,6 +48,7 @@ type SidebarProfile = {
   can_access_fnb_checklist?: boolean;
   can_access_fnb_menu_admin?: boolean;
   can_access_fnb_orders?: boolean;
+  can_access_guest_shop_orders?: boolean;
   can_access_breakfast_vouchers?: boolean;
   can_access_staff_meal?: boolean;
   can_access_pa_checklist?: boolean;
@@ -89,6 +90,7 @@ type SidebarProfile = {
     | 'can_access_fnb_checklist'
     | 'can_access_fnb_menu_admin'
     | 'can_access_fnb_orders'
+    | 'can_access_guest_shop_orders'
     | 'can_access_breakfast_vouchers'
     | 'can_access_staff_meal'
     | 'can_access_pa_checklist'
@@ -173,6 +175,7 @@ type EffectiveProfile = Required<
     | 'can_access_fnb_checklist'
     | 'can_access_fnb_menu_admin'
     | 'can_access_fnb_orders'
+    | 'can_access_guest_shop_orders'
     | 'can_access_breakfast_vouchers'
     | 'can_access_staff_meal'
     | 'can_access_pa_checklist'
@@ -263,6 +266,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_admin_settings')),
     can_access_guest_shop_admin:
       isSuperuser || hasAccess(permissionValue('can_access_guest_shop_admin')),
+    can_access_guest_shop_orders:
+      isSuperuser || email === 'fenny@hotelhallmark.com' || hasAccess(permissionValue('can_access_guest_shop_orders')),
     can_access_lost_found:
       isSuperuser || hasAccess(permissionValue('can_access_lost_found')),
     can_access_fo_checklist:
@@ -810,6 +815,10 @@ export default function DashboardSidebar({
     !!effectiveProfile?.can_access_guest_shop_admin ||
     effectiveEmail === 'walter@hotelhallmark.com' ||
     effectiveEmail === 'fenny@hotelhallmark.com';
+  const canSeeGuestShopOrders =
+    effectiveRole === 'SUPERUSER' ||
+    !!effectiveProfile?.can_access_guest_shop_orders ||
+    effectiveEmail === 'fenny@hotelhallmark.com';
   const canSeeFnbMenuAdmin =
     effectiveRole === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_fnb_menu_admin ||
@@ -867,7 +876,8 @@ export default function DashboardSidebar({
     canSeeFoChecklist ||
     canSeePriceGuide ||
     canSeeGuestLaundry ||
-    canSeeFoGuestShopAdmin;
+    canSeeFoGuestShopAdmin ||
+    canSeeGuestShopOrders;
   const showFnbGroup =
     canSeeFnbChecklist ||
     canSeeFnbMenuAdmin ||
@@ -902,6 +912,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_commission_checker,
     effectiveProfile?.can_access_admin_settings,
     effectiveProfile?.can_access_guest_shop_admin,
+    effectiveProfile?.can_access_guest_shop_orders,
     effectiveProfile?.can_access_lost_found,
     effectiveProfile?.can_access_price_guide,
     effectiveProfile?.can_access_guest_laundry,
@@ -1471,6 +1482,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="package" sub>Guest Shop Admin</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeGuestShopOrders ? (
+                <Link
+                  href="/dashboard/guest-shop-orders"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="package" sub>Guest Shop Orders</SidebarNavContent>
                 </Link>
               ) : null}
 
