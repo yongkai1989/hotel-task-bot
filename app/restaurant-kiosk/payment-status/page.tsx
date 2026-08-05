@@ -49,7 +49,7 @@ export default function RestaurantKioskPaymentStatusPage() {
 
     if (!nextOrderId) {
       const timer = window.setTimeout(() => {
-        window.location.href = '/restaurant-kiosk?mode=kiosk';
+        window.location.href = '/breakfast-kiosk';
       }, 1200);
       return () => window.clearTimeout(timer);
     }
@@ -346,7 +346,7 @@ export default function RestaurantKioskPaymentStatusPage() {
           <p className="lead">This payment page needs an order reference.</p>
           <div className="message">Missing order reference. Returning to kiosk menu...</div>
           <div className="actions">
-            <a href="/restaurant-kiosk?mode=kiosk">Back to kiosk</a>
+            <a href="/breakfast-kiosk">Back to kiosk</a>
           </div>
         </section>
 
@@ -539,7 +539,7 @@ export default function RestaurantKioskPaymentStatusPage() {
         ) : null}
 
         <div className="actions">
-          <a href={isKioskPrintOrder || missingOrderReference ? '/restaurant-kiosk?mode=kiosk' : '/restaurant-kiosk'}>
+          <a href={isKioskPrintOrder || missingOrderReference ? '/breakfast-kiosk' : '/breakfast-guest'}>
             {paid ? 'Buy another voucher' : 'Back to kiosk'}
           </a>
         </div>

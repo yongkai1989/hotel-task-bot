@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 type VoucherType = {
   id: string;
@@ -53,6 +54,7 @@ function cartKey(entryDate: string, typeId: string) {
 }
 
 export default function RestaurantKioskPage() {
+  const pathname = usePathname();
   const [voucherTypes, setVoucherTypes] = useState<VoucherType[]>([]);
   const [cart, setCart] = useState<CartMap>({});
   const [entryDate, setEntryDate] = useState(todayIso());
@@ -60,7 +62,8 @@ export default function RestaurantKioskPage() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAssist, setShowAssist] = useState(false);
-  const [printMode, setPrintMode] = useState(false);
+  const [legacyPrintMode, setLegacyPrintMode] = useState(false);
+  const printMode = pathname === '/breakfast-kiosk' || legacyPrintMode;
 
   const cartLines = useMemo(() => {
     const lines: Array<{ key: string; entryDate: string; type: VoucherType; quantity: number }> = [];
@@ -93,7 +96,7 @@ export default function RestaurantKioskPage() {
   }, 0);
 
   useEffect(() => {
-    setPrintMode(new URLSearchParams(window.location.search).get('mode') === 'kiosk');
+    setLegacyPrintMode(new URLSearchParams(window.location.search).get('mode') === 'kiosk');
   }, []);
 
   useEffect(() => {
@@ -182,9 +185,15 @@ export default function RestaurantKioskPage() {
     <main className="kiosk">
       <section className="hero">
         <div className="heroCopy">
-          <p className="eyebrow">Hallmark Crown Hotel</p>
-          <h1>Buffet Breakfast Ticket</h1>
-          <span>Purchase your breakfast ticket securely before entering the restaurant.</span>
+          <p className="eyebrow">
+            {printMode ? 'Hallmark Crown Hotel - Breakfast Kiosk' : 'Hallmark Crown Hotel - Guest Purchase'}
+          </p>
+          <h1>{printMode ? 'Self-Service Breakfast Tickets' : 'Buffet Breakfast Ticket'}</h1>
+          <span>
+            {printMode
+              ? 'Purchase here and collect the printed ticket from this kiosk after payment.'
+              : 'Purchase securely on your own device and keep the QR ticket for restaurant entry.'}
+          </span>
         </div>
         <div className="priceCard">
           <span>From</span>
