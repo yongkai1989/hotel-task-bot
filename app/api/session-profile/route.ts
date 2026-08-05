@@ -50,6 +50,7 @@ const PROFILE_SELECT = `
   can_access_fnb_checklist,
   can_access_fnb_menu_admin,
   can_access_fnb_orders,
+  can_access_guest_shop_orders,
   can_access_breakfast_vouchers,
   can_access_staff_meal,
   can_access_pa_checklist,
@@ -130,6 +131,7 @@ const permissionKeys = [
   'can_access_fnb_checklist',
   'can_access_fnb_menu_admin',
   'can_access_fnb_orders',
+  'can_access_guest_shop_orders',
   'can_access_breakfast_vouchers',
   'can_access_staff_meal',
   'can_access_pa_checklist',
@@ -268,6 +270,11 @@ function buildUser(profile: any, authEmail: string) {
           email === 'fenny@hotelhallmark.com' ||
           toPermissionBoolean(profile.can_access_fnb_orders)
         );
+      })(),
+    can_access_guest_shop_orders:
+      (() => {
+        const email = String(profile.email || authEmail || '').trim().toLowerCase();
+        return role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com' || toPermissionBoolean(profile.can_access_guest_shop_orders);
       })(),
     can_access_pa_checklist: (() => {
       const email = String(profile.email || authEmail || '').trim().toLowerCase();
