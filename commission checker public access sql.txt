@@ -14,6 +14,7 @@ create table if not exists public.commission_checker_access (
   passcode_hash text null,
   passcode_generated_at timestamptz null,
   passcode_expires_at timestamptz null,
+  passcode_never_expires boolean not null default false,
   passcode_generated_by uuid null references auth.users(id) on delete set null,
   constraint commission_checker_access_email_normalized
     check (email = lower(trim(email)))
@@ -24,6 +25,7 @@ alter table public.commission_checker_access
   add column if not exists passcode_hash text null,
   add column if not exists passcode_generated_at timestamptz null,
   add column if not exists passcode_expires_at timestamptz null,
+  add column if not exists passcode_never_expires boolean not null default false,
   add column if not exists passcode_generated_by uuid null;
 
 do $$
@@ -37,6 +39,24 @@ begin
     alter table public.commission_checker_access
       add constraint commission_checker_access_passcode_generated_by_fkey
       foreign key (passcode_generated_by) references auth.users(id) on delete set null;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'commission_checker_access_permanent_email_check'
+      and conrelid = 'public.commission_checker_access'::regclass
+  ) then
+    alter table public.commission_checker_access
+      add constraint commission_checker_access_permanent_email_check
+      check (
+        passcode_never_expires = false
+        or email = 'ryan.tan@hotelhallmark.com'
+      );
   end if;
 end
 $$;
