@@ -43,6 +43,7 @@ type UpdateBody = {
   can_access_fnb_checklist?: boolean;
   can_access_fnb_menu_admin?: boolean;
   can_access_fnb_orders?: boolean;
+  can_access_guest_shop_orders?: boolean;
   can_access_breakfast_vouchers?: boolean;
   can_access_staff_meal?: boolean;
   can_access_pa_checklist?: boolean;
@@ -86,6 +87,7 @@ const permissionKeys = [
   'can_access_fnb_checklist',
   'can_access_fnb_menu_admin',
   'can_access_fnb_orders',
+  'can_access_guest_shop_orders',
   'can_access_breakfast_vouchers',
   'can_access_staff_meal',
   'can_access_pa_checklist',
@@ -136,6 +138,7 @@ const profileSelect = `
   can_access_fnb_checklist,
   can_access_fnb_menu_admin,
   can_access_fnb_orders,
+  can_access_guest_shop_orders,
   can_access_breakfast_vouchers,
   can_access_staff_meal,
   can_access_pa_checklist,
@@ -272,6 +275,8 @@ function withPermissions(row: any) {
       email === 'fnb@hotelhallmark.com' ||
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(row.can_access_fnb_orders),
+    can_access_guest_shop_orders:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_guest_shop_orders),
     can_access_pa_checklist:
       role === 'SUPERUSER' ||
       email === 'pa@hotelhallmark.com' ||
