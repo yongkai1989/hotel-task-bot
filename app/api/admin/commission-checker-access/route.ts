@@ -1,10 +1,18 @@
+import { randomInt } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import {
+  COMMISSION_CHECKER_PASSCODE_SECONDS,
+  hashCommissionCheckerPasscode,
+} from '../../../../lib/commissionCheckerAuth';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
+
+const ACCESS_SELECT =
+  'id, email, label, is_active, created_at, updated_at, last_login_at, passcode_generated_at, passcode_expires_at';
 
 function bearerToken(req: NextRequest) {
   const header = req.headers.get('authorization') || '';
@@ -39,12 +47,24 @@ function unauthorized() {
   return NextResponse.json({ ok: false, error: 'Superuser access required' }, { status: 403 });
 }
 
+function createPasscode() {
+  return randomInt(0, 1_000_000).toString().padStart(6, '0');
+}
+
+function passcodeDates() {
+  const generatedAt = new Date();
+  return {
+    generatedAt,
+    expiresAt: new Date(generatedAt.getTime() + COMMISSION_CHECKER_PASSCODE_SECONDS * 1000),
+  };
+}
+
 export async function GET(req: NextRequest) {
   if (!(await requireSuperuser(req))) return unauthorized();
 
   const { data, error } = await supabaseAdmin
     .from('commission_checker_access')
-    .select('id, email, label, is_active, created_at, updated_at, last_login_at')
+    .select(ACCESS_SELECT)
     .order('is_active', { ascending: false })
     .order('label', { ascending: true });
 
@@ -61,9 +81,15 @@ export async function POST(req: NextRequest) {
     const email = normalizeEmail(body?.email);
     const label = String(body?.label || '').trim().slice(0, 80);
     if (!email || !/^\S+@\S+\.\S+$/.test(email) || email.length > 254) {
-      return NextResponse.json({ ok: false, error: 'Enter a valid email address' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'Enter a valid email username' }, { status: 400 });
+    }
+    if (!label) {
+      return NextResponse.json({ ok: false, error: 'Enter a branch or description' }, { status: 400 });
     }
 
+    const passcode = createPasscode();
+    const { generatedAt, expiresAt } = passcodeDates();
+    const passcodeHash = hashCommissionCheckerPasscode(email, passcode);
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('commission_checker_access')
       .select('id, session_version')
@@ -71,67 +97,90 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (existingError) throw existingError;
 
-    let access;
-    if (existing) {
-      const result = await supabaseAdmin
-        .from('commission_checker_access')
-        .update({
-          label,
-          is_active: true,
-          session_version: Number(existing.session_version || 1) + 1,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id)
-        .select('id, email, label, is_active, created_at, updated_at, last_login_at')
-        .single();
-      if (result.error) throw result.error;
-      access = result.data;
-    } else {
-      const result = await supabaseAdmin
-        .from('commission_checker_access')
-        .insert({ email, label, created_by: requester.user_id })
-        .select('id, email, label, is_active, created_at, updated_at, last_login_at')
-        .single();
-      if (result.error) throw result.error;
-      access = result.data;
-    }
-
-    const createResult = await supabaseAdmin.auth.admin.createUser({
+    const values = {
       email,
-      email_confirm: true,
-      user_metadata: { commission_checker_only: true },
+      label,
+      is_active: true,
+      passcode_hash: passcodeHash,
+      passcode_generated_at: generatedAt.toISOString(),
+      passcode_expires_at: expiresAt.toISOString(),
+      passcode_generated_by: requester.user_id,
+      updated_at: generatedAt.toISOString(),
+    };
+
+    const result = existing
+      ? await supabaseAdmin
+          .from('commission_checker_access')
+          .update({ ...values, session_version: Number(existing.session_version || 1) + 1 })
+          .eq('id', existing.id)
+          .select(ACCESS_SELECT)
+          .single()
+      : await supabaseAdmin
+          .from('commission_checker_access')
+          .insert({ ...values, created_by: requester.user_id })
+          .select(ACCESS_SELECT)
+          .single();
+    if (result.error) throw result.error;
+
+    return NextResponse.json({
+      ok: true,
+      access: result.data,
+      passcode,
+      passcode_expires_at: expiresAt.toISOString(),
     });
-    if (createResult.error && !/already|registered|exists/i.test(createResult.error.message || '')) {
-      await supabaseAdmin
-        .from('commission_checker_access')
-        .update({ is_active: false, session_version: Number(existing?.session_version || 1) + 2 })
-        .eq('id', access.id);
-      throw createResult.error;
-    }
-
-    // A project-level Auth trigger may create a default dashboard profile for every
-    // new Auth identity. Remove that auto-created profile for checker-only users.
-    // Existing dashboard users are left unchanged when createUser reports a duplicate.
-    if (!createResult.error && createResult.data?.user?.id) {
-      const { error: profileDeleteError } = await supabaseAdmin
-        .from('user_profiles')
-        .delete()
-        .eq('user_id', createResult.data.user.id);
-      if (profileDeleteError) {
-        await Promise.all([
-          supabaseAdmin
-            .from('commission_checker_access')
-            .update({ is_active: false, session_version: Number(existing?.session_version || 1) + 2 })
-            .eq('id', access.id),
-          supabaseAdmin.auth.admin.deleteUser(createResult.data.user.id),
-        ]);
-        throw new Error('Unable to isolate this email from dashboard access. No access was granted.');
-      }
-    }
-
-    return NextResponse.json({ ok: true, access });
   } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error?.message || 'Unable to add approved email' }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: error?.message || 'Unable to create Commission Checker access' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  const requester = await requireSuperuser(req);
+  if (!requester) return unauthorized();
+
+  try {
+    const body = await req.json();
+    const id = String(body?.id || '').trim();
+    if (!id) return NextResponse.json({ ok: false, error: 'Access record is required' }, { status: 400 });
+
+    const { data: existing, error: findError } = await supabaseAdmin
+      .from('commission_checker_access')
+      .select('id, email, session_version')
+      .eq('id', id)
+      .single();
+    if (findError) throw findError;
+
+    const passcode = createPasscode();
+    const { generatedAt, expiresAt } = passcodeDates();
+    const { data, error } = await supabaseAdmin
+      .from('commission_checker_access')
+      .update({
+        is_active: true,
+        passcode_hash: hashCommissionCheckerPasscode(existing.email, passcode),
+        passcode_generated_at: generatedAt.toISOString(),
+        passcode_expires_at: expiresAt.toISOString(),
+        passcode_generated_by: requester.user_id,
+        session_version: Number(existing.session_version || 1) + 1,
+        updated_at: generatedAt.toISOString(),
+      })
+      .eq('id', id)
+      .select(ACCESS_SELECT)
+      .single();
+    if (error) throw error;
+
+    return NextResponse.json({
+      ok: true,
+      access: data,
+      passcode,
+      passcode_expires_at: expiresAt.toISOString(),
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { ok: false, error: error?.message || 'Unable to generate passcode' },
+      { status: 500 }
+    );
   }
 }
 
@@ -152,16 +201,24 @@ export async function PATCH(req: NextRequest) {
       .single();
     if (findError) throw findError;
 
+    const updates: Record<string, unknown> = {
+      label,
+      is_active: isActive,
+      session_version: Number(existing.session_version || 1) + 1,
+      updated_at: new Date().toISOString(),
+    };
+    if (!isActive) {
+      updates.passcode_hash = null;
+      updates.passcode_generated_at = null;
+      updates.passcode_expires_at = null;
+      updates.passcode_generated_by = null;
+    }
+
     const { data, error } = await supabaseAdmin
       .from('commission_checker_access')
-      .update({
-        label,
-        is_active: isActive,
-        session_version: Number(existing.session_version || 1) + 1,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updates)
       .eq('id', id)
-      .select('id, email, label, is_active, created_at, updated_at, last_login_at')
+      .select(ACCESS_SELECT)
       .single();
     if (error) throw error;
 

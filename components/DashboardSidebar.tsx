@@ -1645,7 +1645,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeAdminSettings ? (
+              {effectiveRole === 'SUPERUSER' ? (
                 <Link
                   href="/dashboard/commission-checker-access"
                   prefetch={false}

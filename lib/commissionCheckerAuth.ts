@@ -4,6 +4,7 @@ import { supabaseAdmin } from './supabaseAdmin';
 
 export const COMMISSION_CHECKER_COOKIE = 'commission_checker_access';
 export const COMMISSION_CHECKER_SESSION_SECONDS = 60 * 60 * 24 * 7;
+export const COMMISSION_CHECKER_PASSCODE_SECONDS = 60 * 60 * 24 * 7;
 
 type CommissionCheckerToken = {
   accessId: string;
@@ -24,16 +25,34 @@ function signature(payload: string) {
 
 export function createCommissionCheckerToken(
   access: { id: string; email: string; session_version: number },
-  now = Date.now()
+  now = Date.now(),
+  accessExpiresAt?: number
 ) {
+  const sessionExpiresAt = now + COMMISSION_CHECKER_SESSION_SECONDS * 1000;
   const value: CommissionCheckerToken = {
     accessId: access.id,
     email: access.email,
     version: Number(access.session_version || 1),
-    expiresAt: now + COMMISSION_CHECKER_SESSION_SECONDS * 1000,
+    expiresAt: accessExpiresAt ? Math.min(sessionExpiresAt, accessExpiresAt) : sessionExpiresAt,
   };
   const payload = Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
   return `${payload}.${signature(payload)}`;
+}
+
+export function hashCommissionCheckerPasscode(email: string, passcode: string) {
+  return createHmac('sha256', signingSecret())
+    .update(`${email.trim().toLowerCase()}:${passcode}`)
+    .digest('hex');
+}
+
+export function commissionCheckerPasscodeMatches(email: string, passcode: string, storedHash: string) {
+  try {
+    const supplied = Buffer.from(hashCommissionCheckerPasscode(email, passcode), 'hex');
+    const expected = Buffer.from(storedHash, 'hex');
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  } catch {
+    return false;
+  }
 }
 
 function decodeCommissionCheckerToken(token: string): CommissionCheckerToken | null {
@@ -69,7 +88,7 @@ export async function getCommissionCheckerSession() {
 
   const { data, error } = await supabaseAdmin
     .from('commission_checker_access')
-    .select('id, email, label, is_active, session_version')
+    .select('id, email, label, is_active, session_version, passcode_expires_at')
     .eq('id', decoded.accessId)
     .maybeSingle();
 
@@ -77,6 +96,8 @@ export async function getCommissionCheckerSession() {
     error ||
     !data ||
     data.is_active !== true ||
+    !data.passcode_expires_at ||
+    new Date(data.passcode_expires_at).getTime() <= Date.now() ||
     String(data.email || '').toLowerCase() !== decoded.email.toLowerCase() ||
     Number(data.session_version || 1) !== decoded.version
   ) {
