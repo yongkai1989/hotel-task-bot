@@ -11,6 +11,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const MAX_FAILED_ATTEMPTS = 8;
+const MIN_OTP_LENGTH = 6;
+const MAX_OTP_LENGTH = 10;
 
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
@@ -36,11 +38,11 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const email = normalizeEmail(body?.email);
-    const token = String(body?.token || '').replace(/\D/g, '').slice(0, 6);
+    const token = String(body?.token || '').replace(/\D/g, '');
     const ipAddress = requestIp(req);
 
-    if (!email || token.length !== 6) {
-      return NextResponse.json({ ok: false, error: 'Enter the complete 6-digit code' }, { status: 400 });
+    if (!email || token.length < MIN_OTP_LENGTH || token.length > MAX_OTP_LENGTH) {
+      return NextResponse.json({ ok: false, error: 'Enter the complete access code' }, { status: 400 });
     }
 
     const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();

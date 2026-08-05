@@ -2,6 +2,9 @@
 
 import { FormEvent, useState } from 'react';
 
+const MIN_OTP_LENGTH = 6;
+const MAX_OTP_LENGTH = 10;
+
 export default function CommissionCheckerLoginForm() {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -29,7 +32,7 @@ export default function CommissionCheckerLoginForm() {
       setError('');
       await postJson('/api/commission-checker/auth/request-otp', { email });
       setCodeSent(true);
-      setMessage('If this email is approved, a 6-digit access code has been sent.');
+      setMessage('If this email is approved, an access code has been sent.');
     } catch (err: any) {
       setError(err?.message || 'Unable to send access code');
     } finally {
@@ -44,7 +47,7 @@ export default function CommissionCheckerLoginForm() {
 
   async function verifyOtp(event: FormEvent) {
     event.preventDefault();
-    if (!otp.trim()) return;
+    if (otp.length < MIN_OTP_LENGTH || otp.length > MAX_OTP_LENGTH) return;
 
     try {
       setBusy(true);
@@ -98,21 +101,21 @@ export default function CommissionCheckerLoginForm() {
                 Change
               </button>
             </div>
-            <label htmlFor="commission-otp">6-digit access code</label>
+            <label htmlFor="commission-otp">Access code</label>
             <input
               id="commission-otp"
               className="otp-input"
               value={otp}
-              onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
+              onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, MAX_OTP_LENGTH))}
+              placeholder="Enter the code"
               autoComplete="one-time-code"
               inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
+              pattern="[0-9]{6,10}"
+              maxLength={MAX_OTP_LENGTH}
               autoFocus
               required
             />
-            <button type="submit" disabled={busy || otp.length !== 6}>{busy ? 'Verifyingâ€¦' : 'Open Commission Checker'}</button>
+            <button type="submit" disabled={busy || otp.length < MIN_OTP_LENGTH || otp.length > MAX_OTP_LENGTH}>{busy ? 'Verifyingâ€¦' : 'Open Commission Checker'}</button>
             <button type="button" className="secondary" disabled={busy} onClick={() => void sendOtp()}>
               Send a new code
             </button>
@@ -133,7 +136,7 @@ export default function CommissionCheckerLoginForm() {
         label { font-size: 13px; font-weight: 850; color: #334155; }
         input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 15px; background: #fff; color: #0f172a; padding: 14px 15px; font-size: 16px; outline: none; }
         input:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
-        .otp-input { text-align: center; font-size: 28px; font-weight: 900; letter-spacing: .3em; padding-left: calc(15px + .3em); }
+        .otp-input { text-align: center; font-size: clamp(22px, 7vw, 28px); font-weight: 900; letter-spacing: .2em; padding-left: calc(15px + .2em); }
         button { border: 0; border-radius: 15px; padding: 14px 16px; background: #16366d; color: #fff; font-size: 15px; font-weight: 850; cursor: pointer; }
         button:disabled { cursor: not-allowed; opacity: .55; }
         button.secondary { border: 1px solid #cbd5e1; background: #fff; color: #16366d; }
