@@ -668,8 +668,14 @@ function FileBox({
             event.currentTarget.value = '';
           }}
         />
-        <span className="cc-upload-main">Drop CSV here</span>
-        <span className="cc-upload-sub">or tap to choose file</span>
+        <span className="cc-upload-main">
+          {parsed && !parsed.error
+            ? 'Replace CSV file'
+            : variant === 'commission'
+              ? 'Choose Booking.com CSV'
+              : 'Choose PMS Transaction CSV'}
+        </span>
+        <span className="cc-upload-sub">Tap to browse or drag and drop</span>
       </label>
       {parsed ? (
         <div className={parsed.error ? 'cc-file-status cc-file-error' : 'cc-file-status'}>
@@ -833,7 +839,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
       <section className="cc-grid">
         <FileBox
           title="Booking.com Commission CSV"
-          eyebrow="Booking.com Statement"
+          eyebrow="Step 1 · Booking.com Statement"
           description="Upload the reservation statement exported from Booking.com."
           variant="commission"
           parsed={commissionCsv}
@@ -841,7 +847,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
         />
         <FileBox
           title="PMS Transaction CSV"
-          eyebrow="PMS Export"
+          eyebrow="Step 2 · PMS Export"
           description="Upload the ABS Transaction Enquiry file containing OTA Ref., Guest Name 1/2, Group, and Comment."
           variant="pms"
           parsed={pmsCsv}
@@ -1026,6 +1032,10 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
       </section>
 
       <style jsx global>{`
+        .cc-shell,
+        .cc-shell * {
+          box-sizing: border-box;
+        }
         .cc-shell {
           min-height: 100vh;
           padding: clamp(16px, 3vw, 34px);
@@ -1050,8 +1060,8 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
           justify-content: space-between;
           gap: 18px;
           padding: clamp(18px, 2.4vw, 28px);
-          max-width: 1180px;
-          margin: 0 auto 16px;
+          max-width: 1440px;
+          margin: 0 auto 18px;
           background:
             linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,246,255,0.94)),
             radial-gradient(circle at 90% 0%, rgba(37,99,235,.12), transparent 36%);
@@ -1086,30 +1096,38 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
         .cc-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 14px;
-          max-width: 1180px;
-          margin: 0 auto 16px;
+          gap: clamp(16px, 2vw, 24px);
+          width: min(100%, 1440px);
+          max-width: 1440px;
+          margin: 0 auto 18px;
         }
         .cc-hero,
-        .cc-grid,
         .cc-card {
-          width: min(100%, 1760px);
-          max-width: 1760px;
+          width: min(100%, 1440px);
+          max-width: 1440px;
         }
-        .cc-card { margin: 0 auto; padding: clamp(16px, 2.3vw, 24px); }
-        .cc-file-card { margin: 0; position: relative; overflow: hidden; }
+        .cc-card { margin: 0 auto; padding: clamp(18px, 2.3vw, 26px); }
         .cc-file-card {
-          padding: clamp(16px, 2.2vw, 24px);
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+          margin: 0;
+          position: relative;
+          overflow: hidden;
+          padding: clamp(18px, 2.2vw, 24px);
           display: grid;
-          gap: 16px;
-          min-height: 274px;
+          grid-template-rows: auto 1fr auto;
+          gap: 18px;
+          min-height: 260px;
           align-content: start;
+          border-radius: 18px;
         }
         .cc-file-card:before {
           content: '';
           position: absolute;
-          inset: 0 auto 0 0;
+          inset: 18px auto 18px 0;
           width: 5px;
+          border-radius: 0 999px 999px 0;
         }
         .cc-file-card-commission:before {
           background: linear-gradient(180deg, #2563eb, #7c3aed);
@@ -1131,7 +1149,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
           display: grid;
           grid-template-columns: 54px minmax(0, 1fr);
           gap: 14px;
-          align-items: start;
+          align-items: center;
         }
         .cc-file-icon {
           width: 54px;
@@ -1171,8 +1189,10 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
           margin-bottom: 14px;
         }
         .cc-upload {
-          min-height: 112px;
-          border: 1px dashed #9eb8dc;
+          width: 100%;
+          min-width: 0;
+          min-height: 116px;
+          border: 2px dashed #a9bfdd;
           background:
             linear-gradient(180deg, rgba(255,255,255,.98) 0%, rgba(239,246,255,.86) 100%),
             radial-gradient(circle at top left, rgba(37,99,235,.10), transparent 34%);
@@ -1195,8 +1215,9 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
         }
         .cc-upload input { display: none; }
         .cc-upload-main {
-          font-size: 17px;
+          font-size: 16px;
           color: #0f172a;
+          text-align: center;
           display: inline-flex;
           align-items: center;
           gap: 8px;
@@ -1230,6 +1251,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
           font-size: 13px;
           font-weight: 800;
           overflow-wrap: anywhere;
+          min-width: 0;
         }
         .cc-file-error {
           border-color: #fecaca;
@@ -1513,7 +1535,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
           padding: 28px;
           text-align: center;
         }
-        @media (max-width: 760px) {
+        @media (max-width: 900px) {
           .cc-shell { padding: 12px; }
           .cc-hero {
             align-items: stretch;
@@ -1524,6 +1546,8 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
           .cc-stats {
             grid-template-columns: 1fr;
           }
+          .cc-grid { gap: 12px; }
+          .cc-file-card { min-height: 0; }
           .cc-card,
           .cc-file-card {
             border-radius: 20px;
@@ -1538,9 +1562,12 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
             border-radius: 15px;
           }
           .cc-upload {
-            min-height: 104px;
-            border-radius: 18px;
+            min-height: 96px;
+            border-radius: 16px;
           }
+          .cc-file-card h2 { font-size: 20px; }
+          .cc-file-card p { font-size: 13px; margin-top: 5px; }
+          .cc-hero h1 { font-size: clamp(28px, 9vw, 38px); }
           .cc-actions {
             display: grid;
             grid-template-columns: 1fr;
