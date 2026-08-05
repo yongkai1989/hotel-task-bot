@@ -1624,7 +1624,7 @@ export default function DashboardSidebar({
 
               {canSeeDailyOperationsSummary ? (
                 <Link
-                  href="/daily-operations-summary"
+                  href="/dashboard/daily-operations-summary"
                   prefetch={false}
                   onClick={closeSidebar}
                   style={styles.subNavBtn}
