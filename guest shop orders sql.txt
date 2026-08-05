@@ -1,0 +1,37 @@
+-- Guest Shop live order operations page.
+-- Safe to run more than once.
+
+alter table public.user_profiles
+  add column if not exists can_access_guest_shop_orders boolean not null default false;
+
+-- The live pages share the existing order-workflow columns so payment, staff handling,
+-- history, and the public order status all continue to use one guest_shop_orders ledger.
+alter table public.guest_shop_orders
+  add column if not exists kitchen_status text not null default 'NOT_REQUIRED',
+  add column if not exists kitchen_requested_at timestamptz,
+  add column if not exists kitchen_accepted_at timestamptz,
+  add column if not exists kitchen_delivered_at timestamptz,
+  add column if not exists kitchen_decision_by text,
+  add column if not exists kitchen_decision_note text;
+
+-- Make already-paid Guest Shop purchases visible immediately. Fulfilled orders remain history.
+update public.guest_shop_orders
+set
+  kitchen_status = case when status = 'FULFILLED' then 'DELIVERED' else 'PENDING_ACCEPTANCE' end,
+  kitchen_requested_at = coalesce(kitchen_requested_at, paid_at, created_at),
+  kitchen_delivered_at = case
+    when status = 'FULFILLED' then coalesce(kitchen_delivered_at, fulfilled_at, updated_at)
+    else kitchen_delivered_at
+  end
+where order_type = 'GUEST_SHOP'
+  and status in ('PAID', 'FULFILLED')
+  and kitchen_status = 'NOT_REQUIRED';
+
+create index if not exists idx_guest_shop_orders_live_fulfilment
+  on public.guest_shop_orders (order_type, kitchen_status, paid_at desc)
+  where order_type = 'GUEST_SHOP' and status in ('PAID', 'FULFILLED');
+
+-- Superuser always receives access in application code. Fenny keeps existing operational access.
+update public.user_profiles
+set can_access_guest_shop_orders = true
+where role = 'SUPERUSER' or lower(email) = 'fenny@hotelhallmark.com';

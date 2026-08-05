@@ -44,6 +44,7 @@ type UserProfile = {
   can_access_fnb_checklist: boolean;
   can_access_fnb_menu_admin: boolean;
   can_access_fnb_orders: boolean;
+  can_access_guest_shop_orders: boolean;
   can_access_breakfast_vouchers: boolean;
   can_access_staff_meal: boolean;
   can_access_pa_checklist: boolean;
@@ -92,6 +93,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_commission_checker', label: 'Commission Checker', group: 'Management' },
   { key: 'can_access_admin_settings', label: 'Admin Settings', group: 'Management' },
   { key: 'can_access_guest_shop_admin', label: 'Guest Shop Admin', group: 'Front Office' },
+  { key: 'can_access_guest_shop_orders', label: 'Guest Shop Orders', group: 'Front Office' },
   { key: 'can_access_lost_found', label: 'Lost & Found', group: 'Front Office' },
   { key: 'can_access_fo_checklist', label: 'FO Checklist', group: 'Front Office' },
   { key: 'can_access_fo_quick_actions', label: 'FO Quick Actions', group: 'Front Office' },
@@ -143,6 +145,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_fnb_checklist: false,
     can_access_fnb_menu_admin: false,
     can_access_fnb_orders: false,
+    can_access_guest_shop_orders: false,
     can_access_breakfast_vouchers: false,
     can_access_staff_meal: false,
     can_access_pa_checklist: false,
@@ -255,6 +258,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_fnb_menu_admin')),
     can_access_fnb_orders:
       toPermissionBoolean(permissionValue('can_access_fnb_orders')),
+    can_access_guest_shop_orders:
+      toPermissionBoolean(permissionValue('can_access_guest_shop_orders')),
     can_access_breakfast_vouchers:
       toPermissionBoolean(permissionValue('can_access_breakfast_vouchers')),
     can_access_staff_meal:
@@ -309,6 +314,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_fnb_checklist: toPermissionBoolean(draft.can_access_fnb_checklist),
     can_access_fnb_menu_admin: toPermissionBoolean(draft.can_access_fnb_menu_admin),
     can_access_fnb_orders: toPermissionBoolean(draft.can_access_fnb_orders),
+    can_access_guest_shop_orders: toPermissionBoolean(draft.can_access_guest_shop_orders),
     can_access_breakfast_vouchers: toPermissionBoolean(draft.can_access_breakfast_vouchers),
     can_access_staff_meal: toPermissionBoolean(draft.can_access_staff_meal),
     can_access_pa_checklist: toPermissionBoolean(draft.can_access_pa_checklist),
@@ -375,6 +381,11 @@ function getActualAccessValue(user: UserProfile, key: AccessKey) {
       email === 'fenny@hotelhallmark.com' ||
       toPermissionBoolean(user.can_access_guest_shop_admin)
     );
+  }
+
+  if (key === 'can_access_guest_shop_orders') {
+    const email = String(user.email || '').toLowerCase();
+    return user.role === 'SUPERUSER' || email === 'fenny@hotelhallmark.com' || toPermissionBoolean(user.can_access_guest_shop_orders);
   }
 
   if (key === 'can_access_fnb_menu_admin' || key === 'can_access_fnb_orders') {
