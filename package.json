@@ -6,7 +6,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/capture-lockfile.cjs && next build",
     "start": "next start"
   },
   "dependencies": {
