@@ -8,6 +8,10 @@ import {
   TASK_BROADCAST_CHANNEL,
   TASK_BROADCAST_EVENT,
 } from '../../../lib/taskRealtime';
+import {
+  FNB_ORDER_BROADCAST_CHANNEL,
+  FNB_ORDER_BROADCAST_EVENT,
+} from '../../../lib/fnbOrderRealtime';
 
 type Profile = {
   user_id: string;
@@ -18,7 +22,21 @@ type Profile = {
   can_update_task_status?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_fo_quick_actions?: boolean;
-  permissions?: { can_access_fo_quick_actions?: boolean };
+  can_access_guest_shop_orders?: boolean;
+  permissions?: {
+    can_access_fo_quick_actions?: boolean;
+    can_access_guest_shop_orders?: boolean;
+  };
+};
+
+type GuestShopOrderSummary = {
+  id: string;
+  room_number: string;
+  guest_name: string;
+  total_myr: number;
+  items_json: Array<{ quantity?: number }>;
+  paid_at?: string | null;
+  kitchen_status: string;
 };
 
 type DashboardTask = {
@@ -128,6 +146,9 @@ export default function FoQuickActionsPage() {
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [reminders, setReminders] = useState<ShiftReminder[]>([]);
   const [items, setItems] = useState<TrackedItem[]>([]);
+  const [guestShopOrders, setGuestShopOrders] = useState<GuestShopOrderSummary[]>([]);
+  const [guestOrdersLoading, setGuestOrdersLoading] = useState(false);
+  const [guestOrdersError, setGuestOrdersError] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyKey, setBusyKey] = useState('');
@@ -159,6 +180,29 @@ export default function FoQuickActionsPage() {
     isSuperuser ||
     profile?.can_access_fo_quick_actions === true ||
     profile?.permissions?.can_access_fo_quick_actions === true;
+  const canAccessGuestShopOrders =
+    isSuperuser ||
+    profile?.can_access_guest_shop_orders === true ||
+    profile?.permissions?.can_access_guest_shop_orders === true;
+
+  const loadGuestShopOrders = useCallback(async () => {
+    if (!accessToken) return;
+    setGuestOrdersLoading(true);
+    setGuestOrdersError('');
+    try {
+      const response = await fetch('/api/guest-shop/fulfillment-orders?status=ACTIVE', {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const payload = await responseJson(response);
+      setGuestShopOrders(Array.isArray(payload?.orders) ? payload.orders : []);
+    } catch (nextError: any) {
+      setGuestOrdersError(nextError?.message || 'Unable to load Guest Shop orders.');
+    } finally {
+      setGuestOrdersLoading(false);
+    }
+  }, [accessToken]);
 
   const loadFoTasks = useCallback(async () => {
     const taskResponse = await fetch('/api/tasks', {
@@ -349,6 +393,55 @@ export default function FoQuickActionsPage() {
       stopChannel();
     };
   }, [accessToken, canAccess, loadFoTasks, profile?.user_id, supabase]);
+
+  useEffect(() => {
+    if (!accessToken || !canAccess || !canAccessGuestShopOrders) return;
+    let channel: any = null;
+    let refreshTimer: number | null = null;
+
+    const refreshOrders = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void loadGuestShopOrders();
+      }, 200);
+    };
+
+    const startChannel = async () => {
+      if (channel || document.visibilityState !== 'visible') return;
+      await supabase.realtime.setAuth();
+      channel = supabase
+        .channel(FNB_ORDER_BROADCAST_CHANNEL, { config: { private: true } })
+        .on('broadcast', { event: FNB_ORDER_BROADCAST_EVENT }, refreshOrders)
+        .subscribe();
+    };
+
+    const stopChannel = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      refreshTimer = null;
+      if (!channel) return;
+      const activeChannel = channel;
+      channel = null;
+      void supabase.removeChannel(activeChannel);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadGuestShopOrders();
+        void startChannel();
+      } else {
+        stopChannel();
+      }
+    };
+
+    void loadGuestShopOrders();
+    void startChannel();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopChannel();
+    };
+  }, [accessToken, canAccess, canAccessGuestShopOrders, loadGuestShopOrders, supabase]);
 
   const openTasks = tasks.filter((task) => task.status === 'OPEN');
   const doneTasks = tasks.filter((task) => task.status === 'DONE');
@@ -793,7 +886,7 @@ export default function FoQuickActionsPage() {
           <p>Assign guest tasks, hand over reminders, and see where FO items are.</p>
         </div>
         <div className="header-actions">
-          <button type="button" className="secondary" disabled={refreshing} onClick={() => void loadData(true)}>
+          <button type="button" className="secondary" disabled={refreshing || guestOrdersLoading} onClick={() => { void loadData(true); if (canAccessGuestShopOrders) void loadGuestShopOrders(); }}>
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           <Link href="/dashboard">Dashboard</Link>
@@ -803,6 +896,7 @@ export default function FoQuickActionsPage() {
       {error ? <div className="notice error">{error}</div> : null}
       {success ? <div className="notice success">{success}</div> : null}
 
+      <div className="foq-overview-grid">
       <section className="item-panel">
         <div className="section-heading compact">
           <div>
@@ -858,6 +952,48 @@ export default function FoQuickActionsPage() {
           )) : <div className="empty-inline">No FO items configured yet.{isSuperuser ? ' Add the first item.' : ''}</div>}
         </div>
       </section>
+
+      {canAccessGuestShopOrders ? (
+        <aside className={`guest-order-panel ${guestShopOrders.length ? 'has-orders' : ''}`}>
+          <div className="guest-order-heading">
+            <div>
+              <span className="eyebrow">GUEST SHOP</span>
+              <h2>Active orders</h2>
+            </div>
+            <span className={`guest-order-count ${guestShopOrders.length ? 'active' : ''}`}>{guestShopOrders.length}</span>
+          </div>
+
+          {guestOrdersLoading && !guestShopOrders.length ? (
+            <div className="guest-order-state">Checking for paid orders...</div>
+          ) : guestOrdersError ? (
+            <div className="guest-order-state error">{guestOrdersError}</div>
+          ) : guestShopOrders.length ? (
+            <div className="guest-order-list">
+              {guestShopOrders.slice(0, 3).map((order) => {
+                const itemCount = (order.items_json || []).reduce(
+                  (total, item) => total + Math.max(1, Number(item?.quantity || 1)),
+                  0
+                );
+                return (
+                  <div className="guest-order-row" key={order.id}>
+                    <div className="guest-order-room">Room {order.room_number || '-'}</div>
+                    <div className="guest-order-meta">{itemCount} item{itemCount === 1 ? '' : 's'} · {order.guest_name || 'Guest'}</div>
+                    <span>{order.kitchen_status === 'PENDING_ACCEPTANCE' ? 'NEW' : 'IN PROGRESS'}</span>
+                  </div>
+                );
+              })}
+              {guestShopOrders.length > 3 ? <div className="guest-order-more">+{guestShopOrders.length - 3} more active order{guestShopOrders.length - 3 === 1 ? '' : 's'}</div> : null}
+            </div>
+          ) : (
+            <div className="guest-order-state clear"><b>All clear</b><span>No active Guest Shop orders.</span></div>
+          )}
+
+          <Link className="guest-order-link" href="/dashboard/guest-shop-orders">
+            {guestShopOrders.length ? 'Open orders now' : 'Open Guest Shop Orders'} <span aria-hidden="true">→</span>
+          </Link>
+        </aside>
+      ) : null}
+      </div>
 
       <section className="command-board">
         <section className="command-column task-command">
@@ -1068,10 +1204,32 @@ function ProfessionalStyles() {
     @media(prefers-reduced-motion:reduce){.compact-card.waiting-overdue,.urgent-follow-up-modal{animation:none}.compact-card.waiting-overdue{background:#fff1f1}}
     .task-command .primary-action{background:linear-gradient(135deg,#1e67d2,#164d9d)}
     .reminder-command .primary-action{background:linear-gradient(135deg,#7758b8,#5c4098)}
+    .foq-overview-grid{max-width:1450px;margin:0 auto 10px;display:grid;grid-template-columns:minmax(0,1fr) minmax(285px,340px);gap:10px;align-items:stretch}
+    .foq-overview-grid .item-panel{max-width:none;margin:0;min-width:0}
     .item-panel{border-top:4px solid #1d9a61}
+    .guest-order-panel{min-width:0;padding:14px 15px;border:1px solid #d7e1ec;border-top:4px solid #8aa0bb;border-radius:16px;background:linear-gradient(145deg,#fff,#f8fbff);box-shadow:0 10px 28px rgba(24,49,82,.07);display:flex;flex-direction:column;gap:10px}
+    .guest-order-panel.has-orders{border-top-color:#e44b35;background:linear-gradient(145deg,#fff,#fff8f5)}
+    .guest-order-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+    .guest-order-heading h2{margin:3px 0 0;font-size:18px;letter-spacing:-.02em}
+    .guest-order-count{min-width:38px;height:38px;padding:0 9px;border-radius:12px;background:#e9eef5;color:#4c6079;display:grid;place-items:center;font-size:17px;font-weight:950}
+    .guest-order-count.active{background:#dc2f2f;color:#fff;box-shadow:0 5px 13px rgba(185,28,28,.22)}
+    .guest-order-list{display:grid;gap:6px}
+    .guest-order-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:8px;padding:8px 9px;border:1px solid #f0c9c1;border-radius:10px;background:#fff}
+    .guest-order-room{font-size:12px;font-weight:950;color:#172c48}
+    .guest-order-meta{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#718197;font-size:9px;font-weight:700}
+    .guest-order-row>span{grid-column:2;grid-row:1/3;align-self:center;border-radius:999px;padding:4px 6px;background:#fff0e8;color:#b64019;font-size:7px;font-weight:950;letter-spacing:.04em}
+    .guest-order-more{padding:2px 4px;color:#a53a20;font-size:9px;font-weight:900}
+    .guest-order-state{min-height:67px;padding:12px;border:1px dashed #c7d3e1;border-radius:11px;color:#687b92;display:grid;place-content:center;text-align:center;font-size:10px;font-weight:800}
+    .guest-order-state.clear{border-color:#b9dfca;background:#f1faf5;color:#187044;gap:2px}
+    .guest-order-state.clear b{font-size:13px}.guest-order-state.clear span{font-size:9px}
+    .guest-order-state.error{border-color:#efc2be;background:#fff5f4;color:#a72d25}
+    .guest-order-link{margin-top:auto;min-height:40px;border-radius:10px;background:#183f76;color:#fff;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:8px;font-size:11px;font-weight:950;box-shadow:0 5px 13px rgba(24,63,118,.18)}
+    .guest-order-panel.has-orders .guest-order-link{background:linear-gradient(135deg,#d63a2b,#aa241b)}
+    .guest-order-link span{font-size:16px;line-height:1}
     .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
-    @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}}
-    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}.urgent-follow-up-overlay{padding:10px}.urgent-follow-up-modal{padding:20px 14px;border-width:4px}.urgent-follow-up-modal h2{font-size:25px}.urgent-task-text{font-size:14px}.urgent-form-actions{grid-template-columns:1fr}.waiting-timer{min-width:84px;font-size:15px}}
+    @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}.foq-overview-grid{grid-template-columns:minmax(0,1fr) 300px}}
+    @media(max-width:760px){.foq-overview-grid{grid-template-columns:1fr}.guest-order-panel{grid-row:1}.guest-order-list{grid-template-columns:repeat(3,minmax(0,1fr))}.guest-order-row{grid-template-columns:1fr}.guest-order-row>span{grid-column:1;grid-row:auto;justify-self:start;margin-top:4px}.guest-order-link{margin-top:0}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}.urgent-follow-up-overlay{padding:10px}.urgent-follow-up-modal{padding:20px 14px;border-width:4px}.urgent-follow-up-modal h2{font-size:25px}.urgent-task-text{font-size:14px}.urgent-form-actions{grid-template-columns:1fr}.waiting-timer{min-width:84px;font-size:15px}.guest-order-list{display:grid;grid-template-columns:1fr}.guest-order-panel{padding:12px}.guest-order-row{grid-template-columns:minmax(0,1fr) auto}.guest-order-row>span{grid-column:2;grid-row:1/3;justify-self:auto;margin-top:0}}
   `}</style>;
 }
 
