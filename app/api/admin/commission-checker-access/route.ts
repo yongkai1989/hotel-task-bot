@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+const PERMANENT_ACCESS_EMAIL = 'ryan.tan@hotelhallmark.com';
 const ACCESS_SELECT =
-  'id, email, label, is_active, created_at, updated_at, last_login_at, passcode_generated_at, passcode_expires_at';
+  'id, email, label, is_active, created_at, updated_at, last_login_at, passcode_generated_at, passcode_expires_at, passcode_never_expires';
 
 function bearerToken(req: NextRequest) {
   const header = req.headers.get('authorization') || '';
@@ -51,11 +52,15 @@ function createPasscode() {
   return randomInt(0, 1_000_000).toString().padStart(6, '0');
 }
 
-function passcodeDates() {
+function passcodeDates(email: string) {
   const generatedAt = new Date();
+  const neverExpires = email === PERMANENT_ACCESS_EMAIL;
   return {
     generatedAt,
-    expiresAt: new Date(generatedAt.getTime() + COMMISSION_CHECKER_PASSCODE_SECONDS * 1000),
+    neverExpires,
+    expiresAt: neverExpires
+      ? null
+      : new Date(generatedAt.getTime() + COMMISSION_CHECKER_PASSCODE_SECONDS * 1000),
   };
 }
 
@@ -88,7 +93,7 @@ export async function POST(req: NextRequest) {
     }
 
     const passcode = createPasscode();
-    const { generatedAt, expiresAt } = passcodeDates();
+    const { generatedAt, expiresAt, neverExpires } = passcodeDates(email);
     const passcodeHash = hashCommissionCheckerPasscode(email, passcode);
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('commission_checker_access')
@@ -103,7 +108,8 @@ export async function POST(req: NextRequest) {
       is_active: true,
       passcode_hash: passcodeHash,
       passcode_generated_at: generatedAt.toISOString(),
-      passcode_expires_at: expiresAt.toISOString(),
+      passcode_expires_at: expiresAt?.toISOString() || null,
+      passcode_never_expires: neverExpires,
       passcode_generated_by: requester.user_id,
       updated_at: generatedAt.toISOString(),
     };
@@ -126,7 +132,8 @@ export async function POST(req: NextRequest) {
       ok: true,
       access: result.data,
       passcode,
-      passcode_expires_at: expiresAt.toISOString(),
+      passcode_expires_at: expiresAt?.toISOString() || null,
+      passcode_never_expires: neverExpires,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -153,14 +160,15 @@ export async function PUT(req: NextRequest) {
     if (findError) throw findError;
 
     const passcode = createPasscode();
-    const { generatedAt, expiresAt } = passcodeDates();
+    const { generatedAt, expiresAt, neverExpires } = passcodeDates(existing.email);
     const { data, error } = await supabaseAdmin
       .from('commission_checker_access')
       .update({
         is_active: true,
         passcode_hash: hashCommissionCheckerPasscode(existing.email, passcode),
         passcode_generated_at: generatedAt.toISOString(),
-        passcode_expires_at: expiresAt.toISOString(),
+        passcode_expires_at: expiresAt?.toISOString() || null,
+        passcode_never_expires: neverExpires,
         passcode_generated_by: requester.user_id,
         session_version: Number(existing.session_version || 1) + 1,
         updated_at: generatedAt.toISOString(),
@@ -174,7 +182,8 @@ export async function PUT(req: NextRequest) {
       ok: true,
       access: data,
       passcode,
-      passcode_expires_at: expiresAt.toISOString(),
+      passcode_expires_at: expiresAt?.toISOString() || null,
+      passcode_never_expires: neverExpires,
     });
   } catch (error: any) {
     return NextResponse.json(
