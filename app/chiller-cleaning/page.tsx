@@ -73,6 +73,50 @@ function statusLabel(status: ChillerStatus) {
   return 'Missing';
 }
 
+async function compressRoutinePhoto(file: File) {
+  if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error('This photo format cannot be optimized on this device.'));
+      nextImage.src = sourceUrl;
+    });
+
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.8);
+    });
+    if (!blob || blob.size >= file.size) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'routine-photo';
+    return new File([blob], `${baseName}.jpg`, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+  } catch {
+    // Preserve compatibility with HEIC or other formats the browser cannot decode.
+    return file;
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
 export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: BranchId } = {}) {
   const branchDetails = BRANCH_DETAILS[branch];
   const chillers = CHILLERS_BY_BRANCH[branch];
@@ -176,11 +220,12 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
 
     setSaving(kind);
     try {
+      const optimizedFile = await compressRoutinePhoto(file);
       const form = new FormData();
       form.append('chiller_name', selectedChiller);
       form.append('kind', kind);
       form.append('staff_name', effectiveStaffName);
-      form.append('file', file);
+      form.append('file', optimizedFile, optimizedFile.name);
 
       const res = await fetch('/api/chiller-cleaning/submissions', {
         method: 'POST',

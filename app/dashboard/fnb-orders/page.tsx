@@ -3,6 +3,10 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import {
+  FNB_ORDER_BROADCAST_CHANNEL,
+  FNB_ORDER_BROADCAST_EVENT,
+} from '../../../lib/fnbOrderRealtime';
 
 type KitchenOrder = {
   id: string;
@@ -152,6 +156,12 @@ export default function FnbOrdersPage() {
   const pendingOrders = orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE');
   const pendingCount = pendingOrders.length;
   const promptOrder = pendingOrders[0] || null;
+  const nextAcceptanceDeadline = pendingOrders.reduce<string | null>((earliest, order) => {
+    const deadline = order.kitchen_accept_deadline_at;
+    if (!deadline) return earliest;
+    if (!earliest || Date.parse(deadline) < Date.parse(earliest)) return deadline;
+    return earliest;
+  }, null);
   const access = canAccessKitchen(profile);
   const canDeleteHistory = canDeleteKitchenHistory(profile);
 
@@ -192,15 +202,69 @@ export default function FnbOrdersPage() {
 
   useEffect(() => {
     if (!access) return;
-    loadOrders();
-    const interval = setInterval(loadOrders, 5000);
-    return () => clearInterval(interval);
-  }, [access, activeTab]);
+    let channel: any = null;
+    let refreshTimer: number | null = null;
+
+    const refreshOrders = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void loadOrders(activeTab);
+      }, 200);
+    };
+
+    const startChannel = async () => {
+      if (channel || document.visibilityState !== 'visible') return;
+      await supabase.realtime.setAuth();
+      channel = supabase
+        .channel(FNB_ORDER_BROADCAST_CHANNEL, { config: { private: true } })
+        .on('broadcast', { event: FNB_ORDER_BROADCAST_EVENT }, refreshOrders)
+        .subscribe();
+    };
+
+    const stopChannel = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      refreshTimer = null;
+      if (!channel) return;
+      const activeChannel = channel;
+      channel = null;
+      void supabase.removeChannel(activeChannel);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void startChannel();
+        void loadOrders(activeTab);
+      } else {
+        stopChannel();
+      }
+    };
+
+    void loadOrders(activeTab);
+    void startChannel();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopChannel();
+    };
+  }, [access, activeTab, supabase]);
 
   useEffect(() => {
     const interval = setInterval(() => setTick((current) => current + 1), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!access || !nextAcceptanceDeadline) return;
+    const deadlineMs = Date.parse(nextAcceptanceDeadline);
+    if (!Number.isFinite(deadlineMs)) return;
+    const timeout = window.setTimeout(
+      () => void loadOrders(activeTab),
+      Math.max(250, deadlineMs - Date.now() + 250)
+    );
+    return () => window.clearTimeout(timeout);
+  }, [access, activeTab, nextAcceptanceDeadline]);
 
   useEffect(() => {
     if (!alarmEnabled || pendingCount <= 0) {

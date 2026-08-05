@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
+import { broadcastFnbOrderChange } from '../../../../lib/fnbOrderBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -104,7 +105,7 @@ function normalizeOrder(row: any) {
 
 async function expireOldPendingOrders() {
   const nowIso = new Date().toISOString();
-  await supabaseAdmin
+  const { data } = await supabaseAdmin
     .from('guest_shop_orders')
     .update({
       kitchen_status: 'AUTO_REJECTED',
@@ -117,7 +118,9 @@ async function expireOldPendingOrders() {
     .eq('order_type', 'FNB')
     .eq('status', 'PAID')
     .eq('kitchen_status', 'PENDING_ACCEPTANCE')
-    .lt('kitchen_accept_deadline_at', nowIso);
+    .lt('kitchen_accept_deadline_at', nowIso)
+    .select('id');
+  if (data?.length) await broadcastFnbOrderChange('UPDATE');
 }
 
 export async function GET(req: NextRequest) {
@@ -225,6 +228,7 @@ export async function PATCH(req: NextRequest) {
       .single();
 
     if (error) throw error;
+    await broadcastFnbOrderChange('UPDATE');
     return jsonNoCache({ ok: true, order: normalizeOrder(data) });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Failed to update F&B order' }, 500);
@@ -240,14 +244,16 @@ export async function DELETE(req: NextRequest) {
     const id = String(req.nextUrl.searchParams.get('id') || '').trim();
     if (!id) return jsonNoCache({ ok: false, error: 'Missing order id' }, 400);
 
-    const { error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('guest_shop_orders')
       .delete()
       .eq('id', id)
       .eq('order_type', 'FNB')
-      .in('kitchen_status', ['DELIVERED', 'REJECTED', 'AUTO_REJECTED']);
+      .in('kitchen_status', ['DELIVERED', 'REJECTED', 'AUTO_REJECTED'])
+      .select('id');
 
     if (error) throw error;
+    if (data?.length) await broadcastFnbOrderChange('DELETE');
     return jsonNoCache({ ok: true });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Failed to delete F&B order history' }, 500);

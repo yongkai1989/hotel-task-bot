@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
+import { broadcastFnbOrderChange } from '../../../../lib/fnbOrderBroadcastServer';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -158,6 +159,7 @@ async function markKitchenPendingIfNeeded(order: any) {
 
   // Do not block payment confirmation if the kitchen migration has not been run yet.
   if (error) return;
+  await broadcastFnbOrderChange('UPDATE');
 }
 
 async function refreshFromBillplz(order: any) {
