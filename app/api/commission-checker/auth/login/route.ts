@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   COMMISSION_CHECKER_COOKIE,
+  COMMISSION_CHECKER_SESSION_SECONDS,
   commissionCheckerPasscodeMatches,
   createCommissionCheckerToken,
 } from '../../../../../lib/commissionCheckerAuth';
@@ -80,10 +81,11 @@ export async function POST(req: NextRequest) {
 
     const { data: access, error: accessError } = await supabaseAdmin
       .from('commission_checker_access')
-      .select('id, email, session_version, is_active, passcode_hash, passcode_expires_at')
+      .select('id, email, session_version, is_active, passcode_hash, passcode_expires_at, passcode_never_expires')
       .eq('email', email)
       .maybeSingle();
 
+    const neverExpires = access?.passcode_never_expires === true;
     const expiresAt = access?.passcode_expires_at
       ? new Date(access.passcode_expires_at).getTime()
       : 0;
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest) {
       !accessError &&
       access?.is_active === true &&
       Boolean(access.passcode_hash) &&
-      expiresAt > Date.now() &&
+      (neverExpires || expiresAt > Date.now()) &&
       commissionCheckerPasscodeMatches(email, passcode, String(access.passcode_hash || ''));
 
     if (!valid || !access) {
@@ -106,9 +108,11 @@ export async function POST(req: NextRequest) {
         session_version: Number(access.session_version || 1),
       },
       Date.now(),
-      expiresAt
+      neverExpires ? undefined : expiresAt
     );
-    const maxAge = Math.max(1, Math.floor((expiresAt - Date.now()) / 1000));
+    const maxAge = neverExpires
+      ? COMMISSION_CHECKER_SESSION_SECONDS
+      : Math.max(1, Math.floor((expiresAt - Date.now()) / 1000));
 
     await Promise.all([
       recordAttempt(email, ipAddress, true),
