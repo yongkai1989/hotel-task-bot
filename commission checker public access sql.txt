@@ -41,9 +41,9 @@ begin
       foreign key (passcode_generated_by) references auth.users(id) on delete set null;
   end if;
 end
-$;
+$$;
 
-do $
+do $$
 begin
   if not exists (
     select 1
@@ -59,7 +59,7 @@ begin
       );
   end if;
 end
-$;
+$$;
 
 create unique index if not exists commission_checker_access_email_unique
   on public.commission_checker_access (email);
