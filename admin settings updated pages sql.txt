@@ -14,27 +14,21 @@ update public.user_profiles
 set
   can_access_fo_quick_actions = coalesce(
     can_access_fo_quick_actions,
-    can_access_fo_checklist,
-    upper(coalesce(role::text, '')) = 'FO',
-    false
+    coalesce(can_access_fo_checklist, false) or upper(coalesce(role::text, '')) = 'FO'
   ),
   can_access_daily_operations_summary = coalesce(
     can_access_daily_operations_summary,
-    can_access_management_tasks,
-    upper(coalesce(role::text, '')) = 'MANAGER',
-    false
+    coalesce(can_access_management_tasks, false) or upper(coalesce(role::text, '')) = 'MANAGER'
   ),
   can_access_breakfast_vouchers = coalesce(
     can_access_breakfast_vouchers,
-    can_access_fnb_orders,
-    lower(coalesce(email, '')) in ('fnb@hotelhallmark.com', 'fenny@hotelhallmark.com'),
-    false
+    coalesce(can_access_fnb_orders, false)
+      or lower(coalesce(email, '')) in ('fnb@hotelhallmark.com', 'fenny@hotelhallmark.com')
   ),
   can_access_staff_meal = coalesce(
     can_access_staff_meal,
-    upper(coalesce(role::text, '')) = 'FNB',
-    lower(coalesce(email, '')) in ('fnb@hotelhallmark.com', 'fenny@hotelhallmark.com'),
-    false
+    upper(coalesce(role::text, '')) = 'FNB'
+      or lower(coalesce(email, '')) in ('fnb@hotelhallmark.com', 'fenny@hotelhallmark.com')
   );
 
 alter table public.user_profiles
