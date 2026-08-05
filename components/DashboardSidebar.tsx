@@ -1647,6 +1647,17 @@ export default function DashboardSidebar({
 
               {canSeeAdminSettings ? (
                 <Link
+                  href="/dashboard/commission-checker-access"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="settings" sub>Commission Access</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeAdminSettings ? (
+                <Link
                   href="/dashboard/admin-settings"
                   prefetch={false}
                   onClick={closeSidebar}
