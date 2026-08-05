@@ -132,18 +132,18 @@ async function ensureBreakfastVoucher(order: any) {
 }
 
 async function markKitchenPendingIfNeeded(order: any) {
-  const isFnb = String(order?.order_type || '').trim().toUpperCase() === 'FNB';
-  if (!isFnb || !order?.id) return;
+  const orderType = String(order?.order_type || '').trim().toUpperCase();
+  if (!['FNB', 'GUEST_SHOP'].includes(orderType) || !order?.id) return;
 
   const requestedAt = new Date();
-  const deadlineAt = new Date(requestedAt.getTime() + 10 * 60 * 1000);
+  const deadlineAt = orderType === 'FNB' ? new Date(requestedAt.getTime() + 10 * 60 * 1000) : null;
 
   const { error } = await supabaseAdmin
     .from('guest_shop_orders')
     .update({
       kitchen_status: 'PENDING_ACCEPTANCE',
       kitchen_requested_at: requestedAt.toISOString(),
-      kitchen_accept_deadline_at: deadlineAt.toISOString(),
+      kitchen_accept_deadline_at: deadlineAt?.toISOString() || null,
       kitchen_accepted_at: null,
       kitchen_rejected_at: null,
       kitchen_delivered_at: null,
@@ -154,10 +154,10 @@ async function markKitchenPendingIfNeeded(order: any) {
       refund_reason: null,
     })
     .eq('id', order.id)
-    .eq('order_type', 'FNB')
+    .eq('order_type', orderType)
     .in('kitchen_status', ['NOT_REQUIRED', 'REJECTED', 'AUTO_REJECTED']);
 
-  // Do not block payment confirmation if the kitchen migration has not been run yet.
+  // Do not block payment confirmation if the order workflow migration has not been run yet.
   if (error) return;
   await broadcastFnbOrderChange('UPDATE');
 }
