@@ -951,7 +951,10 @@ function renderToggle(key: AccessKey, label: string) {
               Manage all users, department roles, passwords, page visibility, and task permissions.
             </div>
           </div>
-          <Link href="/dashboard" style={backBtnStyle}>Back to Dashboard</Link>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <Link href="/dashboard/commission-checker-access" style={backBtnStyle}>Commission Access</Link>
+            <Link href="/dashboard" style={backBtnStyle}>Back to Dashboard</Link>
+          </div>
         </div>
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
