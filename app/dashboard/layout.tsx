@@ -30,11 +30,13 @@ type DashboardUser = {
   can_access_linen_history?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_daily_operations_summary?: boolean;
   can_access_bank_in_cash?: boolean;
   can_access_admin_settings?: boolean;
   can_access_linen_admin?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
+  can_access_fo_quick_actions?: boolean;
   can_access_supervisor_checklist?: boolean;
   permissions?: Partial<Record<
     | 'can_create_task'
@@ -57,11 +59,15 @@ type DashboardUser = {
     | 'can_access_linen_history'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_daily_operations_summary'
     | 'can_access_bank_in_cash'
     | 'can_access_admin_settings'
     | 'can_access_linen_admin'
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
+    | 'can_access_fo_quick_actions'
+    | 'can_access_breakfast_vouchers'
+    | 'can_access_staff_meal'
     | 'can_access_supervisor_checklist',
     unknown
   >>;

@@ -1,0 +1,53 @@
+-- Run this once in the Supabase SQL Editor before deploying the matching app update.
+-- It adds independent access switches for newer dashboard pages while preserving
+-- the access those users already had through older shared permissions or role rules.
+
+begin;
+
+alter table public.user_profiles
+  add column if not exists can_access_fo_quick_actions boolean,
+  add column if not exists can_access_daily_operations_summary boolean,
+  add column if not exists can_access_breakfast_vouchers boolean,
+  add column if not exists can_access_staff_meal boolean;
+
+update public.user_profiles
+set
+  can_access_fo_quick_actions = coalesce(
+    can_access_fo_quick_actions,
+    coalesce(can_access_fo_checklist, false) or upper(coalesce(role::text, '')) = 'FO'
+  ),
+  can_access_daily_operations_summary = coalesce(
+    can_access_daily_operations_summary,
+    coalesce(can_access_management_tasks, false) or upper(coalesce(role::text, '')) = 'MANAGER'
+  ),
+  can_access_breakfast_vouchers = coalesce(
+    can_access_breakfast_vouchers,
+    coalesce(can_access_fnb_orders, false)
+      or lower(coalesce(email, '')) in ('fnb@hotelhallmark.com', 'fenny@hotelhallmark.com')
+  ),
+  can_access_staff_meal = coalesce(
+    can_access_staff_meal,
+    upper(coalesce(role::text, '')) = 'FNB'
+      or lower(coalesce(email, '')) in ('fnb@hotelhallmark.com', 'fenny@hotelhallmark.com')
+  );
+
+alter table public.user_profiles
+  alter column can_access_fo_quick_actions set default false,
+  alter column can_access_fo_quick_actions set not null,
+  alter column can_access_daily_operations_summary set default false,
+  alter column can_access_daily_operations_summary set not null,
+  alter column can_access_breakfast_vouchers set default false,
+  alter column can_access_breakfast_vouchers set not null,
+  alter column can_access_staff_meal set default false,
+  alter column can_access_staff_meal set not null;
+
+comment on column public.user_profiles.can_access_fo_quick_actions is
+  'Allows the FO Quick Actions dashboard page.';
+comment on column public.user_profiles.can_access_daily_operations_summary is
+  'Allows the Daily Operations Summary dashboard page.';
+comment on column public.user_profiles.can_access_breakfast_vouchers is
+  'Allows the Breakfast Vouchers dashboard page.';
+comment on column public.user_profiles.can_access_staff_meal is
+  'Allows the Staff Meal dashboard page.';
+
+commit;

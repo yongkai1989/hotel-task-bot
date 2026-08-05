@@ -8,7 +8,7 @@ type PermissionValue = boolean | string | number | null | undefined;
 
 type Profile = {
   role?: string;
-  can_access_management_tasks?: PermissionValue;
+  can_access_daily_operations_summary?: PermissionValue;
   permissions?: Record<string, PermissionValue>;
 };
 
@@ -164,7 +164,10 @@ export default function DailyOperationsSummaryPage() {
 
   const role = String(profile?.role || '').trim().toUpperCase();
   const isSuperuser = role === 'SUPERUSER';
-  const hasAccess = isSuperuser || role === 'MANAGER' || enabled(profile?.can_access_management_tasks) || enabled(profile?.permissions?.can_access_management_tasks);
+  const hasAccess =
+    isSuperuser ||
+    enabled(profile?.can_access_daily_operations_summary) ||
+    enabled(profile?.permissions?.can_access_daily_operations_summary);
 
   useEffect(() => {
     let active = true;

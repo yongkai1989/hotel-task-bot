@@ -12,6 +12,8 @@ type Profile = {
   can_create_task?: boolean;
   can_update_task_status?: boolean;
   can_access_fo_checklist?: boolean;
+  can_access_fo_quick_actions?: boolean;
+  permissions?: { can_access_fo_quick_actions?: boolean };
 };
 
 type DashboardTask = {
@@ -150,8 +152,8 @@ export default function FoQuickActionsPage() {
   const isSuperuser = String(profile?.role || '').toUpperCase() === 'SUPERUSER';
   const canAccess =
     isSuperuser ||
-    String(profile?.role || '').toUpperCase() === 'FO' ||
-    profile?.can_access_fo_checklist === true;
+    profile?.can_access_fo_quick_actions === true ||
+    profile?.permissions?.can_access_fo_quick_actions === true;
 
   const loadFoTasks = useCallback(async () => {
     const taskResponse = await fetch('/api/tasks', {

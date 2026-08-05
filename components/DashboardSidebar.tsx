@@ -34,6 +34,7 @@ type SidebarProfile = {
   can_access_supervisor_checklist?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_daily_operations_summary?: boolean;
   can_access_bank_in_cash?: boolean;
   can_access_commission_checker?: boolean;
   can_access_admin_settings?: boolean;
@@ -41,11 +42,14 @@ type SidebarProfile = {
   can_access_linen_admin?: boolean;
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
+  can_access_fo_quick_actions?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
   can_access_fnb_checklist?: boolean;
   can_access_fnb_menu_admin?: boolean;
   can_access_fnb_orders?: boolean;
+  can_access_breakfast_vouchers?: boolean;
+  can_access_staff_meal?: boolean;
   can_access_pa_checklist?: boolean;
   can_access_pa_linen_entry?: boolean;
   permissions?: Partial<Record<
@@ -71,6 +75,7 @@ type SidebarProfile = {
     | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_daily_operations_summary'
     | 'can_access_bank_in_cash'
     | 'can_access_commission_checker'
     | 'can_access_admin_settings'
@@ -78,11 +83,14 @@ type SidebarProfile = {
     | 'can_access_linen_admin'
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
+    | 'can_access_fo_quick_actions'
     | 'can_access_price_guide'
     | 'can_access_guest_laundry'
     | 'can_access_fnb_checklist'
     | 'can_access_fnb_menu_admin'
     | 'can_access_fnb_orders'
+    | 'can_access_breakfast_vouchers'
+    | 'can_access_staff_meal'
     | 'can_access_pa_checklist'
     | 'can_access_pa_linen_entry',
     unknown
@@ -152,17 +160,21 @@ type EffectiveProfile = Required<
     | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_daily_operations_summary'
     | 'can_access_bank_in_cash'
     | 'can_access_commission_checker'
     | 'can_access_admin_settings'
     | 'can_access_guest_shop_admin'
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
+    | 'can_access_fo_quick_actions'
     | 'can_access_price_guide'
     | 'can_access_guest_laundry'
     | 'can_access_fnb_checklist'
     | 'can_access_fnb_menu_admin'
     | 'can_access_fnb_orders'
+    | 'can_access_breakfast_vouchers'
+    | 'can_access_staff_meal'
     | 'can_access_pa_checklist'
     | 'can_access_pa_linen_entry'
   >
@@ -241,6 +253,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
       isSuperuser || hasAccess(permissionValue('can_access_management_tasks')),
+    can_access_daily_operations_summary:
+      isSuperuser || hasAccess(permissionValue('can_access_daily_operations_summary')),
     can_access_bank_in_cash:
       isSuperuser || hasAccess(permissionValue('can_access_bank_in_cash')),
     can_access_commission_checker:
@@ -257,6 +271,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
         hasAccess(permissionValue('can_access_fo_checklist')) &&
         (role === 'FO' || email === 'walter@hotelhallmark.com' || email === 'fenny@hotelhallmark.com')
       ),
+    can_access_fo_quick_actions:
+      isSuperuser || hasAccess(permissionValue('can_access_fo_quick_actions')),
     can_access_price_guide:
       isSuperuser ||
       role === 'FO' ||
@@ -280,6 +296,10 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       email === 'fnb@hotelhallmark.com' ||
       email === 'fenny@hotelhallmark.com' ||
       hasAccess(permissionValue('can_access_fnb_orders')),
+    can_access_breakfast_vouchers:
+      isSuperuser || hasAccess(permissionValue('can_access_breakfast_vouchers')),
+    can_access_staff_meal:
+      isSuperuser || hasAccess(permissionValue('can_access_staff_meal')),
     can_access_pa_checklist:
       isSuperuser ||
       email === 'pa@hotelhallmark.com' ||
@@ -769,14 +789,11 @@ export default function DashboardSidebar({
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
+  const canSeeDailyOperationsSummary = !!effectiveProfile?.can_access_daily_operations_summary;
   const canSeeBankInCash = !!effectiveProfile?.can_access_bank_in_cash;
   const effectiveEmail = String(effectiveProfile?.email || '').trim().toLowerCase();
   const effectiveRole = String(effectiveProfile?.role || '').trim().toUpperCase();
-  const canSeeStaffMeal =
-    effectiveRole === 'SUPERUSER' ||
-    effectiveRole === 'FNB' ||
-    effectiveEmail === 'fnb@hotelhallmark.com' ||
-    effectiveEmail === 'fenny@hotelhallmark.com';
+  const canSeeStaffMeal = !!effectiveProfile?.can_access_staff_meal;
   const canSeeCommissionChecker =
     effectiveRole === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_commission_checker ||
@@ -804,6 +821,7 @@ export default function DashboardSidebar({
     !!effectiveProfile?.can_access_fnb_orders ||
     effectiveEmail === 'fnb@hotelhallmark.com' ||
     effectiveEmail === 'fenny@hotelhallmark.com';
+  const canSeeBreakfastVouchers = !!effectiveProfile?.can_access_breakfast_vouchers;
   const canSeeBreakfastPublicLinks = effectiveRole === 'SUPERUSER';
   const canSeeFoChecklist =
     effectiveProfile?.role === 'SUPERUSER' ||
@@ -815,10 +833,7 @@ export default function DashboardSidebar({
         effectiveProfile?.email === 'fenny@hotelhallmark.com'
       )
     );
-  const canSeeFoQuickActions =
-    effectiveRole === 'SUPERUSER' ||
-    effectiveRole === 'FO' ||
-    canSeeFoChecklist;
+  const canSeeFoQuickActions = !!effectiveProfile?.can_access_fo_quick_actions;
 
   const showMaintenanceGroup =
     canSeePM ||
@@ -841,6 +856,7 @@ export default function DashboardSidebar({
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
     canSeeDailyForms ||
+    canSeeDailyOperationsSummary ||
     canSeeManagementTasks ||
     canSeeBankInCash ||
     canSeeCommissionChecker ||
@@ -856,6 +872,7 @@ export default function DashboardSidebar({
     canSeeFnbChecklist ||
     canSeeFnbMenuAdmin ||
     canSeeFnbOrders ||
+    canSeeBreakfastVouchers ||
     canSeeStaffMeal ||
     canSeeBreakfastPublicLinks;
 
@@ -880,6 +897,7 @@ export default function DashboardSidebar({
     canSeePALinenEntry,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
+    effectiveProfile?.can_access_daily_operations_summary,
     effectiveProfile?.can_access_bank_in_cash,
     effectiveProfile?.can_access_commission_checker,
     effectiveProfile?.can_access_admin_settings,
@@ -890,7 +908,10 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_fnb_checklist,
     effectiveProfile?.can_access_fnb_menu_admin,
     effectiveProfile?.can_access_fnb_orders,
+    effectiveProfile?.can_access_breakfast_vouchers,
+    effectiveProfile?.can_access_staff_meal,
     effectiveProfile?.can_access_fo_checklist,
+    effectiveProfile?.can_access_fo_quick_actions,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_update_task_status,
     effectiveProfile?.can_edit_task,
@@ -1526,7 +1547,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeFnbOrders ? (
+              {canSeeBreakfastVouchers ? (
                 <Link
                   href="/dashboard/breakfast-vouchers"
                   prefetch={false}
@@ -1601,7 +1622,7 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
-              {canSeeManagementTasks ? (
+              {canSeeDailyOperationsSummary ? (
                 <Link
                   href="/daily-operations-summary"
                   prefetch={false}
