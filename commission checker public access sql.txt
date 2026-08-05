@@ -12,6 +12,7 @@ create table if not exists public.commission_checker_access (
   updated_at timestamptz not null default now(),
   last_login_at timestamptz null,
   passcode_hash text null,
+  passcode_ciphertext text null,
   passcode_generated_at timestamptz null,
   passcode_expires_at timestamptz null,
   passcode_never_expires boolean not null default false,
@@ -23,6 +24,7 @@ create table if not exists public.commission_checker_access (
 -- These statements safely upgrade installations that used the previous email sign-in flow.
 alter table public.commission_checker_access
   add column if not exists passcode_hash text null,
+  add column if not exists passcode_ciphertext text null,
   add column if not exists passcode_generated_at timestamptz null,
   add column if not exists passcode_expires_at timestamptz null,
   add column if not exists passcode_never_expires boolean not null default false,
@@ -91,7 +93,7 @@ alter table public.commission_checker_access enable row level security;
 alter table public.commission_checker_auth_attempts enable row level security;
 
 -- No browser policies are intentionally created. Only the server-side service role
--- can read or change usernames, passcode hashes, and authentication attempts.
+-- can read or change usernames, encrypted passcodes, passcode hashes, and authentication attempts.
 revoke all on table public.commission_checker_access from anon, authenticated;
 revoke all on table public.commission_checker_auth_attempts from anon, authenticated;
 revoke all on sequence public.commission_checker_auth_attempts_id_seq from anon, authenticated;

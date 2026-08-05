@@ -15,6 +15,9 @@ type AccessRow = {
   passcode_generated_at: string | null;
   passcode_expires_at: string | null;
   passcode_never_expires: boolean;
+  passcode: string | null;
+  has_active_passcode: boolean;
+  can_recover_passcode: boolean;
 };
 
 type IssuedPasscode = {
@@ -111,7 +114,7 @@ export default function CommissionCheckerAccessAdminPage() {
       reveal(json, label, email);
       setEmail('');
       setLabel('');
-      setMessage('Access created. Copy the passcode now; it will not be shown again.');
+      setMessage('Access created. The active code remains available on this page until it expires or is replaced.');
       await load();
     } catch (err: any) {
       setError(err?.message || 'Unable to create access');
@@ -132,7 +135,7 @@ export default function CommissionCheckerAccessAdminPage() {
         body: JSON.stringify({ id: row.id }),
       });
       reveal(json, row.label, row.email);
-      setMessage('New passcode generated. Copy it now; it will not be shown again.');
+      setMessage('New passcode generated. The active code remains available on this page until it expires or is replaced.');
       await load();
     } catch (err: any) {
       setError(err?.message || 'Unable to generate passcode');
@@ -168,6 +171,33 @@ export default function CommissionCheckerAccessAdminPage() {
     setCopied(true);
   }
 
+  async function revealExisting(row: AccessRow) {
+    try {
+      setBusyId(row.id);
+      setError('');
+      setMessage('Recovering the existing code securely. This may take a few seconds...');
+      const json = await request(
+        `/api/admin/commission-checker-access?reveal=${encodeURIComponent(row.id)}&t=${Date.now()}`
+      );
+      const passcode = String(json.passcode || '');
+      setRows((current) => current.map((item) => (
+        item.id === row.id ? { ...item, ...json.access, passcode } : item
+      )));
+      setMessage(`Existing code recovered for ${row.email}.`);
+    } catch (err: any) {
+      setMessage('');
+      setError(err?.message || 'Unable to reveal the existing code');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function copyCurrentCode(row: AccessRow) {
+    if (!row.passcode) return;
+    await navigator.clipboard.writeText(`${row.email}\nPasscode: ${row.passcode}`);
+    setMessage(`Login details copied for ${row.email}.`);
+  }
+
   return (
     <main className="admin-page">
       <div className="shell">
@@ -196,7 +226,7 @@ export default function CommissionCheckerAccessAdminPage() {
             <div className="code">{issued.passcode}</div>
             <div className="issued-meta">
               <span>{issued.neverExpires ? 'This code does not expire' : `Expires ${formatDate(issued.expiresAt)}`}</span>
-              <small>This code is shown only once. Save it securely.</small>
+              <small>This active code will remain available in the staff access list below.</small>
             </div>
             <button type="button" onClick={() => void copyPasscode()}>{copied ? 'Copied' : 'Copy login details'}</button>
             <button type="button" className="dismiss" onClick={() => setIssued(null)}>Done</button>
@@ -252,6 +282,21 @@ export default function CommissionCheckerAccessAdminPage() {
                       <span>{formatDate(row.last_login_at)}</span>
                     </div>
                     <span className={`code-status ${codeState.tone}`}>{row.is_active ? codeState.label : 'Disabled'}</span>
+                    <div className="active-code">
+                      <small>Current code</small>
+                      {row.passcode ? (
+                        <div className="code-line">
+                          <strong>{row.passcode}</strong>
+                          <button type="button" className="code-action" onClick={() => void copyCurrentCode(row)}>Copy</button>
+                        </div>
+                      ) : row.is_active && row.can_recover_passcode ? (
+                        <button type="button" className="code-action recover" onClick={() => void revealExisting(row)} disabled={busyId === row.id}>
+                          {busyId === row.id ? 'Recovering...' : 'Show existing code'}
+                        </button>
+                      ) : (
+                        <span className="no-code">—</span>
+                      )}
+                    </div>
                     <div className="row-actions">
                       {row.is_active ? (
                         <button type="button" className="generate" onClick={() => void generate(row)} disabled={busyId === row.id}>
@@ -270,7 +315,7 @@ export default function CommissionCheckerAccessAdminPage() {
         </section>
 
         <div className="security-note">
-          Generating a new code immediately invalidates the previous code and all existing Commission Checker sessions for that username. Codes are stored only as secure hashes.
+          Generating a new code immediately invalidates the previous code and all existing Commission Checker sessions for that username. Active codes are encrypted at rest and are revealed only through this superuser-only page.
         </div>
       </div>
 
@@ -300,14 +345,19 @@ export default function CommissionCheckerAccessAdminPage() {
         .list-panel { padding: 20px; }
         .list-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
         .access-list { display: grid; gap: 9px; }
-        .access-row { display: grid; grid-template-columns: 10px minmax(190px,1.2fr) minmax(150px,.65fr) minmax(160px,.8fr) auto; align-items: center; gap: 14px; border: 1px solid #dbe4f0; border-radius: 16px; padding: 13px 14px; background: #fbfdff; }
+        .access-row { display: grid; grid-template-columns: 10px minmax(180px,1.1fr) minmax(130px,.65fr) minmax(150px,.8fr) minmax(150px,.7fr) auto; align-items: center; gap: 14px; border: 1px solid #dbe4f0; border-radius: 16px; padding: 13px 14px; background: #fbfdff; }
         .access-row.inactive { background: #f8fafc; color: #64748b; }
         .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; }
         .status-dot.on { background: #22c55e; box-shadow: 0 0 0 4px #dcfce7; }
-        .identity, .dates { display: grid; gap: 3px; min-width: 0; }
+        .identity, .dates, .active-code { display: grid; gap: 3px; min-width: 0; }
         .identity strong { font-size: 15px; }
         .identity span, .dates span { overflow: hidden; color: #64748b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-        .dates small { color: #94a3b8; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+        .dates small, .active-code small { color: #94a3b8; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+        .code-line { display: flex; align-items: center; gap: 7px; }
+        .code-line strong { color: #16366d; font-size: 17px; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+        button.code-action { min-height: 30px; border: 1px solid #bfdbfe; border-radius: 9px; padding: 6px 9px; background: #eff6ff; color: #1d4ed8; font-size: 11px; }
+        button.code-action.recover { width: max-content; max-width: 100%; }
+        .no-code { color: #94a3b8; font-weight: 800; }
         .code-status { border-radius: 999px; padding: 7px 10px; text-align: center; font-size: 11px; font-weight: 850; }
         .code-status.valid, .code-status.permanent { background: #dcfce7; color: #166534; }
         .code-status.expired { background: #fee2e2; color: #b91c1c; }
@@ -322,7 +372,7 @@ export default function CommissionCheckerAccessAdminPage() {
         .alert.success { border: 1px solid #bbf7d0; background: #ecfdf5; color: #166534; }
         .permanent-note { margin-top: 12px; border-radius: 12px; padding: 10px 12px; background: #ecfdf5; color: #166534; font-size: 12px; font-weight: 800; line-height: 1.45; }
         .security-note { margin-top: 14px; border: 1px solid #dbeafe; border-radius: 16px; padding: 13px 15px; background: #eff6ff; color: #1e3a8a; font-size: 12px; line-height: 1.55; font-weight: 750; }
-        @media (max-width: 900px) { .hero, .add-panel { grid-template-columns: 1fr; display: grid; } .add-form { grid-template-columns: 1fr 1fr; } .add-form > button { grid-column: 1 / -1; } .issued-card { grid-template-columns: 1fr auto; } .issued-meta { grid-column: 1 / -1; } .access-row { grid-template-columns: 10px 1fr auto; } .dates { grid-column: 2; } .code-status { grid-column: 3; grid-row: 1; } .row-actions { grid-column: 2 / -1; } }
+        @media (max-width: 900px) { .hero, .add-panel { grid-template-columns: 1fr; display: grid; } .add-form { grid-template-columns: 1fr 1fr; } .add-form > button { grid-column: 1 / -1; } .issued-card { grid-template-columns: 1fr auto; } .issued-meta { grid-column: 1 / -1; } .access-row { grid-template-columns: 10px 1fr auto; } .dates { grid-column: 2; } .code-status { grid-column: 3; grid-row: 1; } .active-code { grid-column: 2 / -1; } .row-actions { grid-column: 2 / -1; } }
         @media (max-width: 560px) { .admin-page { padding: 12px 10px 32px; } .hero, .panel { border-radius: 18px; } .hero { padding: 18px; } .hero-actions, .add-form { display: grid; grid-template-columns: 1fr; } .add-form > button { grid-column: auto; } .issued-card { grid-template-columns: 1fr; text-align: center; } .code { font-size: 36px; } .issued-card button { width: 100%; } .access-row { gap: 10px; padding: 12px; } .code-status { grid-column: 2 / -1; grid-row: auto; text-align: left; } .row-actions { display: grid; grid-template-columns: 1fr 1fr; } }
       `}</style>
     </main>

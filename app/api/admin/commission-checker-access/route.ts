@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
   COMMISSION_CHECKER_PASSCODE_SECONDS,
+  decryptCommissionCheckerPasscode,
+  encryptCommissionCheckerPasscode,
   hashCommissionCheckerPasscode,
+  recoverCommissionCheckerPasscode,
 } from '../../../../lib/commissionCheckerAuth';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
@@ -13,7 +16,7 @@ export const fetchCache = 'force-no-store';
 
 const PERMANENT_ACCESS_EMAIL = 'ryan.tan@hotelhallmark.com';
 const ACCESS_SELECT =
-  'id, email, label, is_active, created_at, updated_at, last_login_at, passcode_generated_at, passcode_expires_at, passcode_never_expires';
+  'id, email, label, is_active, created_at, updated_at, last_login_at, passcode_hash, passcode_ciphertext, passcode_generated_at, passcode_expires_at, passcode_never_expires';
 
 function bearerToken(req: NextRequest) {
   const header = req.headers.get('authorization') || '';
@@ -64,8 +67,64 @@ function passcodeDates(email: string) {
   };
 }
 
+function hasValidPasscode(row: any) {
+  if (row?.is_active !== true || !row?.passcode_hash) return false;
+  if (row?.passcode_never_expires === true) return true;
+  return Boolean(
+    row?.passcode_expires_at &&
+    new Date(row.passcode_expires_at).getTime() > Date.now()
+  );
+}
+
+function publicAccess(row: any) {
+  const valid = hasValidPasscode(row);
+  const passcode = valid
+    ? decryptCommissionCheckerPasscode(String(row?.passcode_ciphertext || ''))
+    : null;
+  const { passcode_hash: _hash, passcode_ciphertext: _ciphertext, ...safeRow } = row || {};
+  return {
+    ...safeRow,
+    passcode,
+    has_active_passcode: valid,
+    can_recover_passcode: valid && !passcode,
+  };
+}
+
 export async function GET(req: NextRequest) {
   if (!(await requireSuperuser(req))) return unauthorized();
+
+  const revealId = String(req.nextUrl.searchParams.get('reveal') || '').trim();
+  if (revealId) {
+    const { data: row, error } = await supabaseAdmin
+      .from('commission_checker_access')
+      .select(ACCESS_SELECT)
+      .eq('id', revealId)
+      .single();
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    if (!hasValidPasscode(row)) {
+      return NextResponse.json({ ok: false, error: 'This code is missing or has expired' }, { status: 400 });
+    }
+
+    let passcode = decryptCommissionCheckerPasscode(String(row.passcode_ciphertext || ''));
+    if (!passcode) {
+      passcode = await recoverCommissionCheckerPasscode(String(row.email), String(row.passcode_hash || ''));
+      if (!passcode) {
+        return NextResponse.json({ ok: false, error: 'Unable to recover this code. Generate a new code instead.' }, { status: 409 });
+      }
+      const passcodeCiphertext = encryptCommissionCheckerPasscode(passcode);
+      const { error: saveError } = await supabaseAdmin
+        .from('commission_checker_access')
+        .update({ passcode_ciphertext: passcodeCiphertext, updated_at: new Date().toISOString() })
+        .eq('id', row.id);
+      if (saveError) return NextResponse.json({ ok: false, error: saveError.message }, { status: 500 });
+      row.passcode_ciphertext = passcodeCiphertext;
+    }
+
+    return NextResponse.json(
+      { ok: true, access: publicAccess(row), passcode },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
 
   const { data, error } = await supabaseAdmin
     .from('commission_checker_access')
@@ -74,7 +133,10 @@ export async function GET(req: NextRequest) {
     .order('label', { ascending: true });
 
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, access: data || [] }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json(
+    { ok: true, access: (data || []).map(publicAccess) },
+    { headers: { 'Cache-Control': 'no-store' } }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -107,6 +169,7 @@ export async function POST(req: NextRequest) {
       label,
       is_active: true,
       passcode_hash: passcodeHash,
+      passcode_ciphertext: encryptCommissionCheckerPasscode(passcode),
       passcode_generated_at: generatedAt.toISOString(),
       passcode_expires_at: expiresAt?.toISOString() || null,
       passcode_never_expires: neverExpires,
@@ -130,7 +193,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      access: result.data,
+      access: publicAccess(result.data),
       passcode,
       passcode_expires_at: expiresAt?.toISOString() || null,
       passcode_never_expires: neverExpires,
@@ -166,6 +229,7 @@ export async function PUT(req: NextRequest) {
       .update({
         is_active: true,
         passcode_hash: hashCommissionCheckerPasscode(existing.email, passcode),
+        passcode_ciphertext: encryptCommissionCheckerPasscode(passcode),
         passcode_generated_at: generatedAt.toISOString(),
         passcode_expires_at: expiresAt?.toISOString() || null,
         passcode_never_expires: neverExpires,
@@ -180,7 +244,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      access: data,
+      access: publicAccess(data),
       passcode,
       passcode_expires_at: expiresAt?.toISOString() || null,
       passcode_never_expires: neverExpires,
@@ -218,6 +282,7 @@ export async function PATCH(req: NextRequest) {
     };
     if (!isActive) {
       updates.passcode_hash = null;
+      updates.passcode_ciphertext = null;
       updates.passcode_generated_at = null;
       updates.passcode_expires_at = null;
       updates.passcode_generated_by = null;
@@ -231,7 +296,7 @@ export async function PATCH(req: NextRequest) {
       .single();
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, access: data });
+    return NextResponse.json({ ok: true, access: publicAccess(data) });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || 'Unable to update access' }, { status: 500 });
   }
