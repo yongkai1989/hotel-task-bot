@@ -51,6 +51,7 @@ type LinenItem = {
   pa_use: number;
   total_use: number;
   in_bill: number;
+  previous_total_use: number;
   previous_in_bill: number;
   returned: number;
   previous_bill_minus_return: number;
@@ -318,7 +319,7 @@ export default function DailyOperationsSummaryPage() {
           </section>
           <section className="reconciliation-card return-card">
             <div className="reconciliation-heading"><div><strong>Today&apos;s Return vs yesterday&apos;s In Bill</strong><span>Bill date: {formatDate(summary?.linen?.previous_bill_service_date)} - returned today for that bill</span></div><small>Positive means yesterday&apos;s bill quantity is still higher than today&apos;s return.</small></div>
-            <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Yesterday In Bill</th><th>Today Return</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.previous_in_bill}</td><td>{item.returned}</td><td><Diff value={item.previous_bill_minus_return} /></td></tr>)}</tbody></table></div>
+            <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Yesterday Total Use</th><th>Yesterday In Bill</th><th>Today Return</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.previous_total_use}</td><td>{item.previous_in_bill}</td><td>{item.returned}</td><td><Diff value={item.previous_bill_minus_return} /></td></tr>)}</tbody></table></div>
           </section>
         </div>
       </section>
