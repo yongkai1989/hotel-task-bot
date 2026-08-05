@@ -94,6 +94,33 @@ function getSupabaseSafe() {
   return createBrowserSupabaseClient();
 }
 
+const RUN_ROOM_PAGE_SIZE = 1000;
+
+async function fetchAllHkRunRooms(
+  supabase: NonNullable<ReturnType<typeof getSupabaseSafe>>
+): Promise<HkTaskRunRoom[]> {
+  const rows: HkTaskRunRoom[] = [];
+
+  for (let from = 0; ; from += RUN_ROOM_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('hk_special_project_task_run_rooms')
+      .select('*')
+      .order('hk_special_project_task_run_id', { ascending: true })
+      .order('room_number', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + RUN_ROOM_PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = (data || []) as HkTaskRunRoom[];
+    rows.push(...page);
+
+    if (page.length < RUN_ROOM_PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
@@ -297,7 +324,7 @@ export default function HkSpecialProjectPage() {
         console.error('run_hk_special_project_recurrence error:', recurrenceError);
       }
 
-      const [roomRes, taskRes, runRes, roomChecklistRes] = await Promise.all([
+      const [roomRes, taskRes, runRes, roomChecklistRows] = await Promise.all([
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type, is_active')
@@ -312,21 +339,17 @@ export default function HkSpecialProjectPage() {
           .from('hk_special_project_task_runs')
           .select('*')
           .order('created_at', { ascending: false }),
-        supabase
-          .from('hk_special_project_task_run_rooms')
-          .select('*')
-          .order('room_number', { ascending: true }),
+        fetchAllHkRunRooms(supabase),
       ]);
 
       if (roomRes.error) throw roomRes.error;
       if (taskRes.error) throw taskRes.error;
       if (runRes.error) throw runRes.error;
-      if (roomChecklistRes.error) throw roomChecklistRes.error;
 
       setAllRooms((roomRes.data || []) as RoomRow[]);
       setTasks((taskRes.data || []) as HkTask[]);
       setRuns((runRes.data || []) as HkTaskRun[]);
-      setRunRooms((roomChecklistRes.data || []) as HkTaskRunRoom[]);
+      setRunRooms(roomChecklistRows);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load HK Special Project data');
     } finally {
