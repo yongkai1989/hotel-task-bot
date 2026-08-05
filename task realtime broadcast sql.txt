@@ -2,8 +2,6 @@
 -- It moves dashboard task synchronization away from Postgres Changes, which
 -- removes the high-volume realtime.list_changes workload from public.tasks.
 
-alter table realtime.messages enable row level security;
-
 drop policy if exists "dashboard users receive task broadcasts"
 on realtime.messages;
 
