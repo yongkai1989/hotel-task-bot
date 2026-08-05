@@ -121,6 +121,33 @@ function getSupabaseSafe() {
   return createBrowserSupabaseClient();
 }
 
+const RUN_ROOM_PAGE_SIZE = 1000;
+
+async function fetchAllPmRunRooms(
+  supabase: NonNullable<ReturnType<typeof getSupabaseSafe>>
+): Promise<PmTaskRunRoom[]> {
+  const rows: PmTaskRunRoom[] = [];
+
+  for (let from = 0; ; from += RUN_ROOM_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('pm_task_run_rooms')
+      .select('*')
+      .order('pm_task_run_id', { ascending: true })
+      .order('room_number', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + RUN_ROOM_PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = (data || []) as PmTaskRunRoom[];
+    rows.push(...page);
+
+    if (page.length < RUN_ROOM_PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
@@ -387,7 +414,7 @@ export default function PreventiveMaintenancePage() {
 
       await sendPendingTelegramNotifications(supabase);
 
-      const [roomRes, taskRes, taskSubtaskRes, runRes, roomChecklistRes, runSubtaskRes] = await Promise.all([
+      const [roomRes, taskRes, taskSubtaskRes, runRes, roomChecklistRows, runSubtaskRes] = await Promise.all([
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type, is_active')
@@ -406,10 +433,7 @@ export default function PreventiveMaintenancePage() {
           .from('pm_task_runs')
           .select('*')
           .order('created_at', { ascending: false }),
-        supabase
-          .from('pm_task_run_rooms')
-          .select('*')
-          .order('room_number', { ascending: true }),
+        fetchAllPmRunRooms(supabase),
         supabase
           .from('pm_task_run_subtasks')
           .select('*')
@@ -420,14 +444,13 @@ export default function PreventiveMaintenancePage() {
       if (taskRes.error) throw taskRes.error;
       if (taskSubtaskRes.error) throw taskSubtaskRes.error;
       if (runRes.error) throw runRes.error;
-      if (roomChecklistRes.error) throw roomChecklistRes.error;
       if (runSubtaskRes.error) throw runSubtaskRes.error;
 
       setAllRooms((roomRes.data || []) as RoomRow[]);
       setTasks((taskRes.data || []) as PmTask[]);
       setTaskSubtasks((taskSubtaskRes.data || []) as PmTaskSubtask[]);
       setRuns((runRes.data || []) as PmTaskRun[]);
-      setRunRooms((roomChecklistRes.data || []) as PmTaskRunRoom[]);
+      setRunRooms(roomChecklistRows);
       setRunSubtasks((runSubtaskRes.data || []) as PmTaskRunSubtask[]);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load preventive maintenance data');
