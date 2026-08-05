@@ -35,6 +35,7 @@ const PROFILE_SELECT = `
   can_access_linen_history,
   can_access_daily_forms,
   can_access_management_tasks,
+  can_access_daily_operations_summary,
   can_access_bank_in_cash,
   can_access_commission_checker,
   can_access_admin_settings,
@@ -42,12 +43,15 @@ const PROFILE_SELECT = `
   can_access_linen_admin,
   can_access_lost_found,
   can_access_fo_checklist,
+  can_access_fo_quick_actions,
   can_access_supervisor_checklist,
   can_access_price_guide,
   can_access_guest_laundry,
   can_access_fnb_checklist,
   can_access_fnb_menu_admin,
   can_access_fnb_orders,
+  can_access_breakfast_vouchers,
+  can_access_staff_meal,
   can_access_pa_checklist,
   can_access_pa_linen_entry,
   updated_at
@@ -111,6 +115,7 @@ const permissionKeys = [
   'can_access_linen_history',
   'can_access_daily_forms',
   'can_access_management_tasks',
+  'can_access_daily_operations_summary',
   'can_access_bank_in_cash',
   'can_access_commission_checker',
   'can_access_admin_settings',
@@ -118,12 +123,15 @@ const permissionKeys = [
   'can_access_linen_admin',
   'can_access_lost_found',
   'can_access_fo_checklist',
+  'can_access_fo_quick_actions',
   'can_access_supervisor_checklist',
   'can_access_price_guide',
   'can_access_guest_laundry',
   'can_access_fnb_checklist',
   'can_access_fnb_menu_admin',
   'can_access_fnb_orders',
+  'can_access_breakfast_vouchers',
+  'can_access_staff_meal',
   'can_access_pa_checklist',
   'can_access_pa_linen_entry',
 ];
@@ -196,6 +204,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_daily_forms),
     can_access_management_tasks:
       effectiveBoolean(role, profile.can_access_management_tasks),
+    can_access_daily_operations_summary:
+      effectiveBoolean(role, profile.can_access_daily_operations_summary),
     can_access_bank_in_cash:
       effectiveBoolean(role, profile.can_access_bank_in_cash),
     can_access_commission_checker:
@@ -210,6 +220,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_lost_found),
     can_access_fo_checklist:
       effectiveFoChecklist(role, profile.email || authEmail, profile.can_access_fo_checklist),
+    can_access_fo_quick_actions:
+      effectiveBoolean(role, profile.can_access_fo_quick_actions),
     can_access_supervisor_checklist:
       effectiveBoolean(role, profile.can_access_supervisor_checklist),
     can_access_price_guide:
@@ -243,6 +255,10 @@ function buildUser(profile: any, authEmail: string) {
           toPermissionBoolean(profile.can_access_fnb_menu_admin)
         );
       })(),
+    can_access_breakfast_vouchers:
+      effectiveBoolean(role, profile.can_access_breakfast_vouchers),
+    can_access_staff_meal:
+      effectiveBoolean(role, profile.can_access_staff_meal),
     can_access_fnb_orders:
       (() => {
         const email = String(profile.email || authEmail || '').trim().toLowerCase();
