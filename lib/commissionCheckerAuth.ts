@@ -88,7 +88,7 @@ export async function getCommissionCheckerSession() {
 
   const { data, error } = await supabaseAdmin
     .from('commission_checker_access')
-    .select('id, email, label, is_active, session_version, passcode_expires_at')
+    .select('id, email, label, is_active, session_version, passcode_expires_at, passcode_never_expires')
     .eq('id', decoded.accessId)
     .maybeSingle();
 
@@ -96,8 +96,13 @@ export async function getCommissionCheckerSession() {
     error ||
     !data ||
     data.is_active !== true ||
-    !data.passcode_expires_at ||
-    new Date(data.passcode_expires_at).getTime() <= Date.now() ||
+    (
+      data.passcode_never_expires !== true &&
+      (
+        !data.passcode_expires_at ||
+        new Date(data.passcode_expires_at).getTime() <= Date.now()
+      )
+    ) ||
     String(data.email || '').toLowerCase() !== decoded.email.toLowerCase() ||
     Number(data.session_version || 1) !== decoded.version
   ) {
