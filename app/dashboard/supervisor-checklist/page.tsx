@@ -278,12 +278,6 @@ export default function SupervisorChecklistPage() {
       setLoading(true);
       setErrorMsg('');
 
-      try {
-        await supabase.rpc('cleanup_supervisor_checklist_history');
-      } catch {
-        // The cleanup RPC exists after the Supervisor Checklist SQL is installed.
-      }
-
       const [templateRes, questionRes] = await Promise.all([
         supabase
           .from('supervisor_checklist_templates')

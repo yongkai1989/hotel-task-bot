@@ -1,0 +1,192 @@
+-- Free-tier maintenance optimisation
+-- Run once in the Supabase SQL Editor after deploying the matching TSX changes.
+-- This keeps the existing PM recurrence and 30-day checklist retention behaviour,
+-- but executes the maintenance work at most once per Malaysia calendar day.
+
+begin;
+
+create table if not exists public.app_maintenance_state (
+  maintenance_key text primary key,
+  last_run_date date,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_maintenance_state enable row level security;
+revoke all on table public.app_maintenance_state from public, anon, authenticated;
+grant select, insert, update on table public.app_maintenance_state to service_role;
+
+-- Cleanup is now performed by the guarded daily PM maintenance transaction.
+-- It no longer needs to be a browser-callable API.
+revoke execute on function public.cleanup_fnb_checklist_history() from public, anon, authenticated;
+revoke execute on function public.cleanup_fo_checklist_history() from public, anon, authenticated;
+revoke execute on function public.cleanup_pa_checklist_history() from public, anon, authenticated;
+revoke execute on function public.cleanup_supervisor_checklist_history() from public, anon, authenticated;
+
+grant execute on function public.cleanup_fnb_checklist_history() to service_role;
+grant execute on function public.cleanup_fo_checklist_history() to service_role;
+grant execute on function public.cleanup_pa_checklist_history() to service_role;
+grant execute on function public.cleanup_supervisor_checklist_history() to service_role;
+
+create or replace function public.run_pm_recurrence()
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_today date := (now() at time zone 'Asia/Kuala_Lumpur')::date;
+  v_opening_window_end date := (now() at time zone 'Asia/Kuala_Lumpur')::date + 7;
+  v_last_run_date date;
+  v_task record;
+  v_last_start date;
+  v_next_start date;
+  v_new_run_id uuid;
+begin
+  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+     and not exists (
+       select 1
+       from public.user_profiles up
+       where up.user_id = auth.uid()
+         and (
+           up.role in ('SUPERUSER', 'MANAGER', 'MT')
+           or lower(up.email) in (
+             'mtsup1@hotelhallmark.com',
+             'mtsup2@hotelhallmark.com'
+           )
+         )
+     ) then
+    raise exception 'Preventive Maintenance access denied' using errcode = '42501';
+  end if;
+
+  -- Serialise callers, then return immediately when another device already
+  -- completed today's maintenance. This prevents duplicate reads and writes.
+  perform pg_advisory_xact_lock(hashtext('hallmark_pm_daily_maintenance_v1'));
+
+  insert into public.app_maintenance_state (maintenance_key, last_run_date)
+  values ('pm_recurrence', null)
+  on conflict (maintenance_key) do nothing;
+
+  select state.last_run_date
+  into v_last_run_date
+  from public.app_maintenance_state state
+  where state.maintenance_key = 'pm_recurrence'
+  for update;
+
+  if v_last_run_date is not null and v_last_run_date >= v_today then
+    return;
+  end if;
+
+  update public.pm_task_runs
+  set status = 'OVERDUE',
+      updated_at = now()
+  where status = 'OPEN'
+    and due_date < v_today;
+
+  for v_task in
+    select
+      id,
+      repeat_every_days,
+      due_in_days,
+      has_room_checklist
+    from public.pm_tasks
+    where is_active = true
+      and repeat_every_days is not null
+  loop
+    if exists (
+      select 1
+      from public.pm_task_runs
+      where pm_task_id = v_task.id
+        and status in ('OPEN', 'OVERDUE')
+    ) then
+      continue;
+    end if;
+
+    select max(run_start_date)
+    into v_last_start
+    from public.pm_task_runs
+    where pm_task_id = v_task.id;
+
+    if v_last_start is null then
+      v_next_start := v_today;
+    else
+      v_next_start := v_last_start + v_task.repeat_every_days;
+    end if;
+
+    if v_next_start <= v_opening_window_end then
+      insert into public.pm_task_runs (
+        pm_task_id,
+        run_start_date,
+        due_date,
+        status
+      )
+      values (
+        v_task.id,
+        v_next_start,
+        v_next_start + v_task.due_in_days,
+        'OPEN'
+      )
+      returning id into v_new_run_id;
+
+      if v_task.has_room_checklist = true then
+        insert into public.pm_task_run_rooms (
+          pm_task_run_id,
+          room_number,
+          is_done
+        )
+        select
+          v_new_run_id,
+          room_number,
+          false
+        from public.room_master
+        where is_active = true;
+      end if;
+
+      insert into public.pm_task_run_subtasks (
+        pm_task_run_id,
+        pm_task_subtask_id,
+        title,
+        is_compulsory,
+        is_done,
+        position
+      )
+      select
+        v_new_run_id,
+        id,
+        title,
+        is_compulsory,
+        false,
+        position
+      from public.pm_task_subtasks
+      where pm_task_id = v_task.id
+      order by position;
+    end if;
+  end loop;
+
+  -- Preserve the current 30-day checklist retention without four RPC calls on
+  -- every checklist visit.
+  delete from public.fnb_checklist_submissions
+  where submission_date < v_today - 29;
+
+  delete from public.fo_checklist_submissions
+  where submission_date < v_today - 29;
+
+  delete from public.pa_checklist_submissions
+  where submission_date < v_today - 29;
+
+  delete from public.supervisor_checklist_submissions
+  where submission_date < v_today - 29;
+
+  update public.app_maintenance_state
+  set last_run_date = v_today,
+      updated_at = now()
+  where maintenance_key = 'pm_recurrence';
+end;
+$$;
+
+revoke execute on function public.run_pm_recurrence() from public, anon;
+grant execute on function public.run_pm_recurrence() to authenticated, service_role;
+
+commit;
+
+-- Verification (should return one row after the PM page is opened):
+-- select * from public.app_maintenance_state where maintenance_key = 'pm_recurrence';

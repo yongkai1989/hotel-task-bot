@@ -291,12 +291,6 @@ export default function FoChecklistPage() {
       setLoading(true);
       setErrorMsg('');
 
-      try {
-        await supabase.rpc('cleanup_fo_checklist_history');
-      } catch {
-        // The cleanup RPC exists after the FO checklist SQL is installed.
-      }
-
       const [templateRes, questionRes, todaySubmissionRes] = await Promise.all([
         supabase
           .from('fo_checklist_templates')

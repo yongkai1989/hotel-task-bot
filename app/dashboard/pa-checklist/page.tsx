@@ -287,12 +287,6 @@ export default function PAChecklistPage() {
       setLoading(true);
       setErrorMsg('');
 
-      try {
-        await supabase.rpc('cleanup_pa_checklist_history');
-      } catch {
-        // The cleanup RPC exists after the PA Checklist SQL is installed.
-      }
-
       const [templateRes, questionRes] = await Promise.all([
         supabase
           .from('pa_checklist_templates')

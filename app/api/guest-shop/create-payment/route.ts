@@ -112,7 +112,7 @@ async function loadOptionsForItems(itemIds: string[]) {
 
   const { data: groups, error: groupError } = await supabaseAdmin
     .from('guest_shop_item_option_groups')
-    .select('*')
+    .select('id, item_id, name, name_ms, name_zh, selection_type, is_required, min_select, max_select, sort_order')
     .in('item_id', itemIds)
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
@@ -121,9 +121,9 @@ async function loadOptionsForItems(itemIds: string[]) {
 
   const groupIds = (groups || []).map((group: any) => String(group.id));
   const { data: options, error: optionError } = groupIds.length
-    ? await supabaseAdmin
+      ? await supabaseAdmin
         .from('guest_shop_item_options')
-        .select('*')
+        .select('id, group_id, name, name_ms, name_zh, price_delta_myr, is_default, sort_order')
         .in('group_id', groupIds)
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
@@ -233,7 +233,7 @@ async function assertFnbIsOpen() {
 
     const { data: hours, error } = await supabaseAdmin
       .from('guest_shop_fnb_hours')
-      .select('*')
+      .select('weekday, is_open, open_time, close_time')
       .eq('weekday', now.getDay())
       .maybeSingle();
 

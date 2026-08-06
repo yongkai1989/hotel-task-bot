@@ -6,6 +6,67 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+const ITEM_COLUMNS = `
+  id,
+  name,
+  name_ms,
+  name_zh,
+  category,
+  submenu,
+  submenu_ms,
+  submenu_zh,
+  description,
+  description_ms,
+  description_zh,
+  price_myr,
+  stock,
+  image_url,
+  label,
+  label_ms,
+  label_zh,
+  accent,
+  sort_order,
+  is_active,
+  out_of_stock,
+  is_fnb,
+  created_at,
+  updated_at
+`;
+
+const OPTION_GROUP_COLUMNS = `
+  id,
+  item_id,
+  name,
+  name_ms,
+  name_zh,
+  selection_type,
+  is_required,
+  min_select,
+  max_select,
+  sort_order,
+  is_active
+`;
+
+const OPTION_COLUMNS = `
+  id,
+  group_id,
+  name,
+  name_ms,
+  name_zh,
+  price_delta_myr,
+  is_default,
+  sort_order,
+  is_active
+`;
+
+const PUBLIC_ITEM_CATALOG_COLUMNS = `
+  ${ITEM_COLUMNS},
+  option_groups:guest_shop_item_option_groups (
+    ${OPTION_GROUP_COLUMNS},
+    options:guest_shop_item_options (${OPTION_COLUMNS})
+  )
+`;
+
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -212,7 +273,7 @@ async function loadOptionGroups(itemIds: string[]) {
 
   const { data: groups, error: groupsError } = await supabaseAdmin
     .from('guest_shop_item_option_groups')
-    .select('*')
+    .select(OPTION_GROUP_COLUMNS)
     .in('item_id', itemIds)
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
@@ -221,9 +282,9 @@ async function loadOptionGroups(itemIds: string[]) {
 
   const groupIds = (groups || []).map((group: any) => String(group.id));
   const { data: options, error: optionsError } = groupIds.length
-    ? await supabaseAdmin
+      ? await supabaseAdmin
         .from('guest_shop_item_options')
-        .select('*')
+        .select(OPTION_COLUMNS)
         .in('group_id', groupIds)
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
@@ -349,13 +410,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('guest_shop_items')
-      .select(`
-        *,
-        option_groups:guest_shop_item_option_groups (
-          *,
-          options:guest_shop_item_options (*)
-        )
-      `)
+      .select(PUBLIC_ITEM_CATALOG_COLUMNS)
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true });
 
@@ -408,7 +463,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('guest_shop_items')
       .insert(payload)
-      .select('*')
+      .select(ITEM_COLUMNS)
       .single();
 
     if (error) throw error;
@@ -439,7 +494,7 @@ export async function PUT(req: NextRequest) {
     if (!canFullManage) {
       const { data: existing, error: existingError } = await supabaseAdmin
         .from('guest_shop_items')
-        .select('*')
+        .select('id, category, is_fnb, stock')
         .eq('id', id)
         .maybeSingle();
 
@@ -459,7 +514,7 @@ export async function PUT(req: NextRequest) {
           out_of_stock: body?.out_of_stock === true || body?.outOfStock === true,
         })
         .eq('id', id)
-        .select('*')
+        .select(ITEM_COLUMNS)
         .single();
 
       if (error) throw error;
@@ -479,7 +534,7 @@ export async function PUT(req: NextRequest) {
       .from('guest_shop_items')
       .update(payload)
       .eq('id', id)
-      .select('*')
+      .select(ITEM_COLUMNS)
       .single();
 
     if (error) throw error;

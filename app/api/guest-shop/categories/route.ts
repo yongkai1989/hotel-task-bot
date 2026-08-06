@@ -6,6 +6,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+const CATEGORY_COLUMNS = 'id, name, name_ms, name_zh, sort_order, is_active, created_at, updated_at';
+
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -107,7 +109,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('guest_shop_categories')
-      .select('*')
+      .select(CATEGORY_COLUMNS)
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true });
 
@@ -135,7 +137,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('guest_shop_categories')
       .insert(payload)
-      .select('*')
+      .select(CATEGORY_COLUMNS)
       .single();
 
     if (error) throw error;
@@ -168,7 +170,7 @@ export async function PUT(req: NextRequest) {
       .from('guest_shop_categories')
       .update(payload)
       .eq('id', id)
-      .select('*')
+      .select(CATEGORY_COLUMNS)
       .single();
 
     if (error) throw error;
@@ -201,7 +203,7 @@ export async function DELETE(req: NextRequest) {
       .from('guest_shop_categories')
       .update({ is_active: false })
       .eq('id', id)
-      .select('*')
+      .select(CATEGORY_COLUMNS)
       .single();
 
     if (error) throw error;

@@ -283,12 +283,6 @@ export default function FNBChecklistPage() {
       setLoading(true);
       setErrorMsg('');
 
-      try {
-        await supabase.rpc('cleanup_fnb_checklist_history');
-      } catch {
-        // The cleanup RPC exists after the F&B Check List SQL is installed.
-      }
-
       const [templateRes, questionRes] = await Promise.all([
         supabase
           .from('fnb_checklist_templates')

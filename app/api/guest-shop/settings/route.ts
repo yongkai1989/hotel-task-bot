@@ -6,6 +6,22 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+const SETTINGS_COLUMNS = `
+  id,
+  hero_image_url,
+  hero_kicker,
+  hero_kicker_ms,
+  hero_kicker_zh,
+  hero_title,
+  hero_title_ms,
+  hero_title_zh,
+  hero_body,
+  hero_body_ms,
+  hero_body_zh,
+  featured_item_id,
+  updated_at
+`;
+
 const DEFAULT_SETTINGS = {
   id: 'main',
   hero_image_url: '',
@@ -125,7 +141,7 @@ export async function GET() {
   try {
     const { data, error } = await supabaseAdmin
       .from('guest_shop_settings')
-      .select('*')
+      .select(SETTINGS_COLUMNS)
       .eq('id', 'main')
       .maybeSingle();
 
@@ -149,7 +165,7 @@ export async function PUT(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('guest_shop_settings')
       .upsert(payload, { onConflict: 'id' })
-      .select('*')
+      .select(SETTINGS_COLUMNS)
       .single();
 
     if (error) throw error;
