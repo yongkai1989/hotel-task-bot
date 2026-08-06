@@ -98,11 +98,11 @@ export async function GET() {
       await Promise.all([
         supabaseAdmin
           .from('guest_shop_fnb_hours')
-          .select('*')
+          .select('weekday, is_open, open_time, close_time')
           .order('weekday', { ascending: true }),
         supabaseAdmin
           .from('guest_shop_fnb_closed_dates')
-          .select('*')
+          .select('closed_date, reason')
           .order('closed_date', { ascending: true }),
       ]);
 

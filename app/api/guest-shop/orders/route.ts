@@ -6,6 +6,22 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+const ORDER_COLUMNS = `
+  id,
+  room_number,
+  guest_name,
+  guest_email,
+  status,
+  payment_provider,
+  payment_reference,
+  total_myr,
+  items_json,
+  paid_at,
+  fulfilled_at,
+  created_at,
+  updated_at
+`;
+
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -87,7 +103,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabaseAdmin
       .from('guest_shop_orders')
-      .select('*')
+      .select(ORDER_COLUMNS)
       .gte('created_at', start)
       .lt('created_at', end)
       .order('created_at', { ascending: false });

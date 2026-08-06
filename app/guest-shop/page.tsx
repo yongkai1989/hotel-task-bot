@@ -1133,6 +1133,8 @@ export default function GuestShopPage() {
                       <img
                         src={item.imageUrl}
                         alt={displayName}
+                        loading="lazy"
+                        decoding="async"
                         onError={(event) => {
                           event.currentTarget.style.display = 'none';
                         }}

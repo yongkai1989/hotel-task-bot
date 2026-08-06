@@ -113,6 +113,14 @@ const MT_SUPERVISOR_EMAILS = [
   'mtsup2@hotelhallmark.com',
 ];
 
+const PM_DAILY_MAINTENANCE_STORAGE_KEY = 'pmDailyMaintenanceDateV1';
+const PM_TASK_COLUMNS = 'id, title, description, repeat_every_days, due_in_days, has_room_checklist, is_active, created_by_user_id, created_by_name, created_at, updated_at';
+const PM_TASK_SUBTASK_COLUMNS = 'id, pm_task_id, title, is_compulsory, position, created_at, updated_at';
+const PM_TASK_RUN_COLUMNS = 'id, pm_task_id, run_start_date, due_date, status, completed_at, completed_by_user_id, completed_by_name, reopened_at, reopened_by_user_id, reopened_by_name, telegram_sent_at, created_at, updated_at';
+const PM_TASK_RUN_ROOM_COLUMNS = 'id, pm_task_run_id, room_number, is_done, done_at, done_by_user_id, done_by_name, created_at, updated_at';
+const PM_TASK_RUN_SUBTASK_COLUMNS = 'id, pm_task_run_id, pm_task_subtask_id, title, is_compulsory, is_done, done_at, done_by_user_id, done_by_name, position, created_at, updated_at';
+const RUN_ROOM_PAGE_SIZE = 1000;
+
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -120,8 +128,6 @@ function getSupabaseSafe() {
   if (!url || !anon) return null;
   return createBrowserSupabaseClient();
 }
-
-const RUN_ROOM_PAGE_SIZE = 1000;
 
 async function fetchAllPmRunRooms(
   supabase: NonNullable<ReturnType<typeof getSupabaseSafe>>
@@ -131,7 +137,7 @@ async function fetchAllPmRunRooms(
   for (let from = 0; ; from += RUN_ROOM_PAGE_SIZE) {
     const { data, error } = await supabase
       .from('pm_task_run_rooms')
-      .select('*')
+      .select(PM_TASK_RUN_ROOM_COLUMNS)
       .order('pm_task_run_id', { ascending: true })
       .order('room_number', { ascending: true })
       .order('id', { ascending: true })
@@ -141,7 +147,6 @@ async function fetchAllPmRunRooms(
 
     const page = (data || []) as PmTaskRunRoom[];
     rows.push(...page);
-
     if (page.length < RUN_ROOM_PAGE_SIZE) break;
   }
 
@@ -340,7 +345,7 @@ export default function PreventiveMaintenancePage() {
     return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
   }, [profile]);
 
-  async function sendPendingTelegramNotifications(supabase: any) {
+  async function sendPendingTelegramNotifications(supabase: any): Promise<boolean> {
     try {
       const { data: unsentRuns, error } = await supabase
         .from('pm_task_runs')
@@ -360,7 +365,11 @@ export default function PreventiveMaintenancePage() {
         .lte('run_start_date', getTodayLocalDateString())
         .order('created_at', { ascending: true });
 
-      if (error || !unsentRuns || unsentRuns.length === 0) return;
+      if (error) {
+        console.error('load pending PM Telegram notifications error:', error);
+        return false;
+      }
+      if (!unsentRuns || unsentRuns.length === 0) return true;
 
       for (const run of unsentRuns as any[]) {
         const taskData = Array.isArray(run.pm_tasks) ? run.pm_tasks[0] : run.pm_tasks;
@@ -388,8 +397,37 @@ export default function PreventiveMaintenancePage() {
             .eq('id', run.id);
         }
       }
+      return true;
     } catch (error) {
       console.error('sendPendingTelegramNotifications error:', error);
+      return false;
+    }
+  }
+
+  async function runDailyMaintenance(supabase: any) {
+    const today = getTodayLocalDateString();
+
+    try {
+      if (window.localStorage.getItem(PM_DAILY_MAINTENANCE_STORAGE_KEY) === today) return;
+      // Claim today's run before awaiting so rapid refreshes cannot start duplicates.
+      window.localStorage.setItem(PM_DAILY_MAINTENANCE_STORAGE_KEY, today);
+    } catch {
+      // localStorage can be unavailable in restricted browser modes. The database
+      // function also has a global daily guard after the companion SQL is applied.
+    }
+
+    const { error: recurrenceError } = await supabase.rpc('run_pm_recurrence');
+    if (recurrenceError) {
+      console.error('run_pm_recurrence error:', recurrenceError);
+    }
+
+    const telegramOk = await sendPendingTelegramNotifications(supabase);
+    if (!recurrenceError && telegramOk) return;
+
+    try {
+      window.localStorage.removeItem(PM_DAILY_MAINTENANCE_STORAGE_KEY);
+    } catch {
+      // A later page visit will rely on the database guard if storage is unavailable.
     }
   }
 
@@ -407,12 +445,7 @@ export default function PreventiveMaintenancePage() {
       const supabase = getSupabaseSafe();
       if (!supabase) throw new Error('Supabase is not configured.');
 
-      const { error: recurrenceError } = await supabase.rpc('run_pm_recurrence');
-      if (recurrenceError) {
-        console.error('run_pm_recurrence error:', recurrenceError);
-      }
-
-      await sendPendingTelegramNotifications(supabase);
+      await runDailyMaintenance(supabase);
 
       const [roomRes, taskRes, taskSubtaskRes, runRes, roomChecklistRows, runSubtaskRes] = await Promise.all([
         supabase
@@ -422,21 +455,21 @@ export default function PreventiveMaintenancePage() {
           .order('room_number', { ascending: true }),
         supabase
           .from('pm_tasks')
-          .select('*')
+          .select(PM_TASK_COLUMNS)
           .eq('is_active', true)
           .order('created_at', { ascending: false }),
         supabase
           .from('pm_task_subtasks')
-          .select('*')
+          .select(PM_TASK_SUBTASK_COLUMNS)
           .order('position', { ascending: true }),
         supabase
           .from('pm_task_runs')
-          .select('*')
+          .select(PM_TASK_RUN_COLUMNS)
           .order('created_at', { ascending: false }),
         fetchAllPmRunRooms(supabase),
         supabase
           .from('pm_task_run_subtasks')
-          .select('*')
+          .select(PM_TASK_RUN_SUBTASK_COLUMNS)
           .order('position', { ascending: true }),
       ]);
 
@@ -738,7 +771,7 @@ export default function PreventiveMaintenancePage() {
             created_by_name: profile.name || profile.email,
           },
         ])
-        .select('*')
+        .select(PM_TASK_COLUMNS)
         .single();
 
       if (taskError) throw taskError;
@@ -755,7 +788,7 @@ export default function PreventiveMaintenancePage() {
               position: subtask.position,
             }))
           )
-          .select('*');
+          .select(PM_TASK_SUBTASK_COLUMNS);
 
         if (subtaskError) throw subtaskError;
         insertedSubtasks = (subtaskRows || []) as PmTaskSubtask[];
@@ -771,7 +804,7 @@ export default function PreventiveMaintenancePage() {
             status: 'OPEN',
           },
         ])
-        .select('*')
+        .select(PM_TASK_RUN_COLUMNS)
         .single();
 
       if (runError) throw runError;
@@ -931,7 +964,7 @@ export default function PreventiveMaintenancePage() {
               position: subtask.position,
             }))
           )
-          .select('*');
+          .select(PM_TASK_SUBTASK_COLUMNS);
 
         if (subtaskError) throw subtaskError;
         insertedSubtasks = (subtaskRows || []) as PmTaskSubtask[];
