@@ -750,20 +750,19 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
     if (!result) return [];
 
     return result.missing
+      .filter(
+        (item) =>
+          !reservationFieldMatchSet.has(item.normalized) &&
+          !nameMatchSet.has(item.normalized)
+      )
       .map((item) => ({
-        'Dispute Reason': 'Reservation number not found in PMS OTA Ref. No',
+        'Dispute Reason': 'No match found anywhere in ABS',
         'Reservation Number': item.raw,
         'Folio Number': folioByReservation[item.normalized] || '',
         'CSV Row': String(item.rowNumber),
         ...item.row,
       }))
       .sort((left, right) => {
-        const leftId = normalizeBookingId(left['Reservation Number']);
-        const rightId = normalizeBookingId(right['Reservation Number']);
-        const leftNoMatch = !nameMatchSet.has(leftId) && !reservationFieldMatchSet.has(leftId);
-        const rightNoMatch = !nameMatchSet.has(rightId) && !reservationFieldMatchSet.has(rightId);
-        if (leftNoMatch !== rightNoMatch) return leftNoMatch ? -1 : 1;
-
         const leftArrival = getCell(left, commissionCsv?.headers || [], ['Arrival date', 'Check-in', 'Check in', 'Arrival']);
         const rightArrival = getCell(right, commissionCsv?.headers || [], ['Arrival date', 'Check-in', 'Check in', 'Arrival']);
         return parseSortableDate(leftArrival) - parseSortableDate(rightArrival);
@@ -975,21 +974,11 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
                     {disputeRows.length ? (
                       disputeRows.map((row, index) => {
                         const reservationId = normalizeBookingId(row['Reservation Number']);
-                        const hasNameMatch = nameMatchSet.has(reservationId);
-                        const hasReservationFieldMatch = reservationFieldMatchSet.has(reservationId);
-                        const isNoMatch = !hasNameMatch && !hasReservationFieldMatch;
-                        const rowClassName = isNoMatch
-                          ? 'cc-dispute-row-no-match'
-                          : hasReservationFieldMatch
-                            ? 'cc-dispute-row-guest-name-2-match'
-                            : 'cc-dispute-row-name-match';
-
                         return (
                           <tr
                             key={`${row['Reservation Number']}-${index}`}
-                            className={rowClassName}
+                            className="cc-dispute-row-no-match"
                             onClick={() => {
-                              if (!isNoMatch) return;
                               const currentFolio = folioByReservation[reservationId] || '';
                               const folio = window.prompt(`Enter folio number for reservation ${row['Reservation Number']}`, currentFolio);
                               if (folio === null) return;
@@ -1002,11 +991,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
                             {visibleDisputeHeaders.map((header) => (
                               <td key={header}>
                                 {header === 'Dispute Reason'
-                                  ? isNoMatch
-                                    ? 'No match found anywhere in PMS'
-                                    : hasReservationFieldMatch
-                                      ? 'Reservation found in ABS Guest Name 2, Group, or Comment'
-                                      : 'Guest name matched PMS Guest Name 1'
+                                  ? 'No match found anywhere in ABS'
                                   : row[header] || '-'}
                               </td>
                             ))}
@@ -1021,7 +1006,7 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
                   </tbody>
                 </table>
               </div>
-              <div className="cc-footnote">Red rows have no ABS match and can be clicked to key in a folio number. Blue rows matched by reservation number in Guest Name 2, Group, or Comment, or by Guest Name 1.</div>
+              <div className="cc-footnote">Only reservations with no match in ABS OTA Ref., Guest Name 2, Group, Comment, or Guest Name 1 appear here. Click a row to key in a folio number.</div>
             </section>
           </>
         ) : (
