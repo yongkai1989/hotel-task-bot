@@ -332,7 +332,7 @@ function getEffectiveProfile(profile: EffectiveProfile | null): EffectiveProfile
 
 const FO_SUPERVISOR_UPDATE_EMAIL = 'fo@hotelhallmark.com';
 const FO_UPDATE_START_HOUR = 3;
-const FO_UPDATE_END_HOUR = 7;
+const FO_UPDATE_END_HOUR = 8;
 
 function getSingaporeHour(now = new Date()) {
   const hourPart = new Intl.DateTimeFormat('en-SG', {
