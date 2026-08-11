@@ -35,7 +35,7 @@ const FLOORS_BY_BLOCK: Record<number, number[]> = {
 
 const FO_SUPERVISOR_UPDATE_EMAIL = 'fo@hotelhallmark.com';
 const FO_UPDATE_START_HOUR = 3;
-const FO_UPDATE_END_HOUR = 7;
+const FO_UPDATE_END_HOUR = 8;
 
 function getSingaporeHour(now = new Date()) {
   const hourPart = new Intl.DateTimeFormat('en-SG', {
@@ -579,7 +579,7 @@ export default function SupervisorUpdatePage() {
           {isFoTimeBlocked ? (
             <p style={styles.centerText}>
               Front Office can update room status only between{' '}
-              <strong>3:00 AM and 7:00 AM</strong>.
+              <strong>3:00 AM and 8:00 AM</strong>.
             </p>
           ) : (
             <>
