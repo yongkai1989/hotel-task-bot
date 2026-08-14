@@ -1114,6 +1114,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           room: targetRoomNumber,
           department: targetDepartment,
           task_text: taskText,
+          source_page: 'MANAGER_ROOM_CHECK',
         }),
         cache: 'no-store',
       });

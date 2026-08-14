@@ -659,10 +659,12 @@ export async function POST(req: NextRequest) {
 
     const sourceMessage = String(body.source_message || body.sourceMessage || '').trim();
     const rawTaskText = String(body.task_text || body.taskText || '').trim();
+    const requestedSourcePage = String(body.source_page || body.sourcePage || '')
+      .trim()
+      .toUpperCase();
     const sourcePage =
-      String(body.source_page || body.sourcePage || '').trim().toUpperCase() ===
-      'FO_QUICK_ACTIONS'
-        ? 'FO_QUICK_ACTIONS'
+      requestedSourcePage === 'FO_QUICK_ACTIONS' || requestedSourcePage === 'MANAGER_ROOM_CHECK'
+        ? requestedSourcePage
         : null;
     const room = String(body.room || '').trim() || extractRoomFromText(sourceMessage) || extractRoomFromText(rawTaskText);
     const taskText = rawTaskText || sourceMessage || room;
@@ -815,6 +817,15 @@ export async function POST(req: NextRequest) {
       let telegramWarning = '';
 
       try {
+        if (sourcePage === 'MANAGER_ROOM_CHECK') {
+          createdTasks.push({
+            ...task,
+            task_images: [],
+          });
+          await broadcastTaskChange(task.id, 'INSERT');
+          continue;
+        }
+
         const telegramMessageId = await sendTelegramTaskCard({
           chatId: telegramChatId,
           task: {

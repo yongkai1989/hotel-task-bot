@@ -120,6 +120,7 @@ export default function RestaurantKioskPaymentStatusPage() {
     if (!order) return [];
     return [{
       name: 'Breakfast Voucher',
+      entryDate: '',
       quantity: Math.max(1, Number(order.voucher_quantity || 1)),
       total: Number(order.total_myr || 0),
     }];

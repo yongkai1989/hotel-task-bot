@@ -1,0 +1,38 @@
+-- Daily Telegram Operations Report
+-- Safe to run more than once in Supabase SQL Editor.
+
+create table if not exists public.daily_telegram_report_runs (
+  report_date date primary key,
+  status text not null check (status in ('SENDING', 'SENT', 'FAILED')),
+  attempted_at timestamptz not null default now(),
+  sent_at timestamptz,
+  telegram_message_id bigint,
+  error_text text,
+  report_payload jsonb
+);
+
+alter table public.daily_telegram_report_runs enable row level security;
+revoke all on table public.daily_telegram_report_runs from public, anon, authenticated;
+grant all on table public.daily_telegram_report_runs to service_role;
+
+create or replace function public.can_view_daily_operations_summary()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(auth.role() = 'service_role', false)
+    or exists (
+      select 1
+      from public.user_profiles up
+      where up.user_id = auth.uid()
+        and (
+          upper(coalesce(up.role, '')) in ('SUPERUSER', 'MANAGER')
+          or coalesce(up.can_access_management_tasks, false) = true
+        )
+    );
+$$;
+
+revoke all on function public.can_view_daily_operations_summary() from public, anon;
+grant execute on function public.can_view_daily_operations_summary() to authenticated, service_role;
