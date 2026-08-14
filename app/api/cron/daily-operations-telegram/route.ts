@@ -196,8 +196,15 @@ async function sendTelegramMessage(chatId: string, text: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret || request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  const bridgeSecret = process.env.PRINTER_BRIDGE_KEY;
+  const authorization = request.headers.get('authorization');
+  const headerSecret = request.headers.get('x-printer-bridge-key');
+  const isAuthorized = Boolean(
+    bridgeSecret &&
+      (authorization === `Bearer ${bridgeSecret}` || headerSecret === bridgeSecret)
+  );
+
+  if (!isAuthorized) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
 

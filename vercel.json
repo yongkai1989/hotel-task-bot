@@ -1,10 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["sin1"],
-  "crons": [
-    {
-      "path": "/api/cron/daily-operations-telegram",
-      "schedule": "0 1 * * *"
-    }
-  ]
+  "regions": ["sin1"]
 }
