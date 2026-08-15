@@ -25,6 +25,11 @@ type ProjectRow = {
   pending_rooms?: string[];
 };
 
+type LinenItem = {
+  label?: string;
+  previous_bill_minus_return?: number;
+};
+
 type DailySummary = {
   report_date?: string;
   checklists?: ChecklistRow[];
@@ -43,6 +48,7 @@ type DailySummary = {
     return_saved?: boolean;
     return_saved_rows?: number;
     return_expected_rows?: number;
+    items?: LinenItem[];
   };
 };
 
@@ -111,6 +117,9 @@ function buildReportMessage(params: {
   const movingProjects = projects.filter((row) => row.moving_today);
   const rooms = summary.rooms || {};
   const linen = summary.linen || {};
+  const linenVarianceItems = (linen.items || []).filter(
+    (item) => Math.abs(numberValue(item.previous_bill_minus_return)) >= 3
+  );
   const missingRooms = rooms.linen_rooms_missing || [];
   const lines = [
     '📋 DAILY OPERATIONS UPDATE',
@@ -145,6 +154,15 @@ function buildReportMessage(params: {
     `• In Bill saved: ${numberValue(linen.bill_saved_rows)}/${numberValue(linen.bill_expected_rows) || 8}${linen.bill_saved ? ' ✅' : ' ❌'}`,
     `• Return saved: ${numberValue(linen.return_saved_rows)}/${numberValue(linen.return_expected_rows) || 2}${linen.return_saved ? ' ✅' : ' ❌'}`
   );
+
+  lines.push(
+    '',
+    `LINEN RETURN VARIANCE — ${linenVarianceItems.length ? `⚠️ ${linenVarianceItems.length} at ±3 or more` : '✅ all below ±3'}`
+  );
+  for (const item of linenVarianceItems) {
+    const difference = numberValue(item.previous_bill_minus_return);
+    lines.push(`• ${item.label || 'Linen'}: ${difference > 0 ? '+' : ''}${difference}`);
+  }
 
   const openChecks = numberValue(rooms.open_manager_room_checks);
   lines.push(
