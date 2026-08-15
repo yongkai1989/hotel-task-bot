@@ -1,0 +1,1883 @@
+
+-- Bank In Cash ledger for FO Checklist
+-- Run this entire file once in Supabase SQL Editor.
+
+create extension if not exists pgcrypto;
+
+-- Bank In Cash has its own Admin Settings permission. On first installation
+-- only, preserve access for users who previously received it through the
+-- combined Management Tasks permission.
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'user_profiles'
+      and column_name = 'can_access_bank_in_cash'
+  ) then
+    alter table public.user_profiles
+      add column can_access_bank_in_cash boolean not null default false;
+
+    update public.user_profiles
+    set can_access_bank_in_cash =
+      upper(coalesce(role, '')) = 'SUPERUSER'
+      or coalesce(can_access_management_tasks, false);
+  end if;
+end;
+$$;
+
+create table if not exists public.fo_checklist_cash_entries (
+  id uuid primary key default gen_random_uuid(),
+  submission_id uuid not null references public.fo_checklist_submissions(id) on delete cascade,
+  template_id uuid not null references public.fo_checklist_templates(id) on delete cascade,
+  shift_title text not null,
+  service_date date not null,
+  submitted_by_user_id uuid not null,
+  submitted_by_name text not null,
+  submitted_by_email text not null,
+  line_number integer not null default 1 check (line_number > 0),
+  person_name text not null,
+  has_cash boolean not null default false,
+  cash_amount numeric(12,2) not null default 0 check (cash_amount >= 0),
+  excess_amount numeric(12,2) not null default 0 check (excess_amount >= 0),
+  cash_bank_in_id uuid null,
+  excess_bank_in_id uuid null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.cash_bank_ins (
+  id uuid primary key default gen_random_uuid(),
+  bank_in_date date not null,
+  source_mode text not null check (source_mode in ('DAILY', 'EXCESS', 'SMALL_CHANGE', 'MIXED')),
+  selected_total numeric(12,2) not null check (selected_total > 0),
+  banked_amount numeric(12,2) not null check (banked_amount > 0),
+  balance_to_small_change numeric(12,2) not null default 0 check (balance_to_small_change >= 0),
+  receipt_paths jsonb not null default '[]'::jsonb,
+  created_by_user_id uuid not null,
+  created_by_name text not null,
+  created_by_email text not null,
+  created_at timestamptz not null default now(),
+  reversed_at timestamptz null,
+  reversed_by_user_id uuid null,
+  reversed_by_name text null,
+  reversal_reason text null
+);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'fo_cash_cash_bank_in_fk'
+  ) then
+    alter table public.fo_checklist_cash_entries
+      add constraint fo_cash_cash_bank_in_fk
+      foreign key (cash_bank_in_id) references public.cash_bank_ins(id) on delete set null;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'fo_cash_excess_bank_in_fk'
+  ) then
+    alter table public.fo_checklist_cash_entries
+      add constraint fo_cash_excess_bank_in_fk
+      foreign key (excess_bank_in_id) references public.cash_bank_ins(id) on delete set null;
+  end if;
+end;
+$$;
+
+create table if not exists public.cash_bank_in_sources (
+  id uuid primary key default gen_random_uuid(),
+  bank_in_id uuid not null references public.cash_bank_ins(id) on delete cascade,
+  source_type text not null check (source_type in ('SHIFT_CASH', 'MANUAL_CASH', 'EXCESS', 'SMALL_CHANGE')),
+  source_id uuid not null,
+  source_amount numeric(12,2) not null check (source_amount > 0),
+  created_at timestamptz not null default now(),
+  unique (bank_in_id, source_type, source_id)
+);
+
+create table if not exists public.cash_small_change (
+  id uuid primary key default gen_random_uuid(),
+  source_bank_in_id uuid not null references public.cash_bank_ins(id) on delete cascade,
+  bank_in_date date not null,
+  amount numeric(12,2) not null check (amount > 0),
+  consumed_by_bank_in_id uuid null references public.cash_bank_ins(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.cash_manual_entries (
+  id uuid primary key default gen_random_uuid(),
+  service_date date not null,
+  description text not null check (length(trim(description)) > 0),
+  amount numeric(12,2) not null default 0 check (amount >= 0),
+  bank_in_id uuid null references public.cash_bank_ins(id) on delete set null,
+  excess_amount numeric(12,2) not null default 0 check (excess_amount >= 0),
+  excess_bank_in_id uuid null references public.cash_bank_ins(id) on delete set null,
+  created_by_user_id uuid not null,
+  created_by_name text not null,
+  created_by_email text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (amount > 0 or excess_amount > 0)
+);
+
+-- Upgrade existing manual Daily Cash rows so the same ledger can also hold a
+-- missed Excess Cash declaration without creating a second calculation path.
+alter table public.cash_manual_entries
+  add column if not exists excess_amount numeric(12,2) not null default 0,
+  add column if not exists excess_bank_in_id uuid null;
+
+do $$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.cash_manual_entries'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%amount%'
+  loop
+    execute format('alter table public.cash_manual_entries drop constraint %I', v_constraint.conname);
+  end loop;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_manual_entries'::regclass
+      and conname = 'cash_manual_entries_amount_nonnegative'
+  ) then
+    alter table public.cash_manual_entries
+      add constraint cash_manual_entries_amount_nonnegative check (amount >= 0);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_manual_entries'::regclass
+      and conname = 'cash_manual_entries_excess_nonnegative'
+  ) then
+    alter table public.cash_manual_entries
+      add constraint cash_manual_entries_excess_nonnegative check (excess_amount >= 0);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_manual_entries'::regclass
+      and conname = 'cash_manual_entries_has_declared_cash'
+  ) then
+    alter table public.cash_manual_entries
+      add constraint cash_manual_entries_has_declared_cash check (amount > 0 or excess_amount > 0);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_manual_entries'::regclass
+      and conname = 'cash_manual_entries_excess_bank_in_fk'
+  ) then
+    alter table public.cash_manual_entries
+      add constraint cash_manual_entries_excess_bank_in_fk
+      foreign key (excess_bank_in_id) references public.cash_bank_ins(id) on delete set null;
+  end if;
+end;
+$$;
+
+create table if not exists public.cash_entry_amendments (
+  id uuid primary key default gen_random_uuid(),
+  cash_entry_id uuid not null references public.fo_checklist_cash_entries(id) on delete restrict,
+  previous_amount numeric(12,2) not null check (previous_amount >= 0),
+  new_amount numeric(12,2) not null check (new_amount >= 0),
+  reason text not null check (length(trim(reason)) > 0),
+  amended_by_user_id uuid not null,
+  amended_by_name text not null,
+  amended_by_email text not null,
+  amended_at timestamptz not null default now()
+);
+
+create table if not exists public.cash_excess_withdrawals (
+  id uuid primary key default gen_random_uuid(),
+  cash_entry_id uuid null unique references public.fo_checklist_cash_entries(id) on delete cascade,
+  manual_cash_entry_id uuid null references public.cash_manual_entries(id) on delete cascade,
+  folio_number text not null check (length(trim(folio_number)) > 0),
+  reason_for_excess text not null check (length(trim(reason_for_excess)) > 0),
+  error_staff_name text not null check (length(trim(error_staff_name)) > 0),
+  withdrawn_amount numeric(12,2) not null check (withdrawn_amount > 0),
+  withdrawn_by_user_id uuid not null,
+  withdrawn_by_name text not null,
+  withdrawn_by_email text not null,
+  withdrawn_at timestamptz not null default now(),
+  check (num_nonnulls(cash_entry_id, manual_cash_entry_id) = 1)
+);
+
+alter table public.cash_excess_withdrawals
+  alter column cash_entry_id drop not null,
+  add column if not exists manual_cash_entry_id uuid null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_excess_withdrawals'::regclass
+      and conname = 'cash_excess_withdrawals_manual_entry_fk'
+  ) then
+    alter table public.cash_excess_withdrawals
+      add constraint cash_excess_withdrawals_manual_entry_fk
+      foreign key (manual_cash_entry_id) references public.cash_manual_entries(id) on delete cascade;
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_excess_withdrawals'::regclass
+      and conname = 'cash_excess_withdrawals_one_source'
+  ) then
+    alter table public.cash_excess_withdrawals
+      add constraint cash_excess_withdrawals_one_source
+      check (num_nonnulls(cash_entry_id, manual_cash_entry_id) = 1);
+  end if;
+  if not exists (
+    select 1 from pg_indexes
+    where schemaname = 'public'
+      and indexname = 'cash_excess_withdrawals_manual_entry_unique'
+  ) then
+    create unique index cash_excess_withdrawals_manual_entry_unique
+      on public.cash_excess_withdrawals(manual_cash_entry_id)
+      where manual_cash_entry_id is not null;
+  end if;
+end;
+$$;
+
+-- Safely upgrade the earlier Invoice Date version if it was already installed.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cash_excess_withdrawals'
+      and column_name = 'folio_number'
+  ) then
+    alter table public.cash_excess_withdrawals add column folio_number text;
+
+
+    if exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'cash_excess_withdrawals'
+        and column_name = 'invoice_date'
+    ) then
+      execute $migration$
+        update public.cash_excess_withdrawals
+        set folio_number = 'NOT RECORDED - previous invoice date '
+          || to_char(invoice_date, 'YYYY-MM-DD')
+        where folio_number is null
+      $migration$;
+    end if;
+
+    update public.cash_excess_withdrawals
+    set folio_number = 'NOT RECORDED'
+    where nullif(trim(folio_number), '') is null;
+
+    alter table public.cash_excess_withdrawals
+      alter column folio_number set not null;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.cash_excess_withdrawals'::regclass
+      and conname = 'cash_excess_withdrawals_folio_number_check'
+  ) then
+    alter table public.cash_excess_withdrawals
+      add constraint cash_excess_withdrawals_folio_number_check
+      check (length(trim(folio_number)) > 0);
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'cash_excess_withdrawals'
+      and column_name = 'invoice_date'
+  ) then
+    execute 'alter table public.cash_excess_withdrawals alter column invoice_date drop not null';
+  end if;
+end;
+$$;
+
+create table if not exists public.cash_bank_in_deletions (
+  id uuid primary key default gen_random_uuid(),
+  bank_in_id uuid not null,
+  bank_in_date date not null,
+  bank_in_snapshot jsonb not null,
+  deletion_reason text not null check (length(trim(deletion_reason)) > 0),
+  deleted_by_user_id uuid not null,
+  deleted_by_name text not null,
+  deleted_by_email text not null,
+  deleted_at timestamptz not null default now()
+);
+
+create table if not exists public.cash_entry_deletions (
+  id uuid primary key default gen_random_uuid(),
+  source_type text not null check (source_type in ('SHIFT_CASH', 'MANUAL_CASH')),
+  source_id uuid not null,
+  service_date date not null,
+  entry_snapshot jsonb not null,
+  deletion_reason text not null check (length(trim(deletion_reason)) > 0),
+  deleted_by_user_id uuid not null,
+  deleted_by_name text not null,
+  deleted_by_email text not null,
+  deleted_at timestamptz not null default now(),
+  restored_at timestamptz null,
+  restored_by_user_id uuid null,
+  restored_by_name text null,
+  restored_by_email text null,
+  restoration_reason text null
+);
+
+alter table public.cash_entry_deletions
+  add column if not exists restored_at timestamptz null,
+  add column if not exists restored_by_user_id uuid null,
+  add column if not exists restored_by_name text null,
+  add column if not exists restored_by_email text null,
+  add column if not exists restoration_reason text null;
+
+-- Existing installations have the original source-type constraint. Replace it
+-- idempotently so manual cash uses the same bank-in source ledger.
+do $$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.cash_bank_in_sources'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%source_type%'
+  loop
+    execute format(
+      'alter table public.cash_bank_in_sources drop constraint %I',
+      v_constraint.conname
+    );
+  end loop;
+
+  alter table public.cash_bank_in_sources
+    add constraint cash_bank_in_sources_source_type_check
+    check (source_type in ('SHIFT_CASH', 'MANUAL_CASH', 'EXCESS', 'SMALL_CHANGE'));
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+-- A bank-in may combine daily cash, excess cash, and a previously unbanked
+-- balance. Existing installations need MIXED added to their check constraint.
+do $$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.cash_bank_ins'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%source_mode%'
+  loop
+    execute format(
+      'alter table public.cash_bank_ins drop constraint %I',
+      v_constraint.conname
+    );
+  end loop;
+
+  alter table public.cash_bank_ins
+    add constraint cash_bank_ins_source_mode_check
+    check (source_mode in ('DAILY', 'EXCESS', 'SMALL_CHANGE', 'MIXED'));
+exception
+  when duplicate_object then null;
+end;
+$$;
+
+create index if not exists fo_cash_service_date_idx
+  on public.fo_checklist_cash_entries(service_date desc);
+create index if not exists fo_cash_submission_idx
+  on public.fo_checklist_cash_entries(submission_id);
+create index if not exists cash_bank_ins_date_idx
+  on public.cash_bank_ins(bank_in_date desc, created_at desc);
+create index if not exists cash_small_change_open_idx
+  on public.cash_small_change(consumed_by_bank_in_id, bank_in_date desc);
+create index if not exists cash_manual_entries_date_idx
+  on public.cash_manual_entries(service_date desc, created_at desc);
+create index if not exists cash_manual_entries_open_idx
+  on public.cash_manual_entries(bank_in_id, service_date desc);
+create index if not exists cash_entry_amendments_entry_idx
+  on public.cash_entry_amendments(cash_entry_id, amended_at desc);
+create index if not exists cash_entry_amendments_date_idx
+  on public.cash_entry_amendments(amended_at desc);
+drop index if exists public.cash_excess_withdrawals_date_idx;
+create index cash_excess_withdrawals_date_idx
+  on public.cash_excess_withdrawals(withdrawn_at desc);
+create index if not exists cash_bank_in_deletions_date_idx
+  on public.cash_bank_in_deletions(bank_in_date desc, deleted_at desc);
+create index if not exists cash_entry_deletions_date_idx
+  on public.cash_entry_deletions(service_date desc, deleted_at desc);
+
+create or replace function public.can_manage_cash_bank_in()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.user_profiles up
+    where up.user_id = auth.uid()
+      and (
+        upper(coalesce(up.role, '')) = 'SUPERUSER'
+        or coalesce(up.can_access_bank_in_cash, false) = true
+      )
+  );
+$$;
+
+create or replace function public.is_cash_bank_in_superuser()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.user_profiles up
+    where up.user_id = auth.uid()
+      and upper(coalesce(up.role, '')) = 'SUPERUSER'
+  );
+$$;
+
+create or replace function public.save_fo_checklist_cash_entries(
+  p_submission_id uuid,
+  p_rows jsonb
+)
+returns setof public.fo_checklist_cash_entries
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_submission public.fo_checklist_submissions%rowtype;
+  v_template public.fo_checklist_templates%rowtype;
+  v_profile public.user_profiles%rowtype;
+  v_item jsonb;
+  v_id uuid;
+  v_existing public.fo_checklist_cash_entries%rowtype;
+  v_person_name text;
+  v_has_cash boolean;
+  v_cash_amount numeric(12,2);
+  v_excess_amount numeric(12,2);
+  v_line_number integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select * into v_submission
+  from public.fo_checklist_submissions
+  where id = p_submission_id;
+
+  if not found then
+    raise exception 'FO Checklist submission not found';
+  end if;
+
+  if v_submission.submitted_by_user_id <> auth.uid()
+     and not public.can_manage_cash_bank_in() then
+    raise exception 'Access denied';
+  end if;
+
+  select * into v_template
+  from public.fo_checklist_templates
+  where id = v_submission.template_id;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = v_submission.submitted_by_user_id
+  limit 1;
+
+  if jsonb_typeof(coalesce(p_rows, '[]'::jsonb)) <> 'array' then
+    raise exception 'Cash rows must be an array';
+  end if;
+
+  delete from public.fo_checklist_cash_entries e
+  where e.submission_id = p_submission_id
+    and e.cash_bank_in_id is null
+    and e.excess_bank_in_id is null
+    and not exists (
+      select 1 from public.cash_excess_withdrawals w where w.cash_entry_id = e.id
+
+    )
+    and not exists (
+      select 1
+      from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) item
+      where nullif(item->>'id', '')::uuid = e.id
+    );
+
+  for v_item in
+    select value from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb))
+  loop
+    v_line_number := v_line_number + 1;
+    v_id := nullif(v_item->>'id', '')::uuid;
+    v_person_name := trim(coalesce(v_item->>'personName', ''));
+    v_has_cash := coalesce((v_item->>'hasCash')::boolean, false);
+    v_cash_amount := coalesce(nullif(trim(coalesce(v_item->>'cashAmount', '')), '')::numeric, 0);
+    v_excess_amount := coalesce(nullif(trim(coalesce(v_item->>'excessAmount', '')), '')::numeric, 0);
+
+    if v_person_name = '' then
+      raise exception 'Staff name is required for every cash row';
+    end if;
+    if v_cash_amount < 0 or v_excess_amount < 0 then
+      raise exception 'Cash values cannot be negative';
+    end if;
+    if v_has_cash and v_cash_amount <= 0 then
+      raise exception 'Cash amount must be more than zero when cash submission is selected';
+    end if;
+    if not v_has_cash then
+      v_cash_amount := 0;
+    end if;
+
+    if v_id is not null then
+      select * into v_existing
+      from public.fo_checklist_cash_entries
+      where id = v_id and submission_id = p_submission_id
+      for update;
+
+      if not found then
+        raise exception 'Cash row not found';
+      end if;
+
+      if (v_existing.cash_bank_in_id is not null or v_existing.excess_bank_in_id is not null)
+         and (
+           v_existing.person_name <> v_person_name
+           or v_existing.has_cash <> v_has_cash
+           or v_existing.cash_amount <> v_cash_amount
+           or v_existing.excess_amount <> v_excess_amount
+         ) then
+        raise exception 'Banked cash rows are locked and cannot be edited';
+      end if;
+
+      if exists (
+        select 1 from public.cash_excess_withdrawals w where w.cash_entry_id = v_existing.id
+      ) and (
+        v_existing.person_name <> v_person_name
+        or v_existing.excess_amount <> v_excess_amount
+      ) then
+        raise exception 'Withdrawn excess cash rows are locked and cannot be edited';
+      end if;
+
+      update public.fo_checklist_cash_entries
+      set line_number = v_line_number,
+          person_name = v_person_name,
+          has_cash = v_has_cash,
+          cash_amount = v_cash_amount,
+          excess_amount = v_excess_amount,
+          updated_at = now()
+      where id = v_id;
+    else
+      insert into public.fo_checklist_cash_entries (
+        submission_id,
+        template_id,
+        shift_title,
+        service_date,
+        submitted_by_user_id,
+        submitted_by_name,
+        submitted_by_email,
+        line_number,
+        person_name,
+        has_cash,
+        cash_amount,
+        excess_amount
+      ) values (
+        p_submission_id,
+        v_submission.template_id,
+        coalesce(v_template.title, 'FO Shift'),
+        v_submission.submission_date,
+        v_submission.submitted_by_user_id,
+        coalesce(v_profile.name, v_submission.submitted_by_name, v_submission.submitted_by_email),
+        coalesce(v_profile.email, v_submission.submitted_by_email, ''),
+        v_line_number,
+        v_person_name,
+        v_has_cash,
+        v_cash_amount,
+        v_excess_amount
+      );
+    end if;
+  end loop;
+
+  return query
+  select *
+  from public.fo_checklist_cash_entries
+  where submission_id = p_submission_id
+  order by line_number, created_at;
+end;
+$$;
+
+drop function if exists public.add_manual_cash_entry(date, text, numeric);
+
+create or replace function public.add_manual_cash_entry(
+  p_service_date date,
+  p_description text,
+  p_amount numeric,
+  p_excess_amount numeric default 0
+)
+returns public.cash_manual_entries
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_profile public.user_profiles%rowtype;
+  v_entry public.cash_manual_entries%rowtype;
+  v_description text := trim(coalesce(p_description, ''));
+begin
+  if not public.is_cash_bank_in_superuser() then
+    raise exception 'Only SUPERUSER can add a missed FO cash declaration';
+  end if;
+  if p_service_date is null then
+    raise exception 'Cash date is required';
+  end if;
+  if v_description = '' then
+    raise exception 'A description is required';
+  end if;
+  if coalesce(p_amount, 0) < 0 or coalesce(p_excess_amount, 0) < 0 then
+    raise exception 'Daily Cash and Excess Cash amounts cannot be negative';
+  end if;
+  if coalesce(p_amount, 0) <= 0 and coalesce(p_excess_amount, 0) <= 0 then
+    raise exception 'Enter a Daily Cash amount, an Excess Cash amount, or both';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  insert into public.cash_manual_entries (
+    service_date,
+    description,
+    amount,
+    excess_amount,
+    created_by_user_id,
+    created_by_name,
+    created_by_email
+  ) values (
+    p_service_date,
+    v_description,
+    round(coalesce(p_amount, 0), 2),
+    round(coalesce(p_excess_amount, 0), 2),
+    auth.uid(),
+    coalesce(v_profile.name, v_profile.email, 'User'),
+    coalesce(v_profile.email, '')
+  ) returning * into v_entry;
+
+  return v_entry;
+end;
+$$;
+
+create or replace function public.amend_fo_cash_entry(
+  p_cash_entry_id uuid,
+  p_new_amount numeric,
+  p_reason text
+)
+returns public.fo_checklist_cash_entries
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_entry public.fo_checklist_cash_entries%rowtype;
+  v_profile public.user_profiles%rowtype;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_new_amount numeric(12,2);
+begin
+  if not public.can_manage_cash_bank_in() then
+    raise exception 'Management access required';
+  end if;
+  if p_cash_entry_id is null then
+    raise exception 'Cash entry is required';
+  end if;
+  if p_new_amount is null or p_new_amount < 0 then
+    raise exception 'New cash amount cannot be negative';
+  end if;
+  if v_reason = '' then
+    raise exception 'An amendment reason is required';
+  end if;
+
+  v_new_amount := round(p_new_amount, 2);
+
+  select * into v_entry
+  from public.fo_checklist_cash_entries
+  where id = p_cash_entry_id
+  for update;
+
+  if not found then
+    raise exception 'FO cash entry not found';
+  end if;
+  if v_entry.cash_bank_in_id is not null then
+    raise exception 'This cash amount is already included in a bank-in. Reverse the bank-in first';
+  end if;
+  if v_entry.cash_amount = v_new_amount then
+    raise exception 'The new amount must be different from the previous amount';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  insert into public.cash_entry_amendments (
+    cash_entry_id,
+    previous_amount,
+    new_amount,
+    reason,
+    amended_by_user_id,
+    amended_by_name,
+    amended_by_email
+  ) values (
+    v_entry.id,
+    v_entry.cash_amount,
+    v_new_amount,
+    v_reason,
+    auth.uid(),
+    coalesce(v_profile.name, v_profile.email, 'User'),
+    coalesce(v_profile.email, '')
+  );
+
+  update public.fo_checklist_cash_entries
+  set cash_amount = v_new_amount,
+      has_cash = (v_new_amount > 0),
+      updated_at = now()
+  where id = v_entry.id
+  returning * into v_entry;
+
+  return v_entry;
+end;
+$$;
+
+drop function if exists public.withdraw_excess_cash(uuid, date, text, text);
+
+create or replace function public.withdraw_excess_cash(
+
+  p_cash_entry_id uuid,
+  p_folio_number text,
+  p_reason_for_excess text,
+  p_error_staff_name text
+)
+returns public.cash_excess_withdrawals
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_entry public.fo_checklist_cash_entries%rowtype;
+  v_manual_entry public.cash_manual_entries%rowtype;
+  v_profile public.user_profiles%rowtype;
+  v_withdrawal public.cash_excess_withdrawals%rowtype;
+  v_is_manual boolean := false;
+  v_excess_amount numeric(12,2);
+  v_folio_number text := trim(coalesce(p_folio_number, ''));
+  v_reason text := trim(coalesce(p_reason_for_excess, ''));
+  v_staff_name text := trim(coalesce(p_error_staff_name, ''));
+begin
+  if not public.can_manage_cash_bank_in() then
+    raise exception 'Bank In Cash access required';
+  end if;
+  if p_cash_entry_id is null then
+    raise exception 'Excess cash transaction is required';
+  end if;
+  if v_folio_number = '' then
+    raise exception 'Folio number of mistake is required';
+  end if;
+  if v_reason = '' then
+    raise exception 'Reason for excess cash is required';
+  end if;
+  if v_staff_name = '' then
+    raise exception 'Staff name is required';
+  end if;
+
+  select * into v_entry
+  from public.fo_checklist_cash_entries
+  where id = p_cash_entry_id
+  for update;
+
+  if found then
+    v_excess_amount := v_entry.excess_amount;
+  else
+    select * into v_manual_entry
+    from public.cash_manual_entries
+    where id = p_cash_entry_id
+    for update;
+
+    if not found then
+      raise exception 'Excess cash transaction not found';
+    end if;
+    v_is_manual := true;
+    v_excess_amount := v_manual_entry.excess_amount;
+  end if;
+
+  if v_excess_amount <= 0 then
+    raise exception 'This transaction has no excess cash to withdraw';
+  end if;
+  if (not v_is_manual and v_entry.excess_bank_in_id is not null)
+     or (v_is_manual and v_manual_entry.excess_bank_in_id is not null) then
+    raise exception 'This excess cash has already been included in a bank-in. Reverse the bank-in first';
+  end if;
+  if exists (
+    select 1 from public.cash_excess_withdrawals
+    where cash_entry_id = p_cash_entry_id
+       or manual_cash_entry_id = p_cash_entry_id
+  ) then
+    raise exception 'This excess cash has already been withdrawn';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  insert into public.cash_excess_withdrawals (
+    cash_entry_id,
+    manual_cash_entry_id,
+    folio_number,
+    reason_for_excess,
+    error_staff_name,
+    withdrawn_amount,
+    withdrawn_by_user_id,
+    withdrawn_by_name,
+    withdrawn_by_email
+  ) values (
+    case when v_is_manual then null else v_entry.id end,
+    case when v_is_manual then v_manual_entry.id else null end,
+    v_folio_number,
+    v_reason,
+    v_staff_name,
+    v_excess_amount,
+    auth.uid(),
+    coalesce(v_profile.name, v_profile.email, 'User'),
+    coalesce(v_profile.email, '')
+  )
+  returning * into v_withdrawal;
+
+  return v_withdrawal;
+end;
+$$;
+
+drop function if exists public.create_cash_bank_in(text, uuid[], numeric, date, text[]);
+
+create or replace function public.create_cash_bank_in(
+  p_daily_source_ids uuid[],
+  p_excess_source_ids uuid[],
+  p_balance_source_ids uuid[],
+  p_banked_amount numeric,
+  p_bank_in_date date,
+  p_receipt_paths text[] default array[]::text[]
+)
+returns public.cash_bank_ins
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_daily_ids uuid[] := coalesce(p_daily_source_ids, array[]::uuid[]);
+  v_excess_ids uuid[] := coalesce(p_excess_source_ids, array[]::uuid[]);
+  v_balance_ids uuid[] := coalesce(p_balance_source_ids, array[]::uuid[]);
+  v_mode text;
+  v_mode_count integer := 0;
+  v_profile public.user_profiles%rowtype;
+  v_selected_total numeric(12,2) := 0;
+  v_balance numeric(12,2) := 0;
+  v_bank public.cash_bank_ins%rowtype;
+begin
+  if not public.can_manage_cash_bank_in() then
+    raise exception 'Management access required';
+  end if;
+  if cardinality(v_daily_ids) + cardinality(v_excess_ids) + cardinality(v_balance_ids) = 0 then
+    raise exception 'Select at least one cash source';
+  end if;
+  if p_bank_in_date is null then
+    raise exception 'Bank-in date is required';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  perform 1 from public.fo_checklist_cash_entries
+    where id = any(v_daily_ids) for update;
+  perform 1 from public.cash_manual_entries
+    where id = any(v_daily_ids) for update;
+  perform 1 from public.fo_checklist_cash_entries
+    where id = any(v_excess_ids) for update;
+  perform 1 from public.cash_manual_entries
+    where id = any(v_excess_ids) for update;
+  perform 1 from public.cash_small_change
+    where id = any(v_balance_ids) for update;
+
+  if exists (
+    select 1
+    from unnest(v_daily_ids) selected(source_id)
+    where not exists (
+      select 1
+      from public.fo_checklist_cash_entries e
+      where e.id = selected.source_id
+        and e.cash_amount > 0
+        and e.cash_bank_in_id is null
+    )
+    and not exists (
+      select 1
+      from public.cash_manual_entries m
+      where m.id = selected.source_id
+        and m.amount > 0
+        and m.bank_in_id is null
+    )
+  ) then
+    raise exception 'One or more selected daily cash rows are no longer available';
+  end if;
+
+  if exists (
+    select 1
+    from unnest(v_excess_ids) selected(source_id)
+    where not exists (
+      select 1
+      from public.fo_checklist_cash_entries e
+      where e.id = selected.source_id
+        and e.excess_amount > 0
+        and e.excess_bank_in_id is null
+        and not exists (
+          select 1 from public.cash_excess_withdrawals w where w.cash_entry_id = e.id
+        )
+    )
+    and not exists (
+      select 1
+      from public.cash_manual_entries m
+      where m.id = selected.source_id
+        and m.excess_amount > 0
+        and m.excess_bank_in_id is null
+        and not exists (
+          select 1 from public.cash_excess_withdrawals w where w.manual_cash_entry_id = m.id
+        )
+    )
+  ) then
+    raise exception 'One or more selected excess cash rows are no longer available';
+  end if;
+
+  if exists (
+    select 1
+    from unnest(v_balance_ids) selected(source_id)
+    where not exists (
+      select 1
+      from public.cash_small_change s
+      where s.id = selected.source_id
+        and s.amount > 0
+        and s.consumed_by_bank_in_id is null
+    )
+  ) then
+    raise exception 'One or more selected balance rows are no longer available';
+  end if;
+
+  select
+    coalesce((
+      select sum(source_amount)
+      from (
+        select cash_amount as source_amount
+        from public.fo_checklist_cash_entries
+        where id = any(v_daily_ids)
+        union all
+        select amount as source_amount
+        from public.cash_manual_entries
+        where id = any(v_daily_ids)
+      ) daily_sources
+    ), 0)
+    + coalesce((
+      select sum(source_amount)
+      from (
+        select excess_amount as source_amount
+        from public.fo_checklist_cash_entries
+        where id = any(v_excess_ids)
+        union all
+        select excess_amount as source_amount
+        from public.cash_manual_entries
+        where id = any(v_excess_ids)
+      ) excess_sources
+    ), 0)
+    + coalesce((
+      select sum(amount)
+      from public.cash_small_change
+      where id = any(v_balance_ids)
+    ), 0)
+  into v_selected_total;
+
+
+  if cardinality(v_daily_ids) > 0 then
+    v_mode_count := v_mode_count + 1;
+    v_mode := 'DAILY';
+  end if;
+  if cardinality(v_excess_ids) > 0 then
+    v_mode_count := v_mode_count + 1;
+    v_mode := 'EXCESS';
+  end if;
+  if cardinality(v_balance_ids) > 0 then
+    v_mode_count := v_mode_count + 1;
+    v_mode := 'SMALL_CHANGE';
+  end if;
+  if v_mode_count > 1 then
+    v_mode := 'MIXED';
+  end if;
+
+  if v_selected_total <= 0 then
+    raise exception 'Selected cash total must be more than zero';
+  end if;
+  if p_banked_amount <= 0 or p_banked_amount > v_selected_total then
+    raise exception 'Banked amount must be more than zero and cannot exceed selected cash';
+  end if;
+
+  v_balance := round(v_selected_total - p_banked_amount, 2);
+
+  insert into public.cash_bank_ins (
+    bank_in_date,
+    source_mode,
+    selected_total,
+    banked_amount,
+    balance_to_small_change,
+    receipt_paths,
+    created_by_user_id,
+    created_by_name,
+    created_by_email
+  ) values (
+    p_bank_in_date,
+    v_mode,
+    v_selected_total,
+    p_banked_amount,
+    v_balance,
+    to_jsonb(coalesce(p_receipt_paths, array[]::text[])),
+    auth.uid(),
+    coalesce(v_profile.name, v_profile.email, 'User'),
+    coalesce(v_profile.email, '')
+  ) returning * into v_bank;
+
+  insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
+    select v_bank.id, 'SHIFT_CASH', id, cash_amount
+    from public.fo_checklist_cash_entries
+    where id = any(v_daily_ids);
+  insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
+    select v_bank.id, 'MANUAL_CASH', id, amount
+    from public.cash_manual_entries
+    where id = any(v_daily_ids);
+  insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
+    select v_bank.id, 'EXCESS', id, excess_amount
+    from public.fo_checklist_cash_entries
+    where id = any(v_excess_ids);
+  insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
+    select v_bank.id, 'EXCESS', id, excess_amount
+    from public.cash_manual_entries
+    where id = any(v_excess_ids);
+  insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
+    select v_bank.id, 'SMALL_CHANGE', id, amount
+    from public.cash_small_change
+    where id = any(v_balance_ids);
+
+  update public.fo_checklist_cash_entries
+    set cash_bank_in_id = v_bank.id, updated_at = now()
+    where id = any(v_daily_ids);
+  update public.cash_manual_entries
+    set bank_in_id = v_bank.id, updated_at = now()
+    where id = any(v_daily_ids);
+  update public.fo_checklist_cash_entries
+    set excess_bank_in_id = v_bank.id, updated_at = now()
+    where id = any(v_excess_ids);
+  update public.cash_manual_entries
+    set excess_bank_in_id = v_bank.id, updated_at = now()
+    where id = any(v_excess_ids);
+  update public.cash_small_change
+    set consumed_by_bank_in_id = v_bank.id
+    where id = any(v_balance_ids);
+
+  if v_balance > 0 then
+    insert into public.cash_small_change (source_bank_in_id, bank_in_date, amount)
+    values (v_bank.id, p_bank_in_date, v_balance);
+  end if;
+
+  return v_bank;
+end;
+$$;
+
+create or replace function public.reverse_cash_bank_in(
+  p_bank_in_id uuid,
+  p_reason text
+)
+returns public.cash_bank_ins
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_bank public.cash_bank_ins%rowtype;
+  v_profile public.user_profiles%rowtype;
+begin
+  if not public.is_cash_bank_in_superuser() then
+    raise exception 'Only SUPERUSER can reverse a bank-in';
+  end if;
+
+  select * into v_bank
+  from public.cash_bank_ins
+  where id = p_bank_in_id
+  for update;
+
+  if not found then
+    raise exception 'Bank-in record not found';
+  end if;
+  if v_bank.reversed_at is not null then
+    raise exception 'This bank-in is already reversed';
+  end if;
+  if exists (
+    select 1 from public.cash_small_change
+    where source_bank_in_id = p_bank_in_id
+      and consumed_by_bank_in_id is not null
+  ) then
+    raise exception 'Reverse the later small-change bank-in first';
+  end if;
+
+  update public.fo_checklist_cash_entries e
+  set cash_bank_in_id = null, updated_at = now()
+  from public.cash_bank_in_sources s
+  where s.bank_in_id = p_bank_in_id
+    and s.source_type = 'SHIFT_CASH'
+    and e.id = s.source_id;
+
+  update public.cash_manual_entries m
+  set bank_in_id = null, updated_at = now()
+  from public.cash_bank_in_sources s
+  where s.bank_in_id = p_bank_in_id
+    and s.source_type = 'MANUAL_CASH'
+    and m.id = s.source_id;
+
+  update public.fo_checklist_cash_entries e
+  set excess_bank_in_id = null, updated_at = now()
+  from public.cash_bank_in_sources s
+  where s.bank_in_id = p_bank_in_id
+    and s.source_type = 'EXCESS'
+    and e.id = s.source_id;
+
+  update public.cash_manual_entries m
+  set excess_bank_in_id = null, updated_at = now()
+  from public.cash_bank_in_sources s
+  where s.bank_in_id = p_bank_in_id
+    and s.source_type = 'EXCESS'
+    and m.id = s.source_id;
+
+  update public.cash_small_change c
+  set consumed_by_bank_in_id = null
+  from public.cash_bank_in_sources s
+  where s.bank_in_id = p_bank_in_id
+    and s.source_type = 'SMALL_CHANGE'
+    and c.id = s.source_id;
+
+  delete from public.cash_small_change
+  where source_bank_in_id = p_bank_in_id
+    and consumed_by_bank_in_id is null;
+
+  select * into v_profile
+  from public.user_profiles where user_id = auth.uid() limit 1;
+
+  update public.cash_bank_ins
+  set reversed_at = now(),
+      reversed_by_user_id = auth.uid(),
+      reversed_by_name = coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+      reversal_reason = nullif(trim(coalesce(p_reason, '')), '')
+  where id = p_bank_in_id
+  returning * into v_bank;
+
+  return v_bank;
+end;
+$$;
+
+create or replace function public.delete_cash_bank_in(
+  p_bank_in_id uuid,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_bank public.cash_bank_ins%rowtype;
+  v_profile public.user_profiles%rowtype;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_result jsonb;
+begin
+  if not public.is_cash_bank_in_superuser() then
+    raise exception 'Only SUPERUSER can delete a bank-in record';
+  end if;
+  if p_bank_in_id is null then
+    raise exception 'Bank-in record is required';
+  end if;
+  if v_reason = '' then
+    raise exception 'A deletion reason is required';
+  end if;
+
+  select * into v_bank
+  from public.cash_bank_ins
+  where id = p_bank_in_id
+  for update;
+
+  if not found then
+    raise exception 'Bank-in record not found';
+  end if;
+  if v_bank.reversed_at is null then
+    raise exception 'Reverse this bank-in before deleting it';
+  end if;
+  if exists (
+    select 1 from public.cash_small_change
+    where source_bank_in_id = p_bank_in_id
+       or consumed_by_bank_in_id = p_bank_in_id
+  ) or exists (
+    select 1 from public.fo_checklist_cash_entries
+    where cash_bank_in_id = p_bank_in_id
+       or excess_bank_in_id = p_bank_in_id
+  ) or exists (
+    select 1 from public.cash_manual_entries
+    where bank_in_id = p_bank_in_id
+  ) then
+    raise exception 'This bank-in still has active ledger references and cannot be deleted';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  insert into public.cash_bank_in_deletions (
+    bank_in_id,
+    bank_in_date,
+    bank_in_snapshot,
+    deletion_reason,
+    deleted_by_user_id,
+    deleted_by_name,
+    deleted_by_email
+  ) values (
+    v_bank.id,
+    v_bank.bank_in_date,
+
+    to_jsonb(v_bank),
+    v_reason,
+    auth.uid(),
+    coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+    coalesce(v_profile.email, '')
+  );
+
+  v_result := jsonb_build_object(
+    'id', v_bank.id,
+    'receipt_paths', v_bank.receipt_paths
+  );
+
+  delete from public.cash_bank_ins
+  where id = v_bank.id;
+
+  return v_result;
+end;
+$$;
+
+create or replace function public.delete_cash_ledger_entry(
+  p_source_type text,
+  p_source_id uuid,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_source_type text := upper(trim(coalesce(p_source_type, '')));
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_profile public.user_profiles%rowtype;
+  v_shift_entry public.fo_checklist_cash_entries%rowtype;
+  v_manual_entry public.cash_manual_entries%rowtype;
+  v_snapshot jsonb;
+  v_service_date date;
+begin
+  if not public.is_cash_bank_in_superuser() then
+    raise exception 'Only SUPERUSER can delete a cash entry';
+  end if;
+  if p_source_id is null then
+    raise exception 'Cash entry is required';
+  end if;
+  if v_source_type not in ('SHIFT_CASH', 'MANUAL_CASH') then
+    raise exception 'Unsupported cash entry type';
+  end if;
+  if v_reason = '' then
+    raise exception 'A deletion reason is required';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  if v_source_type = 'SHIFT_CASH' then
+    select * into v_shift_entry
+    from public.fo_checklist_cash_entries
+    where id = p_source_id
+    for update;
+
+    if not found then
+      raise exception 'FO cash entry not found';
+    end if;
+    if v_shift_entry.cash_bank_in_id is not null
+       or v_shift_entry.excess_bank_in_id is not null then
+      raise exception 'This entry is included in a bank-in. Reverse the bank-in before deleting it';
+    end if;
+
+    v_service_date := v_shift_entry.service_date;
+    v_snapshot := jsonb_build_object(
+      'entry', to_jsonb(v_shift_entry),
+      'amendments', coalesce(
+        (
+          select jsonb_agg(to_jsonb(a) order by a.amended_at)
+          from public.cash_entry_amendments a
+          where a.cash_entry_id = v_shift_entry.id
+        ),
+        '[]'::jsonb
+      ),
+      'excess_withdrawal',
+        (
+          select to_jsonb(w)
+          from public.cash_excess_withdrawals w
+          where w.cash_entry_id = v_shift_entry.id
+          limit 1
+        )
+    );
+
+    insert into public.cash_entry_deletions (
+      source_type,
+      source_id,
+      service_date,
+      entry_snapshot,
+      deletion_reason,
+      deleted_by_user_id,
+      deleted_by_name,
+      deleted_by_email
+    ) values (
+      v_source_type,
+      v_shift_entry.id,
+      v_service_date,
+      v_snapshot,
+      v_reason,
+      auth.uid(),
+      coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+      coalesce(v_profile.email, '')
+    );
+
+    delete from public.cash_entry_amendments
+    where cash_entry_id = v_shift_entry.id;
+
+    delete from public.fo_checklist_cash_entries
+    where id = v_shift_entry.id;
+  else
+    select * into v_manual_entry
+    from public.cash_manual_entries
+    where id = p_source_id
+    for update;
+
+    if not found then
+      raise exception 'Manual cash entry not found';
+    end if;
+    if v_manual_entry.bank_in_id is not null
+       or v_manual_entry.excess_bank_in_id is not null then
+      raise exception 'This entry is included in a bank-in. Reverse the bank-in before deleting it';
+    end if;
+
+    v_service_date := v_manual_entry.service_date;
+    v_snapshot := jsonb_build_object(
+      'entry', to_jsonb(v_manual_entry),
+      'excess_withdrawal',
+        (
+          select to_jsonb(w)
+          from public.cash_excess_withdrawals w
+          where w.manual_cash_entry_id = v_manual_entry.id
+          limit 1
+        )
+    );
+
+    insert into public.cash_entry_deletions (
+      source_type,
+      source_id,
+      service_date,
+      entry_snapshot,
+      deletion_reason,
+      deleted_by_user_id,
+      deleted_by_name,
+      deleted_by_email
+    ) values (
+      v_source_type,
+      v_manual_entry.id,
+      v_service_date,
+      v_snapshot,
+      v_reason,
+      auth.uid(),
+      coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+      coalesce(v_profile.email, '')
+    );
+
+    delete from public.cash_manual_entries
+    where id = v_manual_entry.id;
+  end if;
+
+  return jsonb_build_object(
+    'source_type', v_source_type,
+    'source_id', p_source_id,
+    'service_date', v_service_date
+  );
+end;
+$$;
+
+create or replace function public.restore_deleted_cash_ledger_entry(
+  p_deletion_id uuid,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deletion public.cash_entry_deletions%rowtype;
+  v_profile public.user_profiles%rowtype;
+  v_shift_entry public.fo_checklist_cash_entries%rowtype;
+  v_manual_entry public.cash_manual_entries%rowtype;
+  v_amendment public.cash_entry_amendments%rowtype;
+  v_withdrawal public.cash_excess_withdrawals%rowtype;
+  v_item jsonb;
+  v_reason text := trim(coalesce(p_reason, ''));
+begin
+  if not public.is_cash_bank_in_superuser() then
+    raise exception 'Only SUPERUSER can restore a deleted cash entry';
+  end if;
+  if p_deletion_id is null then
+    raise exception 'Deletion record is required';
+  end if;
+  if v_reason = '' then
+    raise exception 'A restoration reason is required';
+  end if;
+
+  select * into v_deletion
+  from public.cash_entry_deletions
+  where id = p_deletion_id
+  for update;
+
+  if not found then
+    raise exception 'Deleted cash entry audit record not found';
+  end if;
+  if v_deletion.restored_at is not null then
+    raise exception 'This deletion has already been reversed';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  if v_deletion.source_type = 'SHIFT_CASH' then
+    if exists (
+      select 1 from public.fo_checklist_cash_entries
+      where id = v_deletion.source_id
+    ) then
+      raise exception 'This FO cash entry already exists';
+    end if;
+
+    select * into v_shift_entry
+    from jsonb_populate_record(
+      null::public.fo_checklist_cash_entries,
+      v_deletion.entry_snapshot->'entry'
+    );
+
+    if v_shift_entry.cash_bank_in_id is not null
+       or v_shift_entry.excess_bank_in_id is not null then
+      raise exception 'The deleted snapshot still contains a bank-in link and cannot be restored';
+    end if;
+    if not exists (
+      select 1 from public.fo_checklist_submissions
+      where id = v_shift_entry.submission_id
+    ) then
+      raise exception 'The original FO Checklist submission no longer exists';
+    end if;
+    if not exists (
+      select 1 from public.fo_checklist_templates
+      where id = v_shift_entry.template_id
+    ) then
+      raise exception 'The original FO Checklist template no longer exists';
+    end if;
+
+
+    insert into public.fo_checklist_cash_entries (
+      id,
+      submission_id,
+      template_id,
+      shift_title,
+      service_date,
+      submitted_by_user_id,
+      submitted_by_name,
+      submitted_by_email,
+      line_number,
+      person_name,
+      has_cash,
+      cash_amount,
+      excess_amount,
+      cash_bank_in_id,
+      excess_bank_in_id,
+      created_at,
+      updated_at
+    ) values (
+      v_shift_entry.id,
+      v_shift_entry.submission_id,
+      v_shift_entry.template_id,
+      v_shift_entry.shift_title,
+      v_shift_entry.service_date,
+      v_shift_entry.submitted_by_user_id,
+      v_shift_entry.submitted_by_name,
+      v_shift_entry.submitted_by_email,
+      v_shift_entry.line_number,
+      v_shift_entry.person_name,
+      v_shift_entry.has_cash,
+      v_shift_entry.cash_amount,
+      v_shift_entry.excess_amount,
+      null,
+      null,
+      v_shift_entry.created_at,
+      v_shift_entry.updated_at
+    );
+
+    for v_item in
+      select value
+      from jsonb_array_elements(
+        coalesce(v_deletion.entry_snapshot->'amendments', '[]'::jsonb)
+      )
+    loop
+      select * into v_amendment
+      from jsonb_populate_record(
+        null::public.cash_entry_amendments,
+        v_item
+      );
+
+      insert into public.cash_entry_amendments (
+        id,
+        cash_entry_id,
+        previous_amount,
+        new_amount,
+        reason,
+        amended_by_user_id,
+        amended_by_name,
+        amended_by_email,
+        amended_at
+      ) values (
+        v_amendment.id,
+        v_shift_entry.id,
+        v_amendment.previous_amount,
+        v_amendment.new_amount,
+        v_amendment.reason,
+        v_amendment.amended_by_user_id,
+        v_amendment.amended_by_name,
+        v_amendment.amended_by_email,
+        v_amendment.amended_at
+      );
+    end loop;
+
+    if jsonb_typeof(v_deletion.entry_snapshot->'excess_withdrawal') = 'object' then
+      select * into v_withdrawal
+      from jsonb_populate_record(
+        null::public.cash_excess_withdrawals,
+        v_deletion.entry_snapshot->'excess_withdrawal'
+      );
+
+      insert into public.cash_excess_withdrawals (
+        id,
+        cash_entry_id,
+        folio_number,
+        reason_for_excess,
+        error_staff_name,
+        withdrawn_amount,
+        withdrawn_by_user_id,
+        withdrawn_by_name,
+        withdrawn_by_email,
+        withdrawn_at
+      ) values (
+        v_withdrawal.id,
+        v_shift_entry.id,
+        v_withdrawal.folio_number,
+        v_withdrawal.reason_for_excess,
+        v_withdrawal.error_staff_name,
+        v_withdrawal.withdrawn_amount,
+        v_withdrawal.withdrawn_by_user_id,
+        v_withdrawal.withdrawn_by_name,
+        v_withdrawal.withdrawn_by_email,
+        v_withdrawal.withdrawn_at
+      );
+    end if;
+  elsif v_deletion.source_type = 'MANUAL_CASH' then
+    if exists (
+      select 1 from public.cash_manual_entries
+      where id = v_deletion.source_id
+    ) then
+      raise exception 'This manual cash entry already exists';
+    end if;
+
+    select * into v_manual_entry
+    from jsonb_populate_record(
+      null::public.cash_manual_entries,
+      v_deletion.entry_snapshot->'entry'
+    );
+
+    if v_manual_entry.bank_in_id is not null
+       or v_manual_entry.excess_bank_in_id is not null then
+      raise exception 'The deleted snapshot still contains a bank-in link and cannot be restored';
+    end if;
+
+    insert into public.cash_manual_entries (
+      id,
+      service_date,
+      description,
+      amount,
+      bank_in_id,
+      excess_amount,
+      excess_bank_in_id,
+      created_by_user_id,
+      created_by_name,
+      created_by_email,
+      created_at,
+      updated_at
+    ) values (
+      v_manual_entry.id,
+      v_manual_entry.service_date,
+      v_manual_entry.description,
+      v_manual_entry.amount,
+      null,
+      v_manual_entry.excess_amount,
+      null,
+      v_manual_entry.created_by_user_id,
+      v_manual_entry.created_by_name,
+      v_manual_entry.created_by_email,
+      v_manual_entry.created_at,
+      v_manual_entry.updated_at
+    );
+
+    if jsonb_typeof(v_deletion.entry_snapshot->'excess_withdrawal') = 'object' then
+      select * into v_withdrawal
+      from jsonb_populate_record(
+        null::public.cash_excess_withdrawals,
+        v_deletion.entry_snapshot->'excess_withdrawal'
+      );
+
+      insert into public.cash_excess_withdrawals (
+        id,
+        cash_entry_id,
+        manual_cash_entry_id,
+        folio_number,
+        reason_for_excess,
+        error_staff_name,
+        withdrawn_amount,
+        withdrawn_by_user_id,
+        withdrawn_by_name,
+        withdrawn_by_email,
+        withdrawn_at
+      ) values (
+        v_withdrawal.id,
+        null,
+        v_manual_entry.id,
+        v_withdrawal.folio_number,
+        v_withdrawal.reason_for_excess,
+        v_withdrawal.error_staff_name,
+        v_withdrawal.withdrawn_amount,
+        v_withdrawal.withdrawn_by_user_id,
+        v_withdrawal.withdrawn_by_name,
+        v_withdrawal.withdrawn_by_email,
+        v_withdrawal.withdrawn_at
+      );
+    end if;
+  else
+    raise exception 'Unsupported deleted cash entry type';
+  end if;
+
+  update public.cash_entry_deletions
+  set restored_at = now(),
+      restored_by_user_id = auth.uid(),
+      restored_by_name = coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+      restored_by_email = coalesce(v_profile.email, ''),
+      restoration_reason = v_reason
+  where id = v_deletion.id
+  returning * into v_deletion;
+
+  return jsonb_build_object(
+    'deletion_id', v_deletion.id,
+    'source_type', v_deletion.source_type,
+    'source_id', v_deletion.source_id,
+    'restored_at', v_deletion.restored_at
+  );
+end;
+$$;
+
+create or replace function public.cleanup_cash_bank_in_history()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.can_manage_cash_bank_in() then
+    raise exception 'Management access required';
+  end if;
+
+  delete from public.cash_entry_amendments
+  where amended_at < now() - interval '12 months';
+
+  delete from public.cash_bank_in_deletions
+  where deleted_at < now() - interval '12 months';
+
+  delete from public.cash_entry_deletions
+  where deleted_at < now() - interval '12 months';
+
+  delete from public.fo_checklist_cash_entries e
+  where e.service_date < current_date - interval '12 months'
+    and (e.cash_amount = 0 or e.cash_bank_in_id is not null)
+    and (
+      e.excess_amount = 0
+      or e.excess_bank_in_id is not null
+      or exists (
+        select 1
+        from public.cash_excess_withdrawals w
+        where w.cash_entry_id = e.id
+      )
+    );
+
+  delete from public.cash_manual_entries
+  where service_date < current_date - interval '12 months'
+    and (amount = 0 or bank_in_id is not null)
+    and (
+      excess_amount = 0
+      or excess_bank_in_id is not null
+      or exists (
+        select 1 from public.cash_excess_withdrawals w
+        where w.manual_cash_entry_id = cash_manual_entries.id
+      )
+    );
+
+
+  delete from public.cash_bank_ins b
+  where b.created_at < now() - interval '12 months'
+    and b.reversed_at is not null
+    and not exists (select 1 from public.cash_small_change c where c.source_bank_in_id = b.id)
+    and not exists (select 1 from public.cash_small_change c where c.consumed_by_bank_in_id = b.id)
+    and not exists (select 1 from public.fo_checklist_cash_entries e where e.cash_bank_in_id = b.id)
+    and not exists (select 1 from public.fo_checklist_cash_entries e where e.excess_bank_in_id = b.id)
+    and not exists (select 1 from public.cash_manual_entries m where m.bank_in_id = b.id)
+    and not exists (select 1 from public.cash_manual_entries m where m.excess_bank_in_id = b.id);
+end;
+$$;
+
+alter table public.fo_checklist_cash_entries enable row level security;
+alter table public.cash_bank_ins enable row level security;
+alter table public.cash_bank_in_sources enable row level security;
+alter table public.cash_small_change enable row level security;
+alter table public.cash_manual_entries enable row level security;
+alter table public.cash_entry_amendments enable row level security;
+alter table public.cash_excess_withdrawals enable row level security;
+alter table public.cash_bank_in_deletions enable row level security;
+alter table public.cash_entry_deletions enable row level security;
+
+drop policy if exists fo_cash_select_policy on public.fo_checklist_cash_entries;
+create policy fo_cash_select_policy
+on public.fo_checklist_cash_entries for select
+to authenticated
+using (submitted_by_user_id = auth.uid() or public.can_manage_cash_bank_in());
+
+drop policy if exists cash_bank_ins_select_policy on public.cash_bank_ins;
+create policy cash_bank_ins_select_policy
+on public.cash_bank_ins for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_bank_sources_select_policy on public.cash_bank_in_sources;
+create policy cash_bank_sources_select_policy
+on public.cash_bank_in_sources for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_small_change_select_policy on public.cash_small_change;
+create policy cash_small_change_select_policy
+on public.cash_small_change for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_manual_entries_select_policy on public.cash_manual_entries;
+create policy cash_manual_entries_select_policy
+on public.cash_manual_entries for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_entry_amendments_select_policy on public.cash_entry_amendments;
+create policy cash_entry_amendments_select_policy
+on public.cash_entry_amendments for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_excess_withdrawals_select_policy on public.cash_excess_withdrawals;
+create policy cash_excess_withdrawals_select_policy
+on public.cash_excess_withdrawals for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_bank_in_deletions_select_policy on public.cash_bank_in_deletions;
+create policy cash_bank_in_deletions_select_policy
+on public.cash_bank_in_deletions for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+drop policy if exists cash_entry_deletions_select_policy on public.cash_entry_deletions;
+create policy cash_entry_deletions_select_policy
+on public.cash_entry_deletions for select
+to authenticated
+using (public.can_manage_cash_bank_in());
+
+grant select on public.fo_checklist_cash_entries to authenticated;
+grant select on public.cash_bank_ins to authenticated;
+grant select on public.cash_bank_in_sources to authenticated;
+grant select on public.cash_small_change to authenticated;
+grant select on public.cash_manual_entries to authenticated;
+grant select on public.cash_entry_amendments to authenticated;
+grant select on public.cash_excess_withdrawals to authenticated;
+grant select on public.cash_bank_in_deletions to authenticated;
+grant select on public.cash_entry_deletions to authenticated;
+grant execute on function public.save_fo_checklist_cash_entries(uuid, jsonb) to authenticated;
+revoke all on function public.add_manual_cash_entry(date, text, numeric, numeric) from public, anon;
+revoke all on function public.amend_fo_cash_entry(uuid, numeric, text) from public, anon;
+revoke all on function public.withdraw_excess_cash(uuid, text, text, text) from public, anon;
+grant execute on function public.add_manual_cash_entry(date, text, numeric, numeric) to authenticated;
+grant execute on function public.amend_fo_cash_entry(uuid, numeric, text) to authenticated;
+grant execute on function public.withdraw_excess_cash(uuid, text, text, text) to authenticated;
+revoke all on function public.create_cash_bank_in(uuid[], uuid[], uuid[], numeric, date, text[]) from public, anon;
+grant execute on function public.create_cash_bank_in(uuid[], uuid[], uuid[], numeric, date, text[]) to authenticated;
+grant execute on function public.reverse_cash_bank_in(uuid, text) to authenticated;
+revoke all on function public.delete_cash_bank_in(uuid, text) from public, anon;
+grant execute on function public.delete_cash_bank_in(uuid, text) to authenticated;
+revoke all on function public.delete_cash_ledger_entry(text, uuid, text) from public, anon;
+grant execute on function public.delete_cash_ledger_entry(text, uuid, text) to authenticated;
+revoke all on function public.restore_deleted_cash_ledger_entry(uuid, text) from public, anon;
+grant execute on function public.restore_deleted_cash_ledger_entry(uuid, text) to authenticated;
+grant execute on function public.cleanup_cash_bank_in_history() to authenticated;
+
+insert into storage.buckets (id, name, public)
+values ('bank-in-receipts', 'bank-in-receipts', false)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists bank_in_receipts_select on storage.objects;
+create policy bank_in_receipts_select
+on storage.objects for select
+to authenticated
+using (bucket_id = 'bank-in-receipts' and public.can_manage_cash_bank_in());
+
+drop policy if exists bank_in_receipts_insert on storage.objects;
+create policy bank_in_receipts_insert
+on storage.objects for insert
+to authenticated
+with check (bucket_id = 'bank-in-receipts' and public.can_manage_cash_bank_in());
+
+drop policy if exists bank_in_receipts_delete on storage.objects;
+create policy bank_in_receipts_delete
+on storage.objects for delete
+to authenticated
+using (bucket_id = 'bank-in-receipts' and public.is_cash_bank_in_superuser());

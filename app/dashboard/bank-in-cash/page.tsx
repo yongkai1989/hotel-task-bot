@@ -1,3 +1,4 @@
+
 'use client';
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
@@ -45,6 +46,8 @@ type ManualCashEntry = {
   description: string;
   amount: number;
   bank_in_id: string | null;
+  excess_amount: number;
+  excess_bank_in_id: string | null;
   created_by_name: string;
   created_by_email: string;
   created_at: string;
@@ -63,7 +66,8 @@ type CashEntryAmendment = {
 
 type ExcessWithdrawal = {
   id: string;
-  cash_entry_id: string;
+  cash_entry_id: string | null;
+  manual_cash_entry_id: string | null;
   folio_number: string;
   reason_for_excess: string;
   error_staff_name: string;
@@ -117,6 +121,19 @@ type DailyCashRow = {
   amount: number;
   bank_in_id: string | null;
   cashEntry?: CashEntry;
+  manualEntry?: ManualCashEntry;
+};
+
+type ExcessLedgerRow = {
+  id: string;
+  sourceType: 'SHIFT_CASH' | 'MANUAL_CASH';
+  service_date: string;
+  person_name: string;
+  shift_title: string;
+  excess_amount: number;
+  excess_bank_in_id: string | null;
+  cashEntry?: CashEntry;
+  manualEntry?: ManualCashEntry;
 };
 
 type SmallChangeEntry = {
@@ -232,6 +249,7 @@ async function compressReceipt(file: File): Promise<Blob> {
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+
       const nextImage = new Image();
       nextImage.onload = () => resolve(nextImage);
       nextImage.onerror = () => reject(new Error(`Unable to read ${file.name}.`));
@@ -306,13 +324,14 @@ export default function BankInCashPage() {
   const [manualDate, setManualDate] = useState(singaporeDate());
   const [manualDescription, setManualDescription] = useState('');
   const [manualAmount, setManualAmount] = useState('');
+  const [manualExcessAmount, setManualExcessAmount] = useState('');
   const [addingManual, setAddingManual] = useState(false);
   const [manualPanelOpen, setManualPanelOpen] = useState(false);
   const [amendTarget, setAmendTarget] = useState<CashEntry | null>(null);
   const [amendAmount, setAmendAmount] = useState('');
   const [amendReason, setAmendReason] = useState('');
   const [amending, setAmending] = useState(false);
-  const [withdrawTarget, setWithdrawTarget] = useState<CashEntry | null>(null);
+  const [withdrawTarget, setWithdrawTarget] = useState<ExcessLedgerRow | null>(null);
   const [withdrawFolioNumber, setWithdrawFolioNumber] = useState('');
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawStaffName, setWithdrawStaffName] = useState('');
@@ -475,10 +494,12 @@ export default function BankInCashPage() {
         person_name: entry.description,
         amount: Number(entry.amount || 0),
         bank_in_id: entry.bank_in_id,
+        manualEntry: entry,
       })),
     ],
     [cashEntries, manualEntries],
   );
+
 
   const filteredDailyCash = useMemo(
     () =>
@@ -519,13 +540,33 @@ export default function BankInCashPage() {
   }, [filteredDailyCash]);
 
   const excessWithdrawalByEntryId = useMemo(
-    () => new Map(excessWithdrawals.map((withdrawal) => [withdrawal.cash_entry_id, withdrawal])),
+    () => new Map(excessWithdrawals.map((withdrawal) => [withdrawal.cash_entry_id || withdrawal.manual_cash_entry_id, withdrawal])),
     [excessWithdrawals],
   );
 
-  const excessRows = useMemo(
-    () =>
-      cashEntries
+  const excessRows = useMemo<ExcessLedgerRow[]>(
+    () => [
+      ...cashEntries.map((entry) => ({
+        id: entry.id,
+        sourceType: 'SHIFT_CASH' as const,
+        service_date: entry.service_date,
+        person_name: entry.person_name,
+        shift_title: entry.shift_title,
+        excess_amount: Number(entry.excess_amount || 0),
+        excess_bank_in_id: entry.excess_bank_in_id,
+        cashEntry: entry,
+      })),
+      ...manualEntries.map((entry) => ({
+        id: entry.id,
+        sourceType: 'MANUAL_CASH' as const,
+        service_date: entry.service_date,
+        person_name: entry.description,
+        shift_title: 'Manually added missed FO declaration',
+        excess_amount: Number(entry.excess_amount || 0),
+        excess_bank_in_id: entry.excess_bank_in_id,
+        manualEntry: entry,
+      })),
+    ]
         .filter((entry) => showAllMonths || entry.service_date.slice(0, 7) === month)
         .filter((entry) => Number(entry.excess_amount) > 0)
         .filter((entry) =>
@@ -536,7 +577,7 @@ export default function BankInCashPage() {
               : true,
         )
         .sort((a, b) => b.service_date.localeCompare(a.service_date)),
-    [bankStatusFilter, cashEntries, excessWithdrawalByEntryId, month, showAllMonths],
+    [bankStatusFilter, cashEntries, excessWithdrawalByEntryId, manualEntries, month, showAllMonths],
   );
 
   const filteredSmallChange = useMemo(
@@ -593,14 +634,14 @@ export default function BankInCashPage() {
 
   const selectedExcessRows = useMemo(
     () =>
-      cashEntries.filter(
+      excessRows.filter(
         (entry) =>
           selectedExcessIds.includes(entry.id) &&
           !entry.excess_bank_in_id &&
           !excessWithdrawalByEntryId.has(entry.id) &&
           Number(entry.excess_amount) > 0,
       ),
-    [cashEntries, excessWithdrawalByEntryId, selectedExcessIds],
+    [excessRows, excessWithdrawalByEntryId, selectedExcessIds],
   );
 
   const selectedBalanceRows = useMemo(
@@ -641,10 +682,10 @@ export default function BankInCashPage() {
 
   const totalExcessCash = useMemo(
     () =>
-      cashEntries
+      excessRows
         .filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id))
         .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0),
-    [cashEntries, excessWithdrawalByEntryId],
+    [excessRows, excessWithdrawalByEntryId],
   );
 
   const availableExcessRows = useMemo(
@@ -687,24 +728,35 @@ export default function BankInCashPage() {
 
   const addManualCash = async () => {
     const amount = Number(manualAmount);
+    const excessAmount = Number(manualExcessAmount);
     setError('');
     setMessage('');
     if (!manualDate) return setError('Choose the date the cash was received.');
     if (!manualDescription.trim()) return setError('Describe the missing Front Office declaration.');
-    if (!Number.isFinite(amount) || amount <= 0) return setError('Manual cash amount must be more than zero.');
+    if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(excessAmount) || excessAmount < 0) {
+      return setError('Daily Cash and Excess Cash amounts cannot be negative.');
+    }
+    if (amount <= 0 && excessAmount <= 0) return setError('Enter a Daily Cash amount, an Excess Cash amount, or both.');
 
     setAddingManual(true);
     const { error: addError } = await supabase.rpc('add_manual_cash_entry', {
       p_service_date: manualDate,
       p_description: manualDescription.trim(),
       p_amount: amount,
+      p_excess_amount: excessAmount,
     });
     if (addError) {
       setError(addError.message);
     } else {
-      setMessage(`${money.format(amount)} added to the daily cash ledger.`);
+      const added = [
+        amount > 0 ? `${money.format(amount)} Daily Cash` : '',
+        excessAmount > 0 ? `${money.format(excessAmount)} Excess Cash` : '',
+
+      ].filter(Boolean).join(' and ');
+      setMessage(`${added} added to the existing cash ledger.`);
       setManualDescription('');
       setManualAmount('');
+      setManualExcessAmount('');
       setManualPanelOpen(false);
       setMonth(manualDate.slice(0, 7));
       await loadData();
@@ -746,7 +798,7 @@ export default function BankInCashPage() {
     setAmending(false);
   };
 
-  const openExcessWithdrawal = (entry: CashEntry) => {
+  const openExcessWithdrawal = (entry: ExcessLedgerRow) => {
     setWithdrawTarget(entry);
     setWithdrawFolioNumber('');
     setWithdrawReason('');
@@ -905,7 +957,8 @@ export default function BankInCashPage() {
     if (!isSuperuser) return;
     const linkedToBankIn =
       !!row.bank_in_id ||
-      !!row.cashEntry?.excess_bank_in_id;
+      !!row.cashEntry?.excess_bank_in_id ||
+      !!row.manualEntry?.excess_bank_in_id;
     if (linkedToBankIn) {
       setError('This entry is included in a bank-in. Reverse the bank-in before deleting it.');
       return;
@@ -913,6 +966,20 @@ export default function BankInCashPage() {
     setError('');
     setDeleteEntryReason('');
     setDeleteEntryTarget(row);
+  };
+
+  const openExcessEntryDeletion = (row: ExcessLedgerRow) => {
+    openCashEntryDeletion({
+      id: row.id,
+      sourceType: row.sourceType,
+      service_date: row.service_date,
+      title: row.sourceType === 'MANUAL_CASH' ? 'Manual Excess Cash' : row.shift_title,
+      person_name: row.person_name,
+      amount: row.excess_amount,
+      bank_in_id: row.excess_bank_in_id,
+      cashEntry: row.cashEntry,
+      manualEntry: row.manualEntry,
+    });
   };
 
   const deleteCashEntry = async () => {
@@ -935,6 +1002,7 @@ export default function BankInCashPage() {
       setSelectedExcessIds((current) => current.filter((id) => id !== deleteEntryTarget.id));
       setMessage(`Deleted ${deleteEntryTarget.title} entry for ${formatDate(deleteEntryTarget.service_date)}.`);
       setDeleteEntryTarget(null);
+
       setDeleteEntryReason('');
       await loadData();
     }
@@ -973,7 +1041,7 @@ export default function BankInCashPage() {
         type: 'Daily Cash',
         title: entry?.person_name || 'FO cash declaration',
         detail: entry
-          ? `${formatDate(entry.service_date)} · ${entry.shift_title}`
+          ? `${formatDate(entry.service_date)} Â· ${entry.shift_title}`
           : fallbackReference,
       };
     }
@@ -984,19 +1052,22 @@ export default function BankInCashPage() {
         type: 'Manual Cash',
         title: entry?.description || 'Missed FO declaration',
         detail: entry
-          ? `${formatDate(entry.service_date)} · Added by ${entry.created_by_name}`
+          ? `${formatDate(entry.service_date)} Â· Added by ${entry.created_by_name}`
           : fallbackReference,
       };
     }
 
     if (source.source_type === 'EXCESS') {
       const entry = cashEntries.find((row) => row.id === source.source_id);
+      const manualEntry = manualEntries.find((row) => row.id === source.source_id);
       return {
         type: 'Excess Cash',
-        title: entry?.person_name || 'FO excess cash',
+        title: entry?.person_name || manualEntry?.description || 'FO excess cash',
         detail: entry
-          ? `${formatDate(entry.service_date)} · ${entry.shift_title}`
-          : fallbackReference,
+          ? `${formatDate(entry.service_date)} Â· ${entry.shift_title}`
+          : manualEntry
+            ? `${formatDate(manualEntry.service_date)} Â· Manually added by ${manualEntry.created_by_name}`
+            : fallbackReference,
       };
     }
 
@@ -1051,7 +1122,7 @@ export default function BankInCashPage() {
           <p>Reconcile Front Office cash, excess collections, balances not banked in, and receipt evidence.</p>
         </div>
         <div className="header-actions">
-          <button type="button" className="icon-button" title="Refresh cash records" onClick={() => void loadData()} disabled={dataLoading}>↻</button>
+          <button type="button" className="icon-button" title="Refresh cash records" onClick={() => void loadData()} disabled={dataLoading}>â†»</button>
           <Link href="/dashboard" className="secondary-button">Dashboard</Link>
         </div>
       </header>
@@ -1115,9 +1186,9 @@ export default function BankInCashPage() {
                       return (
                         <span className="shift-line" key={row.id}>
                           <span>
-                            <b>{row.title}</b> · {row.person_name} · {money.format(row.amount)}
-                            {row.sourceType === 'MANUAL_CASH' ? ' · Added manually' : ''}
-                            {row.amount <= 0 ? ' · No cash declared' : ''}
+                            <b>{row.title}</b> Â· {row.person_name} Â· {money.format(row.amount)}
+                            {row.sourceType === 'MANUAL_CASH' ? ' Â· Added manually' : ''}
+                            {row.amount <= 0 ? ' Â· No cash declared' : ''}
                           </span>
                           {row.cashEntry && !row.bank_in_id ? <button type="button" className="amend-button" onClick={() => openAmendment(row.cashEntry!)}>Amend</button> : null}
                           {isSuperuser ? (
@@ -1155,14 +1226,25 @@ export default function BankInCashPage() {
                   <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!withdrawal && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
                   <div className="excess-entry-copy">
                     <strong>{row.person_name}</strong>
-                    <span>{formatDate(row.service_date)} · {row.shift_title}</span>
-                    {withdrawal ? <span className="withdrawal-detail">Folio {withdrawal.folio_number} · {withdrawal.reason_for_excess} · Error by {withdrawal.error_staff_name}</span> : null}
+                    <span>{formatDate(row.service_date)} Â· {row.shift_title}</span>
+                    {withdrawal ? <span className="withdrawal-detail">Folio {withdrawal.folio_number} Â· {withdrawal.reason_for_excess} Â· Error by {withdrawal.error_staff_name}</span> : null}
                   </div>
                   <b>{money.format(Number(row.excess_amount))}</b>
                   <div className="excess-row-actions">
                     <em>{withdrawal ? 'Withdrawn' : row.excess_bank_in_id ? 'Banked' : 'Open'}</em>
                     {!unavailable ? <button type="button" className="withdraw-button" onClick={() => openExcessWithdrawal(row)}>Withdraw</button> : null}
-                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} · {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
+                    {isSuperuser ? (
+                      <button
+                        type="button"
+                        className="delete-entry-button"
+                        disabled={!!row.excess_bank_in_id || !!row.cashEntry?.cash_bank_in_id || !!row.manualEntry?.bank_in_id}
+                        title={row.excess_bank_in_id || row.cashEntry?.cash_bank_in_id || row.manualEntry?.bank_in_id ? 'Reverse the linked bank-in before deleting this entry' : 'Delete this cash entry'}
+                        onClick={() => openExcessEntryDeletion(row)}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} Â· {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
                   </div>
                 </article>
               );
@@ -1171,6 +1253,7 @@ export default function BankInCashPage() {
         ) : null}
 
         {!dataLoading && tab === 'small-change' ? (
+
           <div className="ledger-list">
             <div className="section-heading"><div><span className="eyebrow">BALANCE NOT BANKED IN</span><h2>Balances retained after partial bank-ins</h2></div><span>{filteredSmallChange.length} entry(s)</span></div>
             {!filteredSmallChange.length ? <div className="empty-state">No balance-not-banked-in entries match the selected filters.</div> : null}
@@ -1195,12 +1278,12 @@ export default function BankInCashPage() {
               const manualSourceCount = recordSources.filter((source) => source.source_type === 'MANUAL_CASH').length;
               return (
                 <article className={`history-row ${record.reversed_at ? 'reversed' : ''}`} key={record.id}>
-                  <div className="history-main"><span className="mode-pill">{sourceModeLabel(record.source_mode)}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} · {record.created_by_name}</span></div>
+                  <div className="history-main"><span className="mode-pill">{sourceModeLabel(record.source_mode)}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} Â· {record.created_by_name}</span></div>
                   <div className="history-detail"><span>Selected {money.format(Number(record.selected_total))}</span><span>Balance not banked in {money.format(Number(record.balance_to_small_change))}</span>{manualSourceCount ? <span>{manualSourceCount} manual cash source(s)</span> : null}<span>{formatDateTime(record.created_at)}</span></div>
                   <div className="history-actions">
                     {paths.map((path, index) => <button type="button" className="receipt-button" onClick={() => void viewReceipt(path)} key={path}>Receipt {index + 1}</button>)}
                     {isSuperuser && !record.reversed_at ? <button type="button" className="danger-button" onClick={() => setReverseTarget(record)}>Reverse</button> : null}
-                    {record.reversed_at ? <span className="reversed-label">Reversed · {record.reversal_reason}</span> : null}
+                    {record.reversed_at ? <span className="reversed-label">Reversed Â· {record.reversal_reason}</span> : null}
                     {isSuperuser && record.reversed_at ? <button type="button" className="danger-solid" onClick={() => setDeleteTarget(record)}>Delete</button> : null}
                   </div>
                   <section className="history-breakdown" aria-label={`Transactions included in bank-in ${record.id.slice(0, 8).toUpperCase()}`}>
@@ -1239,10 +1322,10 @@ export default function BankInCashPage() {
                   const entry = cashEntries.find((cashEntry) => cashEntry.id === amendment.cash_entry_id);
                   return (
                     <article className="amendment-row" key={amendment.id}>
-                      <div><strong>{entry?.person_name || 'FO cash entry'}</strong><span>{entry ? `${formatDate(entry.service_date)} · ${entry.shift_title}` : amendment.cash_entry_id.slice(0, 8).toUpperCase()}</span></div>
+                      <div><strong>{entry?.person_name || 'FO cash entry'}</strong><span>{entry ? `${formatDate(entry.service_date)} Â· ${entry.shift_title}` : amendment.cash_entry_id.slice(0, 8).toUpperCase()}</span></div>
                       <div><span>Previous</span><b>{money.format(Number(amendment.previous_amount))}</b></div>
                       <div><span>New</span><b>{money.format(Number(amendment.new_amount))}</b></div>
-                      <div><strong>{amendment.reason}</strong><span>{amendment.amended_by_name} ({amendment.amended_by_email}) · {formatDateTime(amendment.amended_at)}</span></div>
+                      <div><strong>{amendment.reason}</strong><span>{amendment.amended_by_name} ({amendment.amended_by_email}) Â· {formatDateTime(amendment.amended_at)}</span></div>
                     </article>
                   );
                 })}
@@ -1257,18 +1340,18 @@ export default function BankInCashPage() {
                     ? snapshot.description || 'Manual Cash'
                     : snapshot.person_name || 'FO cash entry';
                   const entryAmount = deleted.source_type === 'MANUAL_CASH'
-                    ? Number(snapshot.amount || 0)
-                    : Number(snapshot.cash_amount || 0);
+                    ? Number(snapshot.amount || 0) + Number(snapshot.excess_amount || 0)
+                    : Number(snapshot.cash_amount || 0) + Number(snapshot.excess_amount || 0);
                   return (
                     <article className={`deletion-row cash-entry-deletion ${deleted.restored_at ? 'restored' : ''}`} key={deleted.id}>
-                      <div><strong>{entryName} · {money.format(entryAmount)}</strong><span>{formatDate(deleted.service_date)} · {deleted.source_type === 'MANUAL_CASH' ? 'Manual Cash' : snapshot.shift_title || 'Shift Cash'}</span></div>
-                      <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) · {formatDateTime(deleted.deleted_at)}</span></div>
+                      <div><strong>{entryName} Â· {money.format(entryAmount)}</strong><span>{formatDate(deleted.service_date)} Â· {deleted.source_type === 'MANUAL_CASH' ? 'Manual Cash' : snapshot.shift_title || 'Shift Cash'}</span></div>
+                      <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) Â· {formatDateTime(deleted.deleted_at)}</span></div>
                       <div className="deletion-audit-actions">
                         {deleted.restored_at ? (
                           <>
                             <b>Deletion reversed</b>
                             <small>{deleted.restoration_reason}</small>
-                            <small>{deleted.restored_by_name} ({deleted.restored_by_email}) · {formatDateTime(deleted.restored_at)}</small>
+                            <small>{deleted.restored_by_name} ({deleted.restored_by_email}) Â· {formatDateTime(deleted.restored_at)}</small>
                           </>
                         ) : isSuperuser ? (
                           <button type="button" className="restore-button" onClick={() => { setRestoreEntryReason(''); setRestoreEntryTarget(deleted); }}>Reverse Deletion</button>
@@ -1286,8 +1369,8 @@ export default function BankInCashPage() {
                 <div className="section-heading"><div><span className="danger-kicker">DELETION AUDIT</span><h2>Deleted bank-in records</h2></div><span>{filteredDeletedBankIns.length} record(s)</span></div>
                 {filteredDeletedBankIns.map((deleted) => (
                   <article className="deletion-row" key={deleted.id}>
-                    <div><strong>{money.format(Number(deleted.bank_in_snapshot?.banked_amount || 0))}</strong><span>{formatDate(deleted.bank_in_date)} · Ref {deleted.bank_in_id.slice(0, 8).toUpperCase()}</span></div>
-                    <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) · {formatDateTime(deleted.deleted_at)}</span></div>
+                    <div><strong>{money.format(Number(deleted.bank_in_snapshot?.banked_amount || 0))}</strong><span>{formatDate(deleted.bank_in_date)} Â· Ref {deleted.bank_in_id.slice(0, 8).toUpperCase()}</span></div>
+                    <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) Â· {formatDateTime(deleted.deleted_at)}</span></div>
                   </article>
                 ))}
               </section>
@@ -1344,7 +1427,7 @@ export default function BankInCashPage() {
             <div>
               <span className="danger-kicker">SUPERUSER ONLY</span>
               <h2 id="manual-cash-title">Missed FO declaration</h2>
-              <p>Manually add cash only when Front Office received it but omitted it from the FO Checklist.</p>
+              <p>Manually add Daily Cash, Excess Cash, or both only when Front Office omitted the declaration from the FO Checklist.</p>
             </div>
             <button type="button" className={manualPanelOpen ? 'secondary-button' : 'danger-solid'} onClick={() => setManualPanelOpen((current) => !current)}>
               {manualPanelOpen ? 'Cancel' : 'Add Missed FO Cash'}
@@ -1354,8 +1437,9 @@ export default function BankInCashPage() {
             <div className="manual-form">
               <label>Cash date<input type="date" value={manualDate} onChange={(event) => setManualDate(event.target.value)} /></label>
               <label>Description<input type="text" value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Shift, staff, or reason it was missed" /></label>
-              <label>Amount (RM)<input inputMode="decimal" type="number" min="0.01" step="0.01" value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} /></label>
-              <button type="button" className="danger-solid" onClick={() => void addManualCash()} disabled={addingManual}>{addingManual ? 'Adding cash...' : 'Confirm Add Cash'}</button>
+              <label>Daily Cash (RM)<input inputMode="decimal" type="number" min="0" step="0.01" value={manualAmount} onChange={(event) => setManualAmount(event.target.value)} placeholder="0.00" /></label>
+              <label>Excess Cash (RM)<input inputMode="decimal" type="number" min="0" step="0.01" value={manualExcessAmount} onChange={(event) => setManualExcessAmount(event.target.value)} placeholder="0.00" /></label>
+              <button type="button" className="danger-solid" onClick={() => void addManualCash()} disabled={addingManual}>{addingManual ? 'Adding declaration...' : 'Confirm Declaration'}</button>
             </div>
           ) : null}
         </section>
@@ -1369,7 +1453,7 @@ export default function BankInCashPage() {
             <p>This removes the entry from cash totals and bank-in selection. A complete deletion audit will be retained for 12 months.</p>
             <div className="delete-entry-summary">
               <strong>{deleteEntryTarget.title}</strong>
-              <span>{formatDate(deleteEntryTarget.service_date)} · {deleteEntryTarget.person_name}</span>
+              <span>{formatDate(deleteEntryTarget.service_date)} Â· {deleteEntryTarget.person_name}</span>
               <b>{money.format(deleteEntryTarget.amount)}</b>
             </div>
             <label>Reason for deletion<textarea value={deleteEntryReason} onChange={(event) => setDeleteEntryReason(event.target.value)} placeholder="Explain why this cash entry must be deleted" /></label>
@@ -1391,7 +1475,10 @@ export default function BankInCashPage() {
             <div className="delete-entry-summary">
               <strong>{restoreEntryTarget.source_type === 'MANUAL_CASH' ? restoreEntryTarget.entry_snapshot?.entry?.description || 'Manual Cash' : restoreEntryTarget.entry_snapshot?.entry?.person_name || 'FO cash entry'}</strong>
               <span>{formatDate(restoreEntryTarget.service_date)}</span>
-              <b>{money.format(Number(restoreEntryTarget.source_type === 'MANUAL_CASH' ? restoreEntryTarget.entry_snapshot?.entry?.amount || 0 : restoreEntryTarget.entry_snapshot?.entry?.cash_amount || 0))}</b>
+              <b>{money.format(
+                Number(restoreEntryTarget.source_type === 'MANUAL_CASH' ? restoreEntryTarget.entry_snapshot?.entry?.amount || 0 : restoreEntryTarget.entry_snapshot?.entry?.cash_amount || 0) +
+                Number(restoreEntryTarget.entry_snapshot?.entry?.excess_amount || 0)
+              )}</b>
             </div>
             <label>Reason for reversing deletion<textarea value={restoreEntryReason} onChange={(event) => setRestoreEntryReason(event.target.value)} placeholder="Explain why this deleted entry must be restored" /></label>
             <div className="modal-actions">
@@ -1417,6 +1504,7 @@ export default function BankInCashPage() {
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={() => setWithdrawTarget(null)}>Cancel</button>
               <button type="button" className="danger-solid" onClick={() => void withdrawExcessCash()} disabled={withdrawingExcess}>{withdrawingExcess ? 'Recording withdrawal...' : 'Confirm Withdrawal'}</button>
+
             </div>
           </section>
         </div>
@@ -1433,7 +1521,7 @@ export default function BankInCashPage() {
                 availableExcessRows.length ? availableExcessRows.map((row) => (
                   <label className={`source-picker-row ${selectedExcessIds.includes(row.id) ? 'selected' : ''}`} key={row.id}>
                     <input type="checkbox" checked={selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
-                    <span><strong>{row.person_name}</strong><small>{formatDate(row.service_date)} · {row.shift_title}</small></span>
+                    <span><strong>{row.person_name}</strong><small>{formatDate(row.service_date)} Â· {row.shift_title}</small></span>
                     <b>{money.format(Number(row.excess_amount))}</b>
                   </label>
                 )) : <div className="picker-empty">No available Excess Cash transactions for this month.</div>
@@ -1491,7 +1579,7 @@ export default function BankInCashPage() {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="amend-title">
             <span className="eyebrow">AUDITED CORRECTION</span>
             <h2 id="amend-title">Amend FO cash amount</h2>
-            <p>{formatDate(amendTarget.service_date)} · {amendTarget.shift_title} · {amendTarget.person_name}</p>
+            <p>{formatDate(amendTarget.service_date)} Â· {amendTarget.shift_title} Â· {amendTarget.person_name}</p>
             <div className="amend-comparison"><span>Previous<strong>{money.format(Number(amendTarget.cash_amount))}</strong></span><span>New<strong>{money.format(Number(amendAmount || 0))}</strong></span></div>
             <label>New amount (RM)<input inputMode="decimal" type="number" min="0" step="0.01" value={amendAmount} onChange={(event) => setAmendAmount(event.target.value)} /></label>
             <label>Reason for amendment<textarea value={amendReason} onChange={(event) => setAmendReason(event.target.value)} placeholder="Explain why the FO declaration is incorrect" /></label>
@@ -1535,7 +1623,7 @@ function Styles() {
       .manual-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
       .manual-panel h2 { margin: 3px 0 5px; font-size: 19px; }
       .manual-panel p { margin: 0; color: #60718f; font-size: 12px; line-height: 1.45; }
-      .manual-form { display: grid; grid-template-columns: 155px minmax(220px, 1fr) 140px auto; gap: 10px; align-items: end; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0d5d2; }
+      .manual-form { display: grid; grid-template-columns: 145px minmax(220px, 1fr) 130px 130px auto; gap: 10px; align-items: end; margin-top: 16px; padding-top: 16px; border-top: 1px solid #f0d5d2; }
       .manual-form label { display: grid; gap: 6px; color: #344563; font-size: 12px; font-weight: 850; }
       .manual-form input, .modal input { min-height: 42px; min-width: 0; border: 1px solid #cbd8ea; border-radius: 8px; background: #fff; color: #101a32; padding: 9px 12px; }
       .summary-grid { max-width: 1440px; margin: 0 auto 14px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -1667,6 +1755,7 @@ function Styles() {
       .bank-panel-footer { min-height: 68px; padding: 12px 22px; border-top: 1px solid #e4eaf3; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #fafcff; }
       .accounting-note { margin: 0; color: #60718f; font-size: 11px; line-height: 1.45; }
       .bank-submit { min-width: 180px; min-height: 44px; box-shadow: 0 7px 16px rgba(23, 91, 232, .18); }
+
       .state-card { max-width: 620px; margin: 15vh auto; padding: 32px; text-align: center; display: grid; justify-items: center; gap: 13px; }
       .state-card h1, .state-card p { margin: 0; }
       .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; background: rgba(8, 18, 38, .62); }
