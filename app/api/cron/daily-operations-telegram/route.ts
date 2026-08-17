@@ -256,7 +256,8 @@ export async function GET(request: NextRequest) {
       supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
       supabaseAdmin
         .from('pm_task_runs')
-        .select('id, due_date, status, pm_tasks(title)', { count: 'exact' })
+        .select('id, due_date, status, pm_tasks!inner(title)', { count: 'exact' })
+        .eq('pm_tasks.is_active', true)
         .neq('status', 'DONE')
         .lt('due_date', today)
         .order('due_date', { ascending: true })
