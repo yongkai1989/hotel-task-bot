@@ -70,6 +70,7 @@ type TrackedItem = {
   id: string;
   item_name: string;
   notes?: string | null;
+  display_order: number;
   is_active: boolean;
   current_status: 'AVAILABLE' | 'LOANED';
   loaned_to_name?: string | null;
@@ -91,6 +92,17 @@ function formatDateTime(value?: string | null) {
     minute: '2-digit',
     timeZone: 'Asia/Singapore',
   }).format(new Date(value));
+}
+
+function reorderTrackedItems(items: TrackedItem[], sourceId: string, targetId: string) {
+  const sourceIndex = items.findIndex((item) => item.id === sourceId);
+  const targetIndex = items.findIndex((item) => item.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return items;
+
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(sourceIndex, 1);
+  nextItems.splice(targetIndex, 0, movedItem);
+  return nextItems.map((item, index) => ({ ...item, display_order: index + 1 }));
 }
 
 async function responseJson(response: Response) {
@@ -146,6 +158,7 @@ export default function FoQuickActionsPage() {
   const [tasks, setTasks] = useState<DashboardTask[]>([]);
   const [reminders, setReminders] = useState<ShiftReminder[]>([]);
   const [items, setItems] = useState<TrackedItem[]>([]);
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [guestShopOrders, setGuestShopOrders] = useState<GuestShopOrderSummary[]>([]);
   const [guestOrdersLoading, setGuestOrdersLoading] = useState(false);
   const [guestOrdersError, setGuestOrdersError] = useState('');
@@ -231,7 +244,7 @@ export default function FoQuickActionsPage() {
           .from('fo_tracked_items')
           .select('*')
           .eq('is_active', true)
-          .order('current_status', { ascending: false })
+          .order('display_order', { ascending: true })
           .order('item_name', { ascending: true }),
       ]);
 
@@ -772,7 +785,7 @@ export default function FoQuickActionsPage() {
       });
       if (rpcError) throw rpcError;
       const createdItem = singleRpcRow<TrackedItem>(data);
-      setItems((current) => [...current, createdItem].sort((a, b) => a.item_name.localeCompare(b.item_name)));
+      setItems((current) => [...current, createdItem]);
       setNewItemName('');
       setNewItemNotes('');
       setShowItemSetup(false);
@@ -782,6 +795,43 @@ export default function FoQuickActionsPage() {
     } finally {
       setBusyKey('');
     }
+  }
+
+  async function saveTrackedItemOrder(nextItems: TrackedItem[]) {
+    if (!isSuperuser || busyKey === 'item-order') return;
+    clearNotices();
+    setBusyKey('item-order');
+    try {
+      const { error: rpcError } = await supabase.rpc('reorder_fo_tracked_items', {
+        p_item_ids: nextItems.map((item) => item.id),
+      });
+      if (rpcError) throw rpcError;
+      setSuccess('FO item order saved.');
+    } catch (nextError: any) {
+      setError(nextError?.message || 'Unable to save the item order.');
+      await loadData(true);
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  function moveTrackedItem(itemId: string, direction: -1 | 1) {
+    if (!isSuperuser || busyKey === 'item-order') return;
+    const currentIndex = items.findIndex((item) => item.id === itemId);
+    const targetItem = items[currentIndex + direction];
+    if (currentIndex < 0 || !targetItem) return;
+    const nextItems = reorderTrackedItems(items, itemId, targetItem.id);
+    setItems(nextItems);
+    void saveTrackedItemOrder(nextItems);
+  }
+
+  function dropTrackedItem(targetId: string) {
+    if (!isSuperuser || !draggedItemId || busyKey === 'item-order') return;
+    const nextItems = reorderTrackedItems(items, draggedItemId, targetId);
+    setDraggedItemId(null);
+    if (nextItems === items) return;
+    setItems(nextItems);
+    void saveTrackedItemOrder(nextItems);
   }
 
   async function archiveItem(itemId: string) {
@@ -919,12 +969,38 @@ export default function FoQuickActionsPage() {
         ) : null}
 
         <div className="item-strip">
-          {items.length ? items.map((item) => (
-            <article key={item.id} className={`item-card ${item.current_status.toLowerCase()}`}>
+          {items.length ? items.map((item, itemIndex) => (
+            <article
+              key={item.id}
+              className={`item-card ${item.current_status.toLowerCase()} ${draggedItemId === item.id ? 'dragging' : ''}`}
+              onDragOver={isSuperuser ? (event) => event.preventDefault() : undefined}
+              onDrop={isSuperuser ? (event) => { event.preventDefault(); dropTrackedItem(item.id); } : undefined}
+            >
               <div className="item-top">
                 <strong>{item.item_name}</strong>
                 <span>{item.current_status}</span>
               </div>
+              {isSuperuser ? (
+                <div className="item-admin-row" aria-label={`Arrange ${item.item_name}`}>
+                  <button type="button" className="item-order-button" disabled={itemIndex === 0 || busyKey === 'item-order'} onClick={() => moveTrackedItem(item.id, -1)} aria-label={`Move ${item.item_name} left`} title="Move left">&#8249;</button>
+                  <span
+                    className="item-drag-handle"
+                    draggable={busyKey !== 'item-order'}
+                    role="button"
+                    tabIndex={0}
+                    title="Drag to arrange"
+                    aria-label={`Drag ${item.item_name} to arrange`}
+                    onDragStart={(event) => {
+                      setDraggedItemId(item.id);
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', item.id);
+                    }}
+                    onDragEnd={() => setDraggedItemId(null)}
+                  >Drag</span>
+                  <button type="button" className="item-order-button" disabled={itemIndex === items.length - 1 || busyKey === 'item-order'} onClick={() => moveTrackedItem(item.id, 1)} aria-label={`Move ${item.item_name} right`} title="Move right">&#8250;</button>
+                  <button type="button" className="archive-link" onClick={() => void archiveItem(item.id)}>Remove</button>
+                </div>
+              ) : null}
               {item.current_status === 'LOANED' ? (
                 <>
                   <div className="holder">With <b>{item.loaned_to_name}</b></div>
@@ -945,9 +1021,6 @@ export default function FoQuickActionsPage() {
                   <button type="button" onClick={() => { setLoaningItemId(item.id); setLoanedToName(''); }}>Loan Out</button>
                 </>
               )}
-              {isSuperuser ? (
-                <button type="button" className="archive-link" onClick={() => void archiveItem(item.id)}>Remove</button>
-              ) : null}
             </article>
           )) : <div className="empty-inline">No FO items configured yet.{isSuperuser ? ' Add the first item.' : ''}</div>}
         </div>
@@ -1226,7 +1299,13 @@ function ProfessionalStyles() {
     .guest-order-link{margin-top:auto;min-height:40px;border-radius:10px;background:#183f76;color:#fff;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:8px;font-size:11px;font-weight:950;box-shadow:0 5px 13px rgba(24,63,118,.18)}
     .guest-order-panel.has-orders .guest-order-link{background:linear-gradient(135deg,#d63a2b,#aa241b)}
     .guest-order-link span{font-size:16px;line-height:1}
-    .archive-link{top:34px!important;right:9px!important;border-radius:5px!important;padding:3px 5px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
+    .item-card{transition:opacity .16s ease,transform .16s ease,box-shadow .16s ease}
+    .item-card.dragging{opacity:.48;transform:scale(.98);box-shadow:0 8px 20px rgba(24,49,82,.13)}
+    .item-admin-row{display:flex;align-items:center;gap:4px;min-height:24px}
+    .item-order-button{width:27px;height:24px;border:1px solid #c9d6e5;border-radius:7px;padding:0;background:#fff;color:#214b82;font-size:18px;font-weight:900;line-height:1;cursor:pointer}
+    .item-drag-handle{height:24px;border:1px dashed #9eb3cc;border-radius:7px;padding:4px 8px;background:#f0f5fb;color:#4c6481;font-size:9px;font-weight:900;letter-spacing:.04em;cursor:grab;user-select:none;touch-action:manipulation}
+    .item-drag-handle:active{cursor:grabbing}
+    .item-card .archive-link{position:static!important;margin-left:auto;border-radius:5px!important;padding:4px 6px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
     @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}.foq-overview-grid{grid-template-columns:minmax(0,1fr) 300px}}
     @media(max-width:760px){.foq-overview-grid{grid-template-columns:1fr}.guest-order-panel{grid-row:1}.guest-order-list{grid-template-columns:repeat(3,minmax(0,1fr))}.guest-order-row{grid-template-columns:1fr}.guest-order-row>span{grid-column:1;grid-row:auto;justify-self:start;margin-top:4px}.guest-order-link{margin-top:0}}
     @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}.urgent-follow-up-overlay{padding:10px}.urgent-follow-up-modal{padding:20px 14px;border-width:4px}.urgent-follow-up-modal h2{font-size:25px}.urgent-task-text{font-size:14px}.urgent-form-actions{grid-template-columns:1fr}.waiting-timer{min-width:84px;font-size:15px}.guest-order-list{display:grid;grid-template-columns:1fr}.guest-order-panel{padding:12px}.guest-order-row{grid-template-columns:minmax(0,1fr) auto}.guest-order-row>span{grid-column:2;grid-row:1/3;justify-self:auto;margin-top:0}}
@@ -1237,3 +1316,4 @@ function Styles() {
   return <style jsx global>{`
     *{box-sizing:border-box}body{margin:0;background:#eef3f9;color:#10223c;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.foq-page{min-height:100vh;padding:18px}.foq-header,.item-panel,.action-panel,.main-tabs,.foq-state{max-width:1450px;margin-left:auto;margin-right:auto;background:#fff;border:1px solid #d7e1ec;border-radius:16px;box-shadow:0 10px 28px rgba(24,49,82,.07)}.foq-header{padding:20px 22px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:18px}.foq-header h1{margin:3px 0;font-size:28px;letter-spacing:-.03em}.foq-header p{margin:0;color:#64758a;font-size:13px}.eyebrow{display:block;color:#2462d0;font-size:9px;font-weight:950;letter-spacing:.14em}.header-actions,.heading-actions{display:flex;align-items:center;gap:8px}.header-actions a,.header-actions button,.secondary{border:1px solid #c7d3e1;background:#fff;color:#21344e;border-radius:10px;padding:10px 13px;text-decoration:none;font-weight:850;cursor:pointer}.notice{max-width:1450px;margin:0 auto 10px;padding:11px 14px;border-radius:10px;font-size:12px;font-weight:800}.notice.error{background:#fff1f0;border:1px solid #f2c1bd;color:#a72d25}.notice.success{background:#edf9f2;border:1px solid #b5dfc7;color:#0d7543}.item-panel{padding:14px 16px;margin-bottom:10px}.section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px}.section-heading.compact{align-items:center;margin-bottom:9px}.section-heading h2{font-size:18px;margin:3px 0 0}.count{border-radius:999px;padding:5px 9px;background:#eef3f9;color:#52667f;font-size:10px;font-weight:900}.count.warn{background:#fff0e8;color:#b74518}.count.good{background:#e9f8ef;color:#0b7945}.small{padding:6px 9px!important;font-size:10px}.inline-create{display:grid;grid-template-columns:1.2fr 1.5fr auto auto;gap:7px;margin:8px 0 10px}.inline-create input,.inline-create button,.inline-action input,.inline-action button,.completion-row input,.completion-row button{min-height:38px;border:1px solid #cbd6e3;border-radius:9px;padding:8px 10px;background:#fff}.inline-create button,.inline-action button,.completion-row button{background:#235fc8;color:#fff;font-weight:850;cursor:pointer}.item-strip{display:flex;gap:9px;overflow-x:auto;padding:2px 1px 7px;scrollbar-width:thin}.item-card{position:relative;flex:0 0 235px;min-height:128px;padding:12px;border:1px solid #d9e3ee;border-left:4px solid #21a366;border-radius:12px;background:#f9fcfa;display:flex;flex-direction:column;gap:7px}.item-card.loaned{border-left-color:#e4722b;background:#fff9f4}.item-top{display:flex;justify-content:space-between;gap:8px}.item-top strong{font-size:13px}.item-top span{font-size:8px;font-weight:950;color:#64758a}.item-card small{font-size:10px;color:#6c7d91}.item-card>button:not(.archive-link),.return-btn{margin-top:auto;border:0;border-radius:9px;padding:9px;background:#1e64cd;color:#fff;font-weight:900;cursor:pointer}.item-card .return-btn{background:#16824d}.holder{font-size:12px}.inline-action{display:grid;grid-template-columns:1fr 1fr;gap:5px}.inline-action input{grid-column:1/-1;min-width:0}.archive-link,.delete-link{position:absolute;top:35px;right:10px;border:0!important;background:transparent!important;color:#9a4b4b!important;font-size:9px!important;padding:2px!important;cursor:pointer}.empty-inline{padding:20px;color:#718197;font-size:12px}.main-tabs{padding:5px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:5px}.main-tabs button{min-height:66px;border:1px solid transparent;border-radius:12px;background:transparent;color:#54677f;padding:9px 14px;text-align:left;display:grid;grid-template-columns:auto 1fr;column-gap:8px;cursor:pointer}.main-tabs button span{font-size:15px;font-weight:950}.main-tabs button b{justify-self:end;border-radius:999px;padding:2px 7px;background:#e8eef6;font-size:11px}.main-tabs button small{grid-column:1/-1;font-size:10px}.main-tabs button.active{background:#153d76;color:#fff;box-shadow:0 5px 13px rgba(21,61,118,.2)}.main-tabs button.active b{background:#fff;color:#153d76}.workspace-grid{max-width:1450px;margin:0 auto;display:grid;grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr);gap:10px;align-items:start}.action-panel{padding:17px;margin:0}.create-panel label{display:grid;gap:6px;margin-top:11px;font-size:11px;font-weight:900;color:#465b75}.create-panel label small{font-weight:600}.create-panel input,.create-panel textarea{width:100%;border:1px solid #c9d5e3;border-radius:10px;padding:11px 12px;background:#fbfcfe;color:#10223c;font:inherit;resize:vertical}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.choice-row{display:flex;flex-wrap:wrap;gap:6px}.choice-row button{border:1px solid #cbd6e3;border-radius:9px;background:#fff;color:#4a607a;padding:8px 10px;font-size:10px;font-weight:850;cursor:pointer}.choice-row button.selected{border-color:#1f60c8;background:#eaf2ff;color:#174f9e;box-shadow:inset 0 0 0 1px #1f60c8}.choice-row button.hk.selected{background:#eaf9f0;border-color:#23935b;color:#167044}.choice-row button.mt.selected{background:#edf3ff;border-color:#3d6ed2;color:#2658b2}.waiting-toggle{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start;gap:9px!important;padding:10px 11px;border:1px solid #e4c8b7;border-radius:10px;background:#fff9f5}.waiting-toggle input{width:auto}.waiting-toggle span{display:grid}.waiting-toggle small{color:#7f6b60}.urgent-pill{border-radius:999px;background:#fff0e8;color:#be461b;padding:5px 9px;font-size:9px;font-weight:950}.primary-action{width:100%;margin-top:13px;border:0;border-radius:11px;padding:12px 15px;background:#1764cf;color:#fff;font-weight:950;cursor:pointer}.primary-action:disabled,button:disabled{opacity:.55;cursor:not-allowed}.info-note{margin-top:11px;padding:10px;border-radius:9px;background:#eef5ff;color:#36577f;font-size:10px;line-height:1.4}.compact-list{display:grid;gap:7px;max-height:575px;overflow:auto;padding-right:2px}.compact-card,.reminder-card{position:relative;border:1px solid #dce4ee;border-left:4px solid #df862d;border-radius:11px;padding:11px 12px;background:#fff}.compact-card.done,.reminder-card.done{border-left-color:#25a165;background:#f8fcfa}.card-title,.card-title>div{display:flex;align-items:center;gap:7px}.card-title{justify-content:space-between}.card-title b{font-size:9px}.card-title strong{font-size:13px}.card-title em{font-style:normal;font-size:8px;font-weight:950;color:#6a7b90}.dept{border-radius:999px;padding:3px 6px;font-size:8px;font-weight:950}.dept.hk{background:#e8f8ef;color:#137447}.dept.mt{background:#eaf0ff;color:#2b58ae}.compact-card p,.reminder-card p{margin:7px 0;color:#2c425e;font-size:12px;line-height:1.4;white-space:pre-wrap}.compact-card small,.reminder-card small{color:#78889a;font-size:9px}.empty{padding:30px 15px;border:1px dashed #cbd6e3;border-radius:10px;text-align:center;color:#718197;font-size:12px}.mini-tabs{display:flex;border:1px solid #d5deea;border-radius:9px;padding:3px}.mini-tabs button{border:0;border-radius:6px;background:transparent;color:#63758b;padding:6px 8px;font-size:9px;font-weight:900;cursor:pointer}.mini-tabs button.active{background:#173f77;color:#fff}.complete-btn{margin-top:9px;border:0;border-radius:8px;padding:8px 10px;background:#16834e;color:#fff;font-size:10px;font-weight:900;cursor:pointer}.completion-row{display:grid;grid-template-columns:1fr auto auto;gap:5px;margin-top:9px}.completion-row input{min-width:0}.completed-by{margin-top:8px;border-radius:8px;padding:7px 9px;background:#e9f8f0;color:#176942;font-size:10px}.reminder-card .delete-link{top:auto;bottom:8px}.foq-state{margin-top:12vh;padding:35px;text-align:center}.foq-state a{color:#1e61c7}.secondary{background:#fff!important;color:#324861!important}@media(max-width:920px){.workspace-grid{grid-template-columns:1fr}.compact-list{max-height:none}.field-grid{grid-template-columns:1fr}.inline-create{grid-template-columns:1fr 1fr}.inline-create input{grid-column:span 1}}@media(max-width:620px){.foq-page{padding:8px}.foq-header{padding:15px;align-items:flex-start;display:grid}.foq-header h1{font-size:24px}.header-actions{width:100%}.header-actions>*{flex:1;text-align:center}.item-panel,.action-panel{padding:12px}.main-tabs button{padding:8px;min-height:62px}.main-tabs button span{font-size:13px}.workspace-grid{gap:8px}.inline-create{grid-template-columns:1fr}.inline-create input{grid-column:auto}.completion-row{grid-template-columns:1fr 1fr}.completion-row input{grid-column:1/-1}.item-card{flex-basis:215px}.choice-row button{flex:1}.department-row button{min-width:130px}}\n+  `}</style>;
 }
+

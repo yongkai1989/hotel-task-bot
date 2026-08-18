@@ -1,0 +1,717 @@
+-- FO Quick Actions
+-- Run this entire file in Supabase SQL Editor.
+
+create extension if not exists pgcrypto;
+
+alter table public.tasks
+  add column if not exists source_page text;
+
+alter table public.tasks
+  add column if not exists customer_waiting_due_at timestamptz,
+  add column if not exists customer_waiting_follow_up_count integer not null default 0;
+
+update public.tasks
+set customer_waiting_due_at = created_at + interval '15 minutes'
+where customer_waiting = true
+  and customer_waiting_due_at is null;
+
+create index if not exists tasks_source_page_created_idx
+  on public.tasks(source_page, created_at desc)
+  where source_page is not null;
+
+create index if not exists tasks_customer_waiting_due_idx
+  on public.tasks(customer_waiting_due_at)
+  where customer_waiting = true and status = 'OPEN';
+
+create or replace function public.record_customer_waiting_follow_up(
+  p_task_id uuid,
+  p_reason text,
+  p_actor_name text
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+  v_actor_name text := nullif(trim(coalesce(p_actor_name, '')), '');
+  v_task public.tasks%rowtype;
+begin
+  if v_reason is null or char_length(v_reason) < 3 then
+    raise exception 'Enter the reason for the delay';
+  end if;
+  if char_length(v_reason) > 500 then
+    raise exception 'Delay reason must be 500 characters or less';
+  end if;
+  if v_actor_name is null then
+    raise exception 'FO staff name is required';
+  end if;
+
+  update public.tasks
+  set customer_waiting_due_at = now() + interval '15 minutes',
+      customer_waiting_follow_up_count =
+        coalesce(customer_waiting_follow_up_count, 0) + 1,
+      customer_waiting_reminder_sent_at = null,
+      updated_at = now()
+  where id = p_task_id
+    and status = 'OPEN'
+    and customer_waiting = true
+  returning * into v_task;
+
+  if not found then
+    raise exception 'Customer-waiting task was not found or is no longer open';
+  end if;
+
+  insert into public.task_events (
+    task_id,
+    event_type,
+    event_text,
+    actor_name
+  ) values (
+    v_task.id,
+    'CUSTOMER_WAITING_FOLLOW_UP',
+    'Delay reason: ' || v_reason || '. Next follow-up due in 15 minutes.',
+    v_actor_name
+  );
+
+  return v_task;
+end;
+$$;
+
+revoke all on function public.record_customer_waiting_follow_up(uuid, text, text)
+  from public, anon, authenticated;
+grant execute on function public.record_customer_waiting_follow_up(uuid, text, text)
+  to service_role;
+
+-- Event-driven task synchronization for the dashboard and FO Quick Actions.
+grant select on public.tasks to authenticated;
+
+drop policy if exists tasks_realtime_read_authenticated on public.tasks;
+create policy tasks_realtime_read_authenticated
+on public.tasks for select
+to authenticated
+using (auth.uid() is not null);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'tasks'
+  ) then
+    alter publication supabase_realtime add table public.tasks;
+  end if;
+end;
+$$;
+
+update public.user_profiles
+set can_create_task = true,
+    can_update_task_status = true
+where upper(coalesce(role, '')) = 'FO';
+
+create table if not exists public.fo_shift_reminders (
+  id uuid primary key default gen_random_uuid(),
+  reminder_text text not null check (char_length(trim(reminder_text)) between 1 and 1000),
+  reference_text text,
+  status text not null default 'OPEN' check (status in ('OPEN', 'DONE')),
+  created_by_user_id uuid,
+  created_by_name text,
+  created_by_email text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_by_name text,
+  completed_by_user_id uuid,
+  completed_at timestamptz
+);
+
+create index if not exists fo_shift_reminders_status_created_idx
+  on public.fo_shift_reminders(status, created_at desc);
+
+create table if not exists public.fo_shift_reminder_events (
+  id uuid primary key default gen_random_uuid(),
+  reminder_id uuid not null references public.fo_shift_reminders(id) on delete cascade,
+  event_type text not null check (event_type in ('CREATED', 'COMPLETED', 'REOPENED')),
+  actor_user_id uuid,
+  actor_name text,
+  actor_email text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists fo_shift_reminder_events_reminder_created_idx
+  on public.fo_shift_reminder_events(reminder_id, created_at desc);
+
+create table if not exists public.fo_tracked_items (
+  id uuid primary key default gen_random_uuid(),
+  item_name text not null check (char_length(trim(item_name)) between 1 and 120),
+  notes text,
+  is_active boolean not null default true,
+  current_status text not null default 'AVAILABLE' check (current_status in ('AVAILABLE', 'LOANED')),
+  loaned_to_name text,
+  loaned_at timestamptz,
+  created_by_user_id uuid,
+  created_by_name text,
+  display_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists fo_tracked_items_active_name_key
+  on public.fo_tracked_items(lower(trim(item_name)))
+  where is_active = true;
+
+create index if not exists fo_tracked_items_active_status_idx
+  on public.fo_tracked_items(is_active, current_status, item_name);
+
+alter table public.fo_tracked_items
+  add column if not exists display_order integer;
+
+with ranked_items as (
+  select
+    id,
+    row_number() over (
+      order by coalesce(display_order, 2147483647), item_name, created_at, id
+    )::integer as new_order
+  from public.fo_tracked_items
+)
+update public.fo_tracked_items item
+set display_order = ranked_items.new_order
+from ranked_items
+where ranked_items.id = item.id
+  and item.display_order is distinct from ranked_items.new_order;
+
+alter table public.fo_tracked_items
+  alter column display_order set default 0;
+
+alter table public.fo_tracked_items
+  alter column display_order set not null;
+
+create index if not exists fo_tracked_items_active_order_idx
+  on public.fo_tracked_items(is_active, display_order, item_name);
+
+create table if not exists public.fo_tracked_item_movements (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.fo_tracked_items(id) on delete cascade,
+  action text not null check (action in ('LOANED', 'RETURNED')),
+  counterparty_name text,
+  actor_user_id uuid,
+  actor_name text,
+  actor_email text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists fo_tracked_item_movements_item_created_idx
+  on public.fo_tracked_item_movements(item_id, created_at desc);
+
+create or replace function public.can_access_fo_quick_actions()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.user_profiles profile
+    where profile.user_id = auth.uid()
+      and (
+        upper(coalesce(profile.role, '')) in ('SUPERUSER', 'FO')
+        or coalesce(profile.can_access_fo_checklist, false) = true
+      )
+  );
+$$;
+
+create or replace function public.create_fo_shift_reminder(
+  p_reminder_text text,
+  p_reference_text text default null
+)
+returns public.fo_shift_reminders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_profile public.user_profiles%rowtype;
+  v_row public.fo_shift_reminders%rowtype;
+begin
+  if not public.can_access_fo_quick_actions() then
+    raise exception 'FO Quick Actions access required';
+  end if;
+
+  if nullif(trim(coalesce(p_reminder_text, '')), '') is null then
+    raise exception 'Reminder is required';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  insert into public.fo_shift_reminders (
+    reminder_text,
+    reference_text,
+    created_by_user_id,
+    created_by_name,
+    created_by_email
+  ) values (
+    trim(p_reminder_text),
+    nullif(trim(coalesce(p_reference_text, '')), ''),
+    auth.uid(),
+    coalesce(nullif(trim(v_profile.name), ''), v_profile.email, 'Front Office'),
+    v_profile.email
+  )
+  returning * into v_row;
+
+  insert into public.fo_shift_reminder_events (
+    reminder_id, event_type, actor_user_id, actor_name, actor_email
+  ) values (
+    v_row.id,
+    'CREATED',
+    auth.uid(),
+    coalesce(nullif(trim(v_profile.name), ''), v_profile.email, 'Front Office'),
+    v_profile.email
+  );
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.complete_fo_shift_reminder(
+  p_reminder_id uuid,
+  p_completed_by_name text
+)
+returns public.fo_shift_reminders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text := nullif(trim(coalesce(p_completed_by_name, '')), '');
+  v_profile public.user_profiles%rowtype;
+  v_row public.fo_shift_reminders%rowtype;
+begin
+  if not public.can_access_fo_quick_actions() then
+    raise exception 'FO Quick Actions access required';
+  end if;
+
+  if v_name is null then
+    raise exception 'Enter your name before completing this reminder';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  update public.fo_shift_reminders
+  set status = 'DONE',
+      completed_by_name = v_name,
+      completed_by_user_id = auth.uid(),
+      completed_at = now(),
+      updated_at = now()
+  where id = p_reminder_id
+    and status = 'OPEN'
+  returning * into v_row;
+
+  if not found then
+    raise exception 'Reminder is no longer open';
+  end if;
+
+  insert into public.fo_shift_reminder_events (
+    reminder_id, event_type, actor_user_id, actor_name, actor_email
+  ) values (
+    v_row.id, 'COMPLETED', auth.uid(), v_name, v_profile.email
+  );
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.reopen_fo_shift_reminder(
+  p_reminder_id uuid,
+  p_reopened_by_name text
+)
+returns public.fo_shift_reminders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text := nullif(trim(coalesce(p_reopened_by_name, '')), '');
+  v_profile public.user_profiles%rowtype;
+  v_row public.fo_shift_reminders%rowtype;
+begin
+  if not public.can_access_fo_quick_actions() then
+    raise exception 'FO Quick Actions access required';
+  end if;
+
+  if v_name is null then
+    raise exception 'Enter your name before re-opening this reminder';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  update public.fo_shift_reminders
+  set status = 'OPEN',
+      completed_by_name = null,
+      completed_by_user_id = null,
+      completed_at = null,
+      updated_at = now()
+  where id = p_reminder_id
+    and status = 'DONE'
+  returning * into v_row;
+
+  if not found then
+    raise exception 'Reminder is no longer completed';
+  end if;
+
+  insert into public.fo_shift_reminder_events (
+    reminder_id, event_type, actor_user_id, actor_name, actor_email
+  ) values (
+    v_row.id, 'REOPENED', auth.uid(), v_name, v_profile.email
+  );
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.delete_fo_shift_reminder(
+  p_reminder_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted_count integer := 0;
+begin
+  if not exists (
+    select 1 from public.user_profiles
+    where upper(coalesce(role, '')) = 'SUPERUSER'
+      and (
+        user_id = auth.uid()
+        or lower(trim(coalesce(email, ''))) =
+           lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+      )
+  ) then
+    raise exception 'Only SUPERUSER can delete reminders';
+  end if;
+
+  delete from public.fo_shift_reminders where id = p_reminder_id;
+  get diagnostics v_deleted_count = row_count;
+  return v_deleted_count > 0;
+end;
+$$;
+
+create or replace function public.create_fo_tracked_item(
+  p_item_name text,
+  p_notes text default null
+)
+returns public.fo_tracked_items
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_profile public.user_profiles%rowtype;
+  v_row public.fo_tracked_items%rowtype;
+begin
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  if upper(coalesce(v_profile.role, '')) <> 'SUPERUSER' then
+    raise exception 'Only SUPERUSER can create tracked items';
+  end if;
+
+  if nullif(trim(coalesce(p_item_name, '')), '') is null then
+    raise exception 'Item name is required';
+  end if;
+
+  insert into public.fo_tracked_items (
+    item_name,
+    notes,
+    display_order,
+    created_by_user_id,
+    created_by_name
+  ) values (
+    trim(p_item_name),
+    nullif(trim(coalesce(p_notes, '')), ''),
+    coalesce((select max(display_order) from public.fo_tracked_items where is_active = true), 0) + 1,
+    auth.uid(),
+    coalesce(nullif(trim(v_profile.name), ''), v_profile.email, 'Superuser')
+  )
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.reorder_fo_tracked_items(
+  p_item_ids uuid[]
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_active_count integer;
+  v_unique_count integer;
+begin
+  if not exists (
+    select 1
+    from public.user_profiles
+    where user_id = auth.uid()
+      and upper(coalesce(role, '')) = 'SUPERUSER'
+  ) then
+    raise exception 'Only SUPERUSER can reorder tracked items';
+  end if;
+
+  if p_item_ids is null then
+    raise exception 'Item order is required';
+  end if;
+
+  select count(*) into v_active_count
+  from public.fo_tracked_items
+  where is_active = true;
+
+  select count(distinct requested.item_id) into v_unique_count
+  from unnest(p_item_ids) as requested(item_id);
+
+  if cardinality(p_item_ids) <> v_active_count
+    or v_unique_count <> v_active_count
+    or exists (
+      select 1
+      from unnest(p_item_ids) as requested(item_id)
+      left join public.fo_tracked_items item
+        on item.id = requested.item_id
+       and item.is_active = true
+      where item.id is null
+    )
+  then
+    raise exception 'The item list changed. Refresh and try again';
+  end if;
+
+  update public.fo_tracked_items item
+  set display_order = requested.position::integer,
+      updated_at = now()
+  from unnest(p_item_ids) with ordinality as requested(item_id, position)
+  where item.id = requested.item_id;
+end;
+$$;
+
+create or replace function public.loan_fo_tracked_item(
+  p_item_id uuid,
+  p_loaned_to_name text
+)
+returns public.fo_tracked_items
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text := nullif(trim(coalesce(p_loaned_to_name, '')), '');
+  v_profile public.user_profiles%rowtype;
+  v_row public.fo_tracked_items%rowtype;
+begin
+  if not public.can_access_fo_quick_actions() then
+    raise exception 'FO Quick Actions access required';
+  end if;
+
+  if v_name is null then
+    raise exception 'Enter who the item is loaned to';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  select * into v_row
+  from public.fo_tracked_items
+  where id = p_item_id
+  for update;
+
+  if not found or not v_row.is_active then
+    raise exception 'Tracked item is unavailable';
+  end if;
+  if v_row.current_status <> 'AVAILABLE' then
+    raise exception 'Item is already loaned out';
+  end if;
+
+  update public.fo_tracked_items
+  set current_status = 'LOANED',
+      loaned_to_name = v_name,
+      loaned_at = now(),
+      updated_at = now()
+  where id = p_item_id
+  returning * into v_row;
+
+  insert into public.fo_tracked_item_movements (
+    item_id, action, counterparty_name, actor_user_id, actor_name, actor_email
+  ) values (
+    p_item_id, 'LOANED', v_name, auth.uid(),
+    coalesce(nullif(trim(v_profile.name), ''), v_profile.email, 'Front Office'),
+    v_profile.email
+  );
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.return_fo_tracked_item(
+  p_item_id uuid
+)
+returns public.fo_tracked_items
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_profile public.user_profiles%rowtype;
+  v_previous_holder text;
+  v_row public.fo_tracked_items%rowtype;
+begin
+  if not public.can_access_fo_quick_actions() then
+    raise exception 'FO Quick Actions access required';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  select item.* into v_row
+  from public.fo_tracked_items item
+  where item.id = p_item_id
+  for update;
+
+  if not found or not v_row.is_active then
+    raise exception 'Tracked item is unavailable';
+  end if;
+  if v_row.current_status <> 'LOANED' then
+    raise exception 'Item is already marked available';
+  end if;
+  v_previous_holder := v_row.loaned_to_name;
+
+  update public.fo_tracked_items
+  set current_status = 'AVAILABLE',
+      loaned_to_name = null,
+      loaned_at = null,
+      updated_at = now()
+  where id = p_item_id
+  returning * into v_row;
+
+  insert into public.fo_tracked_item_movements (
+    item_id, action, counterparty_name, actor_user_id, actor_name, actor_email
+  ) values (
+    p_item_id, 'RETURNED', v_previous_holder, auth.uid(),
+    coalesce(nullif(trim(v_profile.name), ''), v_profile.email, 'Front Office'),
+    v_profile.email
+  );
+
+  return v_row;
+end;
+$$;
+
+create or replace function public.set_fo_tracked_item_active(
+  p_item_id uuid,
+  p_is_active boolean
+)
+returns public.fo_tracked_items
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.fo_tracked_items%rowtype;
+begin
+  if not exists (
+    select 1 from public.user_profiles
+    where user_id = auth.uid() and upper(coalesce(role, '')) = 'SUPERUSER'
+  ) then
+    raise exception 'Only SUPERUSER can manage tracked items';
+  end if;
+
+  select * into v_row
+  from public.fo_tracked_items
+  where id = p_item_id
+  for update;
+
+  if not found then
+    raise exception 'Tracked item not found';
+  end if;
+  update public.fo_tracked_items
+  set is_active = coalesce(p_is_active, false),
+      updated_at = now()
+  where id = p_item_id
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+alter table public.fo_shift_reminders enable row level security;
+alter table public.fo_shift_reminder_events enable row level security;
+alter table public.fo_tracked_items enable row level security;
+alter table public.fo_tracked_item_movements enable row level security;
+
+drop policy if exists fo_shift_reminders_read on public.fo_shift_reminders;
+create policy fo_shift_reminders_read
+on public.fo_shift_reminders for select
+to authenticated
+using (public.can_access_fo_quick_actions());
+
+drop policy if exists fo_shift_reminder_events_read on public.fo_shift_reminder_events;
+create policy fo_shift_reminder_events_read
+on public.fo_shift_reminder_events for select
+to authenticated
+using (public.can_access_fo_quick_actions());
+
+drop policy if exists fo_tracked_items_read on public.fo_tracked_items;
+create policy fo_tracked_items_read
+on public.fo_tracked_items for select
+to authenticated
+using (public.can_access_fo_quick_actions());
+
+drop policy if exists fo_tracked_item_movements_read on public.fo_tracked_item_movements;
+create policy fo_tracked_item_movements_read
+on public.fo_tracked_item_movements for select
+to authenticated
+using (public.can_access_fo_quick_actions());
+
+grant select on public.fo_shift_reminders to authenticated;
+grant select on public.fo_shift_reminder_events to authenticated;
+grant select on public.fo_tracked_items to authenticated;
+grant select on public.fo_tracked_item_movements to authenticated;
+
+revoke all on function public.can_access_fo_quick_actions() from public, anon;
+revoke all on function public.create_fo_shift_reminder(text, text) from public, anon;
+revoke all on function public.complete_fo_shift_reminder(uuid, text) from public, anon;
+revoke all on function public.reopen_fo_shift_reminder(uuid, text) from public, anon;
+revoke all on function public.delete_fo_shift_reminder(uuid) from public, anon;
+revoke all on function public.create_fo_tracked_item(text, text) from public, anon;
+revoke all on function public.reorder_fo_tracked_items(uuid[]) from public, anon;
+revoke all on function public.loan_fo_tracked_item(uuid, text) from public, anon;
+revoke all on function public.return_fo_tracked_item(uuid) from public, anon;
+revoke all on function public.set_fo_tracked_item_active(uuid, boolean) from public, anon;
+
+grant execute on function public.can_access_fo_quick_actions() to authenticated;
+grant execute on function public.create_fo_shift_reminder(text, text) to authenticated;
+grant execute on function public.complete_fo_shift_reminder(uuid, text) to authenticated;
+grant execute on function public.reopen_fo_shift_reminder(uuid, text) to authenticated;
+grant execute on function public.delete_fo_shift_reminder(uuid) to authenticated;
+grant execute on function public.create_fo_tracked_item(text, text) to authenticated;
+grant execute on function public.reorder_fo_tracked_items(uuid[]) to authenticated;
+grant execute on function public.loan_fo_tracked_item(uuid, text) to authenticated;
+grant execute on function public.return_fo_tracked_item(uuid) to authenticated;
+grant execute on function public.set_fo_tracked_item_active(uuid, boolean) to authenticated;
+
