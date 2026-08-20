@@ -1,0 +1,354 @@
+-- Superuser linen history corrections
+-- Run once in Supabase. This updates the authoritative linen row and refreshes
+-- the affected daily snapshot in the same transaction.
+
+create table if not exists public.linen_history_corrections (
+  id uuid primary key default gen_random_uuid(),
+  service_date date not null,
+  source_type text not null check (source_type in ('ACTUAL', 'PA_USED', 'IN_BILL', 'RETURNED')),
+  source_record_key text not null,
+  source_label text not null,
+  previous_values jsonb not null,
+  new_values jsonb not null,
+  reason text not null check (length(btrim(reason)) >= 3),
+  amended_by_user_id uuid not null,
+  amended_by_name text not null,
+  amended_by_email text,
+  amended_at timestamptz not null default now()
+);
+
+create index if not exists linen_history_corrections_date_idx
+  on public.linen_history_corrections (service_date desc, amended_at desc);
+
+alter table public.linen_history_corrections enable row level security;
+
+drop policy if exists "Superusers can read linen correction audit" on public.linen_history_corrections;
+create policy "Superusers can read linen correction audit"
+on public.linen_history_corrections
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.user_profiles up
+    where up.user_id = (select auth.uid())
+      and up.role = 'SUPERUSER'
+  )
+);
+
+revoke all on public.linen_history_corrections from anon, authenticated;
+grant select on public.linen_history_corrections to authenticated;
+
+create or replace function public.linen_history_totals_json(
+  p_bedsheet_king bigint,
+  p_bedsheet_single bigint,
+  p_pillow_case bigint,
+  p_bath_towel bigint,
+  p_bath_mat bigint,
+  p_duvet_cover_king bigint,
+  p_duvet_cover_single bigint
+)
+returns jsonb
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select jsonb_build_object(
+    'bedsheet_king', coalesce(p_bedsheet_king, 0),
+    'bedsheet_single', coalesce(p_bedsheet_single, 0),
+    'pillow_case', coalesce(p_pillow_case, 0),
+    'bath_towel', coalesce(p_bath_towel, 0),
+    'bath_mat', coalesce(p_bath_mat, 0),
+    'duvet_cover_king', coalesce(p_duvet_cover_king, 0),
+    'duvet_cover_single', coalesce(p_duvet_cover_single, 0)
+  );
+$$;
+
+create or replace function public.linen_history_subtract_totals(
+  p_left jsonb,
+  p_right jsonb
+)
+returns jsonb
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select public.linen_history_totals_json(
+    coalesce((p_left->>'bedsheet_king')::bigint, 0) - coalesce((p_right->>'bedsheet_king')::bigint, 0),
+    coalesce((p_left->>'bedsheet_single')::bigint, 0) - coalesce((p_right->>'bedsheet_single')::bigint, 0),
+    coalesce((p_left->>'pillow_case')::bigint, 0) - coalesce((p_right->>'pillow_case')::bigint, 0),
+    coalesce((p_left->>'bath_towel')::bigint, 0) - coalesce((p_right->>'bath_towel')::bigint, 0),
+    coalesce((p_left->>'bath_mat')::bigint, 0) - coalesce((p_right->>'bath_mat')::bigint, 0),
+    coalesce((p_left->>'duvet_cover_king')::bigint, 0) - coalesce((p_right->>'duvet_cover_king')::bigint, 0),
+    coalesce((p_left->>'duvet_cover_single')::bigint, 0) - coalesce((p_right->>'duvet_cover_single')::bigint, 0)
+  );
+$$;
+
+create or replace function public.refresh_linen_history_snapshot(p_service_date date)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_expected jsonb;
+  v_actual jsonb;
+  v_difference jsonb;
+  v_floor_difference jsonb;
+  v_block_difference jsonb;
+begin
+  with base as (
+    select
+      ('B' || rm.block_no::text || 'F' || rm.floor_no::text) as floor_key,
+      ('B' || rm.block_no::text) as block_key,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.bedsheet_king, 0) end as e_bedsheet_king,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.bedsheet_single, 0) end as e_bedsheet_single,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.pillow_case, 0) end as e_pillow_case,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.bath_towel, 0) end as e_bath_towel,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.bath_mat, 0) end as e_bath_mat,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.duvet_cover_king, 0) end as e_duvet_cover_king,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(m.duvet_cover_single, 0) end as e_duvet_cover_single,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.bedsheet_king, 0) end as a_bedsheet_king,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.bedsheet_single, 0) end as a_bedsheet_single,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.pillow_case, 0) end as a_pillow_case,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.bath_towel, 0) end as a_bath_towel,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.bath_mat, 0) end as a_bath_mat,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.duvet_cover_king, 0) end as a_duvet_cover_king,
+      case when coalesce(re.is_dnd, false) then 0 else coalesce(re.duvet_cover_single, 0) end as a_duvet_cover_single
+    from public.linen_room_status rs
+    join public.room_master rm on rm.room_number = rs.room_number
+    left join public.linen_room_type_map m on m.room_type = rm.room_type
+    left join public.linen_room_entry re
+      on re.service_date = rs.service_date
+     and re.room_number = rs.room_number
+    where rs.service_date = p_service_date
+      and rs.status in ('CHECKOUT', 'STAYOVER')
+  ), floor_totals as (
+    select floor_key,
+      public.linen_history_totals_json(sum(e_bedsheet_king), sum(e_bedsheet_single), sum(e_pillow_case), sum(e_bath_towel), sum(e_bath_mat), sum(e_duvet_cover_king), sum(e_duvet_cover_single)) expected,
+      public.linen_history_totals_json(sum(a_bedsheet_king), sum(a_bedsheet_single), sum(a_pillow_case), sum(a_bath_towel), sum(a_bath_mat), sum(a_duvet_cover_king), sum(a_duvet_cover_single)) actual
+    from base group by floor_key
+  ), block_totals as (
+    select block_key,
+      public.linen_history_totals_json(sum(e_bedsheet_king), sum(e_bedsheet_single), sum(e_pillow_case), sum(e_bath_towel), sum(e_bath_mat), sum(e_duvet_cover_king), sum(e_duvet_cover_single)) expected,
+      public.linen_history_totals_json(sum(a_bedsheet_king), sum(a_bedsheet_single), sum(a_pillow_case), sum(a_bath_towel), sum(a_bath_mat), sum(a_duvet_cover_king), sum(a_duvet_cover_single)) actual
+    from base group by block_key
+  ), grand_totals as (
+    select
+      public.linen_history_totals_json(sum(e_bedsheet_king), sum(e_bedsheet_single), sum(e_pillow_case), sum(e_bath_towel), sum(e_bath_mat), sum(e_duvet_cover_king), sum(e_duvet_cover_single)) expected,
+      public.linen_history_totals_json(sum(a_bedsheet_king), sum(a_bedsheet_single), sum(a_pillow_case), sum(a_bath_towel), sum(a_bath_mat), sum(a_duvet_cover_king), sum(a_duvet_cover_single)) actual
+    from base
+  )
+  select
+    jsonb_build_object(
+      'floors', coalesce((select jsonb_object_agg(floor_key, expected) from floor_totals), '{}'::jsonb),
+      'blocks', coalesce((select jsonb_object_agg(block_key, expected) from block_totals), '{}'::jsonb),
+      'grand_total', coalesce((select expected from grand_totals), public.linen_history_totals_json(0,0,0,0,0,0,0))
+    ),
+    jsonb_build_object(
+      'floors', coalesce((select jsonb_object_agg(floor_key, actual) from floor_totals), '{}'::jsonb),
+      'blocks', coalesce((select jsonb_object_agg(block_key, actual) from block_totals), '{}'::jsonb),
+      'grand_total', coalesce((select actual from grand_totals), public.linen_history_totals_json(0,0,0,0,0,0,0))
+    )
+  into v_expected, v_actual;
+
+  select coalesce(jsonb_object_agg(k, public.linen_history_subtract_totals(v_actual->'floors'->k, v_expected->'floors'->k)), '{}'::jsonb)
+  into v_floor_difference
+  from (
+    select key k from jsonb_each(coalesce(v_expected->'floors', '{}'::jsonb))
+    union
+    select key k from jsonb_each(coalesce(v_actual->'floors', '{}'::jsonb))
+  ) keys;
+
+  select coalesce(jsonb_object_agg(k, public.linen_history_subtract_totals(v_actual->'blocks'->k, v_expected->'blocks'->k)), '{}'::jsonb)
+  into v_block_difference
+  from (
+    select key k from jsonb_each(coalesce(v_expected->'blocks', '{}'::jsonb))
+    union
+    select key k from jsonb_each(coalesce(v_actual->'blocks', '{}'::jsonb))
+  ) keys;
+
+  v_difference := jsonb_build_object(
+    'floors', v_floor_difference,
+    'blocks', v_block_difference,
+    'grand_total', public.linen_history_subtract_totals(v_actual->'grand_total', v_expected->'grand_total')
+  );
+
+  insert into public.linen_daily_snapshot (service_date, expected_json, actual_json, difference_json)
+  values (p_service_date, v_expected, v_actual, v_difference)
+  on conflict (service_date) do update set
+    expected_json = excluded.expected_json,
+    actual_json = excluded.actual_json,
+    difference_json = excluded.difference_json,
+    created_at = now();
+end;
+$$;
+
+revoke execute on function public.linen_history_totals_json(bigint,bigint,bigint,bigint,bigint,bigint,bigint) from public, anon, authenticated;
+revoke execute on function public.linen_history_subtract_totals(jsonb,jsonb) from public, anon, authenticated;
+revoke execute on function public.refresh_linen_history_snapshot(date) from public, anon, authenticated;
+
+create or replace function public.correct_linen_history_entry(
+  p_source_type text,
+  p_service_date date,
+  p_source_record_key text,
+  p_values jsonb,
+  p_reason text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_user_name text;
+  v_user_email text;
+  v_user_role text;
+  v_previous jsonb;
+  v_new jsonb;
+  v_label text;
+  v_record_id uuid;
+  v_key text;
+  v_value_text text;
+  v_keys constant text[] := array['bedsheet_king','bedsheet_single','pillow_case','bath_towel','bath_mat','duvet_cover_king','duvet_cover_single'];
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select coalesce(up.name, up.email, 'Superuser'), up.email, up.role
+  into v_user_name, v_user_email, v_user_role
+  from public.user_profiles up
+  where up.user_id = v_user_id;
+
+  if v_user_role is distinct from 'SUPERUSER' then
+    raise exception 'Only Superuser can correct linen history';
+  end if;
+
+  if p_service_date is null then raise exception 'Service date is required'; end if;
+  if p_source_type not in ('ACTUAL', 'PA_USED', 'IN_BILL', 'RETURNED') then raise exception 'Invalid linen source'; end if;
+  if length(btrim(coalesce(p_reason, ''))) < 3 then raise exception 'A correction reason is required'; end if;
+  if jsonb_typeof(p_values) is distinct from 'object' then raise exception 'Linen figures are required'; end if;
+
+  foreach v_key in array v_keys loop
+    if not (p_values ? v_key) then raise exception 'Missing linen figure: %', v_key; end if;
+    v_value_text := p_values->>v_key;
+    if v_value_text is null or v_value_text !~ '^[0-9]+$' or v_value_text::numeric > 100000 then
+      raise exception 'Each linen figure must be a whole number from 0 to 100000';
+    end if;
+  end loop;
+
+  v_new := jsonb_build_object(
+    'bedsheet_king', (p_values->>'bedsheet_king')::integer,
+    'bedsheet_single', (p_values->>'bedsheet_single')::integer,
+    'pillow_case', (p_values->>'pillow_case')::integer,
+    'bath_towel', (p_values->>'bath_towel')::integer,
+    'bath_mat', (p_values->>'bath_mat')::integer,
+    'duvet_cover_king', (p_values->>'duvet_cover_king')::integer,
+    'duvet_cover_single', (p_values->>'duvet_cover_single')::integer
+  );
+
+  if p_source_type = 'ACTUAL' then
+    select to_jsonb(t), 'Room ' || t.room_number
+    into v_previous, v_label
+    from public.linen_room_entry t
+    where t.service_date = p_service_date and t.room_number = p_source_record_key
+    for update;
+
+    if v_previous is null then raise exception 'Chambermaid linen entry not found'; end if;
+
+    update public.linen_room_entry set
+      bedsheet_king = (v_new->>'bedsheet_king')::integer,
+      bedsheet_single = (v_new->>'bedsheet_single')::integer,
+      pillow_case = (v_new->>'pillow_case')::integer,
+      bath_towel = (v_new->>'bath_towel')::integer,
+      bath_mat = (v_new->>'bath_mat')::integer,
+      duvet_cover_king = (v_new->>'duvet_cover_king')::integer,
+      duvet_cover_single = (v_new->>'duvet_cover_single')::integer,
+      updated_by_user_id = v_user_id,
+      updated_by_name = v_user_name,
+      updated_at = now()
+    where service_date = p_service_date and room_number = p_source_record_key;
+
+    perform public.refresh_linen_history_snapshot(p_service_date);
+  elsif p_source_type = 'PA_USED' then
+    select to_jsonb(t), 'PA ' || t.room_number
+    into v_previous, v_label
+    from public.linen_pa_entry t
+    where t.service_date = p_service_date and t.room_number = p_source_record_key
+    for update;
+
+    if v_previous is null then raise exception 'PA linen entry not found'; end if;
+
+    update public.linen_pa_entry set
+      bedsheet_king = (v_new->>'bedsheet_king')::integer,
+      bedsheet_single = (v_new->>'bedsheet_single')::integer,
+      pillow_case = (v_new->>'pillow_case')::integer,
+      bath_towel = (v_new->>'bath_towel')::integer,
+      bath_mat = (v_new->>'bath_mat')::integer,
+      duvet_cover_king = (v_new->>'duvet_cover_king')::integer,
+      duvet_cover_single = (v_new->>'duvet_cover_single')::integer,
+      updated_by_user_id = v_user_id,
+      updated_by_name = v_user_name,
+      updated_by_email = v_user_email,
+      updated_at = now()
+    where service_date = p_service_date and room_number = p_source_record_key;
+  elsif p_source_type = 'IN_BILL' then
+    begin v_record_id := p_source_record_key::uuid; exception when invalid_text_representation then raise exception 'Invalid bill entry'; end;
+    select to_jsonb(t), 'Bill Block ' || t.block_no::text || coalesce(' Floor ' || t.floor_no::text, '')
+    into v_previous, v_label
+    from public.linen_laundry_bill t
+    where t.id = v_record_id and t.service_date = p_service_date
+    for update;
+
+    if v_previous is null then raise exception 'Laundry bill entry not found'; end if;
+
+    update public.linen_laundry_bill set
+      bedsheet_king = (v_new->>'bedsheet_king')::integer,
+      bedsheet_single = (v_new->>'bedsheet_single')::integer,
+      pillow_case = (v_new->>'pillow_case')::integer,
+      bath_towel = (v_new->>'bath_towel')::integer,
+      bath_mat = (v_new->>'bath_mat')::integer,
+      duvet_cover_king = (v_new->>'duvet_cover_king')::integer,
+      duvet_cover_single = (v_new->>'duvet_cover_single')::integer
+    where id = v_record_id;
+  else
+    begin v_record_id := p_source_record_key::uuid; exception when invalid_text_representation then raise exception 'Invalid returned entry'; end;
+    select to_jsonb(t), 'Returned Block ' || t.block_no::text
+    into v_previous, v_label
+    from public.linen_laundry_received t
+    where t.id = v_record_id and t.service_date = p_service_date
+    for update;
+
+    if v_previous is null then raise exception 'Returned linen entry not found'; end if;
+
+    update public.linen_laundry_received set
+      bedsheet_king = (v_new->>'bedsheet_king')::integer,
+      bedsheet_single = (v_new->>'bedsheet_single')::integer,
+      pillow_case = (v_new->>'pillow_case')::integer,
+      bath_towel = (v_new->>'bath_towel')::integer,
+      bath_mat = (v_new->>'bath_mat')::integer,
+      duvet_cover_king = (v_new->>'duvet_cover_king')::integer,
+      duvet_cover_single = (v_new->>'duvet_cover_single')::integer,
+      updated_at = now()
+    where id = v_record_id;
+  end if;
+
+  insert into public.linen_history_corrections (
+    service_date, source_type, source_record_key, source_label,
+    previous_values, new_values, reason,
+    amended_by_user_id, amended_by_name, amended_by_email
+  ) values (
+    p_service_date, p_source_type, p_source_record_key, v_label,
+    v_previous, v_new, btrim(p_reason),
+    v_user_id, v_user_name, v_user_email
+  );
+
+  return jsonb_build_object('ok', true, 'source', p_source_type, 'label', v_label, 'service_date', p_service_date);
+end;
+$$;
+
+revoke execute on function public.correct_linen_history_entry(text,date,text,jsonb,text) from public, anon;
+grant execute on function public.correct_linen_history_entry(text,date,text,jsonb,text) to authenticated;
+

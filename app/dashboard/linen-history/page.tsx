@@ -13,6 +13,7 @@ type DashboardUser = {
 
 type ViewMode = 'FLOOR' | 'BLOCK' | 'GRAND';
 type PageTab = 'COUNT' | 'BILL_ENTRY' | 'BILL_GRAND' | 'MONTHLY' | 'RECEIVED_STATUS';
+type CorrectionSource = 'ACTUAL' | 'PA_USED' | 'IN_BILL' | 'RETURNED';
 
 type RoomMasterRow = {
   room_number: string;
@@ -68,9 +69,11 @@ type LinenMapRow = {
 };
 
 type LinenBillRow = {
+  id?: string;
   service_date: string;
   block_no: number;
   floor_no?: number | null;
+  created_at?: string | null;
   bedsheet_king: number | null;
   bedsheet_single: number | null;
   pillow_case: number | null;
@@ -163,6 +166,15 @@ type ReceivedStatusReport = {
   rows: ReceivedStatusDay[];
 };
 
+type CorrectionRecord = {
+  key: string;
+  label: string;
+  detail: string;
+  totals: LinenTotals;
+};
+
+type CorrectionRecordMap = Record<CorrectionSource, CorrectionRecord[]>;
+
 const FLOOR_OPTIONS = [
   { key: 'B1F1', label: 'Block 1 Floor 1' },
   { key: 'B1F2', label: 'Block 1 Floor 2' },
@@ -202,6 +214,17 @@ const ITEM_DEFS: Array<{
   { key: 'duvet_cover_king', label: 'Duvet Cover King' },
   { key: 'duvet_cover_single', label: 'Duvet Cover Single' },
 ];
+
+const CORRECTION_SOURCES: Array<{ key: CorrectionSource; label: string; note: string }> = [
+  { key: 'ACTUAL', label: 'Actual', note: 'Chambermaid room entry' },
+  { key: 'PA_USED', label: 'PA Used', note: 'Public Area linen entry' },
+  { key: 'IN_BILL', label: 'In Bill', note: 'Laundry bill entry' },
+  { key: 'RETURNED', label: 'Returned', note: 'Laundry received entry' },
+];
+
+function emptyCorrectionRecords(): CorrectionRecordMap {
+  return { ACTUAL: [], PA_USED: [], IN_BILL: [], RETURNED: [] };
+}
 
 function getSupabaseSafe() {
   if (typeof window === 'undefined') return null;
@@ -772,7 +795,7 @@ const MONTHLY_ENTRY_COLUMNS =
 const MONTHLY_PA_ENTRY_COLUMNS =
   'service_date, room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
 const MONTHLY_BILL_COLUMNS =
-  'service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
+  'id, service_date, block_no, floor_no, created_at, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
 const MONTHLY_RECEIVED_COLUMNS =
   'service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single';
 
@@ -855,6 +878,15 @@ export default function LinenHistoryPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
   const [selectedFloorKey, setSelectedFloorKey] = useState<string>('B1F1');
   const [selectedBlockKey, setSelectedBlockKey] = useState<string>('B1');
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionSource, setCorrectionSource] = useState<CorrectionSource>('ACTUAL');
+  const [correctionRecords, setCorrectionRecords] = useState<CorrectionRecordMap>(emptyCorrectionRecords);
+  const [correctionRecordKey, setCorrectionRecordKey] = useState('');
+  const [correctionValues, setCorrectionValues] = useState<LinenTotals>(zeroTotals);
+  const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionLoading, setCorrectionLoading] = useState(false);
+  const [correctionSaving, setCorrectionSaving] = useState(false);
+  const [correctionMessage, setCorrectionMessage] = useState('');
 
   const historyDateOptions = useMemo(
     () => Array.from({ length: 7 }, (_, index) => shiftDateString(today, -(index + 1))),
@@ -928,6 +960,162 @@ export default function LinenHistoryPage() {
     );
   }, [profile]);
 
+  const isSuperuser = profile?.role === 'SUPERUSER';
+
+  const selectedCorrectionRecord = useMemo(
+    () => correctionRecords[correctionSource].find((row) => row.key === correctionRecordKey) || null,
+    [correctionRecordKey, correctionRecords, correctionSource]
+  );
+
+  useEffect(() => {
+    const rows = correctionRecords[correctionSource];
+    const nextRecord = rows.find((row) => row.key === correctionRecordKey) || rows[0] || null;
+    setCorrectionRecordKey(nextRecord?.key || '');
+    setCorrectionValues(nextRecord ? { ...nextRecord.totals } : zeroTotals());
+  }, [correctionSource, correctionRecords]);
+
+  function correctionSourceForPage(): CorrectionSource {
+    if (pageTab === 'BILL_ENTRY' || pageTab === 'BILL_GRAND') return 'IN_BILL';
+    if (pageTab === 'RECEIVED_STATUS') return 'RETURNED';
+    return 'ACTUAL';
+  }
+
+  function selectCorrectionRecord(key: string) {
+    const row = correctionRecords[correctionSource].find((item) => item.key === key) || null;
+    setCorrectionRecordKey(key);
+    setCorrectionValues(row ? { ...row.totals } : zeroTotals());
+    setCorrectionMessage('');
+  }
+
+  async function loadCorrectionRecords(preferredSource?: CorrectionSource) {
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setCorrectionMessage('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setCorrectionLoading(true);
+      setCorrectionMessage('');
+
+      const [actualRes, paRes, billRes, returnedRes] = await Promise.all([
+        supabase
+          .from('linen_room_entry')
+          .select('service_date, room_number, block_no, floor_no, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate)
+          .order('room_number', { ascending: true }),
+        supabase
+          .from('linen_pa_entry')
+          .select('id, service_date, room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate)
+          .order('room_number', { ascending: true }),
+        supabase
+          .from('linen_laundry_bill')
+          .select('id, service_date, block_no, floor_no, created_at, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate)
+          .order('block_no', { ascending: true })
+          .order('floor_no', { ascending: true, nullsFirst: false })
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('linen_laundry_received')
+          .select('id, service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .eq('service_date', selectedDate)
+          .order('block_no', { ascending: true }),
+      ]);
+
+      if (actualRes.error) throw actualRes.error;
+      if (paRes.error) throw paRes.error;
+      if (billRes.error) throw billRes.error;
+      if (returnedRes.error) throw returnedRes.error;
+
+      const nextRecords: CorrectionRecordMap = {
+        ACTUAL: (actualRes.data || []).map((row: any) => ({
+          key: String(row.room_number),
+          label: `Room ${row.room_number}`,
+          detail: `Block ${row.block_no}, Floor ${row.floor_no}${row.is_dnd ? ' · DND' : ''}`,
+          totals: parseTotals(row),
+        })),
+        PA_USED: (paRes.data || []).map((row: any) => ({
+          key: String(row.room_number),
+          label: `PA ${row.room_number}`,
+          detail: `Block ${row.block_no}, Floor ${row.floor_no}`,
+          totals: parseTotals(row),
+        })),
+        IN_BILL: getBillRowsForReport((billRes.data || []) as LinenBillRow[]).map((row: any) => ({
+          key: String(row.id),
+          label: `Block ${row.block_no}${row.floor_no == null ? ' total' : ` · Floor ${row.floor_no}`}`,
+          detail: 'Laundry bill entry',
+          totals: parseTotals(row),
+        })),
+        RETURNED: (returnedRes.data || []).map((row: any) => ({
+          key: String(row.id),
+          label: `Block ${row.block_no}`,
+          detail: 'Laundry returned entry',
+          totals: parseTotals(row),
+        })),
+      };
+
+      const nextSource = preferredSource || correctionSource;
+      const firstRecord = nextRecords[nextSource][0] || null;
+      setCorrectionRecords(nextRecords);
+      setCorrectionSource(nextSource);
+      setCorrectionRecordKey(firstRecord?.key || '');
+      setCorrectionValues(firstRecord ? { ...firstRecord.totals } : zeroTotals());
+    } catch (err: any) {
+      setCorrectionRecords(emptyCorrectionRecords());
+      setCorrectionRecordKey('');
+      setCorrectionValues(zeroTotals());
+      setCorrectionMessage(err?.message || 'Unable to load linen entries for correction.');
+    } finally {
+      setCorrectionLoading(false);
+    }
+  }
+
+  async function openCorrectionPanel() {
+    const source = correctionSourceForPage();
+    setCorrectionOpen(true);
+    setCorrectionReason('');
+    setCorrectionMessage('');
+    await loadCorrectionRecords(source);
+  }
+
+  async function saveCorrection() {
+    const supabase = getSupabaseSafe();
+    if (!supabase || !selectedCorrectionRecord) return;
+
+    if (correctionReason.trim().length < 3) {
+      setCorrectionMessage('Please enter a clear reason for this correction.');
+      return;
+    }
+
+    try {
+      setCorrectionSaving(true);
+      setCorrectionMessage('');
+
+      const { error } = await supabase.rpc('correct_linen_history_entry', {
+        p_source_type: correctionSource,
+        p_service_date: selectedDate,
+        p_source_record_key: selectedCorrectionRecord.key,
+        p_values: correctionValues,
+        p_reason: correctionReason.trim(),
+      });
+
+      if (error) throw error;
+
+      setCorrectionReason('');
+      await Promise.all([
+        loadCorrectionRecords(correctionSource),
+        loadHistory(),
+        selectedMonth === selectedDate.slice(0, 7) ? loadMonthlyReport() : Promise.resolve(),
+      ]);
+      setCorrectionMessage('Correction saved. Daily history and monthly reports now use the updated figures.');
+    } catch (err: any) {
+      setCorrectionMessage(err?.message || 'Unable to save the linen correction.');
+    } finally {
+      setCorrectionSaving(false);
+    }
+  }
+
   async function loadHistory() {
     const supabase = getSupabaseSafe();
     if (!supabase) {
@@ -969,9 +1157,11 @@ export default function LinenHistoryPage() {
           .order('service_date', { ascending: true }),
         supabase
           .from('linen_laundry_bill')
-          .select('service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .select('id, service_date, block_no, floor_no, created_at, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', selectedDate)
-          .order('block_no', { ascending: true }),
+          .order('block_no', { ascending: true })
+          .order('floor_no', { ascending: true, nullsFirst: false })
+          .order('created_at', { ascending: true }),
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type')
@@ -1122,7 +1312,7 @@ export default function LinenHistoryPage() {
           MONTHLY_BILL_COLUMNS,
           monthStart,
           monthEnd,
-          ['service_date', 'block_no', 'floor_no']
+          ['service_date', 'block_no', 'floor_no', 'created_at']
         ),
         fetchMonthlyRows<LinenReceivedRow>(
           supabase,
@@ -1435,6 +1625,11 @@ export default function LinenHistoryPage() {
           </div>
 
           <div style={styles.topBarActions}>
+            {isSuperuser ? (
+              <button type="button" onClick={() => void openCorrectionPanel()} style={styles.correctionBtn}>
+                Correct Linen Figures
+              </button>
+            ) : null}
             <Link href="/dashboard" style={styles.secondaryBtn}>
               Back to Dashboard
             </Link>
@@ -1833,6 +2028,139 @@ export default function LinenHistoryPage() {
             </div>
           </section>
         )}
+
+        {correctionOpen && isSuperuser ? (
+          <div style={styles.modalBackdrop} role="presentation" onMouseDown={() => setCorrectionOpen(false)}>
+            <div
+              style={styles.correctionModal}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="linen-correction-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div style={styles.modalHeader}>
+                <div>
+                  <div style={styles.modalEyebrow}>SUPERUSER CORRECTION</div>
+                  <div id="linen-correction-title" style={styles.modalTitle}>Correct linen history</div>
+                  <div style={styles.modalSubtitle}>
+                    {selectedDate} · Edit the original entry so every related total updates together.
+                  </div>
+                </div>
+                <button type="button" onClick={() => setCorrectionOpen(false)} style={styles.modalCloseBtn} aria-label="Close">
+                  ×
+                </button>
+              </div>
+
+              <div style={styles.correctionNotice}>
+                Choose where the wrong figure came from, then select the exact room, floor, or block entry. Every correction is permanently audited.
+              </div>
+
+              <div style={styles.sourceGrid}>
+                {CORRECTION_SOURCES.map((source) => (
+                  <button
+                    key={source.key}
+                    type="button"
+                    onClick={() => {
+                      setCorrectionSource(source.key);
+                      setCorrectionMessage('');
+                    }}
+                    style={{
+                      ...styles.sourceBtn,
+                      ...(correctionSource === source.key ? styles.sourceBtnActive : {}),
+                    }}
+                  >
+                    <span style={styles.sourceBtnLabel}>{source.label}</span>
+                    <span style={styles.sourceBtnNote}>{source.note}</span>
+                  </button>
+                ))}
+              </div>
+
+              {correctionLoading ? (
+                <div style={styles.correctionEmpty}>Loading entries for {selectedDate}...</div>
+              ) : correctionRecords[correctionSource].length === 0 ? (
+                <div style={styles.correctionEmpty}>No {CORRECTION_SOURCES.find((source) => source.key === correctionSource)?.label} entries were saved for this date.</div>
+              ) : (
+                <>
+                  <label style={styles.fieldLabel} htmlFor="linen-correction-record">Entry to correct</label>
+                  <select
+                    id="linen-correction-record"
+                    value={correctionRecordKey}
+                    onChange={(event) => selectCorrectionRecord(event.target.value)}
+                    style={styles.recordSelect}
+                  >
+                    {correctionRecords[correctionSource].map((row) => (
+                      <option key={row.key} value={row.key}>{row.label} — {row.detail}</option>
+                    ))}
+                  </select>
+
+                  {selectedCorrectionRecord ? (
+                    <div style={styles.selectedRecordBanner}>
+                      <strong>{selectedCorrectionRecord.label}</strong>
+                      <span>{selectedCorrectionRecord.detail}</span>
+                    </div>
+                  ) : null}
+
+                  <div style={styles.quantityGrid}>
+                    {ITEM_DEFS.map((item) => (
+                      <label key={item.key} style={styles.quantityField}>
+                        <span style={styles.fieldLabel}>{item.label}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100000}
+                          step={1}
+                          inputMode="numeric"
+                          value={correctionValues[item.key]}
+                          onChange={(event) => {
+                            const nextValue = Math.max(0, Math.min(100000, Math.trunc(Number(event.target.value || 0))));
+                            setCorrectionValues((current) => ({ ...current, [item.key]: nextValue }));
+                            setCorrectionMessage('');
+                          }}
+                          style={styles.quantityInput}
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <label style={styles.quantityField}>
+                    <span style={styles.fieldLabel}>Reason for correction <span style={styles.requiredMark}>Required</span></span>
+                    <textarea
+                      value={correctionReason}
+                      onChange={(event) => {
+                        setCorrectionReason(event.target.value);
+                        setCorrectionMessage('');
+                      }}
+                      placeholder="Example: Bath towel quantity was keyed as 75 instead of 95"
+                      rows={3}
+                      style={styles.reasonInput}
+                    />
+                  </label>
+                </>
+              )}
+
+              {correctionMessage ? (
+                <div style={correctionMessage.startsWith('Correction saved') ? styles.successBox : styles.modalErrorBox}>
+                  {correctionMessage}
+                </div>
+              ) : null}
+
+              <div style={styles.modalActions}>
+                <button type="button" onClick={() => setCorrectionOpen(false)} style={styles.secondaryBtn}>Cancel</button>
+                <button
+                  type="button"
+                  onClick={() => void saveCorrection()}
+                  disabled={correctionSaving || correctionLoading || !selectedCorrectionRecord}
+                  style={{
+                    ...styles.saveCorrectionBtn,
+                    opacity: correctionSaving || correctionLoading || !selectedCorrectionRecord ? 0.55 : 1,
+                  }}
+                >
+                  {correctionSaving ? 'Saving...' : 'Save Correction'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );
@@ -2136,6 +2464,238 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '12px',
     padding: '12px 16px',
     fontWeight: 700,
+    cursor: 'pointer',
+  },
+  correctionBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid #b91c1c',
+    background: '#b91c1c',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    fontWeight: 800,
+    cursor: 'pointer',
+    boxShadow: '0 8px 18px rgba(185,28,28,0.2)',
+  },
+  modalBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1000,
+    background: 'rgba(15,23,42,0.68)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '14px',
+    overflowY: 'auto',
+  },
+  correctionModal: {
+    width: 'min(920px, 100%)',
+    maxHeight: 'calc(100vh - 28px)',
+    overflowY: 'auto',
+    background: '#ffffff',
+    border: '1px solid #cbd5e1',
+    borderRadius: '22px',
+    padding: '20px',
+    boxShadow: '0 28px 80px rgba(15,23,42,0.32)',
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '14px',
+    marginBottom: '14px',
+  },
+  modalEyebrow: {
+    color: '#b91c1c',
+    fontSize: '11px',
+    fontWeight: 900,
+    letterSpacing: '0.1em',
+  },
+  modalTitle: {
+    color: '#0f172a',
+    fontSize: '26px',
+    fontWeight: 900,
+    lineHeight: 1.15,
+    marginTop: '4px',
+  },
+  modalSubtitle: {
+    color: '#64748b',
+    fontSize: '14px',
+    lineHeight: 1.45,
+    marginTop: '6px',
+  },
+  modalCloseBtn: {
+    width: '40px',
+    height: '40px',
+    flex: '0 0 40px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '12px',
+    background: '#f8fafc',
+    color: '#0f172a',
+    fontSize: '24px',
+    lineHeight: 1,
+    cursor: 'pointer',
+  },
+  correctionNotice: {
+    border: '1px solid #fde68a',
+    background: '#fffbeb',
+    color: '#92400e',
+    borderRadius: '14px',
+    padding: '12px 14px',
+    fontSize: '13px',
+    fontWeight: 700,
+    lineHeight: 1.45,
+    marginBottom: '14px',
+  },
+  sourceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '8px',
+    marginBottom: '16px',
+  },
+  sourceBtn: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '3px',
+    minHeight: '66px',
+    border: '1px solid #cbd5e1',
+    background: '#f8fafc',
+    color: '#334155',
+    borderRadius: '14px',
+    padding: '11px 12px',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  sourceBtnActive: {
+    background: '#eff6ff',
+    borderColor: '#2563eb',
+    color: '#1d4ed8',
+    boxShadow: 'inset 0 0 0 1px #2563eb',
+  },
+  sourceBtnLabel: {
+    fontSize: '15px',
+    fontWeight: 900,
+  },
+  sourceBtnNote: {
+    fontSize: '11px',
+    fontWeight: 700,
+    opacity: 0.78,
+  },
+  fieldLabel: {
+    display: 'block',
+    color: '#475569',
+    fontSize: '12px',
+    fontWeight: 900,
+    marginBottom: '6px',
+  },
+  recordSelect: {
+    width: '100%',
+    border: '1px solid #94a3b8',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px 13px',
+    fontSize: '16px',
+    fontWeight: 700,
+    marginBottom: '10px',
+  },
+  selectedRecordBanner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap',
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#1e3a8a',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    fontSize: '13px',
+    marginBottom: '14px',
+  },
+  quantityGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))',
+    gap: '10px',
+    marginBottom: '14px',
+  },
+  quantityField: {
+    display: 'block',
+  },
+  quantityInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px',
+    fontSize: '18px',
+    fontWeight: 900,
+  },
+  reasonInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    resize: 'vertical',
+    border: '1px solid #cbd5e1',
+    background: '#ffffff',
+    color: '#0f172a',
+    borderRadius: '12px',
+    padding: '12px',
+    fontSize: '16px',
+    lineHeight: 1.45,
+  },
+  requiredMark: {
+    color: '#b91c1c',
+    marginLeft: '4px',
+  },
+  correctionEmpty: {
+    border: '1px dashed #cbd5e1',
+    background: '#f8fafc',
+    color: '#64748b',
+    borderRadius: '14px',
+    padding: '22px',
+    textAlign: 'center',
+    fontWeight: 700,
+  },
+  successBox: {
+    marginTop: '14px',
+    border: '1px solid #86efac',
+    background: '#f0fdf4',
+    color: '#166534',
+    borderRadius: '12px',
+    padding: '11px 12px',
+    fontWeight: 800,
+  },
+  modalErrorBox: {
+    marginTop: '14px',
+    border: '1px solid #fecaca',
+    background: '#fef2f2',
+    color: '#b91c1c',
+    borderRadius: '12px',
+    padding: '11px 12px',
+    fontWeight: 800,
+  },
+  modalActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    flexWrap: 'wrap',
+    marginTop: '18px',
+    paddingTop: '14px',
+    borderTop: '1px solid #e2e8f0',
+  },
+  saveCorrectionBtn: {
+    border: '1px solid #b91c1c',
+    background: '#b91c1c',
+    color: '#ffffff',
+    borderRadius: '12px',
+    padding: '12px 18px',
+    fontWeight: 900,
+    cursor: 'pointer',
   },
   errorBox: {
     marginBottom: '14px',
@@ -2190,3 +2750,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
   },
 };
+
