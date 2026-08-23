@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useState } from 'react';
 import DashboardSidebar from '../../components/DashboardSidebar';
+import TaskAlertOverlay from '../../components/TaskAlertOverlay';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
 type DashboardUser = {
@@ -218,6 +219,8 @@ export default function DashboardLayout({
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
       />
+
+      <TaskAlertOverlay userId={profile?.user_id} />
 
       <main
         style={{

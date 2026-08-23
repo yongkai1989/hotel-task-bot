@@ -1,0 +1,199 @@
+-- Urgent and customer-waiting in-app task alerts
+-- Run this entire file in Supabase SQL Editor before deploying the matching app update.
+
+create extension if not exists pgcrypto;
+
+alter table public.tasks
+  add column if not exists urgent boolean not null default false,
+  add column if not exists urgent_due_at timestamptz,
+  add column if not exists alert_cycle integer not null default 1;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.tasks'::regclass
+      and conname = 'tasks_single_timed_priority_check'
+  ) then
+    alter table public.tasks
+      add constraint tasks_single_timed_priority_check
+      check (not (customer_waiting and urgent));
+  end if;
+end
+$$;
+
+create index if not exists tasks_urgent_due_idx
+  on public.tasks(urgent_due_at)
+  where urgent = true and status = 'OPEN';
+
+create table if not exists public.task_alert_recipients (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  alert_cycle integer not null default 1,
+  user_id uuid not null,
+  user_name text not null,
+  user_email text not null,
+  acknowledged_at timestamptz,
+  acknowledged_name text,
+  acknowledged_email text,
+  created_at timestamptz not null default now(),
+  unique(task_id, alert_cycle, user_id)
+);
+
+create index if not exists task_alert_recipients_pending_user_idx
+  on public.task_alert_recipients(user_id, created_at)
+  where acknowledged_at is null;
+
+create index if not exists task_alert_recipients_task_idx
+  on public.task_alert_recipients(task_id, alert_cycle, acknowledged_at);
+
+alter table public.task_alert_recipients enable row level security;
+revoke all on table public.task_alert_recipients from public, anon, authenticated;
+grant all on table public.task_alert_recipients to service_role;
+
+create or replace function public.create_task_alert_recipients()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.status = 'OPEN' and (new.customer_waiting = true or new.urgent = true) then
+    insert into public.task_alert_recipients (
+      task_id,
+      alert_cycle,
+      user_id,
+      user_name,
+      user_email
+    )
+    select
+      new.id,
+      greatest(coalesce(new.alert_cycle, 1), 1),
+      profile.user_id,
+      coalesce(nullif(trim(profile.name), ''), profile.email),
+      lower(trim(profile.email))
+    from public.user_profiles profile
+    where lower(trim(profile.email)) = any (
+      case upper(trim(new.department))
+        when 'HK' then array[
+          'hksup1@hotelhallmark.com',
+          'hksup2@hotelhallmark.com',
+          'hksup3@hotelhallmark.com',
+          'manager@hotelhallmark.com'
+        ]::text[]
+        when 'MT' then array[
+          'mtsup1@hotelhallmark.com',
+          'mtsup2@hotelhallmark.com'
+        ]::text[]
+        else array[]::text[]
+      end
+    )
+    on conflict (task_id, alert_cycle, user_id) do nothing;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.create_task_alert_recipients() from public, anon, authenticated;
+
+drop trigger if exists tasks_create_alert_recipients on public.tasks;
+create trigger tasks_create_alert_recipients
+after insert or update of alert_cycle on public.tasks
+for each row
+execute function public.create_task_alert_recipients();
+
+-- Existing open customer-waiting tasks also receive the new in-app alert.
+insert into public.task_alert_recipients (
+  task_id,
+  alert_cycle,
+  user_id,
+  user_name,
+  user_email
+)
+select
+  task.id,
+  greatest(coalesce(task.alert_cycle, 1), 1),
+  profile.user_id,
+  coalesce(nullif(trim(profile.name), ''), profile.email),
+  lower(trim(profile.email))
+from public.tasks task
+join public.user_profiles profile
+  on lower(trim(profile.email)) = any (
+    case upper(trim(task.department))
+      when 'HK' then array[
+        'hksup1@hotelhallmark.com',
+        'hksup2@hotelhallmark.com',
+        'hksup3@hotelhallmark.com',
+        'manager@hotelhallmark.com'
+      ]::text[]
+      when 'MT' then array[
+        'mtsup1@hotelhallmark.com',
+        'mtsup2@hotelhallmark.com'
+      ]::text[]
+      else array[]::text[]
+    end
+  )
+where task.status = 'OPEN'
+  and (task.customer_waiting = true or task.urgent = true)
+on conflict (task_id, alert_cycle, user_id) do nothing;
+
+create or replace function public.record_customer_waiting_follow_up(
+  p_task_id uuid,
+  p_reason text,
+  p_actor_name text
+)
+returns public.tasks
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+  v_actor_name text := nullif(trim(coalesce(p_actor_name, '')), '');
+  v_task public.tasks%rowtype;
+begin
+  if v_reason is null or char_length(v_reason) < 3 then
+    raise exception 'Enter the reason for the delay';
+  end if;
+  if char_length(v_reason) > 500 then
+    raise exception 'Delay reason must be 500 characters or less';
+  end if;
+  if v_actor_name is null then
+    raise exception 'FO staff name is required';
+  end if;
+
+  update public.tasks
+  set customer_waiting_due_at = now() + interval '10 minutes',
+      customer_waiting_follow_up_count = coalesce(customer_waiting_follow_up_count, 0) + 1,
+      customer_waiting_reminder_sent_at = null,
+      alert_cycle = greatest(coalesce(alert_cycle, 1), 1) + 1,
+      updated_at = now()
+  where id = p_task_id
+    and status = 'OPEN'
+    and customer_waiting = true
+  returning * into v_task;
+
+  if not found then
+    raise exception 'Customer-waiting task was not found or is no longer open';
+  end if;
+
+  insert into public.task_events (task_id, event_type, event_text, actor_name)
+  values (
+    v_task.id,
+    'CUSTOMER_WAITING_FOLLOW_UP',
+    'Delay reason: ' || v_reason || '. Next follow-up due in 10 minutes.',
+    v_actor_name
+  );
+
+  return v_task;
+end;
+$$;
+
+revoke all on function public.record_customer_waiting_follow_up(uuid, text, text)
+  from public, anon, authenticated;
+grant execute on function public.record_customer_waiting_follow_up(uuid, text, text)
+  to service_role;
+
+comment on table public.task_alert_recipients is
+  'Per-user acknowledgement audit for urgent and customer-waiting task popups.';

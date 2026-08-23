@@ -4,6 +4,7 @@ import { sendTelegramTaskCard, Dept } from '../../../lib/telegram';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { reconcileManagerRoomCheckTasks } from '../../../lib/managerRoomCheckTaskSync';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
+import { attachTaskAlertAcknowledgements } from '../../../lib/taskAlertAcknowledgements';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -400,6 +401,7 @@ async function parseCreateTaskRequest(req: NextRequest) {
       task_text: form.get('task_text'),
       source_message: form.get('source_message'),
       customer_waiting: String(form.get('customer_waiting') || '') === 'true',
+      urgent: String(form.get('urgent') || '') === 'true',
     },
     files,
   };
@@ -579,7 +581,10 @@ export async function GET() {
         customer_waiting,
         customer_waiting_due_at,
         customer_waiting_follow_up_count,
-        customer_waiting_reminder_sent_at
+        customer_waiting_reminder_sent_at,
+        urgent,
+        urgent_due_at,
+        alert_cycle
       `
       )
       .order('created_at', { ascending: false })
@@ -629,7 +634,9 @@ export async function GET() {
       task_images: imageMap.get(String(task.id)) || [],
     }));
 
-    return jsonNoCache({ ok: true, tasks: finalTasks });
+    const tasksWithAcknowledgements = await attachTaskAlertAcknowledgements(finalTasks);
+
+    return jsonNoCache({ ok: true, tasks: tasksWithAcknowledgements });
   } catch (error: any) {
     return jsonNoCache(
       { ok: false, error: error?.message || 'Unknown error' },
@@ -681,8 +688,15 @@ export async function POST(req: NextRequest) {
     let imageUrls = normalizeImageUrls(body);
     let imageCaptions = normalizeImageCaptions(body, imageUrls.length);
     const customerWaiting = body.customer_waiting === true || body.customerWaiting === true;
+    const urgent = body.urgent === true;
+    if (customerWaiting && urgent) {
+      return jsonNoCache({ ok: false, error: 'Choose either Customer waiting or Urgent' }, 400);
+    }
     const customerWaitingDueAt = customerWaiting
-      ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+      ? new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      : null;
+    const urgentDueAt = urgent
+      ? new Date(Date.now() + 5 * 60 * 1000).toISOString()
       : null;
 
     if (!room) {
@@ -749,6 +763,9 @@ export async function POST(req: NextRequest) {
           customer_waiting_due_at: customerWaitingDueAt,
           customer_waiting_follow_up_count: 0,
           customer_waiting_reminder_sent_at: null,
+          urgent,
+          urgent_due_at: urgentDueAt,
+          alert_cycle: 1,
           reopened_at: null,
         })
         .select(
@@ -775,6 +792,9 @@ export async function POST(req: NextRequest) {
           customer_waiting_due_at,
           customer_waiting_follow_up_count,
           customer_waiting_reminder_sent_at,
+          urgent,
+          urgent_due_at,
+          alert_cycle,
           created_at
         `
         )

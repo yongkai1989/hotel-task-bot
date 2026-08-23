@@ -38,6 +38,14 @@ type Task = {
   edited_by_name?: string | null;
   customer_waiting?: boolean | null;
   customer_waiting_reminder_sent_at?: string | null;
+  urgent?: boolean | null;
+  urgent_due_at?: string | null;
+  alert_cycle?: number | null;
+  acknowledgements?: Array<{
+    user_name: string;
+    acknowledged_at: string;
+    alert_cycle: number;
+  }>;
 };
 
 type SidebarView = 'DASHBOARD' | 'PAST_TASK';
@@ -759,6 +767,7 @@ export default function DashboardPage() {
   const [createTaskText, setCreateTaskText] = useState('');
   const [createPhotos, setCreatePhotos] = useState<CreatePhotoItem[]>([]);
   const [createCustomerWaiting, setCreateCustomerWaiting] = useState(false);
+  const [createUrgent, setCreateUrgent] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
   const [mediaUploadNotice, setMediaUploadNotice] = useState<{
@@ -2007,6 +2016,7 @@ function canDeleteTask() {
       setCreateDepts([]);
       setCreateTaskText('');
       setCreateCustomerWaiting(false);
+      setCreateUrgent(false);
       setCreatePhotos(processed);
       setCreateModalOpen(true);
     } catch (err: any) {
@@ -2023,6 +2033,7 @@ function canDeleteTask() {
     setCreateTaskText('');
     setCreatePhotos([]);
     setCreateCustomerWaiting(false);
+    setCreateUrgent(false);
     setCreateError('');
   }
 
@@ -2279,6 +2290,7 @@ function canDeleteTask() {
     departments: Array<'HK' | 'MT' | 'FO'>;
     taskText: string;
     customerWaiting: boolean;
+    urgent: boolean;
     mediaItems: CreatePhotoItem[];
     shouldRefreshAfterMedia: boolean;
   }) {
@@ -2300,6 +2312,7 @@ function canDeleteTask() {
         form.set('task_text', params.taskText);
         form.set('source_message', '');
         form.set('customer_waiting', params.customerWaiting ? 'true' : 'false');
+        form.set('urgent', params.urgent ? 'true' : 'false');
 
         params.mediaItems.forEach((item) => {
           form.append('media', item.file, item.name || 'task-media');
@@ -2346,6 +2359,7 @@ function canDeleteTask() {
               image_urls: [],
               image_captions: [],
               customer_waiting: params.customerWaiting,
+              urgent: params.urgent,
             }),
           },
           30000
@@ -2484,6 +2498,7 @@ async function handleDeleteTask(task: Task) {
       setCreateTaskText('');
       setCreatePhotos([]);
       setCreateCustomerWaiting(false);
+      setCreateUrgent(false);
       setCreateError('');
       setCreateSubmitting(false);
 
@@ -2492,6 +2507,7 @@ async function handleDeleteTask(task: Task) {
         departments,
         taskText: taskText || room,
         customerWaiting: createCustomerWaiting,
+        urgent: createUrgent,
         mediaItems: mediaToUpload,
         shouldRefreshAfterMedia,
       });
@@ -3250,6 +3266,11 @@ async function handleDeleteTask(task: Task) {
                                       Customer waiting
                                     </div>
                                   ) : null}
+                                  {task.urgent ? (
+                                    <div style={styles.urgentTaskBadge}>
+                                      Urgent
+                                    </div>
+                                  ) : null}
                                   {!roomCheckHref && canEditTaskDetails(task) ? (
                                     <button
                                       type="button"
@@ -3279,6 +3300,25 @@ async function handleDeleteTask(task: Task) {
                             </div>
 
                             <div style={styles.taskText}>{task.task_text}</div>
+
+                            {(task.urgent || task.customer_waiting) ? (
+                              <div style={styles.taskAcknowledgementBox}>
+                                <b>Acknowledgements</b>
+                                {(task.acknowledgements || []).filter((row) => (
+                                  Number(row.alert_cycle || 1) === Number(task.alert_cycle || 1)
+                                )).length ? (
+                                  <div style={styles.taskAcknowledgementList}>
+                                    {(task.acknowledgements || []).filter((row) => (
+                                      Number(row.alert_cycle || 1) === Number(task.alert_cycle || 1)
+                                    )).map((row) => (
+                                      <span key={`${row.user_name}-${row.acknowledged_at}`}>
+                                        {row.user_name} · {new Date(row.acknowledged_at).toLocaleString()}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : <span style={styles.taskAcknowledgementPending}>Waiting for acknowledgement</span>}
+                              </div>
+                            ) : null}
 
                             <div style={styles.metaGrid}>
                               <div style={styles.metaCard}>
@@ -3620,26 +3660,44 @@ async function handleDeleteTask(task: Task) {
             </div>
 
             <div style={styles.formBlock}>
-              <label
-                style={{
-                  ...styles.customerWaitingOption,
-                  opacity: createSubmitting ? 0.65 : 1,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={createCustomerWaiting}
-                  onChange={(e) => setCreateCustomerWaiting(e.target.checked)}
+              <label style={styles.formLabel}>Response priority</label>
+              <div style={styles.priorityChoiceGrid}>
+                <button
+                  type="button"
                   disabled={createSubmitting}
-                  style={styles.customerWaitingCheckbox}
-                />
-                <span>
-                  <span style={styles.customerWaitingTitle}>Customer is waiting</span>
-                  <span style={styles.customerWaitingText}>
-                    Send a one-time Telegram reminder if status is still Open after 15 minutes.
-                  </span>
-                </span>
-              </label>
+                  aria-pressed={createCustomerWaiting}
+                  onClick={() => {
+                    const next = !createCustomerWaiting;
+                    setCreateCustomerWaiting(next);
+                    if (next) setCreateUrgent(false);
+                  }}
+                  style={{
+                    ...styles.priorityChoiceButton,
+                    ...(createCustomerWaiting ? styles.customerWaitingChoiceActive : {}),
+                  }}
+                >
+                  <strong>10m</strong>
+                  <span><b>Customer waiting</b><small>Show an immediate popup to the assigned team</small></span>
+                </button>
+                <button
+                  type="button"
+                  disabled={createSubmitting}
+                  aria-pressed={createUrgent}
+                  onClick={() => {
+                    const next = !createUrgent;
+                    setCreateUrgent(next);
+                    if (next) setCreateCustomerWaiting(false);
+                  }}
+                  style={{
+                    ...styles.priorityChoiceButton,
+                    ...styles.urgentChoiceButton,
+                    ...(createUrgent ? styles.urgentChoiceActive : {}),
+                  }}
+                >
+                  <strong>5m</strong>
+                  <span><b>Urgent</b><small>Require immediate acknowledgement</small></span>
+                </button>
+              </div>
             </div>
 
             <div style={styles.formBlock}>
@@ -5922,6 +5980,78 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: 0.2,
     whiteSpace: 'nowrap',
+  },
+  urgentTaskBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    padding: '5px 8px',
+    background: '#b91c1c',
+    color: '#ffffff',
+    border: '1px solid #991b1b',
+    fontSize: 10,
+    fontWeight: 950,
+    textTransform: 'uppercase',
+    letterSpacing: 0.35,
+    whiteSpace: 'nowrap',
+  },
+  priorityChoiceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  priorityChoiceButton: {
+    minHeight: 64,
+    border: '1px solid #f2b8b8',
+    borderRadius: 14,
+    padding: '10px 12px',
+    background: '#fff8f8',
+    color: '#7f1d1d',
+    display: 'grid',
+    gridTemplateColumns: '40px minmax(0, 1fr)',
+    alignItems: 'center',
+    gap: 10,
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  customerWaitingChoiceActive: {
+    background: '#c2410c',
+    borderColor: '#9a3412',
+    color: '#ffffff',
+    boxShadow: '0 8px 20px rgba(194, 65, 12, 0.22)',
+  },
+  urgentChoiceButton: {
+    borderColor: '#ef9a9a',
+    background: '#fff2f2',
+  },
+  urgentChoiceActive: {
+    background: '#b91c1c',
+    borderColor: '#991b1b',
+    color: '#ffffff',
+    boxShadow: '0 8px 22px rgba(185, 28, 28, 0.28)',
+  },
+  taskAcknowledgementBox: {
+    marginTop: 10,
+    border: '1px solid #dbe4ef',
+    borderRadius: 10,
+    padding: '8px 10px',
+    background: '#f8fafc',
+    color: '#34465f',
+    fontSize: 10,
+    display: 'flex',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  taskAcknowledgementList: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  taskAcknowledgementPending: {
+    color: '#b45309',
+    fontWeight: 800,
   },
   secondaryBtn: {
     border: '1px solid #dbe3ee',

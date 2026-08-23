@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 import { deleteLinkedManagerRoomCheck } from '../../../../lib/managerRoomCheckTaskSync';
 import { broadcastTaskChange } from '../../../../lib/taskBroadcastServer';
+import { attachTaskAlertAcknowledgements } from '../../../../lib/taskAlertAcknowledgements';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -68,7 +69,10 @@ export async function GET(
         customer_waiting,
         customer_waiting_due_at,
         customer_waiting_follow_up_count,
-        customer_waiting_reminder_sent_at
+        customer_waiting_reminder_sent_at,
+        urgent,
+        urgent_due_at,
+        alert_cycle
       `
       )
       .eq('id', taskId)
@@ -92,10 +96,12 @@ export async function GET(
       return jsonNoCache({ ok: false, error: imagesError.message }, 500);
     }
 
+    const [taskWithAcknowledgements] = await attachTaskAlertAcknowledgements([task]);
+
     return jsonNoCache({
       ok: true,
       task: {
-        ...task,
+        ...taskWithAcknowledgements,
         task_images: images || [],
       },
     });

@@ -49,6 +49,14 @@ type DashboardTask = {
   customer_waiting?: boolean | null;
   customer_waiting_due_at?: string | null;
   customer_waiting_follow_up_count?: number | null;
+  urgent?: boolean | null;
+  urgent_due_at?: string | null;
+  alert_cycle?: number | null;
+  acknowledgements?: Array<{
+    user_name: string;
+    acknowledged_at: string;
+    alert_cycle: number;
+  }>;
   source_page?: string | null;
   created_by_email?: string | null;
   created_at: string;
@@ -81,7 +89,8 @@ type TrackedItem = {
 type StatusView = 'OPEN' | 'DONE';
 type ReminderAction = 'COMPLETE' | 'REOPEN';
 
-const CUSTOMER_WAITING_LIMIT_MS = 15 * 60 * 1000;
+const CUSTOMER_WAITING_LIMIT_MS = 10 * 60 * 1000;
+const URGENT_LIMIT_MS = 5 * 60 * 1000;
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
@@ -140,6 +149,31 @@ function customerWaitingTimer(task: DashboardTask, now: number) {
   };
 }
 
+function urgentTaskTimer(task: DashboardTask, now: number) {
+  if (task.status !== 'OPEN' || !task.urgent) return null;
+  const storedDueAt = Date.parse(String(task.urgent_due_at || ''));
+  const createdAt = Date.parse(task.created_at);
+  const dueAt = Number.isFinite(storedDueAt)
+    ? storedDueAt
+    : Number.isFinite(createdAt)
+      ? createdAt + URGENT_LIMIT_MS
+      : Number.NaN;
+  if (!Number.isFinite(dueAt)) return null;
+  const remainingMs = dueAt - now;
+  if (remainingMs <= 0) return { overdue: true, label: 'URGENT NOW' };
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return {
+    overdue: false,
+    label: `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`,
+  };
+}
+
+function timedTaskTimer(task: DashboardTask, now: number) {
+  return urgentTaskTimer(task, now) || customerWaitingTimer(task, now);
+}
+
 function belongsOnFoQuickActions(task: DashboardTask) {
   return (
     String(task.created_by_email || '').trim().toLowerCase() === 'fo@hotelhallmark.com'
@@ -173,6 +207,7 @@ export default function FoQuickActionsPage() {
   const [taskDescription, setTaskDescription] = useState('');
   const [taskDepartments, setTaskDepartments] = useState<Array<'HK' | 'MT'>>(['HK']);
   const [customerWaiting, setCustomerWaiting] = useState(false);
+  const [urgent, setUrgent] = useState(false);
   const [followUpTaskId, setFollowUpTaskId] = useState<string | null>(null);
   const [followUpReason, setFollowUpReason] = useState('');
   const [followUpError, setFollowUpError] = useState('');
@@ -461,8 +496,9 @@ export default function FoQuickActionsPage() {
   const visibleTasks = [...tasks]
     .filter((task) => task.status === taskView)
     .sort((a, b) => (
-      Number(customerWaitingTimer(b, clockNow)?.overdue === true)
-      - Number(customerWaitingTimer(a, clockNow)?.overdue === true)
+      Number(timedTaskTimer(b, clockNow)?.overdue === true)
+      - Number(timedTaskTimer(a, clockNow)?.overdue === true)
+      || Number(b.urgent === true) - Number(a.urgent === true)
       || Date.parse(b.created_at) - Date.parse(a.created_at)
     ))
     .slice(0, 16);
@@ -472,9 +508,11 @@ export default function FoQuickActionsPage() {
     .filter((reminder) => reminder.status === reminderView)
     .slice(0, reminderView === 'OPEN' ? 30 : 12);
   const loanedItems = items.filter((item) => item.current_status === 'LOANED');
-  const hasActiveCustomerWaiting = tasks.some((task) => task.status === 'OPEN' && task.customer_waiting);
+  const hasActiveTimedTask = tasks.some((task) => (
+    task.status === 'OPEN' && (task.customer_waiting === true || task.urgent === true)
+  ));
   const overdueCustomerWaitingTasks = tasks
-    .filter((task) => customerWaitingTimer(task, clockNow)?.overdue === true)
+    .filter((task) => task.customer_waiting === true && customerWaitingTimer(task, clockNow)?.overdue === true)
     .sort((a, b) => {
       const aDue = Date.parse(String(a.customer_waiting_due_at || a.created_at));
       const bDue = Date.parse(String(b.customer_waiting_due_at || b.created_at));
@@ -483,11 +521,11 @@ export default function FoQuickActionsPage() {
   const urgentCustomerWaitingTask = overdueCustomerWaitingTasks[0] || null;
 
   useEffect(() => {
-    if (!hasActiveCustomerWaiting) return;
+    if (!hasActiveTimedTask) return;
     setClockNow(Date.now());
     const timerId = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(timerId);
-  }, [hasActiveCustomerWaiting]);
+  }, [hasActiveTimedTask]);
 
   useEffect(() => {
     if (urgentCustomerWaitingTask) setTaskView('OPEN');
@@ -538,6 +576,7 @@ export default function FoQuickActionsPage() {
           departments: taskDepartments,
           task_text: taskDescription.trim(),
           customer_waiting: customerWaiting,
+          urgent,
           source_page: 'FO_QUICK_ACTIONS',
         }),
       });
@@ -547,6 +586,7 @@ export default function FoQuickActionsPage() {
       setTaskLocation('');
       setTaskDescription('');
       setCustomerWaiting(false);
+      setUrgent(false);
       setSuccess(`Task assigned to ${taskDepartments.join(' + ')}.`);
     } catch (nextError: any) {
       setError(nextError?.message || 'Unable to create task.');
@@ -615,7 +655,7 @@ export default function FoQuickActionsPage() {
       setFollowUpReason('');
       setFollowUpError('');
       setClockNow(Date.now());
-      setSuccess(`Follow-up recorded for ${urgentCustomerWaitingTask.task_code}. New 15-minute timer started.`);
+      setSuccess(`Follow-up recorded for ${urgentCustomerWaitingTask.task_code}. New 10-minute timer started.`);
     } catch (nextError: any) {
       setFollowUpError(nextError?.message || 'Unable to restart the customer-waiting timer.');
     } finally {
@@ -878,7 +918,7 @@ export default function FoQuickActionsPage() {
               <em>{urgentCustomerWaitingTask.department}</em>
             </p>
             <p className="urgent-task-text">{urgentCustomerWaitingTask.task_text}</p>
-            <div className="urgent-overdue-banner">15-MINUTE TIMER EXPIRED</div>
+            <div className="urgent-overdue-banner">10-MINUTE TIMER EXPIRED</div>
             {overdueCustomerWaitingTasks.length > 1 ? (
               <p className="urgent-queue-count">
                 {overdueCustomerWaitingTasks.length} customer-waiting tasks need attention
@@ -901,7 +941,7 @@ export default function FoQuickActionsPage() {
                 <div className="urgent-form-actions">
                   <button type="button" className="urgent-cancel-btn" onClick={() => { setFollowUpTaskId(null); setFollowUpReason(''); setFollowUpError(''); }}>Back</button>
                   <button type="submit" className="urgent-restart-btn" disabled={busyKey === `follow-up-${urgentCustomerWaitingTask.id}`}>
-                    {busyKey === `follow-up-${urgentCustomerWaitingTask.id}` ? 'Saving...' : 'Save & Restart 15 Minutes'}
+                    {busyKey === `follow-up-${urgentCustomerWaitingTask.id}` ? 'Saving...' : 'Save & Restart 10 Minutes'}
                   </button>
                 </div>
               </form>
@@ -1086,10 +1126,16 @@ export default function FoQuickActionsPage() {
             </div>
             <label>Task details<textarea value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} placeholder="Guest request, complaint, or work needed..." maxLength={800} rows={2} /></label>
             <div className="form-footer">
-              <button type="button" className={`waiting-chip ${customerWaiting ? 'active' : ''}`} aria-pressed={customerWaiting} onClick={() => setCustomerWaiting((current) => !current)}>
-                <span className="waiting-chip-icon">{customerWaiting ? '!' : '15m'}</span>
-                <span><b>Customer waiting</b><small>{customerWaiting ? 'Urgent timer enabled' : 'Enable 15-minute timer'}</small></span>
-              </button>
+              <div className="priority-buttons" aria-label="Task priority">
+                <button type="button" className={`waiting-chip ${customerWaiting ? 'active' : ''}`} aria-pressed={customerWaiting} onClick={() => { const next = !customerWaiting; setCustomerWaiting(next); if (next) setUrgent(false); }}>
+                  <span className="waiting-chip-icon">10m</span>
+                  <span><b>Customer waiting</b><small>{customerWaiting ? 'Popup enabled' : '10-minute target'}</small></span>
+                </button>
+                <button type="button" className={`waiting-chip urgent-chip ${urgent ? 'active' : ''}`} aria-pressed={urgent} onClick={() => { const next = !urgent; setUrgent(next); if (next) setCustomerWaiting(false); }}>
+                  <span className="waiting-chip-icon">5m</span>
+                  <span><b>Urgent</b><small>{urgent ? 'Popup enabled' : '5-minute target'}</small></span>
+                </button>
+              </div>
               <button className="primary-action" disabled={busyKey === 'create-task'}>{busyKey === 'create-task' ? 'Assigning...' : `Assign to ${taskDepartments.join(' + ')}`}</button>
             </div>
           </form>
@@ -1103,9 +1149,13 @@ export default function FoQuickActionsPage() {
           </div>
           <div className="compact-list command-list">
             {visibleTasks.length ? visibleTasks.map((task) => {
-              const waitingTimer = customerWaitingTimer(task, clockNow);
+              const waitingTimer = timedTaskTimer(task, clockNow);
+              const currentCycle = Number(task.alert_cycle || 1);
+              const acknowledgements = (task.acknowledgements || []).filter((row) => (
+                Number(row.alert_cycle || 1) === currentCycle
+              ));
               return (
-                <article key={task.id} className={`compact-card ${task.status.toLowerCase()} ${waitingTimer ? 'customer-waiting-task' : ''} ${waitingTimer?.overdue ? 'waiting-overdue' : ''}`}>
+                <article key={task.id} className={`compact-card ${task.status.toLowerCase()} ${task.customer_waiting ? 'customer-waiting-task' : ''} ${task.urgent ? 'urgent-task' : ''} ${waitingTimer?.overdue ? 'waiting-overdue' : ''}`}>
                   <div className="card-title">
                     <div><b>{task.task_code}</b><strong>{task.room}</strong><span className={`dept ${task.department.toLowerCase()}`}>{task.department}</span></div>
                     <div className="task-state">
@@ -1114,7 +1164,19 @@ export default function FoQuickActionsPage() {
                     </div>
                   </div>
                   <p>{task.task_text}</p>
-                  <small>{task.customer_waiting ? 'CUSTOMER WAITING - 15 MINUTE TARGET - ' : ''}{formatDateTime(task.created_at)}</small>
+                  <small>{task.urgent ? 'URGENT - 5 MINUTE TARGET - ' : task.customer_waiting ? 'CUSTOMER WAITING - 10 MINUTE TARGET - ' : ''}{formatDateTime(task.created_at)}</small>
+                  {acknowledgements.length ? (
+                    <div className="task-acknowledgements">
+                      <b>Acknowledged</b>
+                      {acknowledgements.map((row) => (
+                        <span key={`${row.user_name}-${row.acknowledged_at}`}>
+                          {row.user_name} · {formatDateTime(row.acknowledged_at)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (task.urgent || task.customer_waiting) ? (
+                    <div className="task-acknowledgements pending">Waiting for acknowledgement</div>
+                  ) : null}
                   <div className="task-action-row">
                     <button
                       type="button"
@@ -1212,11 +1274,14 @@ function ProfessionalStyles() {
     .department-row{flex-wrap:nowrap}
     .department-row button{flex:1;padding-left:7px;padding-right:7px}
     .choice-row button.both.selected{border-color:#7054b3;background:#f1edfb;color:#60449e;box-shadow:inset 0 0 0 1px #7054b3}
-    .form-footer{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:8px;align-items:stretch;margin-top:9px;width:100%}
+    .form-footer{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(220px,.65fr);gap:8px;align-items:stretch;margin-top:9px;width:100%}
+    .priority-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;min-width:0}
     .waiting-chip{width:100%;min-height:48px;border:1px solid #e13b3b;border-radius:10px;padding:6px 11px;background:#fff1f1;color:#a51f1f;display:flex;align-items:center;gap:9px;text-align:left;cursor:pointer;box-shadow:0 2px 7px rgba(185,28,28,.08);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .16s ease}
     .waiting-chip:hover{border-color:#bd1f1f;background:#ffe5e5;box-shadow:0 4px 12px rgba(185,28,28,.14)}
     .waiting-chip:active{transform:translateY(1px)}
     .waiting-chip.active{border-color:#991b1b;background:linear-gradient(135deg,#d92d2d,#b91c1c);color:#fff;box-shadow:0 5px 14px rgba(185,28,28,.25)}
+    .waiting-chip.urgent-chip{border-color:#bb2028;background:#fff5f5;color:#8f1118}
+    .waiting-chip.urgent-chip.active{border-color:#7f0d13;background:linear-gradient(135deg,#b51620,#7f0d13);color:#fff;box-shadow:0 6px 16px rgba(145,15,22,.3)}
     .waiting-chip-icon{flex:0 0 auto;width:32px;height:32px;border-radius:9px;background:#c62828;color:#fff;display:grid;place-items:center;font-size:9px;font-weight:950;letter-spacing:-.02em}
     .waiting-chip.active .waiting-chip-icon{background:#fff;color:#b91c1c}
     .waiting-chip>span:last-child{display:grid;gap:1px}
@@ -1235,7 +1300,10 @@ function ProfessionalStyles() {
     .waiting-timer{min-width:92px;border-radius:999px;padding:3px 10px;background:#fff1df;color:#9f3e08;text-align:center;font-size:17px;font-weight:950;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:.035em;box-shadow:inset 0 0 0 1px #f2c28d}
     .waiting-timer.overdue{background:#b91c1c;color:#fff;min-width:132px;font-size:12px;line-height:1.5;box-shadow:none}
     .compact-card.customer-waiting-task:not(.waiting-overdue){border-left-color:#f08a24;background:#fffdf8}
+    .compact-card.urgent-task:not(.waiting-overdue){border-color:#ef9b9b;border-left:5px solid #c91e27;background:#fff8f8}
     .compact-card.waiting-overdue{border-color:#dc2626;border-left:5px solid #b91c1c;animation:foWaitingFlash 1.1s step-end infinite}
+    .task-acknowledgements{margin-top:8px;border:1px solid #cdd9e7;border-radius:8px;padding:7px 8px;background:#f7faff;color:#4c6079;display:flex;align-items:center;flex-wrap:wrap;gap:5px;font-size:8px;font-weight:800}
+    .task-acknowledgements b{color:#214b82}.task-acknowledgements span{border-radius:999px;padding:3px 6px;background:#e7f5ec;color:#176b42}.task-acknowledgements.pending{border-color:#f0c995;background:#fff9ed;color:#a85a0b}
     .task-action-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:stretch;margin-top:10px}
     .task-status-btn,.complete-btn{min-height:38px;border:0;border-radius:9px;padding:7px 13px;color:#fff;font-size:10px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 3px 9px rgba(22,101,62,.14);transition:filter .16s ease,transform .16s ease,box-shadow .16s ease}
     .task-status-btn:hover,.complete-btn:hover{filter:brightness(.96);box-shadow:0 5px 13px rgba(22,51,85,.2)}
@@ -1308,12 +1376,12 @@ function ProfessionalStyles() {
     .item-card .archive-link{position:static!important;margin-left:auto;border-radius:5px!important;padding:4px 6px!important;background:#fff0ef!important;color:#ad332d!important;font-weight:850}
     @media(max-width:1100px){.command-board{grid-template-columns:1fr}.command-list{max-height:480px}.foq-overview-grid{grid-template-columns:minmax(0,1fr) 300px}}
     @media(max-width:760px){.foq-overview-grid{grid-template-columns:1fr}.guest-order-panel{grid-row:1}.guest-order-list{grid-template-columns:repeat(3,minmax(0,1fr))}.guest-order-row{grid-template-columns:1fr}.guest-order-row>span{grid-column:1;grid-row:auto;justify-self:start;margin-top:4px}.guest-order-link{margin-top:0}}
-    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}.urgent-follow-up-overlay{padding:10px}.urgent-follow-up-modal{padding:20px 14px;border-width:4px}.urgent-follow-up-modal h2{font-size:25px}.urgent-task-text{font-size:14px}.urgent-form-actions{grid-template-columns:1fr}.waiting-timer{min-width:84px;font-size:15px}.guest-order-list{display:grid;grid-template-columns:1fr}.guest-order-panel{padding:12px}.guest-order-row{grid-template-columns:minmax(0,1fr) auto}.guest-order-row>span{grid-column:2;grid-row:1/3;justify-self:auto;margin-top:0}}
+    @media(max-width:620px){.command-board{gap:8px}.command-title{padding:14px}.quick-form{padding:12px}.form-footer,.reminder-create-row,.reminder-action-row{grid-template-columns:1fr}.priority-buttons{grid-template-columns:repeat(2,minmax(0,1fr))}.waiting-chip{padding:6px 8px}.waiting-chip-icon{width:29px;height:29px}.waiting-chip b{font-size:9px}.waiting-chip small{font-size:7px}.reminder-create-row .primary-action{width:100%}.department-row{display:grid;grid-template-columns:1fr 1fr}.department-row button:last-child{grid-column:1/-1}.command-list{max-height:none}.list-heading{align-items:center}.urgent-follow-up-overlay{padding:10px}.urgent-follow-up-modal{padding:20px 14px;border-width:4px}.urgent-follow-up-modal h2{font-size:25px}.urgent-task-text{font-size:14px}.urgent-form-actions{grid-template-columns:1fr}.waiting-timer{min-width:84px;font-size:15px}.guest-order-list{display:grid;grid-template-columns:1fr}.guest-order-panel{padding:12px}.guest-order-row{grid-template-columns:minmax(0,1fr) auto}.guest-order-row>span{grid-column:2;grid-row:1/3;justify-self:auto;margin-top:0}}
   `}</style>;
 }
 
 function Styles() {
   return <style jsx global>{`
-    *{box-sizing:border-box}body{margin:0;background:#eef3f9;color:#10223c;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.foq-page{min-height:100vh;padding:18px}.foq-header,.item-panel,.action-panel,.main-tabs,.foq-state{max-width:1450px;margin-left:auto;margin-right:auto;background:#fff;border:1px solid #d7e1ec;border-radius:16px;box-shadow:0 10px 28px rgba(24,49,82,.07)}.foq-header{padding:20px 22px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:18px}.foq-header h1{margin:3px 0;font-size:28px;letter-spacing:-.03em}.foq-header p{margin:0;color:#64758a;font-size:13px}.eyebrow{display:block;color:#2462d0;font-size:9px;font-weight:950;letter-spacing:.14em}.header-actions,.heading-actions{display:flex;align-items:center;gap:8px}.header-actions a,.header-actions button,.secondary{border:1px solid #c7d3e1;background:#fff;color:#21344e;border-radius:10px;padding:10px 13px;text-decoration:none;font-weight:850;cursor:pointer}.notice{max-width:1450px;margin:0 auto 10px;padding:11px 14px;border-radius:10px;font-size:12px;font-weight:800}.notice.error{background:#fff1f0;border:1px solid #f2c1bd;color:#a72d25}.notice.success{background:#edf9f2;border:1px solid #b5dfc7;color:#0d7543}.item-panel{padding:14px 16px;margin-bottom:10px}.section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px}.section-heading.compact{align-items:center;margin-bottom:9px}.section-heading h2{font-size:18px;margin:3px 0 0}.count{border-radius:999px;padding:5px 9px;background:#eef3f9;color:#52667f;font-size:10px;font-weight:900}.count.warn{background:#fff0e8;color:#b74518}.count.good{background:#e9f8ef;color:#0b7945}.small{padding:6px 9px!important;font-size:10px}.inline-create{display:grid;grid-template-columns:1.2fr 1.5fr auto auto;gap:7px;margin:8px 0 10px}.inline-create input,.inline-create button,.inline-action input,.inline-action button,.completion-row input,.completion-row button{min-height:38px;border:1px solid #cbd6e3;border-radius:9px;padding:8px 10px;background:#fff}.inline-create button,.inline-action button,.completion-row button{background:#235fc8;color:#fff;font-weight:850;cursor:pointer}.item-strip{display:flex;gap:9px;overflow-x:auto;padding:2px 1px 7px;scrollbar-width:thin}.item-card{position:relative;flex:0 0 235px;min-height:128px;padding:12px;border:1px solid #d9e3ee;border-left:4px solid #21a366;border-radius:12px;background:#f9fcfa;display:flex;flex-direction:column;gap:7px}.item-card.loaned{border-left-color:#e4722b;background:#fff9f4}.item-top{display:flex;justify-content:space-between;gap:8px}.item-top strong{font-size:13px}.item-top span{font-size:8px;font-weight:950;color:#64758a}.item-card small{font-size:10px;color:#6c7d91}.item-card>button:not(.archive-link),.return-btn{margin-top:auto;border:0;border-radius:9px;padding:9px;background:#1e64cd;color:#fff;font-weight:900;cursor:pointer}.item-card .return-btn{background:#16824d}.holder{font-size:12px}.inline-action{display:grid;grid-template-columns:1fr 1fr;gap:5px}.inline-action input{grid-column:1/-1;min-width:0}.archive-link,.delete-link{position:absolute;top:35px;right:10px;border:0!important;background:transparent!important;color:#9a4b4b!important;font-size:9px!important;padding:2px!important;cursor:pointer}.empty-inline{padding:20px;color:#718197;font-size:12px}.main-tabs{padding:5px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:5px}.main-tabs button{min-height:66px;border:1px solid transparent;border-radius:12px;background:transparent;color:#54677f;padding:9px 14px;text-align:left;display:grid;grid-template-columns:auto 1fr;column-gap:8px;cursor:pointer}.main-tabs button span{font-size:15px;font-weight:950}.main-tabs button b{justify-self:end;border-radius:999px;padding:2px 7px;background:#e8eef6;font-size:11px}.main-tabs button small{grid-column:1/-1;font-size:10px}.main-tabs button.active{background:#153d76;color:#fff;box-shadow:0 5px 13px rgba(21,61,118,.2)}.main-tabs button.active b{background:#fff;color:#153d76}.workspace-grid{max-width:1450px;margin:0 auto;display:grid;grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr);gap:10px;align-items:start}.action-panel{padding:17px;margin:0}.create-panel label{display:grid;gap:6px;margin-top:11px;font-size:11px;font-weight:900;color:#465b75}.create-panel label small{font-weight:600}.create-panel input,.create-panel textarea{width:100%;border:1px solid #c9d5e3;border-radius:10px;padding:11px 12px;background:#fbfcfe;color:#10223c;font:inherit;resize:vertical}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.choice-row{display:flex;flex-wrap:wrap;gap:6px}.choice-row button{border:1px solid #cbd6e3;border-radius:9px;background:#fff;color:#4a607a;padding:8px 10px;font-size:10px;font-weight:850;cursor:pointer}.choice-row button.selected{border-color:#1f60c8;background:#eaf2ff;color:#174f9e;box-shadow:inset 0 0 0 1px #1f60c8}.choice-row button.hk.selected{background:#eaf9f0;border-color:#23935b;color:#167044}.choice-row button.mt.selected{background:#edf3ff;border-color:#3d6ed2;color:#2658b2}.waiting-toggle{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start;gap:9px!important;padding:10px 11px;border:1px solid #e4c8b7;border-radius:10px;background:#fff9f5}.waiting-toggle input{width:auto}.waiting-toggle span{display:grid}.waiting-toggle small{color:#7f6b60}.urgent-pill{border-radius:999px;background:#fff0e8;color:#be461b;padding:5px 9px;font-size:9px;font-weight:950}.primary-action{width:100%;margin-top:13px;border:0;border-radius:11px;padding:12px 15px;background:#1764cf;color:#fff;font-weight:950;cursor:pointer}.primary-action:disabled,button:disabled{opacity:.55;cursor:not-allowed}.info-note{margin-top:11px;padding:10px;border-radius:9px;background:#eef5ff;color:#36577f;font-size:10px;line-height:1.4}.compact-list{display:grid;gap:7px;max-height:575px;overflow:auto;padding-right:2px}.compact-card,.reminder-card{position:relative;border:1px solid #dce4ee;border-left:4px solid #df862d;border-radius:11px;padding:11px 12px;background:#fff}.compact-card.done,.reminder-card.done{border-left-color:#25a165;background:#f8fcfa}.card-title,.card-title>div{display:flex;align-items:center;gap:7px}.card-title{justify-content:space-between}.card-title b{font-size:9px}.card-title strong{font-size:13px}.card-title em{font-style:normal;font-size:8px;font-weight:950;color:#6a7b90}.dept{border-radius:999px;padding:3px 6px;font-size:8px;font-weight:950}.dept.hk{background:#e8f8ef;color:#137447}.dept.mt{background:#eaf0ff;color:#2b58ae}.compact-card p,.reminder-card p{margin:7px 0;color:#2c425e;font-size:12px;line-height:1.4;white-space:pre-wrap}.compact-card small,.reminder-card small{color:#78889a;font-size:9px}.empty{padding:30px 15px;border:1px dashed #cbd6e3;border-radius:10px;text-align:center;color:#718197;font-size:12px}.mini-tabs{display:flex;border:1px solid #d5deea;border-radius:9px;padding:3px}.mini-tabs button{border:0;border-radius:6px;background:transparent;color:#63758b;padding:6px 8px;font-size:9px;font-weight:900;cursor:pointer}.mini-tabs button.active{background:#173f77;color:#fff}.complete-btn{margin-top:9px;border:0;border-radius:8px;padding:8px 10px;background:#16834e;color:#fff;font-size:10px;font-weight:900;cursor:pointer}.completion-row{display:grid;grid-template-columns:1fr auto auto;gap:5px;margin-top:9px}.completion-row input{min-width:0}.completed-by{margin-top:8px;border-radius:8px;padding:7px 9px;background:#e9f8f0;color:#176942;font-size:10px}.reminder-card .delete-link{top:auto;bottom:8px}.foq-state{margin-top:12vh;padding:35px;text-align:center}.foq-state a{color:#1e61c7}.secondary{background:#fff!important;color:#324861!important}@media(max-width:920px){.workspace-grid{grid-template-columns:1fr}.compact-list{max-height:none}.field-grid{grid-template-columns:1fr}.inline-create{grid-template-columns:1fr 1fr}.inline-create input{grid-column:span 1}}@media(max-width:620px){.foq-page{padding:8px}.foq-header{padding:15px;align-items:flex-start;display:grid}.foq-header h1{font-size:24px}.header-actions{width:100%}.header-actions>*{flex:1;text-align:center}.item-panel,.action-panel{padding:12px}.main-tabs button{padding:8px;min-height:62px}.main-tabs button span{font-size:13px}.workspace-grid{gap:8px}.inline-create{grid-template-columns:1fr}.inline-create input{grid-column:auto}.completion-row{grid-template-columns:1fr 1fr}.completion-row input{grid-column:1/-1}.item-card{flex-basis:215px}.choice-row button{flex:1}.department-row button{min-width:130px}}\n+  `}</style>;
+    *{box-sizing:border-box}body{margin:0;background:#eef3f9;color:#10223c;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.foq-page{min-height:100vh;padding:18px}.foq-header,.item-panel,.action-panel,.main-tabs,.foq-state{max-width:1450px;margin-left:auto;margin-right:auto;background:#fff;border:1px solid #d7e1ec;border-radius:16px;box-shadow:0 10px 28px rgba(24,49,82,.07)}.foq-header{padding:20px 22px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:18px}.foq-header h1{margin:3px 0;font-size:28px;letter-spacing:-.03em}.foq-header p{margin:0;color:#64758a;font-size:13px}.eyebrow{display:block;color:#2462d0;font-size:9px;font-weight:950;letter-spacing:.14em}.header-actions,.heading-actions{display:flex;align-items:center;gap:8px}.header-actions a,.header-actions button,.secondary{border:1px solid #c7d3e1;background:#fff;color:#21344e;border-radius:10px;padding:10px 13px;text-decoration:none;font-weight:850;cursor:pointer}.notice{max-width:1450px;margin:0 auto 10px;padding:11px 14px;border-radius:10px;font-size:12px;font-weight:800}.notice.error{background:#fff1f0;border:1px solid #f2c1bd;color:#a72d25}.notice.success{background:#edf9f2;border:1px solid #b5dfc7;color:#0d7543}.item-panel{padding:14px 16px;margin-bottom:10px}.section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px}.section-heading.compact{align-items:center;margin-bottom:9px}.section-heading h2{font-size:18px;margin:3px 0 0}.count{border-radius:999px;padding:5px 9px;background:#eef3f9;color:#52667f;font-size:10px;font-weight:900}.count.warn{background:#fff0e8;color:#b74518}.count.good{background:#e9f8ef;color:#0b7945}.small{padding:6px 9px!important;font-size:10px}.inline-create{display:grid;grid-template-columns:1.2fr 1.5fr auto auto;gap:7px;margin:8px 0 10px}.inline-create input,.inline-create button,.inline-action input,.inline-action button,.completion-row input,.completion-row button{min-height:38px;border:1px solid #cbd6e3;border-radius:9px;padding:8px 10px;background:#fff}.inline-create button,.inline-action button,.completion-row button{background:#235fc8;color:#fff;font-weight:850;cursor:pointer}.item-strip{display:flex;gap:9px;overflow-x:auto;padding:2px 1px 7px;scrollbar-width:thin}.item-card{position:relative;flex:0 0 235px;min-height:128px;padding:12px;border:1px solid #d9e3ee;border-left:4px solid #21a366;border-radius:12px;background:#f9fcfa;display:flex;flex-direction:column;gap:7px}.item-card.loaned{border-left-color:#e4722b;background:#fff9f4}.item-top{display:flex;justify-content:space-between;gap:8px}.item-top strong{font-size:13px}.item-top span{font-size:8px;font-weight:950;color:#64758a}.item-card small{font-size:10px;color:#6c7d91}.item-card>button:not(.archive-link),.return-btn{margin-top:auto;border:0;border-radius:9px;padding:9px;background:#1e64cd;color:#fff;font-weight:900;cursor:pointer}.item-card .return-btn{background:#16824d}.holder{font-size:12px}.inline-action{display:grid;grid-template-columns:1fr 1fr;gap:5px}.inline-action input{grid-column:1/-1;min-width:0}.archive-link,.delete-link{position:absolute;top:35px;right:10px;border:0!important;background:transparent!important;color:#9a4b4b!important;font-size:9px!important;padding:2px!important;cursor:pointer}.empty-inline{padding:20px;color:#718197;font-size:12px}.main-tabs{padding:5px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:5px}.main-tabs button{min-height:66px;border:1px solid transparent;border-radius:12px;background:transparent;color:#54677f;padding:9px 14px;text-align:left;display:grid;grid-template-columns:auto 1fr;column-gap:8px;cursor:pointer}.main-tabs button span{font-size:15px;font-weight:950}.main-tabs button b{justify-self:end;border-radius:999px;padding:2px 7px;background:#e8eef6;font-size:11px}.main-tabs button small{grid-column:1/-1;font-size:10px}.main-tabs button.active{background:#153d76;color:#fff;box-shadow:0 5px 13px rgba(21,61,118,.2)}.main-tabs button.active b{background:#fff;color:#153d76}.workspace-grid{max-width:1450px;margin:0 auto;display:grid;grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr);gap:10px;align-items:start}.action-panel{padding:17px;margin:0}.create-panel label{display:grid;gap:6px;margin-top:11px;font-size:11px;font-weight:900;color:#465b75}.create-panel label small{font-weight:600}.create-panel input,.create-panel textarea{width:100%;border:1px solid #c9d5e3;border-radius:10px;padding:11px 12px;background:#fbfcfe;color:#10223c;font:inherit;resize:vertical}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.choice-row{display:flex;flex-wrap:wrap;gap:6px}.choice-row button{border:1px solid #cbd6e3;border-radius:9px;background:#fff;color:#4a607a;padding:8px 10px;font-size:10px;font-weight:850;cursor:pointer}.choice-row button.selected{border-color:#1f60c8;background:#eaf2ff;color:#174f9e;box-shadow:inset 0 0 0 1px #1f60c8}.choice-row button.hk.selected{background:#eaf9f0;border-color:#23935b;color:#167044}.choice-row button.mt.selected{background:#edf3ff;border-color:#3d6ed2;color:#2658b2}.waiting-toggle{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start;gap:9px!important;padding:10px 11px;border:1px solid #e4c8b7;border-radius:10px;background:#fff9f5}.waiting-toggle input{width:auto}.waiting-toggle span{display:grid}.waiting-toggle small{color:#7f6b60}.urgent-pill{border-radius:999px;background:#fff0e8;color:#be461b;padding:5px 9px;font-size:9px;font-weight:950}.primary-action{width:100%;margin-top:13px;border:0;border-radius:11px;padding:12px 15px;background:#1764cf;color:#fff;font-weight:950;cursor:pointer}.primary-action:disabled,button:disabled{opacity:.55;cursor:not-allowed}.info-note{margin-top:11px;padding:10px;border-radius:9px;background:#eef5ff;color:#36577f;font-size:10px;line-height:1.4}.compact-list{display:grid;gap:7px;max-height:575px;overflow:auto;padding-right:2px}.compact-card,.reminder-card{position:relative;border:1px solid #dce4ee;border-left:4px solid #df862d;border-radius:11px;padding:11px 12px;background:#fff}.compact-card.done,.reminder-card.done{border-left-color:#25a165;background:#f8fcfa}.card-title,.card-title>div{display:flex;align-items:center;gap:7px}.card-title{justify-content:space-between}.card-title b{font-size:9px}.card-title strong{font-size:13px}.card-title em{font-style:normal;font-size:8px;font-weight:950;color:#6a7b90}.dept{border-radius:999px;padding:3px 6px;font-size:8px;font-weight:950}.dept.hk{background:#e8f8ef;color:#137447}.dept.mt{background:#eaf0ff;color:#2b58ae}.compact-card p,.reminder-card p{margin:7px 0;color:#2c425e;font-size:12px;line-height:1.4;white-space:pre-wrap}.compact-card small,.reminder-card small{color:#78889a;font-size:9px}.empty{padding:30px 15px;border:1px dashed #cbd6e3;border-radius:10px;text-align:center;color:#718197;font-size:12px}.mini-tabs{display:flex;border:1px solid #d5deea;border-radius:9px;padding:3px}.mini-tabs button{border:0;border-radius:6px;background:transparent;color:#63758b;padding:6px 8px;font-size:9px;font-weight:900;cursor:pointer}.mini-tabs button.active{background:#173f77;color:#fff}.complete-btn{margin-top:9px;border:0;border-radius:8px;padding:8px 10px;background:#16834e;color:#fff;font-size:10px;font-weight:900;cursor:pointer}.completion-row{display:grid;grid-template-columns:1fr auto auto;gap:5px;margin-top:9px}.completion-row input{min-width:0}.completed-by{margin-top:8px;border-radius:8px;padding:7px 9px;background:#e9f8f0;color:#176942;font-size:10px}.reminder-card .delete-link{top:auto;bottom:8px}.foq-state{margin-top:12vh;padding:35px;text-align:center}.foq-state a{color:#1e61c7}.secondary{background:#fff!important;color:#324861!important}@media(max-width:920px){.workspace-grid{grid-template-columns:1fr}.compact-list{max-height:none}.field-grid{grid-template-columns:1fr}.inline-create{grid-template-columns:1fr 1fr}.inline-create input{grid-column:span 1}}@media(max-width:620px){.foq-page{padding:8px}.foq-header{padding:15px;align-items:flex-start;display:grid}.foq-header h1{font-size:24px}.header-actions{width:100%}.header-actions>*{flex:1;text-align:center}.item-panel,.action-panel{padding:12px}.main-tabs button{padding:8px;min-height:62px}.main-tabs button span{font-size:13px}.workspace-grid{gap:8px}.inline-create{grid-template-columns:1fr}.inline-create input{grid-column:auto}.completion-row{grid-template-columns:1fr 1fr}.completion-row input{grid-column:1/-1}.item-card{flex-basis:215px}.choice-row button{flex:1}.department-row button{min-width:130px}}
+  `}</style>;
 }
-

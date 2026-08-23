@@ -11,7 +11,7 @@ alter table public.tasks
   add column if not exists customer_waiting_follow_up_count integer not null default 0;
 
 update public.tasks
-set customer_waiting_due_at = created_at + interval '15 minutes'
+set customer_waiting_due_at = created_at + interval '10 minutes'
 where customer_waiting = true
   and customer_waiting_due_at is null;
 
@@ -49,7 +49,7 @@ begin
   end if;
 
   update public.tasks
-  set customer_waiting_due_at = now() + interval '15 minutes',
+  set customer_waiting_due_at = now() + interval '10 minutes',
       customer_waiting_follow_up_count =
         coalesce(customer_waiting_follow_up_count, 0) + 1,
       customer_waiting_reminder_sent_at = null,
@@ -71,7 +71,7 @@ begin
   ) values (
     v_task.id,
     'CUSTOMER_WAITING_FOLLOW_UP',
-    'Delay reason: ' || v_reason || '. Next follow-up due in 15 minutes.',
+    'Delay reason: ' || v_reason || '. Next follow-up due in 10 minutes.',
     v_actor_name
   );
 
@@ -714,4 +714,3 @@ grant execute on function public.reorder_fo_tracked_items(uuid[]) to authenticat
 grant execute on function public.loan_fo_tracked_item(uuid, text) to authenticated;
 grant execute on function public.return_fo_tracked_item(uuid) to authenticated;
 grant execute on function public.set_fo_tracked_item_active(uuid, boolean) to authenticated;
-
