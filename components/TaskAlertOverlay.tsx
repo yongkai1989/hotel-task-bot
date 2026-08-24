@@ -150,6 +150,11 @@ export default function TaskAlertOverlay({ userId }: Props) {
         body: JSON.stringify({ taskId: current.id }),
       });
       await responseJson(response);
+      const registration = await navigator.serviceWorker?.getRegistration('/push-service-worker.js');
+      registration?.active?.postMessage({
+        type: 'CLEAR_TASK_NOTIFICATION',
+        taskId: current.id,
+      });
       setAlerts((existing) => existing.filter((alert) => alert.id !== current.id));
     } catch (nextError: any) {
       const message = nextError?.message || 'Unable to acknowledge this task.';

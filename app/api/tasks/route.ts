@@ -5,6 +5,7 @@ import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { reconcileManagerRoomCheckTasks } from '../../../lib/managerRoomCheckTaskSync';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 import { attachTaskAlertAcknowledgements } from '../../../lib/taskAlertAcknowledgements';
+import { sendTaskPushNotifications } from '../../../lib/taskPush';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -847,45 +848,38 @@ export async function POST(req: NextRequest) {
       let telegramWarning = '';
 
       try {
-        if (telegramExcluded) {
-          createdTasks.push({
-            ...task,
-            task_images: [],
+        if (!telegramExcluded) {
+          const telegramMessageId = await sendTelegramTaskCard({
+            chatId: telegramChatId as number,
+            task: {
+              id: task.id,
+              task_code: task.task_code,
+              room: task.room,
+              department: task.department,
+              task_text: task.task_text,
+              created_by_name: task.created_by_name,
+              image_url: task.image_url,
+              status: task.status,
+              done_by_name: task.done_by_name,
+              done_at: task.done_at,
+              reopened_at: null,
+              last_updated_by_name: task.last_updated_by_name,
+            },
           });
-          await broadcastTaskChange(task.id, 'INSERT');
-          continue;
-        }
 
-        const telegramMessageId = await sendTelegramTaskCard({
-          chatId: telegramChatId as number,
-          task: {
-            id: task.id,
-            task_code: task.task_code,
-            room: task.room,
-            department: task.department,
-            task_text: task.task_text,
-            created_by_name: task.created_by_name,
-            image_url: task.image_url,
-            status: task.status,
-            done_by_name: task.done_by_name,
-            done_at: task.done_at,
-            reopened_at: null,
-            last_updated_by_name: task.last_updated_by_name,
-          },
-        });
+          if (telegramMessageId) {
+            await supabaseAdmin
+              .from('tasks')
+              .update({ telegram_task_message_id: telegramMessageId })
+              .eq('id', task.id);
 
-        if (telegramMessageId) {
-          await supabaseAdmin
-            .from('tasks')
-            .update({ telegram_task_message_id: telegramMessageId })
-            .eq('id', task.id);
-
-          await supabaseAdmin.from('telegram_messages').insert({
-            telegram_message_id: telegramMessageId,
-            chat_id: telegramChatId,
-            task_id: task.id,
-            message_type: 'TASK_CARD',
-          });
+            await supabaseAdmin.from('telegram_messages').insert({
+              telegram_message_id: telegramMessageId,
+              chat_id: telegramChatId,
+              task_id: task.id,
+              message_type: 'TASK_CARD',
+            });
+          }
         }
       } catch (error: any) {
         telegramWarning = error?.message || `Telegram notification failed for ${department}`;
@@ -909,6 +903,11 @@ export async function POST(req: NextRequest) {
         task_images: finalImagesError ? [] : taskImages || [],
       });
       await broadcastTaskChange(task.id, 'INSERT');
+
+      if (task.urgent === true || task.customer_waiting === true) {
+        const pushResult = await sendTaskPushNotifications(task);
+        if (pushResult.warning) warnings.push(pushResult.warning);
+      }
 
       if (telegramWarning) {
         warnings.push(telegramWarning);

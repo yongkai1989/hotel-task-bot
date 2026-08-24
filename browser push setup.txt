@@ -1,0 +1,51 @@
+HALLMARK DASHBOARD WEB PUSH - ONE-TIME SETUP
+
+1. Supabase
+
+Run the complete file below in Supabase SQL Editor:
+
+browser push notifications sql.txt
+
+The existing task urgent alerts sql.txt must also already be installed because
+it controls the exact HK and MT recipients and acknowledgement audit trail.
+
+2. Vercel environment variables
+
+Add all three variables to Production, Preview, and Development:
+
+WEB_PUSH_PUBLIC_KEY=<generated public key>
+WEB_PUSH_PRIVATE_KEY=<generated private key>
+WEB_PUSH_SUBJECT=mailto:ryan.tan@hotelhallmark.com
+
+Never prefix the private key with NEXT_PUBLIC_ and never paste it into source
+code. Redeploy after saving the variables.
+
+3. Staff Samsung tablet
+
+- Open the dashboard in Google Chrome and sign in as the actual staff user.
+- Tap Enable Alerts beside the Menu button.
+- Tap Allow in the Android notification permission prompt.
+- In Samsung Settings, allow Chrome notifications, sound, vibration, and popup.
+- Remove Chrome from Sleeping apps and Deep sleeping apps.
+- Repeat once for each user/browser/tablet that should receive alerts.
+
+4. What is sent
+
+- Urgent HK: the existing HK alert recipients.
+- Customer-waiting HK: the same existing HK alert recipients.
+- Urgent MT: the existing MT alert recipients.
+- Customer-waiting MT: the same existing MT alert recipients.
+- Customer-waiting follow-up: sends another alert for the new 10-minute cycle.
+- Normal tasks do not create Web Push alerts.
+- Manager Room Check tasks are unaffected unless explicitly created as a timed
+  Urgent or Customer-waiting task.
+
+5. Cost and behavior
+
+- Event driven only: no polling, cron, or repeated background database reads.
+- Each browser stores one very small subscription row.
+- Invalid/expired browser subscriptions are removed automatically after a push
+  service returns HTTP 404 or 410.
+- Tapping a notification opens the dashboard task URL.
+- Acknowledging the in-app popup records the existing user/time audit and closes
+  that task's visible browser notification where supported.

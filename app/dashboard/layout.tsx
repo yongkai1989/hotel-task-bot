@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useState } from 'react';
 import DashboardSidebar from '../../components/DashboardSidebar';
+import PushNotificationControl from '../../components/PushNotificationControl';
 import TaskAlertOverlay from '../../components/TaskAlertOverlay';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
 
@@ -229,7 +230,15 @@ export default function DashboardLayout({
           padding: '18px 18px 40px',
         }}
       >
-        <div style={{ marginBottom: 18 }}>
+        <div
+          style={{
+            marginBottom: 18,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}
+        >
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
@@ -251,6 +260,7 @@ export default function DashboardLayout({
             <span style={{ fontSize: 13, lineHeight: 1 }}>||</span>
             <span>Menu</span>
           </button>
+          <PushNotificationControl userId={profile?.user_id} />
         </div>
 
         {children}

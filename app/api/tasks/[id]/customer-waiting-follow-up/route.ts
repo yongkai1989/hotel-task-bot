@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../../lib/dashboardAuth';
 import { broadcastTaskChange } from '../../../../../lib/taskBroadcastServer';
+import { sendTaskPushNotifications } from '../../../../../lib/taskPush';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -70,12 +71,14 @@ export async function POST(
     }
 
     await broadcastTaskChange(taskId, 'UPDATE');
+    const pushResult = await sendTaskPushNotifications(task);
 
     return jsonNoCache({
       ok: true,
       task,
       nextDueAt: task.customer_waiting_due_at,
       followUpCount: task.customer_waiting_follow_up_count,
+      warning: pushResult.warning,
     });
   } catch (error: any) {
     return jsonNoCache(
