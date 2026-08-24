@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
+import kitchenStyles from './OrderOperationsPage.module.css';
 import {
   FNB_ORDER_BROADCAST_CHANNEL,
   FNB_ORDER_BROADCAST_EVENT,
@@ -22,6 +23,7 @@ type KitchenOrder = {
   kitchen_requested_at: string | null;
   kitchen_accept_deadline_at: string | null;
   kitchen_accepted_at: string | null;
+  kitchen_delivered_at?: string | null;
   kitchen_ready_minutes: number | null;
   kitchen_decision_by: string;
   kitchen_decision_note: string;
@@ -42,6 +44,7 @@ type Profile = {
 };
 
 type OrderMode = 'FNB' | 'GUEST_SHOP';
+type FnbStage = 'PENDING' | 'IN_PROGRESS' | 'COMPLETE' | 'EXCEPTIONS';
 
 function normalizeEmail(value: unknown) {
   return String(value || '').trim().toLowerCase();
@@ -144,6 +147,35 @@ function countdownText(seconds: number) {
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+function orderAge(order: KitchenOrder) {
+  const startedAt = order.kitchen_requested_at || order.paid_at || order.created_at;
+  const startedMs = startedAt ? Date.parse(startedAt) : Number.NaN;
+  if (!Number.isFinite(startedMs)) return '-';
+  const totalMinutes = Math.max(0, Math.floor((Date.now() - startedMs) / 60000));
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function orderRequests(items: any[]) {
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item, index) => {
+    const note = String(item?.special_instructions || '').trim();
+    if (!note) return [];
+    return [{ id: `${String(item?.name || 'item')}-${index}`, item: String(item?.name || 'Item'), note }];
+  });
+}
+
+function fnbStatusLabel(status: string) {
+  if (status === 'PENDING_ACCEPTANCE') return 'Pending Acceptance';
+  if (['ACCEPTED', 'IN_PROGRESS'].includes(status)) return 'In Progress';
+  if (status === 'DELIVERED') return 'Complete';
+  if (status === 'AUTO_REJECTED') return 'Timed Out';
+  if (status === 'REJECTED') return 'Rejected';
+  return statusLabel(status);
+}
+
 const CUSTOM_ALARM_SRC = '/sounds/fnb-order-alert.mp3';
 
 export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode }) {
@@ -161,6 +193,7 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
   const [tick, setTick] = useState(0);
   const [search, setSearch] = useState('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [fnbStage, setFnbStage] = useState<FnbStage>('PENDING');
 
   const pendingOrders = orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE');
   const pendingCount = pendingOrders.length;
@@ -349,7 +382,8 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
       if (!token) throw new Error('Please log in again');
 
       const endpoint = isGuestShop ? '/api/guest-shop/fulfillment-orders' : '/api/guest-shop/kitchen-orders';
-      const res = await fetch(`${endpoint}?status=${encodeURIComponent(view)}`, {
+      const apiView = isGuestShop ? view : 'ALL';
+      const res = await fetch(`${endpoint}?status=${encodeURIComponent(apiView)}`, {
         cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -402,7 +436,12 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
                 : 'Order updated.'
       );
 
-      if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT', 'DELIVERED'].includes(action)) {
+      if (!isGuestShop) {
+        await loadOrders(activeTab, true);
+        if (action === 'ACCEPT') setFnbStage('IN_PROGRESS');
+        if (action === 'DELIVERED') setFnbStage('COMPLETE');
+        if (action === 'REJECT') setFnbStage('EXCEPTIONS');
+      } else if (activeTab === 'PENDING' && ['ACCEPT', 'REJECT', 'DELIVERED'].includes(action)) {
         const pendingAfterAction = await loadOrders('PENDING', true);
         if (!pendingAfterAction.length) {
           setActiveTab('ACTIVE');
@@ -458,6 +497,156 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
           <p>You do not have access to {isGuestShop ? 'Guest Shop' : 'F&B'} Orders.</p>
           <Link href="/dashboard" style={styles.darkButton}>Back to Dashboard</Link>
         </div>
+      </main>
+    );
+  }
+
+  if (!isGuestShop) {
+    void tick;
+    const stageOrders = filteredOrders.filter((order) => {
+      if (fnbStage === 'PENDING') return order.kitchen_status === 'PENDING_ACCEPTANCE';
+      if (fnbStage === 'IN_PROGRESS') return ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status);
+      if (fnbStage === 'COMPLETE') return order.kitchen_status === 'DELIVERED';
+      return ['REJECTED', 'AUTO_REJECTED'].includes(order.kitchen_status);
+    });
+    const stageCounts: Record<FnbStage, number> = {
+      PENDING: orders.filter((order) => order.kitchen_status === 'PENDING_ACCEPTANCE').length,
+      IN_PROGRESS: orders.filter((order) => ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status)).length,
+      COMPLETE: orders.filter((order) => order.kitchen_status === 'DELIVERED').length,
+      EXCEPTIONS: orders.filter((order) => ['REJECTED', 'AUTO_REJECTED'].includes(order.kitchen_status)).length,
+    };
+
+    const stages: Array<{ id: FnbStage; label: string; caption: string }> = [
+      { id: 'PENDING', label: 'Pending Acceptance', caption: 'Accept or reject' },
+      { id: 'IN_PROGRESS', label: 'In Progress', caption: 'Being prepared' },
+      { id: 'COMPLETE', label: 'Complete', caption: 'Finished orders' },
+      { id: 'EXCEPTIONS', label: 'Rejected / Timed Out', caption: 'Separate follow-up' },
+    ];
+
+    return (
+      <main className={kitchenStyles.page}>
+        <header className={kitchenStyles.hero}>
+          <div>
+            <div className={kitchenStyles.eyebrow}>Touchscreen Kitchen Workspace</div>
+            <h1>F&amp;B Orders</h1>
+            <p>Accept new orders, follow preparation time, and complete room delivery from one screen.</p>
+          </div>
+          <div className={kitchenStyles.headerActions}>
+            <button type="button" onClick={() => setAlarmEnabled((value) => !value)} className={alarmEnabled ? kitchenStyles.alarmOn : kitchenStyles.headerButton}>
+              {alarmEnabled ? 'Alarm On' : 'Alarm Off'}
+            </button>
+            <button type="button" onClick={() => loadOrders()} className={kitchenStyles.headerButton}>Refresh</button>
+            <Link href="/dashboard" className={kitchenStyles.headerButton}>Dashboard</Link>
+          </div>
+        </header>
+
+        {error ? <div className={kitchenStyles.errorBox}>{error}</div> : null}
+        {message ? <div className={kitchenStyles.successBox}>{message}</div> : null}
+
+        <nav className={kitchenStyles.stageBar} aria-label="Order status">
+          {stages.map((stage) => (
+            <button
+              key={stage.id}
+              type="button"
+              onClick={() => setFnbStage(stage.id)}
+              className={`${kitchenStyles.stageButton} ${fnbStage === stage.id ? kitchenStyles.stageButtonActive : ''} ${stage.id === 'EXCEPTIONS' ? kitchenStyles.stageButtonException : ''}`}
+            >
+              <span className={kitchenStyles.stageCount}>{stageCounts[stage.id]}</span>
+              <span><strong>{stage.label}</strong><small>{stage.caption}</small></span>
+            </button>
+          ))}
+        </nav>
+
+        <section className={kitchenStyles.toolbar}>
+          <div>
+            <span className={kitchenStyles.eyebrow}>Current View</span>
+            <h2>{stages.find((stage) => stage.id === fnbStage)?.label}</h2>
+          </div>
+          <label className={kitchenStyles.searchBox}>
+            <span>Search orders</span>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Room, guest, item or payment reference" />
+          </label>
+          <span className={kitchenStyles.updatedAt}>{lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })}` : 'Connecting...'}</span>
+        </section>
+
+        <section className={kitchenStyles.orderGrid}>
+          {stageOrders.length ? stageOrders.map((order) => {
+            const lines = itemLines(order.items_json);
+            const requests = orderRequests(order.items_json);
+            const acceptRemaining = secondsLeft(order.kitchen_accept_deadline_at);
+            const readyRemaining = secondsLeft(readyDeadline(order));
+            const isPending = order.kitchen_status === 'PENDING_ACCEPTANCE';
+            const isProgress = ['ACCEPTED', 'IN_PROGRESS'].includes(order.kitchen_status);
+            const isException = ['REJECTED', 'AUTO_REJECTED'].includes(order.kitchen_status);
+            return (
+              <article key={order.id} className={`${kitchenStyles.orderCard} ${isPending ? kitchenStyles.pendingCard : ''} ${isException ? kitchenStyles.exceptionCard : ''}`}>
+                <div className={kitchenStyles.orderTop}>
+                  <div className={kitchenStyles.roomBlock}>
+                    <span>Room</span>
+                    <strong>{order.room_number || '-'}</strong>
+                  </div>
+                  <div className={kitchenStyles.ageBlock}>
+                    <span>Aging Time</span>
+                    <strong>{orderAge(order)}</strong>
+                  </div>
+                  <div className={`${kitchenStyles.statusPill} ${isException ? kitchenStyles.statusException : ''}`}>
+                    {fnbStatusLabel(order.kitchen_status)}
+                  </div>
+                </div>
+
+                <div className={kitchenStyles.orderMeta}>
+                  <div><span>Guest</span><strong>{order.guest_name || 'Guest'}</strong></div>
+                  <div><span>Order received</span><strong>{formatTime(order.kitchen_requested_at || order.paid_at || order.created_at)}</strong></div>
+                  <div><span>Total</span><strong>{money(order.total_myr)}</strong></div>
+                  <div><span>Reference</span><strong>{order.payment_reference || '-'}</strong></div>
+                </div>
+
+                <section className={kitchenStyles.detailsPanel}>
+                  <h3>Order Details</h3>
+                  <div className={kitchenStyles.itemList}>
+                    {lines.length ? lines.map((line) => (
+                      <div key={line.id} className={kitchenStyles.itemRow}>
+                        <span className={kitchenStyles.quantity}>{line.qty}</span>
+                        <div><strong>{line.name}</strong>{line.options ? <small>{line.options}</small> : null}</div>
+                      </div>
+                    )) : <div className={kitchenStyles.noItems}>No order items recorded.</div>}
+                  </div>
+                </section>
+
+                <section className={`${kitchenStyles.requestPanel} ${requests.length ? kitchenStyles.hasRequest : ''}`}>
+                  <h3>Requests</h3>
+                  {requests.length ? requests.map((request) => (
+                    <div key={request.id}><strong>{request.item}:</strong> {request.note}</div>
+                  )) : <p>No special requests</p>}
+                </section>
+
+                {(isPending || isProgress) ? (
+                  <div className={kitchenStyles.timerStrip}>
+                    <span>{isPending ? 'Acceptance timer' : 'Preparation timer'}</span>
+                    <strong>{isPending ? countdownText(acceptRemaining) : readyDeadline(order) ? countdownText(readyRemaining) : `${order.kitchen_ready_minutes || '-'} min`}</strong>
+                  </div>
+                ) : null}
+
+                {order.refund_required ? <div className={kitchenStyles.refundBox}>Refund follow-up: {order.refund_reason || 'This paid order was rejected or timed out.'}</div> : null}
+
+                <div className={kitchenStyles.touchActions}>
+                  {isPending ? (
+                    <>
+                      <div className={kitchenStyles.acceptGroup}>
+                        <span>Accept and set preparation target</span>
+                        <div>{[15, 30, 45].map((minutes) => <button key={minutes} type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'ACCEPT', minutes)}>{minutes} min</button>)}</div>
+                      </div>
+                      <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REJECT')} className={kitchenStyles.rejectButton}>Reject Order</button>
+                    </>
+                  ) : null}
+                  {isProgress ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} className={kitchenStyles.completeButton}>Mark Complete</button> : null}
+                  <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REPRINT')} className={kitchenStyles.reprintButton}>Reprint Order</button>
+                  {(fnbStage === 'COMPLETE' || isException) && canDeleteHistory ? <button type="button" disabled={!!busyId} onClick={() => deleteHistoryOrder(order)} className={kitchenStyles.deleteButton}>Delete History</button> : null}
+                </div>
+              </article>
+            );
+          }) : <div className={kitchenStyles.emptyState}>{search ? 'No orders match your search.' : `No ${stages.find((stage) => stage.id === fnbStage)?.label.toLowerCase()} orders.`}</div>}
+        </section>
       </main>
     );
   }

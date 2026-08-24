@@ -1,0 +1,342 @@
+.page {
+  min-height: 100vh;
+  padding: clamp(14px, 2vw, 28px);
+  color: #102039;
+  background: linear-gradient(180deg, #edf3f8 0%, #f7f9fb 55%, #eef3f7 100%);
+}
+
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: clamp(18px, 2.4vw, 28px);
+  border: 1px solid #cbd8e6;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #0b1f3a 0%, #153c66 100%);
+  color: #fff;
+  box-shadow: 0 18px 42px rgba(15, 39, 68, 0.16);
+}
+
+.hero h1 {
+  margin: 3px 0 6px;
+  font-size: clamp(34px, 4vw, 54px);
+  line-height: 1;
+}
+
+.hero p {
+  max-width: 720px;
+  margin: 0;
+  color: #dce9f7;
+  font-size: clamp(15px, 1.4vw, 19px);
+  font-weight: 700;
+}
+
+.eyebrow {
+  color: #3b82f6;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.hero .eyebrow { color: #9fceff; }
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.headerButton,
+.alarmOn {
+  min-width: 120px;
+  min-height: 56px;
+  padding: 0 20px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+  text-decoration: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+.alarmOn {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #087443;
+}
+
+.errorBox,
+.successBox {
+  margin-top: 14px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.errorBox { border: 1px solid #fca5a5; background: #fff1f2; color: #b91c1c; }
+.successBox { border: 1px solid #86efac; background: #f0fdf4; color: #087443; }
+
+.stageBar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.stageButton {
+  min-height: 88px;
+  padding: 12px 16px;
+  border: 2px solid #d7e0ea;
+  border-radius: 18px;
+  background: #fff;
+  color: #31445d;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  touch-action: manipulation;
+  box-shadow: 0 8px 20px rgba(20, 43, 72, .05);
+}
+
+.stageButton strong,
+.stageButton small { display: block; }
+.stageButton strong { font-size: clamp(15px, 1.45vw, 19px); line-height: 1.15; }
+.stageButton small { margin-top: 5px; color: #718096; font-size: 12px; font-weight: 800; }
+
+.stageCount {
+  min-width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  background: #edf3fa;
+  color: #244466;
+  font-size: 24px;
+  font-weight: 950;
+  display: grid;
+  place-items: center;
+}
+
+.stageButtonActive {
+  border-color: #2365d8;
+  background: #eaf2ff;
+  color: #133f83;
+  box-shadow: 0 12px 28px rgba(37, 99, 235, .16);
+}
+
+.stageButtonActive .stageCount { background: #2463d4; color: #fff; }
+.stageButtonException.stageButtonActive { border-color: #dc4545; background: #fff1f1; color: #9f1d1d; }
+.stageButtonException.stageButtonActive .stageCount { background: #cf3030; }
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(190px, auto) minmax(280px, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+  margin-bottom: 15px;
+  padding: 14px 16px;
+  border: 1px solid #d7e0ea;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.toolbar h2 { margin: 3px 0 0; font-size: 25px; }
+.searchBox span { display: block; margin-bottom: 6px; color: #50647c; font-size: 12px; font-weight: 900; text-transform: uppercase; }
+.searchBox input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid #bfcddd;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #102039;
+  font-size: 17px;
+  font-weight: 700;
+}
+.updatedAt { padding-bottom: 17px; color: #64748b; font-size: 13px; font-weight: 800; white-space: nowrap; }
+
+.orderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.orderCard {
+  overflow: hidden;
+  border: 2px solid #cfdbe8;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 16px 38px rgba(15, 39, 68, .09);
+}
+
+.pendingCard { border-color: #f59e0b; box-shadow: 0 16px 38px rgba(245, 158, 11, .14); }
+.exceptionCard { border-color: #ef9a9a; background: #fffafa; }
+
+.orderTop {
+  min-height: 102px;
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, auto) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #f4f8fc;
+  border-bottom: 1px solid #dbe5ef;
+}
+
+.pendingCard .orderTop { background: linear-gradient(90deg, #fff7e7, #fffdf8); }
+.roomBlock span,
+.ageBlock span { display: block; color: #64748b; font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.roomBlock strong { display: block; margin-top: 2px; font-size: clamp(32px, 4vw, 48px); line-height: 1; }
+.ageBlock { padding-left: 16px; border-left: 1px solid #cbd5e1; }
+.ageBlock strong { display: block; margin-top: 4px; color: #b45309; font-size: clamp(24px, 3vw, 34px); line-height: 1; }
+
+.statusPill {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4e9e;
+  font-size: 13px;
+  font-weight: 950;
+  text-align: center;
+  white-space: nowrap;
+}
+.statusException { background: #fee2e2; color: #b42323; }
+
+.orderMeta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid #e1e8f0;
+}
+.orderMeta div { min-width: 0; padding: 13px 15px; border-right: 1px solid #e1e8f0; }
+.orderMeta div:last-child { border-right: 0; }
+.orderMeta span { display: block; color: #64748b; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.orderMeta strong { display: block; margin-top: 4px; font-size: 15px; overflow-wrap: anywhere; }
+
+.detailsPanel,
+.requestPanel { margin: 14px 16px; }
+.detailsPanel h3,
+.requestPanel h3 { margin: 0 0 9px; font-size: 16px; }
+.itemList { overflow: hidden; border: 1px solid #d9e3ed; border-radius: 15px; }
+.itemRow { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 12px; border-bottom: 1px solid #e4ebf2; }
+.itemRow:last-child { border-bottom: 0; }
+.quantity { width: 38px; height: 38px; border-radius: 11px; background: #173e6c; color: #fff; font-size: 19px; font-weight: 950; display: grid; place-items: center; flex: 0 0 auto; }
+.itemRow strong { display: block; font-size: 18px; }
+.itemRow small { display: block; margin-top: 3px; color: #566b82; font-size: 13px; font-weight: 800; }
+.noItems { padding: 18px; color: #64748b; font-weight: 800; }
+
+.requestPanel {
+  min-height: 74px;
+  padding: 13px 15px;
+  border: 1px solid #dce5ed;
+  border-radius: 15px;
+  background: #f8fafc;
+}
+.requestPanel p { margin: 0; color: #7b8a9b; font-weight: 750; }
+.requestPanel div { margin-top: 5px; font-size: 16px; line-height: 1.4; }
+.hasRequest { border: 2px solid #f4b942; background: #fff8e8; color: #7b3c00; }
+
+.timerStrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 14px 16px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  background: #102f54;
+  color: #fff;
+}
+.timerStrip span { font-size: 13px; font-weight: 850; text-transform: uppercase; }
+.timerStrip strong { color: #ffd166; font-size: 25px; }
+.refundBox { margin: 14px 16px; padding: 13px 15px; border: 1px solid #fca5a5; border-radius: 14px; background: #fff1f2; color: #a51d2d; font-weight: 900; }
+
+.touchActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 15px 16px 17px;
+  border-top: 1px solid #dce5ed;
+  background: #f8fafc;
+}
+.touchActions button {
+  min-height: 58px;
+  padding: 0 22px;
+  border-radius: 15px;
+  font-size: 16px;
+  font-weight: 950;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.touchActions button:disabled { opacity: .55; cursor: wait; }
+.acceptGroup { flex: 1 1 360px; }
+.acceptGroup > span { display: block; margin: 0 0 7px 2px; color: #53677e; font-size: 12px; font-weight: 900; text-transform: uppercase; }
+.acceptGroup > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.acceptGroup button { border: 0; background: #2365d8; color: #fff; }
+.completeButton { flex: 1 1 260px; border: 0; background: #078448; color: #fff; }
+.rejectButton { border: 1px solid #ef8b8b; background: #fff; color: #bd2525; }
+.reprintButton { border: 1px solid #aebdcd; background: #fff; color: #243b55; }
+.deleteButton { border: 1px solid #ef8b8b; background: #fff1f2; color: #bd2525; }
+
+.emptyState {
+  grid-column: 1 / -1;
+  min-height: 220px;
+  border: 2px dashed #c7d4e2;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .72);
+  color: #687b90;
+  font-size: 19px;
+  font-weight: 850;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  .stageBar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .toolbar { grid-template-columns: 1fr; align-items: stretch; }
+  .updatedAt { padding: 0; }
+  .orderMeta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .orderMeta div:nth-child(2) { border-right: 0; }
+  .orderMeta div:nth-child(-n+2) { border-bottom: 1px solid #e1e8f0; }
+}
+
+@media (max-width: 640px) {
+  .page { padding: 10px; }
+  .hero { border-radius: 18px; }
+  .headerActions { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .headerButton,
+  .alarmOn { min-width: 0; padding: 0 8px; font-size: 14px; }
+  .stageBar { gap: 8px; }
+  .stageButton { min-height: 82px; padding: 9px; gap: 8px; }
+  .stageCount { min-width: 40px; height: 40px; font-size: 19px; }
+  .orderTop { grid-template-columns: 1fr 1fr; }
+  .statusPill { grid-column: 1 / -1; justify-self: stretch; }
+  .orderMeta { grid-template-columns: 1fr 1fr; }
+  .touchActions { display: grid; grid-template-columns: 1fr; }
+  .acceptGroup { min-width: 0; }
+  .rejectButton,
+  .reprintButton,
+  .deleteButton,
+  .completeButton { width: 100%; }
+}
+
+@media (pointer: coarse) {
+  .stageButton,
+  .headerButton,
+  .alarmOn,
+  .touchActions button { -webkit-tap-highlight-color: transparent; }
+  .stageButton:active,
+  .headerButton:active,
+  .alarmOn:active,
+  .touchActions button:active { transform: scale(.985); }
+}

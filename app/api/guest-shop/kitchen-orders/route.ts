@@ -140,7 +140,8 @@ export async function GET(req: NextRequest) {
       .in('status', ['PAID', 'FULFILLED'])
       .order('created_at', { ascending: false });
 
-    if (status === 'PENDING') query = query.eq('kitchen_status', 'PENDING_ACCEPTANCE');
+    if (status === 'ALL') query = query.in('kitchen_status', ['PENDING_ACCEPTANCE', 'ACCEPTED', 'IN_PROGRESS', 'DELIVERED', 'REJECTED', 'AUTO_REJECTED']);
+    else if (status === 'PENDING') query = query.eq('kitchen_status', 'PENDING_ACCEPTANCE');
     else if (status === 'HISTORY') query = query.in('kitchen_status', ['DELIVERED', 'REJECTED', 'AUTO_REJECTED']);
     else query = query.in('kitchen_status', ['PENDING_ACCEPTANCE', 'ACCEPTED', 'IN_PROGRESS']);
 
