@@ -70,8 +70,8 @@ export async function POST(
       return jsonNoCache({ ok: false, error: 'Updated task was not returned' }, 500);
     }
 
-    await broadcastTaskChange(taskId, 'UPDATE');
     const pushResult = await sendTaskPushNotifications(task);
+    await broadcastTaskChange(taskId, 'UPDATE');
 
     return jsonNoCache({
       ok: true,

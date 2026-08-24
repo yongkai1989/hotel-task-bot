@@ -36,9 +36,15 @@ code. Redeploy after saving the variables.
 - Urgent MT: the existing MT alert recipients.
 - Customer-waiting MT: the same existing MT alert recipients.
 - Customer-waiting follow-up: sends another alert for the new 10-minute cycle.
-- Normal tasks do not create Web Push alerts.
-- Manager Room Check tasks are unaffected unless explicitly created as a timed
-  Urgent or Customer-waiting task.
+- Every new HK or MT task creates a standard Web Push notification.
+- Normal tasks do not create the red in-app acknowledgement popup.
+- Manager Room Check tasks create standard Web Push notifications but remain
+  excluded from Telegram.
+- MT notifications also include the user whose saved profile name is Maintenance.
+- The 9:00 AM Windows task sends overdue Preventive Maintenance Web Push to
+  Izzuddin and Yazid and a reminder to the MT Tasks Telegram chat when required.
+- The 5:00 PM Windows task sends one Chambermaid unsaved-room Web Push to Izni,
+  Sofea, Sulaiman, and Prem only when required.
 
 5. Cost and behavior
 

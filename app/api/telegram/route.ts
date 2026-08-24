@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { sendTaskPushNotifications } from '../../../lib/taskPush';
 
 type Dept = 'HK' | 'MT' | 'FO';
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
@@ -351,6 +352,11 @@ async function createTask(params: {
       task_id: task.id,
       message_type: 'TASK_CARD'
     });
+  }
+
+  if (task.department === 'HK' || task.department === 'MT') {
+    const pushResult = await sendTaskPushNotifications(task);
+    if (pushResult.warning) console.warn(pushResult.warning);
   }
 
   return task;

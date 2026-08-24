@@ -71,13 +71,24 @@ How to keep it running
 Daily Telegram operations report:
 This does not use Vercel Cron and does not poll. The existing printer-bridge PC makes
 one secure request each morning at 9:00 AM using the existing PRINTER_BRIDGE_KEY.
+The same 9:00 AM run now also checks overdue Preventive Maintenance. When anything
+is overdue, Izzuddin and Yazid receive Web Push and the MT Tasks Telegram chat gets
+the overdue task list.
+
+Chambermaid save reminder:
+The installer also creates a separate 5:00 PM Windows task. It checks today's
+CHECKOUT and STAYOVER rooms once. If any required Chambermaid entries remain
+unsaved, Izni, Sofea, Sulaiman, and Prem receive one Web Push reminder. If all
+rooms are saved, nothing is sent. It does not poll and does not use Vercel Cron.
 
 One-time setup on the always-on printer-bridge PC:
 1. Confirm config.json contains the same appUrl and bridgeKey used by the live bridge.
 2. Right-click install-daily-operations-report-task.ps1 and choose "Run with PowerShell".
 3. The installer creates a Windows Task Scheduler task named
    "Hallmark Daily Operations Telegram Report" for 9:00 AM every day.
-4. If the PC is off at 9:00 AM, Windows runs it as soon as possible after startup.
+4. It also creates "Hallmark Chambermaid Save Reminder" for 5:00 PM every day.
+5. If the PC is off at either scheduled time, Windows runs it as soon as possible
+   after startup. The server keeps a daily audit so the same reminder is not sent twice.
 
 To test the report once without changing the schedule, double-click
 send-daily-operations-report.bat. A report already sent for yesterday will not be

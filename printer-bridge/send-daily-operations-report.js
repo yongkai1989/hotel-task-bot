@@ -39,29 +39,53 @@ async function main() {
     );
   }
 
-  const response = await fetch(
-    `${appOrigin(config.appUrl)}/api/cron/daily-operations-telegram`,
-    {
+  async function request(pathname) {
+    const response = await fetch(`${appOrigin(config.appUrl)}${pathname}`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${config.bridgeKey}`,
         'x-printer-bridge-key': config.bridgeKey,
       },
       cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.error || `Request failed: ${response.status}`);
     }
-  );
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.error || `Report request failed: ${response.status}`);
+    return payload;
   }
 
-  if (payload.alreadySent) {
-    console.log(`Daily operations report for ${payload.reportDate} was already sent.`);
-    return;
+  const [reportResult, maintenanceResult] = await Promise.allSettled([
+    request('/api/daily-operations-telegram'),
+    request('/api/operational-reminders?kind=preventive-maintenance'),
+  ]);
+
+  if (reportResult.status === 'fulfilled') {
+    const report = reportResult.value;
+    console.log(
+      report.alreadySent
+        ? `Daily operations report for ${report.reportDate} was already sent.`
+        : `Daily operations report for ${report.reportDate} sent successfully.`
+    );
+  } else {
+    console.error(`Daily operations report failed: ${reportResult.reason?.message || reportResult.reason}`);
   }
 
-  console.log(`Daily operations report for ${payload.reportDate} sent successfully.`);
+  if (maintenanceResult.status === 'fulfilled') {
+    const maintenance = maintenanceResult.value;
+    console.log(
+      maintenance.alreadySent
+        ? 'Preventive Maintenance reminder was already processed today.'
+        : maintenance.findingCount
+          ? `Preventive Maintenance reminder sent for ${maintenance.findingCount} overdue task(s).`
+          : 'No overdue Preventive Maintenance reminder was needed.'
+    );
+  } else {
+    console.error(`Preventive Maintenance reminder failed: ${maintenanceResult.reason?.message || maintenanceResult.reason}`);
+  }
+
+  const failures = [reportResult, maintenanceResult].filter((result) => result.status === 'rejected');
+  if (failures.length) throw new Error(`${failures.length} scheduled 9:00 AM request(s) failed.`);
 }
 
 main().catch((error) => {

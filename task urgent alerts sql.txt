@@ -73,20 +73,26 @@ begin
       coalesce(nullif(trim(profile.name), ''), profile.email),
       lower(trim(profile.email))
     from public.user_profiles profile
-    where lower(trim(profile.email)) = any (
-      case upper(trim(new.department))
-        when 'HK' then array[
+    where (
+      lower(trim(profile.email)) = any (
+        case upper(trim(new.department))
+          when 'HK' then array[
           'hksup1@hotelhallmark.com',
           'hksup2@hotelhallmark.com',
           'hksup3@hotelhallmark.com',
           'manager@hotelhallmark.com'
-        ]::text[]
-        when 'MT' then array[
+          ]::text[]
+          when 'MT' then array[
           'mtsup1@hotelhallmark.com',
           'mtsup2@hotelhallmark.com'
-        ]::text[]
-        else array[]::text[]
-      end
+          ]::text[]
+          else array[]::text[]
+        end
+      )
+      or (
+        upper(trim(new.department)) = 'MT'
+        and lower(trim(profile.name)) = 'maintenance'
+      )
     )
     on conflict (task_id, alert_cycle, user_id) do nothing;
   end if;
@@ -119,20 +125,26 @@ select
   lower(trim(profile.email))
 from public.tasks task
 join public.user_profiles profile
-  on lower(trim(profile.email)) = any (
-    case upper(trim(task.department))
-      when 'HK' then array[
-        'hksup1@hotelhallmark.com',
-        'hksup2@hotelhallmark.com',
-        'hksup3@hotelhallmark.com',
-        'manager@hotelhallmark.com'
-      ]::text[]
-      when 'MT' then array[
-        'mtsup1@hotelhallmark.com',
-        'mtsup2@hotelhallmark.com'
-      ]::text[]
-      else array[]::text[]
-    end
+  on (
+    lower(trim(profile.email)) = any (
+      case upper(trim(task.department))
+        when 'HK' then array[
+          'hksup1@hotelhallmark.com',
+          'hksup2@hotelhallmark.com',
+          'hksup3@hotelhallmark.com',
+          'manager@hotelhallmark.com'
+        ]::text[]
+        when 'MT' then array[
+          'mtsup1@hotelhallmark.com',
+          'mtsup2@hotelhallmark.com'
+        ]::text[]
+        else array[]::text[]
+      end
+    )
+    or (
+      upper(trim(task.department)) = 'MT'
+      and lower(trim(profile.name)) = 'maintenance'
+    )
   )
 where task.status = 'OPEN'
   and (task.customer_waiting = true or task.urgent = true)

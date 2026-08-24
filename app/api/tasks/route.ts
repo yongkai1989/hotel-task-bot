@@ -913,12 +913,15 @@ export async function POST(req: NextRequest) {
         ...task,
         task_images: finalImagesError ? [] : taskImages || [],
       });
-      await broadcastTaskChange(task.id, 'INSERT');
 
-      if (task.urgent === true || task.customer_waiting === true) {
+      if (task.department === 'HK' || task.department === 'MT') {
         const pushResult = await sendTaskPushNotifications(task);
         if (pushResult.warning) warnings.push(pushResult.warning);
       }
+
+      // Timed recipient rows are guaranteed by the push helper before the
+      // broadcast, so every selected user can load the red popup immediately.
+      await broadcastTaskChange(task.id, 'INSERT');
 
       if (telegramWarning) {
         warnings.push(telegramWarning);

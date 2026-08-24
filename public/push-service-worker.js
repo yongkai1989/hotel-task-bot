@@ -10,14 +10,15 @@ self.addEventListener('push', (event) => {
 
   const taskId = String(payload.taskId || '').trim();
   const isUrgent = payload.kind === 'URGENT';
+  const isTimed = isUrgent || payload.kind === 'CUSTOMER_WAITING';
   const title = String(
-    payload.title || (isUrgent ? 'URGENT TASK' : 'CUSTOMER WAITING')
+    payload.title || (isUrgent ? 'URGENT TASK' : 'Hotel task update')
   );
   const options = {
     body: String(payload.body || 'A hotel task requires your attention.'),
     tag: taskId ? `hotel-task-${taskId}` : 'hotel-task-alert',
     renotify: true,
-    requireInteraction: true,
+    requireInteraction: isTimed,
     vibrate: isUrgent
       ? [300, 120, 300, 120, 600]
       : [220, 100, 220],
