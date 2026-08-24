@@ -1041,7 +1041,7 @@ export default function BankInCashPage() {
         type: 'Daily Cash',
         title: entry?.person_name || 'FO cash declaration',
         detail: entry
-          ? `${formatDate(entry.service_date)} Â· ${entry.shift_title}`
+          ? `${formatDate(entry.service_date)} | ${entry.shift_title}`
           : fallbackReference,
       };
     }
@@ -1052,7 +1052,7 @@ export default function BankInCashPage() {
         type: 'Manual Cash',
         title: entry?.description || 'Missed FO declaration',
         detail: entry
-          ? `${formatDate(entry.service_date)} Â· Added by ${entry.created_by_name}`
+          ? `${formatDate(entry.service_date)} | Added by ${entry.created_by_name}`
           : fallbackReference,
       };
     }
@@ -1064,9 +1064,9 @@ export default function BankInCashPage() {
         type: 'Excess Cash',
         title: entry?.person_name || manualEntry?.description || 'FO excess cash',
         detail: entry
-          ? `${formatDate(entry.service_date)} Â· ${entry.shift_title}`
+          ? `${formatDate(entry.service_date)} | ${entry.shift_title}`
           : manualEntry
-            ? `${formatDate(manualEntry.service_date)} Â· Manually added by ${manualEntry.created_by_name}`
+            ? `${formatDate(manualEntry.service_date)} | Manually added by ${manualEntry.created_by_name}`
             : fallbackReference,
       };
     }
@@ -1186,9 +1186,9 @@ export default function BankInCashPage() {
                       return (
                         <span className="shift-line" key={row.id}>
                           <span>
-                            <b>{row.title}</b> Â· {row.person_name} Â· {money.format(row.amount)}
-                            {row.sourceType === 'MANUAL_CASH' ? ' Â· Added manually' : ''}
-                            {row.amount <= 0 ? ' Â· No cash declared' : ''}
+                            <b>{row.title}</b> | {row.person_name} | {money.format(row.amount)}
+                            {row.sourceType === 'MANUAL_CASH' ? ' | Added manually' : ''}
+                            {row.amount <= 0 ? ' | No cash declared' : ''}
                           </span>
                           {row.cashEntry && !row.bank_in_id ? <button type="button" className="amend-button" onClick={() => openAmendment(row.cashEntry!)}>Amend</button> : null}
                           {isSuperuser ? (
@@ -1226,8 +1226,8 @@ export default function BankInCashPage() {
                   <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!withdrawal && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
                   <div className="excess-entry-copy">
                     <strong>{row.person_name}</strong>
-                    <span>{formatDate(row.service_date)} Â· {row.shift_title}</span>
-                    {withdrawal ? <span className="withdrawal-detail">Folio {withdrawal.folio_number} Â· {withdrawal.reason_for_excess} Â· Error by {withdrawal.error_staff_name}</span> : null}
+                    <span>{formatDate(row.service_date)} | {row.shift_title}</span>
+                    {withdrawal ? <span className="withdrawal-detail">Folio {withdrawal.folio_number} | {withdrawal.reason_for_excess} | Error by {withdrawal.error_staff_name}</span> : null}
                   </div>
                   <b>{money.format(Number(row.excess_amount))}</b>
                   <div className="excess-row-actions">
@@ -1244,7 +1244,7 @@ export default function BankInCashPage() {
                         Delete
                       </button>
                     ) : null}
-                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} Â· {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
+                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} | {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
                   </div>
                 </article>
               );
@@ -1278,12 +1278,12 @@ export default function BankInCashPage() {
               const manualSourceCount = recordSources.filter((source) => source.source_type === 'MANUAL_CASH').length;
               return (
                 <article className={`history-row ${record.reversed_at ? 'reversed' : ''}`} key={record.id}>
-                  <div className="history-main"><span className="mode-pill">{sourceModeLabel(record.source_mode)}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} Â· {record.created_by_name}</span></div>
+                  <div className="history-main"><span className="mode-pill">{sourceModeLabel(record.source_mode)}</span><strong>{money.format(Number(record.banked_amount))}</strong><span>{formatDate(record.bank_in_date)} | {record.created_by_name}</span></div>
                   <div className="history-detail"><span>Selected {money.format(Number(record.selected_total))}</span><span>Balance not banked in {money.format(Number(record.balance_to_small_change))}</span>{manualSourceCount ? <span>{manualSourceCount} manual cash source(s)</span> : null}<span>{formatDateTime(record.created_at)}</span></div>
                   <div className="history-actions">
                     {paths.map((path, index) => <button type="button" className="receipt-button" onClick={() => void viewReceipt(path)} key={path}>Receipt {index + 1}</button>)}
                     {isSuperuser && !record.reversed_at ? <button type="button" className="danger-button" onClick={() => setReverseTarget(record)}>Reverse</button> : null}
-                    {record.reversed_at ? <span className="reversed-label">Reversed Â· {record.reversal_reason}</span> : null}
+                    {record.reversed_at ? <span className="reversed-label">Reversed | {record.reversal_reason}</span> : null}
                     {isSuperuser && record.reversed_at ? <button type="button" className="danger-solid" onClick={() => setDeleteTarget(record)}>Delete</button> : null}
                   </div>
                   <section className="history-breakdown" aria-label={`Transactions included in bank-in ${record.id.slice(0, 8).toUpperCase()}`}>
@@ -1322,10 +1322,10 @@ export default function BankInCashPage() {
                   const entry = cashEntries.find((cashEntry) => cashEntry.id === amendment.cash_entry_id);
                   return (
                     <article className="amendment-row" key={amendment.id}>
-                      <div><strong>{entry?.person_name || 'FO cash entry'}</strong><span>{entry ? `${formatDate(entry.service_date)} Â· ${entry.shift_title}` : amendment.cash_entry_id.slice(0, 8).toUpperCase()}</span></div>
+                      <div><strong>{entry?.person_name || 'FO cash entry'}</strong><span>{entry ? `${formatDate(entry.service_date)} | ${entry.shift_title}` : amendment.cash_entry_id.slice(0, 8).toUpperCase()}</span></div>
                       <div><span>Previous</span><b>{money.format(Number(amendment.previous_amount))}</b></div>
                       <div><span>New</span><b>{money.format(Number(amendment.new_amount))}</b></div>
-                      <div><strong>{amendment.reason}</strong><span>{amendment.amended_by_name} ({amendment.amended_by_email}) Â· {formatDateTime(amendment.amended_at)}</span></div>
+                      <div><strong>{amendment.reason}</strong><span>{amendment.amended_by_name} ({amendment.amended_by_email}) | {formatDateTime(amendment.amended_at)}</span></div>
                     </article>
                   );
                 })}
@@ -1344,14 +1344,14 @@ export default function BankInCashPage() {
                     : Number(snapshot.cash_amount || 0) + Number(snapshot.excess_amount || 0);
                   return (
                     <article className={`deletion-row cash-entry-deletion ${deleted.restored_at ? 'restored' : ''}`} key={deleted.id}>
-                      <div><strong>{entryName} Â· {money.format(entryAmount)}</strong><span>{formatDate(deleted.service_date)} Â· {deleted.source_type === 'MANUAL_CASH' ? 'Manual Cash' : snapshot.shift_title || 'Shift Cash'}</span></div>
-                      <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) Â· {formatDateTime(deleted.deleted_at)}</span></div>
+                      <div><strong>{entryName} | {money.format(entryAmount)}</strong><span>{formatDate(deleted.service_date)} | {deleted.source_type === 'MANUAL_CASH' ? 'Manual Cash' : snapshot.shift_title || 'Shift Cash'}</span></div>
+                      <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) | {formatDateTime(deleted.deleted_at)}</span></div>
                       <div className="deletion-audit-actions">
                         {deleted.restored_at ? (
                           <>
                             <b>Deletion reversed</b>
                             <small>{deleted.restoration_reason}</small>
-                            <small>{deleted.restored_by_name} ({deleted.restored_by_email}) Â· {formatDateTime(deleted.restored_at)}</small>
+                            <small>{deleted.restored_by_name} ({deleted.restored_by_email}) | {formatDateTime(deleted.restored_at)}</small>
                           </>
                         ) : isSuperuser ? (
                           <button type="button" className="restore-button" onClick={() => { setRestoreEntryReason(''); setRestoreEntryTarget(deleted); }}>Reverse Deletion</button>
@@ -1369,8 +1369,8 @@ export default function BankInCashPage() {
                 <div className="section-heading"><div><span className="danger-kicker">DELETION AUDIT</span><h2>Deleted bank-in records</h2></div><span>{filteredDeletedBankIns.length} record(s)</span></div>
                 {filteredDeletedBankIns.map((deleted) => (
                   <article className="deletion-row" key={deleted.id}>
-                    <div><strong>{money.format(Number(deleted.bank_in_snapshot?.banked_amount || 0))}</strong><span>{formatDate(deleted.bank_in_date)} Â· Ref {deleted.bank_in_id.slice(0, 8).toUpperCase()}</span></div>
-                    <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) Â· {formatDateTime(deleted.deleted_at)}</span></div>
+                    <div><strong>{money.format(Number(deleted.bank_in_snapshot?.banked_amount || 0))}</strong><span>{formatDate(deleted.bank_in_date)} | Ref {deleted.bank_in_id.slice(0, 8).toUpperCase()}</span></div>
+                    <div><strong>{deleted.deletion_reason}</strong><span>{deleted.deleted_by_name} ({deleted.deleted_by_email}) | {formatDateTime(deleted.deleted_at)}</span></div>
                   </article>
                 ))}
               </section>
@@ -1453,7 +1453,7 @@ export default function BankInCashPage() {
             <p>This removes the entry from cash totals and bank-in selection. A complete deletion audit will be retained for 12 months.</p>
             <div className="delete-entry-summary">
               <strong>{deleteEntryTarget.title}</strong>
-              <span>{formatDate(deleteEntryTarget.service_date)} Â· {deleteEntryTarget.person_name}</span>
+              <span>{formatDate(deleteEntryTarget.service_date)} | {deleteEntryTarget.person_name}</span>
               <b>{money.format(deleteEntryTarget.amount)}</b>
             </div>
             <label>Reason for deletion<textarea value={deleteEntryReason} onChange={(event) => setDeleteEntryReason(event.target.value)} placeholder="Explain why this cash entry must be deleted" /></label>
@@ -1521,7 +1521,7 @@ export default function BankInCashPage() {
                 availableExcessRows.length ? availableExcessRows.map((row) => (
                   <label className={`source-picker-row ${selectedExcessIds.includes(row.id) ? 'selected' : ''}`} key={row.id}>
                     <input type="checkbox" checked={selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
-                    <span><strong>{row.person_name}</strong><small>{formatDate(row.service_date)} Â· {row.shift_title}</small></span>
+                    <span><strong>{row.person_name}</strong><small>{formatDate(row.service_date)} | {row.shift_title}</small></span>
                     <b>{money.format(Number(row.excess_amount))}</b>
                   </label>
                 )) : <div className="picker-empty">No available Excess Cash transactions for this month.</div>
@@ -1579,7 +1579,7 @@ export default function BankInCashPage() {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="amend-title">
             <span className="eyebrow">AUDITED CORRECTION</span>
             <h2 id="amend-title">Amend FO cash amount</h2>
-            <p>{formatDate(amendTarget.service_date)} Â· {amendTarget.shift_title} Â· {amendTarget.person_name}</p>
+            <p>{formatDate(amendTarget.service_date)} | {amendTarget.shift_title} | {amendTarget.person_name}</p>
             <div className="amend-comparison"><span>Previous<strong>{money.format(Number(amendTarget.cash_amount))}</strong></span><span>New<strong>{money.format(Number(amendAmount || 0))}</strong></span></div>
             <label>New amount (RM)<input inputMode="decimal" type="number" min="0" step="0.01" value={amendAmount} onChange={(event) => setAmendAmount(event.target.value)} /></label>
             <label>Reason for amendment<textarea value={amendReason} onChange={(event) => setAmendReason(event.target.value)} placeholder="Explain why the FO declaration is incorrect" /></label>
