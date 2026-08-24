@@ -736,7 +736,7 @@ export default function DashboardSidebar({
   const [frontOfficeOpen, setFrontOfficeOpen] = useState(false);
   const [fnbOpen, setFnbOpen] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
-  const [linksOpen, setLinksOpen] = useState(true);
+  const [linksOpen, setLinksOpen] = useState(false);
   const [timeGateTick, setTimeGateTick] = useState(Date.now());
 
   useEffect(() => {
