@@ -568,18 +568,20 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
         </nav>
 
         <section className={kitchenStyles.toolbar}>
-          <div>
-            <span className={kitchenStyles.eyebrow}>Current View</span>
-            <h2>{stages.find((stage) => stage.id === fnbStage)?.label}</h2>
+          <div className={kitchenStyles.currentView}>
+            <div>
+              <span className={kitchenStyles.eyebrow}>Current View</span>
+              <h2>{stages.find((stage) => stage.id === fnbStage)?.label}</h2>
+            </div>
+            <div className={kitchenStyles.updatedAt}>
+              <span>{lastUpdatedAt ? 'Last updated' : 'Live connection'}</span>
+              <strong>{lastUpdatedAt ? formatClock(lastUpdatedAt) : 'Connecting...'}</strong>
+            </div>
           </div>
           <label className={kitchenStyles.searchBox}>
             <span>Search orders</span>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Room, guest, item or payment reference" />
           </label>
-          <div className={kitchenStyles.updatedAt}>
-            <span>{lastUpdatedAt ? 'Last updated' : 'Live connection'}</span>
-            <strong>{lastUpdatedAt ? formatClock(lastUpdatedAt) : 'Connecting...'}</strong>
-          </div>
         </section>
 
         <section className={kitchenStyles.orderGrid}>
