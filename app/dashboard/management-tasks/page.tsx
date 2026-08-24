@@ -75,14 +75,27 @@ function formatDate(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString();
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'Asia/Kuala_Lumpur',
+  }).format(d);
 }
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kuala_Lumpur',
+  }).format(d);
 }
 
 function getTodayLocalDateString() {
@@ -1016,3 +1029,4 @@ const styles: Record<string, React.CSSProperties> = {
   checklistRoomStatus: { fontSize: '13px', fontWeight: 700, color: '#475569', marginTop: '6px' },
   checklistAudit: { marginTop: '8px', fontSize: '12px', color: '#64748b', lineHeight: 1.4 },
 };
+
