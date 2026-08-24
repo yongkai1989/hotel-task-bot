@@ -64,8 +64,10 @@ type AssignedManagementRun = {
     title: string;
     description?: string | null;
     start_date?: string | null;
+    assigned_user_id?: string | null;
     assigned_user_name?: string | null;
     assigned_user_email?: string | null;
+    is_active?: boolean;
   } | null;
 };
 
@@ -196,6 +198,15 @@ export default function DailyFormsPage() {
     [questions, selectedTemplateId]
   );
 
+  const matchingManagementRuns = useMemo(() => {
+    if (!selectedTemplate?.assigned_user_id) return [];
+
+    return assignedManagementRuns.filter((run) => {
+      const task = run.management_tasks;
+      return task?.is_active === true && task.assigned_user_id === selectedTemplate.assigned_user_id;
+    });
+  }, [assignedManagementRuns, selectedTemplate?.assigned_user_id]);
+
   const templateTitleMap = useMemo(() => {
     const map = new Map<string, string>();
     templates.forEach((template) => map.set(template.id, template.title));
@@ -298,12 +309,15 @@ export default function DailyFormsPage() {
               title,
               description,
               start_date,
+              assigned_user_id,
               assigned_user_name,
-              assigned_user_email
+              assigned_user_email,
+              is_active
             )
           `)
           .in('status', ['OPEN', 'OVERDUE'])
           .lte('run_start_date', today)
+          .eq('management_tasks.is_active', true)
           .order('due_date', { ascending: true }),
         isSuper ? fetchAssignmentUsers(supabase) : Promise.resolve([]),
       ]);
@@ -318,12 +332,14 @@ export default function DailyFormsPage() {
       setTemplates(nextTemplates);
       setQuestions(nextQuestions);
       setAssignedManagementRuns(
-        (managementRunRes.data || []).map((row: any) => ({
-          ...row,
-          management_tasks: Array.isArray(row.management_tasks)
-            ? row.management_tasks[0] || null
-            : row.management_tasks,
-        })) as AssignedManagementRun[]
+        (managementRunRes.data || [])
+          .map((row: any) => ({
+            ...row,
+            management_tasks: Array.isArray(row.management_tasks)
+              ? row.management_tasks[0] || null
+              : row.management_tasks,
+          }))
+          .filter((row: AssignedManagementRun) => row.management_tasks?.is_active === true) as AssignedManagementRun[]
       );
       setAssignmentUsers(assignableUsers);
 
@@ -846,7 +862,7 @@ export default function DailyFormsPage() {
           <div>
             <div style={styles.pageTitle}>Daily Forms</div>
             <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role}) · Assigned forms and management follow-up
+              {profile.name} ({profile.role}) · Assigned daily checklists
             </div>
           </div>
 
@@ -862,47 +878,6 @@ export default function DailyFormsPage() {
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
         {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
-
-        {!loading && assignedManagementRuns.length > 0 ? (
-          <section style={styles.managementPanel}>
-            <div style={styles.managementPanelHeader}>
-              <div>
-                <div style={styles.managementEyebrow}>MANAGEMENT TASKS</div>
-                <div style={styles.managementTitle}>Work requiring completion</div>
-                <div style={styles.managementSubtitle}>
-                  These tasks remain here from their start date until they are marked done.
-                </div>
-              </div>
-              <div style={styles.managementCount}>{assignedManagementRuns.length} open</div>
-            </div>
-            <div style={styles.managementTaskGrid}>
-              {assignedManagementRuns.map((run) => {
-                const task = run.management_tasks;
-                return (
-                  <div key={run.id} style={styles.managementTaskCard}>
-                    <div style={styles.managementTaskTop}>
-                      <div style={styles.managementTaskTitle}>{task?.title || 'Management task'}</div>
-                      <span style={{ ...styles.managementStatus, ...(run.status === 'OVERDUE' ? styles.managementStatusOverdue : {}) }}>
-                        {run.status}
-                      </span>
-                    </div>
-                    {task?.description ? <div style={styles.managementTaskDescription}>{task.description}</div> : null}
-                    <div style={styles.managementTaskMeta}>
-                      <span>Starts {formatDate(run.run_start_date)}</span>
-                      <span>Due {formatDate(run.due_date)}</span>
-                      {(isSuper || isFenny) && (task?.assigned_user_name || task?.assigned_user_email) ? (
-                        <span>Assigned to {task.assigned_user_name || task.assigned_user_email}</span>
-                      ) : null}
-                    </div>
-                    <Link href="/dashboard/management-tasks" style={styles.managementOpenBtn}>
-                      Open Management Task
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
 
         <div style={styles.modeRow}>
           <button
@@ -1016,6 +991,44 @@ export default function DailyFormsPage() {
                 </div>
               </div>
             </div>
+
+            {matchingManagementRuns.length > 0 ? (
+              <div style={styles.managementPanel}>
+                <div style={styles.managementPanelHeader}>
+                  <div>
+                    <div style={styles.managementEyebrow}>ASSIGNED MANAGEMENT WORK</div>
+                    <div style={styles.managementTitle}>Management task requiring completion</div>
+                    <div style={styles.managementSubtitle}>
+                      This work is assigned to the same person as this checklist and remains visible until completed.
+                    </div>
+                  </div>
+                  <div style={styles.managementCount}>{matchingManagementRuns.length} open</div>
+                </div>
+                <div style={styles.managementTaskGrid}>
+                  {matchingManagementRuns.map((run) => {
+                    const task = run.management_tasks;
+                    return (
+                      <div key={run.id} style={styles.managementTaskCard}>
+                        <div style={styles.managementTaskTop}>
+                          <div style={styles.managementTaskTitle}>{task?.title || 'Management task'}</div>
+                          <span style={{ ...styles.managementStatus, ...(run.status === 'OVERDUE' ? styles.managementStatusOverdue : {}) }}>
+                            {run.status}
+                          </span>
+                        </div>
+                        {task?.description ? <div style={styles.managementTaskDescription}>{task.description}</div> : null}
+                        <div style={styles.managementTaskMeta}>
+                          <span>Starts {formatDate(run.run_start_date)}</span>
+                          <span>Due {formatDate(run.due_date)}</span>
+                        </div>
+                        <Link href="/dashboard/management-tasks" style={styles.managementOpenBtn}>
+                          Open Management Task
+                        </Link>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             <div style={styles.questionList}>
               {selectedQuestions.map((question, index) => (
