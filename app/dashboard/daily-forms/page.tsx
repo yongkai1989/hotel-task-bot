@@ -1017,7 +1017,7 @@ export default function DailyFormsPage() {
                         </div>
                         {task?.description ? <div style={styles.managementTaskDescription}>{task.description}</div> : null}
                         <div style={styles.managementTaskMeta}>
-                          <span>Starts {formatDate(run.run_start_date)}</span>
+                          <span>Task Start {formatDate(task?.start_date)}</span>
                           <span>Due {formatDate(run.due_date)}</span>
                         </div>
                         <Link href="/dashboard/management-tasks" style={styles.managementOpenBtn}>

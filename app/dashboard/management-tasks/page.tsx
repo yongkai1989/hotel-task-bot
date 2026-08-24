@@ -728,10 +728,6 @@ export default function ManagementTasksPage() {
             <div style={styles.metaValue}>{formatDate(card.task.start_date)}</div>
           </div>
           <div style={styles.metaItem}>
-            <div style={styles.metaLabel}>Run Start</div>
-            <div style={styles.metaValue}>{formatDate(card.run.run_start_date)}</div>
-          </div>
-          <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Due</div>
             <div style={styles.metaValue}>{formatDate(card.run.due_date)}</div>
           </div>
@@ -990,7 +986,7 @@ export default function ManagementTasksPage() {
               <div>
                 <div style={styles.modalTitle}>{selectedChecklistCard?.task.title || 'Room Checklist'}</div>
                 <div style={styles.checklistHeaderMeta}>
-                  {selectedChecklistCard ? `Run Start: ${formatDate(selectedChecklistCard.run.run_start_date)} · Due: ${formatDate(selectedChecklistCard.run.due_date)}` : ''}
+                  {selectedChecklistCard ? `Task Start: ${formatDate(selectedChecklistCard.task.start_date)} · Due: ${formatDate(selectedChecklistCard.run.due_date)}` : ''}
                 </div>
               </div>
               <button type="button" onClick={closeChecklistModal} style={styles.closeBtn} disabled={!!checklistSavingRoomId}>×</button>
