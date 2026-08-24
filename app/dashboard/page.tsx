@@ -1802,7 +1802,7 @@ export default function DashboardPage() {
 
       const json = await fetchJson('/api/tasks', {
         method: 'GET',
-      });
+      }, 30000);
 
       const nextTasks: Task[] = (json.tasks || []).map((task: any) => ({
         ...task,
@@ -6446,4 +6446,5 @@ const styles: Record<string, React.CSSProperties> = {
 
   },
 };
+
 

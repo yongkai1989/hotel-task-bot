@@ -563,7 +563,10 @@ async function sendCustomerWaitingReminders() {
 
 export async function GET() {
   try {
-    await sendCustomerWaitingRemindersWithBudget();
+    // This maintenance check is independent of the task list read. Starting it
+    // here lets its short time budget overlap the database work below instead
+    // of adding up to 1.2 seconds to every dashboard refresh.
+    const reminderPromise = sendCustomerWaitingRemindersWithBudget();
 
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
@@ -605,10 +608,8 @@ export async function GET() {
     const reconciledTasks = await reconcileManagerRoomCheckTasks(tasks || []);
     const taskIds = reconciledTasks.map((t) => t.id);
 
-    const imageMap = new Map<string, any[]>();
-
-    if (taskIds.length > 0) {
-      const { data: taskImages, error: imagesError } = await supabaseAdmin
+    const taskImagesPromise = taskIds.length > 0
+      ? supabaseAdmin
         .from('task_images')
         .select(
           `
@@ -619,32 +620,42 @@ export async function GET() {
         `
         )
         .in('task_id', taskIds)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [], error: null });
 
-      if (imagesError) {
-        return jsonNoCache({ ok: false, error: imagesError.message }, 500);
-      }
+    // Media and acknowledgement history are independent reads. Loading them
+    // together avoids another full network round trip on the free database
+    // tier while preserving the exact response shape used by the dashboard.
+    const [taskImagesResult, tasksWithAcknowledgements] = await Promise.all([
+      taskImagesPromise,
+      attachTaskAlertAcknowledgements(reconciledTasks),
+    ]);
 
-      for (const img of taskImages || []) {
-        const key = String(img.task_id);
-        const existing = imageMap.get(key) || [];
-        existing.push({
-          id: img.id,
-          image_url: img.image_url,
-          caption: img.caption,
-        });
-        imageMap.set(key, existing);
-      }
+    if (taskImagesResult.error) {
+      return jsonNoCache({ ok: false, error: taskImagesResult.error.message }, 500);
     }
 
-    const finalTasks = reconciledTasks.map((task) => ({
+    const imageMap = new Map<string, any[]>();
+
+    for (const img of taskImagesResult.data || []) {
+      const key = String(img.task_id);
+      const existing = imageMap.get(key) || [];
+      existing.push({
+        id: img.id,
+        image_url: img.image_url,
+        caption: img.caption,
+      });
+      imageMap.set(key, existing);
+    }
+
+    const finalTasks = tasksWithAcknowledgements.map((task) => ({
       ...task,
       task_images: imageMap.get(String(task.id)) || [],
     }));
 
-    const tasksWithAcknowledgements = await attachTaskAlertAcknowledgements(finalTasks);
+    await reminderPromise;
 
-    return jsonNoCache({ ok: true, tasks: tasksWithAcknowledgements });
+    return jsonNoCache({ ok: true, tasks: finalTasks });
   } catch (error: any) {
     return jsonNoCache(
       { ok: false, error: error?.message || 'Unknown error' },
@@ -927,4 +938,5 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
 
