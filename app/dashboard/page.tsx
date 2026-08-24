@@ -99,6 +99,7 @@ const MAX_RENDERED_TASK_CARDS = 60;
 const MAX_RENDERED_TASK_CARDS_MOBILE = 30;
 const MAX_RENDERED_TASK_THUMBNAILS = 20;
 const MAX_DASHBOARD_TASK_MEDIA = 30;
+const URGENT_TASK_LIMIT_MS = 5 * 60 * 1000;
 const HOUSEKEEPING_SUPERVISOR_EMAILS = [
   'hksup1@hotelhallmark.com',
   'hksup2@hotelhallmark.com',
@@ -273,6 +274,14 @@ function formatWaitingDuration(createdAt: string | null | undefined, nowMs: numb
   const createdMs = new Date(createdAt).getTime();
   if (!Number.isFinite(createdMs)) return '-';
   return formatDurationFromMs(Math.max(60 * 1000, nowMs - createdMs));
+}
+
+function urgentTaskDueAtMs(task: Task) {
+  const storedDueAt = new Date(String(task.urgent_due_at || '')).getTime();
+  if (Number.isFinite(storedDueAt)) return storedDueAt;
+
+  const createdAt = new Date(task.created_at || '').getTime();
+  return Number.isFinite(createdAt) ? createdAt + URGENT_TASK_LIMIT_MS : Number.NaN;
 }
 
 function labelForStatus(status: string) {
@@ -847,6 +856,24 @@ export default function DashboardPage() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const now = Date.now();
+    const nextUrgentDueAt = tasks
+      .filter((task) => task.urgent === true && task.status !== 'DONE')
+      .map(urgentTaskDueAtMs)
+      .filter((dueAt) => Number.isFinite(dueAt) && dueAt > now)
+      .sort((a, b) => a - b)[0];
+
+    if (!Number.isFinite(nextUrgentDueAt)) return;
+    const timer = window.setTimeout(
+      () => setTimerNow(Date.now()),
+      Math.min(Math.max(0, nextUrgentDueAt - now) + 100, 2_147_000_000)
+    );
+    return () => window.clearTimeout(timer);
+  }, [tasks]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2742,6 +2769,16 @@ async function handleDeleteTask(task: Task) {
       });
   }, [tasks]);
 
+  const overdueUrgentTasks = useMemo(() => {
+    return tasks
+      .filter((task) => (
+        task.urgent === true
+        && task.status !== 'DONE'
+        && urgentTaskDueAtMs(task) <= timerNow
+      ))
+      .sort((a, b) => urgentTaskDueAtMs(a) - urgentTaskDueAtMs(b));
+  }, [tasks, timerNow]);
+
   const laundryReceivedNote = insights.laundryReceivedSaved
     ? 'Saved for both blocks'
     : `${insights.laundryReceivedBlocks}/2 blocks saved`;
@@ -2761,6 +2798,16 @@ async function handleDeleteTask(task: Task) {
 
   return (
     <main style={styles.page}>
+      <style>{`
+        @keyframes dashboardUrgentAttentionFlash {
+          0%, 100% { border-color: #ef4444; background: #fff7f7; box-shadow: 0 12px 30px rgba(185, 28, 28, 0.14); }
+          50% { border-color: #991b1b; background: #fecaca; box-shadow: 0 14px 36px rgba(185, 28, 28, 0.30), 0 0 0 4px rgba(239, 68, 68, 0.16); }
+        }
+        .dashboard-overdue-urgent-panel { animation: dashboardUrgentAttentionFlash 0.9s step-end infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .dashboard-overdue-urgent-panel { animation: none; background: #fee2e2 !important; }
+        }
+      `}</style>
       <section style={styles.content}>
           <div style={styles.headerCard}>
             <div
@@ -2921,6 +2968,52 @@ async function handleDeleteTask(task: Task) {
             </div>
           ) : (
             <>
+              {sidebarView === 'DASHBOARD' && overdueUrgentTasks.length > 0 ? (
+                <section
+                  className="dashboard-overdue-urgent-panel"
+                  style={styles.urgentAttentionPanel}
+                  aria-live="assertive"
+                >
+                  <div style={styles.urgentAttentionHeader}>
+                    <div>
+                      <div style={styles.urgentAttentionEyebrow}>Urgent · Target time passed</div>
+                      <div style={styles.urgentAttentionTitle}>Immediate follow-up required</div>
+                    </div>
+                    <div style={styles.urgentAttentionCount}>{overdueUrgentTasks.length}</div>
+                  </div>
+                  <div style={styles.urgentAttentionList}>
+                    {overdueUrgentTasks.slice(0, isMobile ? 3 : 6).map((task) => {
+                      const overdueBy = Math.max(60 * 1000, timerNow - urgentTaskDueAtMs(task));
+                      return (
+                        <article key={`urgent-attention-${task.id}`} style={styles.urgentAttentionItem}>
+                          <div style={styles.urgentAttentionTopRow}>
+                            <span style={styles.urgentAttentionRoom}>{task.room || '-'}</span>
+                            <span style={styles.urgentAttentionDepartment}>{task.department}</span>
+                            <strong style={styles.urgentAttentionTimer}>
+                              Overdue {formatDurationFromMs(overdueBy)}
+                            </strong>
+                          </div>
+                          <div style={styles.urgentAttentionTask}>{task.task_text}</div>
+                          <div style={styles.urgentAttentionFooter}>
+                            <span>{task.task_code}</span>
+                            {(profile.role === 'SUPERUSER' || profile.can_update_task_status) ? (
+                              <button
+                                type="button"
+                                style={styles.urgentAttentionDoneButton}
+                                disabled={busyTaskId === task.id}
+                                onClick={() => void setTaskStatus(task.id, 'DONE')}
+                              >
+                                {busyTaskId === task.id ? 'Saving…' : 'Mark as Done'}
+                              </button>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
               {sidebarView === 'DASHBOARD' ? (
                 <section style={styles.guestWaitingPanel}>
                   <div style={styles.guestWaitingHeader}>
@@ -4977,6 +5070,116 @@ const styles: Record<string, React.CSSProperties> = {
   workspaceRail: {
     minWidth: 0,
   },
+  urgentAttentionPanel: {
+    border: '2px solid #ef4444',
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 12,
+  },
+  urgentAttentionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  urgentAttentionEyebrow: {
+    fontSize: 10,
+    fontWeight: 950,
+    color: '#b91c1c',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  urgentAttentionTitle: {
+    marginTop: 3,
+    fontSize: 18,
+    fontWeight: 950,
+    color: '#7f1d1d',
+  },
+  urgentAttentionCount: {
+    minWidth: 38,
+    height: 38,
+    borderRadius: 12,
+    background: '#b91c1c',
+    color: '#ffffff',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 950,
+    boxShadow: '0 6px 15px rgba(185, 28, 28, 0.24)',
+  },
+  urgentAttentionList: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+    gap: 8,
+  },
+  urgentAttentionItem: {
+    display: 'grid',
+    gap: 9,
+    border: '1px solid #fca5a5',
+    borderRadius: 14,
+    background: '#ffffff',
+    padding: 11,
+    boxShadow: '0 9px 20px rgba(127, 29, 29, 0.10)',
+  },
+  urgentAttentionTopRow: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  urgentAttentionRoom: {
+    borderRadius: 9,
+    background: '#7f1d1d',
+    color: '#ffffff',
+    padding: '6px 8px',
+    fontSize: 12,
+    fontWeight: 950,
+  },
+  urgentAttentionDepartment: {
+    borderRadius: 999,
+    background: '#fee2e2',
+    color: '#991b1b',
+    padding: '5px 8px',
+    fontSize: 9,
+    fontWeight: 950,
+  },
+  urgentAttentionTimer: {
+    marginLeft: 'auto',
+    borderRadius: 9,
+    background: '#dc2626',
+    color: '#ffffff',
+    padding: '6px 8px',
+    fontSize: 10,
+    fontWeight: 950,
+    whiteSpace: 'nowrap',
+  },
+  urgentAttentionTask: {
+    color: '#450a0a',
+    fontSize: 13,
+    fontWeight: 900,
+    lineHeight: 1.4,
+  },
+  urgentAttentionFooter: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    color: '#9f1239',
+    fontSize: 9,
+    fontWeight: 900,
+  },
+  urgentAttentionDoneButton: {
+    minHeight: 34,
+    border: 0,
+    borderRadius: 9,
+    padding: '7px 11px',
+    background: '#166534',
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: 950,
+    cursor: 'pointer',
+  },
   guestWaitingPanel: {
     border: '1px solid rgba(191, 219, 254, 0.95)',
     background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
@@ -6243,3 +6446,4 @@ const styles: Record<string, React.CSSProperties> = {
 
   },
 };
+
