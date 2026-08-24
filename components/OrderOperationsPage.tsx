@@ -84,10 +84,20 @@ function formatTime(value?: string | null) {
   if (!value) return '-';
   return new Date(value).toLocaleString('en-MY', {
     day: '2-digit',
-    month: 'short',
+    month: '2-digit',
+    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+    hour12: true,
+  }).replace(/\b(am|pm)\b/gi, (period) => period.toUpperCase());
+}
+
+function formatClock(value: Date) {
+  return value.toLocaleTimeString('en-MY', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).replace(/\b(am|pm)\b/gi, (period) => period.toUpperCase());
 }
 
 function statusLabel(value: string) {
@@ -566,7 +576,10 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
             <span>Search orders</span>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Room, guest, item or payment reference" />
           </label>
-          <span className={kitchenStyles.updatedAt}>{lastUpdatedAt ? `Updated ${lastUpdatedAt.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })}` : 'Connecting...'}</span>
+          <div className={kitchenStyles.updatedAt}>
+            <span>{lastUpdatedAt ? 'Last updated' : 'Live connection'}</span>
+            <strong>{lastUpdatedAt ? formatClock(lastUpdatedAt) : 'Connecting...'}</strong>
+          </div>
         </section>
 
         <section className={kitchenStyles.orderGrid}>
