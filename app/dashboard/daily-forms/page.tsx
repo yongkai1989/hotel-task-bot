@@ -19,6 +19,28 @@ type AssignmentUser = {
   role: string;
 };
 
+async function fetchAssignmentUsers(supabase: any): Promise<AssignmentUser[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || '';
+  if (!token) throw new Error('Missing Supabase session');
+
+  const response = await fetch(`/api/admin/users?t=${Date.now()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  const json = await response.json();
+  if (!response.ok || !json?.ok) throw new Error(json?.error || 'Failed to load staff list');
+
+  return ((json.users || []) as AssignmentUser[])
+    .filter((user) => user.user_id && user.email)
+    .sort((a, b) => {
+      const aManager = a.role === 'MANAGER' || a.role === 'SUPERUSER' ? 0 : 1;
+      const bManager = b.role === 'MANAGER' || b.role === 'SUPERUSER' ? 0 : 1;
+      return aManager - bManager || (a.name || a.email).localeCompare(b.name || b.email);
+    });
+}
+
 type Template = {
   id: string;
   title: string;
@@ -253,7 +275,7 @@ export default function DailyFormsPage() {
       const { error: recurrenceError } = await supabase.rpc('run_management_task_recurrence');
       if (recurrenceError) console.error(recurrenceError);
 
-      const [templateRes, questionRes, managementRunRes, assignmentUserRes] = await Promise.all([
+      const [templateRes, questionRes, managementRunRes, assignableUsers] = await Promise.all([
         supabase
           .from('daily_form_templates')
           .select('*')
@@ -283,15 +305,12 @@ export default function DailyFormsPage() {
           .in('status', ['OPEN', 'OVERDUE'])
           .lte('run_start_date', today)
           .order('due_date', { ascending: true }),
-        isSuper
-          ? supabase.from('user_profiles').select('user_id, email, name, role').order('name', { ascending: true })
-          : Promise.resolve({ data: [], error: null }),
+        isSuper ? fetchAssignmentUsers(supabase) : Promise.resolve([]),
       ]);
 
       if (templateRes.error) throw templateRes.error;
       if (questionRes.error) throw questionRes.error;
       if (managementRunRes.error) throw managementRunRes.error;
-      if (assignmentUserRes.error) throw assignmentUserRes.error;
 
       const nextTemplates = (templateRes.data || []) as Template[];
       const nextQuestions = (questionRes.data || []) as Question[];
@@ -306,9 +325,7 @@ export default function DailyFormsPage() {
             : row.management_tasks,
         })) as AssignedManagementRun[]
       );
-      setAssignmentUsers(
-        ((assignmentUserRes.data || []) as AssignmentUser[]).filter((user) => user.user_id && user.email)
-      );
+      setAssignmentUsers(assignableUsers);
 
       if (!selectedTemplateId && nextTemplates.length > 0) {
         setSelectedTemplateId(nextTemplates[0].id);
@@ -1195,7 +1212,7 @@ export default function DailyFormsPage() {
                 <option value="">Select staff member</option>
                 {assignmentUsers.map((user) => (
                   <option key={user.user_id} value={user.user_id}>
-                    {user.name || user.email} — {user.email}
+                    {user.name || user.email} — {user.email} ({user.role})
                   </option>
                 ))}
               </select>
