@@ -252,10 +252,11 @@ export default function FoQuickActionsPage() {
     }
   }, [accessToken]);
 
-  const loadFoTasks = useCallback(async () => {
+  const loadFoTasks = useCallback(async (token: string) => {
     const taskResponse = await fetch('/api/tasks', {
       cache: 'no-store',
       credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     const taskPayload = await responseJson(taskResponse);
     const foTasks = ((taskPayload?.tasks || []) as DashboardTask[])
@@ -263,13 +264,13 @@ export default function FoQuickActionsPage() {
     setTasks(foTasks);
   }, []);
 
-  const loadData = useCallback(async (quiet = false) => {
+  const loadData = useCallback(async (quiet = false, token = '') => {
     if (!quiet) setLoading(true);
     else setRefreshing(true);
     setError('');
     try {
       const [, reminderResult, itemResult] = await Promise.all([
-        loadFoTasks(),
+        loadFoTasks(token),
         supabase
           .from('fo_shift_reminders')
           .select('*')
@@ -312,7 +313,7 @@ export default function FoQuickActionsPage() {
         const nextProfile = payload.user as Profile;
         setProfile(nextProfile);
         setAccessToken(session.access_token);
-        await loadData();
+        await loadData(false, session.access_token);
       } catch (nextError: any) {
         if (mounted) {
           setError(nextError?.message || 'Unable to verify FO access.');
@@ -337,6 +338,7 @@ export default function FoQuickActionsPage() {
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
         cache: 'no-store',
         credentials: 'include',
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (response.status === 404) {
@@ -376,7 +378,7 @@ export default function FoQuickActionsPage() {
       const payload = readTaskBroadcastPayload(message?.payload);
       const taskId = payload?.id || '';
       if (!taskId) {
-        void loadFoTasks().catch((nextError: any) => {
+        void loadFoTasks(accessToken).catch((nextError: any) => {
           setError(nextError?.message || 'Unable to synchronize FO tasks.');
         });
         return;
@@ -425,7 +427,7 @@ export default function FoQuickActionsPage() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void startChannel();
-        void loadFoTasks().catch((nextError: any) => {
+        void loadFoTasks(accessToken).catch((nextError: any) => {
           setError(nextError?.message || 'Unable to synchronize FO tasks.');
         });
       } else {
@@ -849,7 +851,7 @@ export default function FoQuickActionsPage() {
       setSuccess('FO item order saved.');
     } catch (nextError: any) {
       setError(nextError?.message || 'Unable to save the item order.');
-      await loadData(true);
+      await loadData(true, accessToken);
     } finally {
       setBusyKey('');
     }
@@ -976,7 +978,7 @@ export default function FoQuickActionsPage() {
           <p>Assign guest tasks, hand over reminders, and see where FO items are.</p>
         </div>
         <div className="header-actions">
-          <button type="button" className="secondary" disabled={refreshing || guestOrdersLoading} onClick={() => { void loadData(true); if (canAccessGuestShopOrders) void loadGuestShopOrders(); }}>
+          <button type="button" className="secondary" disabled={refreshing || guestOrdersLoading} onClick={() => { void loadData(true, accessToken); if (canAccessGuestShopOrders) void loadGuestShopOrders(); }}>
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           <Link href="/dashboard">Dashboard</Link>
@@ -1385,3 +1387,4 @@ function Styles() {
     *{box-sizing:border-box}body{margin:0;background:#eef3f9;color:#10223c;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}.foq-page{min-height:100vh;padding:18px}.foq-header,.item-panel,.action-panel,.main-tabs,.foq-state{max-width:1450px;margin-left:auto;margin-right:auto;background:#fff;border:1px solid #d7e1ec;border-radius:16px;box-shadow:0 10px 28px rgba(24,49,82,.07)}.foq-header{padding:20px 22px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:18px}.foq-header h1{margin:3px 0;font-size:28px;letter-spacing:-.03em}.foq-header p{margin:0;color:#64758a;font-size:13px}.eyebrow{display:block;color:#2462d0;font-size:9px;font-weight:950;letter-spacing:.14em}.header-actions,.heading-actions{display:flex;align-items:center;gap:8px}.header-actions a,.header-actions button,.secondary{border:1px solid #c7d3e1;background:#fff;color:#21344e;border-radius:10px;padding:10px 13px;text-decoration:none;font-weight:850;cursor:pointer}.notice{max-width:1450px;margin:0 auto 10px;padding:11px 14px;border-radius:10px;font-size:12px;font-weight:800}.notice.error{background:#fff1f0;border:1px solid #f2c1bd;color:#a72d25}.notice.success{background:#edf9f2;border:1px solid #b5dfc7;color:#0d7543}.item-panel{padding:14px 16px;margin-bottom:10px}.section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px}.section-heading.compact{align-items:center;margin-bottom:9px}.section-heading h2{font-size:18px;margin:3px 0 0}.count{border-radius:999px;padding:5px 9px;background:#eef3f9;color:#52667f;font-size:10px;font-weight:900}.count.warn{background:#fff0e8;color:#b74518}.count.good{background:#e9f8ef;color:#0b7945}.small{padding:6px 9px!important;font-size:10px}.inline-create{display:grid;grid-template-columns:1.2fr 1.5fr auto auto;gap:7px;margin:8px 0 10px}.inline-create input,.inline-create button,.inline-action input,.inline-action button,.completion-row input,.completion-row button{min-height:38px;border:1px solid #cbd6e3;border-radius:9px;padding:8px 10px;background:#fff}.inline-create button,.inline-action button,.completion-row button{background:#235fc8;color:#fff;font-weight:850;cursor:pointer}.item-strip{display:flex;gap:9px;overflow-x:auto;padding:2px 1px 7px;scrollbar-width:thin}.item-card{position:relative;flex:0 0 235px;min-height:128px;padding:12px;border:1px solid #d9e3ee;border-left:4px solid #21a366;border-radius:12px;background:#f9fcfa;display:flex;flex-direction:column;gap:7px}.item-card.loaned{border-left-color:#e4722b;background:#fff9f4}.item-top{display:flex;justify-content:space-between;gap:8px}.item-top strong{font-size:13px}.item-top span{font-size:8px;font-weight:950;color:#64758a}.item-card small{font-size:10px;color:#6c7d91}.item-card>button:not(.archive-link),.return-btn{margin-top:auto;border:0;border-radius:9px;padding:9px;background:#1e64cd;color:#fff;font-weight:900;cursor:pointer}.item-card .return-btn{background:#16824d}.holder{font-size:12px}.inline-action{display:grid;grid-template-columns:1fr 1fr;gap:5px}.inline-action input{grid-column:1/-1;min-width:0}.archive-link,.delete-link{position:absolute;top:35px;right:10px;border:0!important;background:transparent!important;color:#9a4b4b!important;font-size:9px!important;padding:2px!important;cursor:pointer}.empty-inline{padding:20px;color:#718197;font-size:12px}.main-tabs{padding:5px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:5px}.main-tabs button{min-height:66px;border:1px solid transparent;border-radius:12px;background:transparent;color:#54677f;padding:9px 14px;text-align:left;display:grid;grid-template-columns:auto 1fr;column-gap:8px;cursor:pointer}.main-tabs button span{font-size:15px;font-weight:950}.main-tabs button b{justify-self:end;border-radius:999px;padding:2px 7px;background:#e8eef6;font-size:11px}.main-tabs button small{grid-column:1/-1;font-size:10px}.main-tabs button.active{background:#153d76;color:#fff;box-shadow:0 5px 13px rgba(21,61,118,.2)}.main-tabs button.active b{background:#fff;color:#153d76}.workspace-grid{max-width:1450px;margin:0 auto;display:grid;grid-template-columns:minmax(320px,.8fr) minmax(420px,1.2fr);gap:10px;align-items:start}.action-panel{padding:17px;margin:0}.create-panel label{display:grid;gap:6px;margin-top:11px;font-size:11px;font-weight:900;color:#465b75}.create-panel label small{font-weight:600}.create-panel input,.create-panel textarea{width:100%;border:1px solid #c9d5e3;border-radius:10px;padding:11px 12px;background:#fbfcfe;color:#10223c;font:inherit;resize:vertical}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.choice-row{display:flex;flex-wrap:wrap;gap:6px}.choice-row button{border:1px solid #cbd6e3;border-radius:9px;background:#fff;color:#4a607a;padding:8px 10px;font-size:10px;font-weight:850;cursor:pointer}.choice-row button.selected{border-color:#1f60c8;background:#eaf2ff;color:#174f9e;box-shadow:inset 0 0 0 1px #1f60c8}.choice-row button.hk.selected{background:#eaf9f0;border-color:#23935b;color:#167044}.choice-row button.mt.selected{background:#edf3ff;border-color:#3d6ed2;color:#2658b2}.waiting-toggle{display:flex!important;grid-template-columns:auto 1fr!important;align-items:flex-start;gap:9px!important;padding:10px 11px;border:1px solid #e4c8b7;border-radius:10px;background:#fff9f5}.waiting-toggle input{width:auto}.waiting-toggle span{display:grid}.waiting-toggle small{color:#7f6b60}.urgent-pill{border-radius:999px;background:#fff0e8;color:#be461b;padding:5px 9px;font-size:9px;font-weight:950}.primary-action{width:100%;margin-top:13px;border:0;border-radius:11px;padding:12px 15px;background:#1764cf;color:#fff;font-weight:950;cursor:pointer}.primary-action:disabled,button:disabled{opacity:.55;cursor:not-allowed}.info-note{margin-top:11px;padding:10px;border-radius:9px;background:#eef5ff;color:#36577f;font-size:10px;line-height:1.4}.compact-list{display:grid;gap:7px;max-height:575px;overflow:auto;padding-right:2px}.compact-card,.reminder-card{position:relative;border:1px solid #dce4ee;border-left:4px solid #df862d;border-radius:11px;padding:11px 12px;background:#fff}.compact-card.done,.reminder-card.done{border-left-color:#25a165;background:#f8fcfa}.card-title,.card-title>div{display:flex;align-items:center;gap:7px}.card-title{justify-content:space-between}.card-title b{font-size:9px}.card-title strong{font-size:13px}.card-title em{font-style:normal;font-size:8px;font-weight:950;color:#6a7b90}.dept{border-radius:999px;padding:3px 6px;font-size:8px;font-weight:950}.dept.hk{background:#e8f8ef;color:#137447}.dept.mt{background:#eaf0ff;color:#2b58ae}.compact-card p,.reminder-card p{margin:7px 0;color:#2c425e;font-size:12px;line-height:1.4;white-space:pre-wrap}.compact-card small,.reminder-card small{color:#78889a;font-size:9px}.empty{padding:30px 15px;border:1px dashed #cbd6e3;border-radius:10px;text-align:center;color:#718197;font-size:12px}.mini-tabs{display:flex;border:1px solid #d5deea;border-radius:9px;padding:3px}.mini-tabs button{border:0;border-radius:6px;background:transparent;color:#63758b;padding:6px 8px;font-size:9px;font-weight:900;cursor:pointer}.mini-tabs button.active{background:#173f77;color:#fff}.complete-btn{margin-top:9px;border:0;border-radius:8px;padding:8px 10px;background:#16834e;color:#fff;font-size:10px;font-weight:900;cursor:pointer}.completion-row{display:grid;grid-template-columns:1fr auto auto;gap:5px;margin-top:9px}.completion-row input{min-width:0}.completed-by{margin-top:8px;border-radius:8px;padding:7px 9px;background:#e9f8f0;color:#176942;font-size:10px}.reminder-card .delete-link{top:auto;bottom:8px}.foq-state{margin-top:12vh;padding:35px;text-align:center}.foq-state a{color:#1e61c7}.secondary{background:#fff!important;color:#324861!important}@media(max-width:920px){.workspace-grid{grid-template-columns:1fr}.compact-list{max-height:none}.field-grid{grid-template-columns:1fr}.inline-create{grid-template-columns:1fr 1fr}.inline-create input{grid-column:span 1}}@media(max-width:620px){.foq-page{padding:8px}.foq-header{padding:15px;align-items:flex-start;display:grid}.foq-header h1{font-size:24px}.header-actions{width:100%}.header-actions>*{flex:1;text-align:center}.item-panel,.action-panel{padding:12px}.main-tabs button{padding:8px;min-height:62px}.main-tabs button span{font-size:13px}.workspace-grid{gap:8px}.inline-create{grid-template-columns:1fr}.inline-create input{grid-column:auto}.completion-row{grid-template-columns:1fr 1fr}.completion-row input{grid-column:1/-1}.item-card{flex-basis:215px}.choice-row button{flex:1}.department-row button{min-width:130px}}
   `}</style>;
 }
+
