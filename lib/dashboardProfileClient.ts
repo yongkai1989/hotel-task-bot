@@ -18,6 +18,7 @@ export type DashboardProfile = {
   can_access_linen_history: boolean;
   can_access_daily_forms: boolean;
   can_access_management_tasks: boolean;
+  can_access_online_purchasing: boolean;
   can_access_admin_settings: boolean;
   can_create_task: boolean;
   can_edit_task: boolean;
@@ -41,6 +42,7 @@ export function emptyProfile(): DashboardProfile {
     can_access_linen_history: false,
     can_access_daily_forms: false,
     can_access_management_tasks: false,
+    can_access_online_purchasing: false,
     can_access_admin_settings: false,
     can_create_task: false,
     can_edit_task: false,
@@ -78,6 +80,8 @@ export function getEffectiveProfile(profile: DashboardProfile): DashboardProfile
       isSuper || isManager || profile.can_access_daily_forms,
     can_access_management_tasks:
       isSuper || isManager || profile.can_access_management_tasks,
+    can_access_online_purchasing:
+      isSuper || profile.can_access_online_purchasing,
     can_access_admin_settings:
       isSuper || profile.can_access_admin_settings,
     can_create_task:
@@ -116,6 +120,7 @@ export async function loadDashboardProfileClient(): Promise<DashboardProfile | n
       can_access_linen_history,
       can_access_daily_forms,
       can_access_management_tasks,
+      can_access_online_purchasing,
       can_access_admin_settings,
       can_create_task,
       can_edit_task,

@@ -35,6 +35,7 @@ const PROFILE_SELECT = `
   can_access_linen_history,
   can_access_daily_forms,
   can_access_management_tasks,
+  can_access_online_purchasing,
   can_access_daily_operations_summary,
   can_access_bank_in_cash,
   can_access_commission_checker,
@@ -116,6 +117,7 @@ const permissionKeys = [
   'can_access_linen_history',
   'can_access_daily_forms',
   'can_access_management_tasks',
+  'can_access_online_purchasing',
   'can_access_daily_operations_summary',
   'can_access_bank_in_cash',
   'can_access_commission_checker',
@@ -206,6 +208,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveBoolean(role, profile.can_access_daily_forms),
     can_access_management_tasks:
       effectiveBoolean(role, profile.can_access_management_tasks),
+    can_access_online_purchasing:
+      effectiveBoolean(role, profile.can_access_online_purchasing),
     can_access_daily_operations_summary:
       effectiveBoolean(role, profile.can_access_daily_operations_summary),
     can_access_bank_in_cash:

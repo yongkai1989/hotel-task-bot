@@ -27,6 +27,7 @@ type CreateBody = {
   can_access_linen_history?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_online_purchasing?: boolean;
   can_access_daily_operations_summary?: boolean;
   can_access_bank_in_cash?: boolean;
   can_access_commission_checker?: boolean;
@@ -99,6 +100,7 @@ function withPermissions(row: any) {
     can_access_linen_history: toPermissionBoolean(row.can_access_linen_history),
     can_access_daily_forms: toPermissionBoolean(row.can_access_daily_forms),
     can_access_management_tasks: toPermissionBoolean(row.can_access_management_tasks),
+    can_access_online_purchasing: toPermissionBoolean(row.can_access_online_purchasing),
     can_access_daily_operations_summary: toPermissionBoolean(row.can_access_daily_operations_summary),
     can_access_bank_in_cash: toPermissionBoolean(row.can_access_bank_in_cash),
     can_access_commission_checker: toPermissionBoolean(row.can_access_commission_checker),
@@ -251,6 +253,7 @@ export async function POST(req: NextRequest) {
       can_access_linen_history: toPermissionBoolean(body.can_access_linen_history),
       can_access_daily_forms: toPermissionBoolean(body.can_access_daily_forms),
       can_access_management_tasks: toPermissionBoolean(body.can_access_management_tasks),
+      can_access_online_purchasing: toPermissionBoolean(body.can_access_online_purchasing),
       can_access_daily_operations_summary: toPermissionBoolean(body.can_access_daily_operations_summary),
       can_access_bank_in_cash:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_bank_in_cash),
@@ -315,6 +318,7 @@ export async function POST(req: NextRequest) {
       payload.can_access_linen_history = true;
       payload.can_access_daily_forms = true;
       payload.can_access_management_tasks = true;
+      payload.can_access_online_purchasing = true;
       payload.can_access_daily_operations_summary = true;
       payload.can_access_bank_in_cash = true;
       payload.can_access_commission_checker = true;
@@ -367,6 +371,7 @@ export async function POST(req: NextRequest) {
         can_access_linen_history,
         can_access_daily_forms,
         can_access_management_tasks,
+        can_access_online_purchasing,
         can_access_daily_operations_summary,
         can_access_bank_in_cash,
         can_access_commission_checker,

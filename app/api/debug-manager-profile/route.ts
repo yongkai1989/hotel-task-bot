@@ -28,6 +28,7 @@ export async function GET() {
       can_access_linen_history,
       can_access_daily_forms,
       can_access_management_tasks,
+      can_access_online_purchasing,
       can_access_admin_settings,
       can_create_task,
       can_edit_task,

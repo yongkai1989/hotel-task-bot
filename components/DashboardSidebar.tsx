@@ -34,6 +34,7 @@ type SidebarProfile = {
   can_access_supervisor_checklist?: boolean;
   can_access_daily_forms?: boolean;
   can_access_management_tasks?: boolean;
+  can_access_online_purchasing?: boolean;
   can_access_daily_operations_summary?: boolean;
   can_access_bank_in_cash?: boolean;
   can_access_commission_checker?: boolean;
@@ -76,6 +77,7 @@ type SidebarProfile = {
     | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_online_purchasing'
     | 'can_access_daily_operations_summary'
     | 'can_access_bank_in_cash'
     | 'can_access_commission_checker'
@@ -162,6 +164,7 @@ type EffectiveProfile = Required<
     | 'can_access_supervisor_checklist'
     | 'can_access_daily_forms'
     | 'can_access_management_tasks'
+    | 'can_access_online_purchasing'
     | 'can_access_daily_operations_summary'
     | 'can_access_bank_in_cash'
     | 'can_access_commission_checker'
@@ -256,6 +259,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       isSuperuser || hasAccess(permissionValue('can_access_daily_forms')),
     can_access_management_tasks:
       isSuperuser || hasAccess(permissionValue('can_access_management_tasks')),
+    can_access_online_purchasing:
+      isSuperuser || hasAccess(permissionValue('can_access_online_purchasing')),
     can_access_daily_operations_summary:
       isSuperuser || hasAccess(permissionValue('can_access_daily_operations_summary')),
     can_access_bank_in_cash:
@@ -794,6 +799,7 @@ export default function DashboardSidebar({
 
   const canSeeDailyForms = !!effectiveProfile?.can_access_daily_forms;
   const canSeeManagementTasks = !!effectiveProfile?.can_access_management_tasks;
+  const canSeeOnlinePurchasing = !!effectiveProfile?.can_access_online_purchasing;
   const canSeeDailyOperationsSummary = !!effectiveProfile?.can_access_daily_operations_summary;
   const canSeeBankInCash = !!effectiveProfile?.can_access_bank_in_cash;
   const effectiveEmail = String(effectiveProfile?.email || '').trim().toLowerCase();
@@ -867,6 +873,7 @@ export default function DashboardSidebar({
     canSeeDailyForms ||
     canSeeDailyOperationsSummary ||
     canSeeManagementTasks ||
+    canSeeOnlinePurchasing ||
     canSeeBankInCash ||
     canSeeCommissionChecker ||
     canSeeAdminSettings;
@@ -907,6 +914,7 @@ export default function DashboardSidebar({
     canSeePALinenEntry,
     effectiveProfile?.can_access_daily_forms,
     effectiveProfile?.can_access_management_tasks,
+    effectiveProfile?.can_access_online_purchasing,
     effectiveProfile?.can_access_daily_operations_summary,
     effectiveProfile?.can_access_bank_in_cash,
     effectiveProfile?.can_access_commission_checker,
@@ -1663,6 +1671,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="list" sub>Management Tasks</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeOnlinePurchasing ? (
+                <Link
+                  href="/dashboard/online-purchasing"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="package" sub>Online Purchasing</SidebarNavContent>
                 </Link>
               ) : null}
 
