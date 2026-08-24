@@ -9,6 +9,14 @@ type DashboardUser = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+  can_access_management_tasks?: boolean;
+};
+
+type AssignmentUser = {
+  user_id: string;
+  email: string;
+  name: string;
+  role: string;
 };
 
 type ManagementTask = {
@@ -22,6 +30,9 @@ type ManagementTask = {
   is_active: boolean;
   created_by_user_id: string | null;
   created_by_name: string | null;
+  assigned_user_id: string | null;
+  assigned_user_name: string | null;
+  assigned_user_email: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -132,6 +143,7 @@ export default function ManagementTasksPage() {
   const [tasks, setTasks] = useState<ManagementTask[]>([]);
   const [runs, setRuns] = useState<ManagementTaskRun[]>([]);
   const [activeRoomNumbers, setActiveRoomNumbers] = useState<string[]>([]);
+  const [assignmentUsers, setAssignmentUsers] = useState<AssignmentUser[]>([]);
 
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskModalMode, setTaskModalMode] = useState<'CREATE' | 'EDIT'>('CREATE');
@@ -144,6 +156,7 @@ export default function ManagementTasksPage() {
   const [dueInDaysInput, setDueInDaysInput] = useState('7');
   const [taskStartDate, setTaskStartDate] = useState(getTodayLocalDateString());
   const [taskHasRoomChecklist, setTaskHasRoomChecklist] = useState(false);
+  const [taskAssignedUserId, setTaskAssignedUserId] = useState('');
 
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [busyDeleteTaskId, setBusyDeleteTaskId] = useState<string | null>(null);
@@ -183,7 +196,7 @@ export default function ManagementTasksPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_management_tasks')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -195,6 +208,7 @@ export default function ManagementTasksPage() {
           email: profileRow?.email || email,
           name: profileRow?.name || email || 'User',
           role: (profileRow?.role || 'FO') as DashboardUser['role'],
+          can_access_management_tasks: profileRow?.can_access_management_tasks === true,
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -212,7 +226,11 @@ export default function ManagementTasksPage() {
 
   const canAccess = useMemo(() => {
     if (!profile) return false;
-    return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
+    return (
+      profile.role === 'SUPERUSER' ||
+      profile.email.trim().toLowerCase() === 'fenny@hotelhallmark.com' ||
+      profile.can_access_management_tasks === true
+    );
   }, [profile]);
 
   const isSuperuser = useMemo(() => profile?.role === 'SUPERUSER', [profile]);
@@ -260,19 +278,26 @@ export default function ManagementTasksPage() {
       const { error: recurrenceError } = await supabase.rpc('run_management_task_recurrence');
       if (recurrenceError) console.error(recurrenceError);
 
-      const [taskRes, runRes, roomRes] = await Promise.all([
+      const [taskRes, runRes, roomRes, assignmentUserRes] = await Promise.all([
         supabase.from('management_tasks').select('*').eq('is_active', true).order('created_at', { ascending: false }),
         supabase.from('management_task_runs').select('*').order('created_at', { ascending: false }),
         supabase.from('room_master').select('room_number').eq('is_active', true).order('room_number', { ascending: true }),
+        isSuperuser
+          ? supabase.from('user_profiles').select('user_id, email, name, role').order('name', { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (taskRes.error) throw taskRes.error;
       if (runRes.error) throw runRes.error;
       if (roomRes.error) throw roomRes.error;
+      if (assignmentUserRes.error) throw assignmentUserRes.error;
 
       setTasks((taskRes.data || []) as ManagementTask[]);
       setRuns((runRes.data || []) as ManagementTaskRun[]);
       setActiveRoomNumbers(((roomRes.data || []) as RoomMasterRow[]).map((r) => r.room_number));
+      setAssignmentUsers(
+        ((assignmentUserRes.data || []) as AssignmentUser[]).filter((user) => user.user_id && user.email)
+      );
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load management tasks');
     } finally {
@@ -312,6 +337,7 @@ export default function ManagementTasksPage() {
     setDueInDaysInput('7');
     setTaskStartDate(getTodayLocalDateString());
     setTaskHasRoomChecklist(false);
+    setTaskAssignedUserId('');
     setEditingTaskId(null);
   }
 
@@ -334,6 +360,7 @@ export default function ManagementTasksPage() {
     setDueInDaysInput(String(card.task.due_in_days));
     setTaskStartDate(card.task.start_date || getTodayLocalDateString());
     setTaskHasRoomChecklist(!!card.task.has_room_checklist);
+    setTaskAssignedUserId(card.task.assigned_user_id || '');
     setShowTaskModal(true);
     setErrorMsg('');
     setSuccessMsg('');
@@ -365,6 +392,9 @@ export default function ManagementTasksPage() {
     const startDate = (taskStartDate || '').trim();
     if (!startDate) return setErrorMsg('Please select a start date.');
 
+    const assignedUser = assignmentUsers.find((user) => user.user_id === taskAssignedUserId);
+    if (!assignedUser) return setErrorMsg('Please assign a responsible user.');
+
     try {
       setSavingTask(true);
       setErrorMsg('');
@@ -385,6 +415,9 @@ export default function ManagementTasksPage() {
             is_active: true,
             created_by_user_id: profile.user_id,
             created_by_name: profile.name || profile.email,
+            assigned_user_id: assignedUser.user_id,
+            assigned_user_name: assignedUser.name || assignedUser.email,
+            assigned_user_email: assignedUser.email,
           }])
           .select('*')
           .single();
@@ -422,6 +455,9 @@ export default function ManagementTasksPage() {
             due_in_days: parsedDueInDays,
             start_date: startDate,
             has_room_checklist: taskHasRoomChecklist,
+            assigned_user_id: assignedUser.user_id,
+            assigned_user_name: assignedUser.name || assignedUser.email,
+            assigned_user_email: assignedUser.email,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingTaskId);
@@ -694,6 +730,12 @@ export default function ManagementTasksPage() {
             <div style={styles.metaLabel}>Checklist</div>
             <div style={styles.metaValue}>{card.task.has_room_checklist ? '156-room checklist' : 'No checklist'}</div>
           </div>
+          <div style={styles.metaItem}>
+            <div style={styles.metaLabel}>Responsible Person</div>
+            <div style={styles.metaValue}>
+              {card.task.assigned_user_name || card.task.assigned_user_email || 'Not assigned'}
+            </div>
+          </div>
         </div>
 
         {checklistText ? <div style={styles.checklistMeta}>{checklistText}</div> : null}
@@ -786,7 +828,7 @@ export default function ManagementTasksPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>Only managers and superusers can access Management Tasks.</p>
+          <p style={styles.centerText}>This page is available only for tasks assigned to you, Fenny, and Superuser.</p>
           <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
@@ -870,6 +912,26 @@ export default function ManagementTasksPage() {
             <div style={styles.formGroup}>
               <label style={styles.label}>Description</label>
               <textarea value={taskDescription} onChange={(e) => setTaskDescription(e.target.value)} style={styles.textarea} placeholder="Optional notes or SOP" disabled={savingTask} />
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Responsible Person</label>
+              <select
+                value={taskAssignedUserId}
+                onChange={(e) => setTaskAssignedUserId(e.target.value)}
+                style={styles.input}
+                disabled={savingTask}
+              >
+                <option value="">Select staff member</option>
+                {assignmentUsers.map((user) => (
+                  <option key={user.user_id} value={user.user_id}>
+                    {user.name || user.email} — {user.email}
+                  </option>
+                ))}
+              </select>
+              <div style={styles.helpText}>
+                Only this person, Fenny, and Superuser can view the task.
+              </div>
             </div>
 
             <div style={styles.formRow}>
@@ -1016,6 +1078,7 @@ const styles: Record<string, React.CSSProperties> = {
   formGroupCompact: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' },
   formRow: { display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' },
   label: { fontSize: '14px', color: '#334155', fontWeight: 700 },
+  helpText: { fontSize: '12px', color: '#64748b', lineHeight: 1.4 },
   checkboxLabel: { display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '14px', fontSize: '14px', color: '#334155', fontWeight: 700 },
   input: { width: '100%', boxSizing: 'border-box', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none' },
   textarea: { width: '100%', boxSizing: 'border-box', minHeight: '110px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: '12px', padding: '12px 14px', fontSize: '15px', outline: 'none', resize: 'vertical' },

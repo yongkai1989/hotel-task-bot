@@ -9,6 +9,14 @@ type Profile = {
   email: string;
   name: string;
   role: 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'HK' | 'MT' | 'FO';
+  can_access_daily_forms?: boolean;
+};
+
+type AssignmentUser = {
+  user_id: string;
+  email: string;
+  name: string;
+  role: string;
 };
 
 type Template = {
@@ -18,6 +26,25 @@ type Template = {
   created_by_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  assigned_user_id?: string | null;
+  assigned_user_name?: string | null;
+  assigned_user_email?: string | null;
+};
+
+type AssignedManagementRun = {
+  id: string;
+  management_task_id: string;
+  run_start_date: string;
+  due_date: string;
+  status: 'OPEN' | 'OVERDUE';
+  management_tasks: {
+    id: string;
+    title: string;
+    description?: string | null;
+    start_date?: string | null;
+    assigned_user_name?: string | null;
+    assigned_user_email?: string | null;
+  } | null;
 };
 
 type Question = {
@@ -69,16 +96,21 @@ function getTodayLocalDateString() {
 
 function formatDate(value?: string | null) {
   if (!value) return '-';
-  const d = new Date(value);
+  const d = new Date(value.length === 10 ? `${value}T00:00:00` : value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString();
+  return d.toLocaleDateString('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Kuala_Lumpur',
+  });
 }
 
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
+  return d.toLocaleString('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    hour12: true, timeZone: 'Asia/Kuala_Lumpur',
+  });
 }
 
 function getSupabaseSafe() {
@@ -102,6 +134,8 @@ export default function DailyFormsPage() {
   const [todaySubmission, setTodaySubmission] = useState<Submission | null>(null);
   const [answers, setAnswers] = useState<Record<string, AnswerRow>>({});
   const [pastSubmissions, setPastSubmissions] = useState<Submission[]>([]);
+  const [assignmentUsers, setAssignmentUsers] = useState<AssignmentUser[]>([]);
+  const [assignedManagementRuns, setAssignedManagementRuns] = useState<AssignedManagementRun[]>([]);
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
   const [viewingAnswers, setViewingAnswers] = useState<Record<string, AnswerRow>>({});
 
@@ -115,6 +149,7 @@ export default function DailyFormsPage() {
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
 
   const [draftTitle, setDraftTitle] = useState('');
+  const [draftAssignedUserId, setDraftAssignedUserId] = useState('');
   const [draftQuestions, setDraftQuestions] = useState<DraftQuestion[]>([
     { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
   ]);
@@ -123,8 +158,8 @@ export default function DailyFormsPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   const isSuper = profile?.role === 'SUPERUSER';
-  const isManager = profile?.role === 'MANAGER';
-  const canAccess = !!profile && (isSuper || isManager);
+  const isFenny = profile?.email.trim().toLowerCase() === 'fenny@hotelhallmark.com';
+  const canAccess = !!profile && (isSuper || isFenny || profile.can_access_daily_forms === true);
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === selectedTemplateId) || null,
@@ -167,7 +202,7 @@ export default function DailyFormsPage() {
 
         const { data: profileRow, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_id, email, name, role')
+          .select('user_id, email, name, role, can_access_daily_forms')
           .eq('user_id', session.user.id)
           .maybeSingle();
 
@@ -179,6 +214,7 @@ export default function DailyFormsPage() {
           email: profileRow?.email || session.user.email || '',
           name: profileRow?.name || session.user.email || 'User',
           role: (profileRow?.role || 'FO') as Profile['role'],
+          can_access_daily_forms: profileRow?.can_access_daily_forms === true,
         });
       } catch (err: any) {
         if (!mounted) return;
@@ -214,7 +250,10 @@ export default function DailyFormsPage() {
       setLoading(true);
       setErrorMsg('');
 
-      const [templateRes, questionRes] = await Promise.all([
+      const { error: recurrenceError } = await supabase.rpc('run_management_task_recurrence');
+      if (recurrenceError) console.error(recurrenceError);
+
+      const [templateRes, questionRes, managementRunRes, assignmentUserRes] = await Promise.all([
         supabase
           .from('daily_form_templates')
           .select('*')
@@ -224,16 +263,52 @@ export default function DailyFormsPage() {
           .from('daily_form_questions')
           .select('*')
           .order('sort_order', { ascending: true }),
+        supabase
+          .from('management_task_runs')
+          .select(`
+            id,
+            management_task_id,
+            run_start_date,
+            due_date,
+            status,
+            management_tasks!inner (
+              id,
+              title,
+              description,
+              start_date,
+              assigned_user_name,
+              assigned_user_email
+            )
+          `)
+          .in('status', ['OPEN', 'OVERDUE'])
+          .lte('run_start_date', today)
+          .order('due_date', { ascending: true }),
+        isSuper
+          ? supabase.from('user_profiles').select('user_id, email, name, role').order('name', { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (templateRes.error) throw templateRes.error;
       if (questionRes.error) throw questionRes.error;
+      if (managementRunRes.error) throw managementRunRes.error;
+      if (assignmentUserRes.error) throw assignmentUserRes.error;
 
       const nextTemplates = (templateRes.data || []) as Template[];
       const nextQuestions = (questionRes.data || []) as Question[];
 
       setTemplates(nextTemplates);
       setQuestions(nextQuestions);
+      setAssignedManagementRuns(
+        (managementRunRes.data || []).map((row: any) => ({
+          ...row,
+          management_tasks: Array.isArray(row.management_tasks)
+            ? row.management_tasks[0] || null
+            : row.management_tasks,
+        })) as AssignedManagementRun[]
+      );
+      setAssignmentUsers(
+        ((assignmentUserRes.data || []) as AssignmentUser[]).filter((user) => user.user_id && user.email)
+      );
 
       if (!selectedTemplateId && nextTemplates.length > 0) {
         setSelectedTemplateId(nextTemplates[0].id);
@@ -322,6 +397,7 @@ export default function DailyFormsPage() {
   function openCreateModal() {
     setTemplateModalMode('CREATE');
     setDraftTitle('');
+    setDraftAssignedUserId('');
     setDraftQuestions([
       { question_text: '', question_description: '', answer_mode: 'YES_NO', is_required: false },
     ]);
@@ -335,6 +411,7 @@ export default function DailyFormsPage() {
 
     setTemplateModalMode('EDIT');
     setDraftTitle(selectedTemplate.title);
+    setDraftAssignedUserId(selectedTemplate.assigned_user_id || '');
     setDraftQuestions(
       selectedQuestions.map((question) => ({
         existingId: question.id,
@@ -387,6 +464,12 @@ export default function DailyFormsPage() {
       return;
     }
 
+    const assignedUser = assignmentUsers.find((user) => user.user_id === draftAssignedUserId);
+    if (!assignedUser) {
+      setErrorMsg('Please assign this form to a staff member.');
+      return;
+    }
+
     const cleanedQuestions = draftQuestions
       .map((question) => ({
         ...question,
@@ -415,6 +498,9 @@ export default function DailyFormsPage() {
               is_active: true,
               created_by_user_id: profile.user_id,
               created_by_name: profile.name || profile.email,
+              assigned_user_id: assignedUser.user_id,
+              assigned_user_name: assignedUser.name || assignedUser.email,
+              assigned_user_email: assignedUser.email,
             },
           ])
           .select('*')
@@ -446,6 +532,9 @@ export default function DailyFormsPage() {
           .from('daily_form_templates')
           .update({
             title,
+            assigned_user_id: assignedUser.user_id,
+            assigned_user_name: assignedUser.name || assignedUser.email,
+            assigned_user_email: assignedUser.email,
             updated_at: new Date().toISOString(),
           })
           .eq('id', selectedTemplate.id);
@@ -726,7 +815,7 @@ export default function DailyFormsPage() {
       <main style={styles.page}>
         <div style={styles.centerCard}>
           <div style={styles.centerTitle}>Access denied</div>
-          <p style={styles.centerText}>Only managers and superusers can access Daily Forms.</p>
+          <p style={styles.centerText}>Daily Forms are visible only to the assigned staff member, Fenny, and Superuser.</p>
           <Link href="/dashboard" style={styles.linkBtn}>Back to Dashboard</Link>
         </div>
       </main>
@@ -740,7 +829,7 @@ export default function DailyFormsPage() {
           <div>
             <div style={styles.pageTitle}>Daily Forms</div>
             <div style={styles.pageSubTitle}>
-              {profile.name} ({profile.role}) · Manager daily checklist workspace
+              {profile.name} ({profile.role}) · Assigned forms and management follow-up
             </div>
           </div>
 
@@ -756,6 +845,47 @@ export default function DailyFormsPage() {
 
         {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
         {successMsg ? <div style={styles.successBox}>{successMsg}</div> : null}
+
+        {!loading && assignedManagementRuns.length > 0 ? (
+          <section style={styles.managementPanel}>
+            <div style={styles.managementPanelHeader}>
+              <div>
+                <div style={styles.managementEyebrow}>MANAGEMENT TASKS</div>
+                <div style={styles.managementTitle}>Work requiring completion</div>
+                <div style={styles.managementSubtitle}>
+                  These tasks remain here from their start date until they are marked done.
+                </div>
+              </div>
+              <div style={styles.managementCount}>{assignedManagementRuns.length} open</div>
+            </div>
+            <div style={styles.managementTaskGrid}>
+              {assignedManagementRuns.map((run) => {
+                const task = run.management_tasks;
+                return (
+                  <div key={run.id} style={styles.managementTaskCard}>
+                    <div style={styles.managementTaskTop}>
+                      <div style={styles.managementTaskTitle}>{task?.title || 'Management task'}</div>
+                      <span style={{ ...styles.managementStatus, ...(run.status === 'OVERDUE' ? styles.managementStatusOverdue : {}) }}>
+                        {run.status}
+                      </span>
+                    </div>
+                    {task?.description ? <div style={styles.managementTaskDescription}>{task.description}</div> : null}
+                    <div style={styles.managementTaskMeta}>
+                      <span>Starts {formatDate(run.run_start_date)}</span>
+                      <span>Due {formatDate(run.due_date)}</span>
+                      {(isSuper || isFenny) && (task?.assigned_user_name || task?.assigned_user_email) ? (
+                        <span>Assigned to {task.assigned_user_name || task.assigned_user_email}</span>
+                      ) : null}
+                    </div>
+                    <Link href="/dashboard/management-tasks" style={styles.managementOpenBtn}>
+                      Open Management Task
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <div style={styles.modeRow}>
           <button
@@ -811,6 +941,9 @@ export default function DailyFormsPage() {
                     <div style={styles.formChooserMeta}>
                       {templateQuestions.length} question{templateQuestions.length === 1 ? '' : 's'}
                     </div>
+                    <div style={styles.formChooserAssigned}>
+                      Assigned to {template.assigned_user_name || template.assigned_user_email || 'Not assigned'}
+                    </div>
                     <div style={styles.formChooserHint}>Open Form</div>
                   </button>
                 );
@@ -834,6 +967,9 @@ export default function DailyFormsPage() {
                     Last updated: {formatDateTime(todaySubmission.updated_at)}
                   </div>
                 ) : null}
+                <div style={styles.formSubMeta}>
+                  Assigned to {selectedTemplate.assigned_user_name || selectedTemplate.assigned_user_email || 'Not assigned'}
+                </div>
               </div>
 
               <div style={styles.formHeaderRight}>
@@ -1053,6 +1189,19 @@ export default function DailyFormsPage() {
               />
             </div>
 
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Responsible Person</label>
+              <select value={draftAssignedUserId} onChange={(e) => setDraftAssignedUserId(e.target.value)} style={styles.input} disabled={templateSaving}>
+                <option value="">Select staff member</option>
+                {assignmentUsers.map((user) => (
+                  <option key={user.user_id} value={user.user_id}>
+                    {user.name || user.email} — {user.email}
+                  </option>
+                ))}
+              </select>
+              <div style={styles.helpText}>Only this person, Fenny, and Superuser can view this form.</div>
+            </div>
+
             <div style={styles.createQuestionList}>
               {draftQuestions.map((question, index) => (
                 <div key={`${question.existingId || 'new'}-${index}`} style={styles.createQuestionCard}>
@@ -1270,6 +1419,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     marginBottom: '16px',
   },
+  formChooserAssigned: { fontSize: '13px', color: '#334155', fontWeight: 700, marginBottom: '14px' },
   formChooserHint: {
     fontSize: '13px',
     color: '#1d4ed8',
@@ -1478,6 +1628,21 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '12px 14px',
     fontWeight: 700,
   },
+  managementPanel: { background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 62%)', border: '1px solid #93c5fd', borderRadius: '22px', padding: '18px', boxShadow: '0 14px 34px rgba(37,99,235,0.09)', marginBottom: '16px' },
+  managementPanelHeader: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', marginBottom: '14px' },
+  managementEyebrow: { color: '#1d4ed8', fontSize: '11px', fontWeight: 900, letterSpacing: '0.08em' },
+  managementTitle: { color: '#0f172a', fontSize: '21px', fontWeight: 900, marginTop: '4px' },
+  managementSubtitle: { color: '#475569', fontSize: '13px', lineHeight: 1.5, marginTop: '5px' },
+  managementCount: { background: '#dbeafe', color: '#1d4ed8', borderRadius: '999px', padding: '8px 12px', fontSize: '12px', fontWeight: 900 },
+  managementTaskGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' },
+  managementTaskCard: { background: '#ffffff', border: '1px solid #bfdbfe', borderRadius: '17px', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' },
+  managementTaskTop: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' },
+  managementTaskTitle: { color: '#0f172a', fontSize: '17px', fontWeight: 900, lineHeight: 1.3 },
+  managementStatus: { background: '#dbeafe', color: '#1d4ed8', borderRadius: '999px', padding: '5px 8px', fontSize: '10px', fontWeight: 900, flexShrink: 0 },
+  managementStatusOverdue: { background: '#fee2e2', color: '#b91c1c' },
+  managementTaskDescription: { color: '#475569', fontSize: '13px', lineHeight: 1.5 },
+  managementTaskMeta: { color: '#64748b', fontSize: '12px', fontWeight: 700, display: 'flex', gap: '6px 12px', flexWrap: 'wrap' },
+  managementOpenBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', textDecoration: 'none', background: '#1d4ed8', color: '#ffffff', borderRadius: '11px', padding: '10px 13px', fontSize: '13px', fontWeight: 900 },
   emptyState: {
     border: '1px dashed #cbd5e1',
     background: '#f8fafc',
@@ -1607,6 +1772,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#334155',
     fontWeight: 800,
   },
+  helpText: { color: '#64748b', fontSize: '12px', lineHeight: 1.45 },
   checkboxLabel: {
     display: 'flex',
     alignItems: 'center',

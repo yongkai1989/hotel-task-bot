@@ -1,0 +1,275 @@
+-- Run this entire file once in Supabase SQL Editor before deploying the matching app update.
+-- It adds responsible-person assignments and enforces visibility in PostgreSQL RLS.
+-- Existing unassigned records remain visible to Fenny and Superuser so they can be assigned safely.
+
+begin;
+
+alter table public.management_tasks
+  add column if not exists assigned_user_id uuid,
+  add column if not exists assigned_user_name text,
+  add column if not exists assigned_user_email text;
+
+alter table public.daily_form_templates
+  add column if not exists assigned_user_id uuid,
+  add column if not exists assigned_user_name text,
+  add column if not exists assigned_user_email text;
+
+create index if not exists management_tasks_assigned_user_idx
+  on public.management_tasks (assigned_user_id, is_active);
+create index if not exists management_task_runs_open_start_idx
+  on public.management_task_runs (status, run_start_date, management_task_id);
+create index if not exists daily_form_templates_assigned_user_idx
+  on public.daily_form_templates (assigned_user_id, is_active);
+
+create or replace function public.assignment_is_superuser()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.user_profiles up
+    where up.user_id = auth.uid()
+      and upper(coalesce(up.role::text, '')) = 'SUPERUSER'
+  );
+$$;
+
+create or replace function public.assignment_is_overseer()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.user_profiles up
+    where up.user_id = auth.uid()
+      and (
+        upper(coalesce(up.role::text, '')) = 'SUPERUSER'
+        or lower(coalesce(up.email, '')) = 'fenny@hotelhallmark.com'
+      )
+  );
+$$;
+
+revoke all on function public.assignment_is_superuser() from public, anon;
+revoke all on function public.assignment_is_overseer() from public, anon;
+grant execute on function public.assignment_is_superuser() to authenticated;
+grant execute on function public.assignment_is_overseer() to authenticated;
+grant execute on function public.run_management_task_recurrence() to authenticated;
+
+create or replace function public.grant_assignment_page_access()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.assigned_user_id is not null then
+    if tg_table_name = 'management_tasks' then
+      update public.user_profiles
+      set can_access_management_tasks = true,
+          can_access_daily_forms = true
+      where user_id = new.assigned_user_id;
+    elsif tg_table_name = 'daily_form_templates' then
+      update public.user_profiles
+      set can_access_daily_forms = true
+      where user_id = new.assigned_user_id;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.grant_assignment_page_access() from public, anon, authenticated;
+
+drop trigger if exists management_tasks_grant_assignment_access on public.management_tasks;
+create trigger management_tasks_grant_assignment_access
+after insert or update of assigned_user_id on public.management_tasks
+for each row execute function public.grant_assignment_page_access();
+
+drop trigger if exists daily_forms_grant_assignment_access on public.daily_form_templates;
+create trigger daily_forms_grant_assignment_access
+after insert or update of assigned_user_id on public.daily_form_templates
+for each row execute function public.grant_assignment_page_access();
+
+update public.user_profiles
+set can_access_management_tasks = true,
+    can_access_daily_forms = true
+where lower(coalesce(email, '')) = 'fenny@hotelhallmark.com'
+   or upper(coalesce(role::text, '')) = 'SUPERUSER';
+
+alter table public.management_tasks enable row level security;
+alter table public.management_task_runs enable row level security;
+alter table public.management_task_run_rooms enable row level security;
+alter table public.daily_form_templates enable row level security;
+alter table public.daily_form_questions enable row level security;
+alter table public.daily_form_submissions enable row level security;
+alter table public.daily_form_answers enable row level security;
+
+grant select, insert, update, delete on table public.management_tasks to authenticated;
+grant select, insert, update, delete on table public.management_task_runs to authenticated;
+grant select, insert, update, delete on table public.management_task_run_rooms to authenticated;
+grant select, insert, update, delete on table public.daily_form_templates to authenticated;
+grant select, insert, update, delete on table public.daily_form_questions to authenticated;
+grant select, insert, update, delete on table public.daily_form_submissions to authenticated;
+grant select, insert, update, delete on table public.daily_form_answers to authenticated;
+
+-- A permissive authenticated base plus restrictive guards ensures these rules also
+-- constrain any older permissive policies without deleting the app's existing policies.
+
+drop policy if exists assignment_management_tasks_base on public.management_tasks;
+create policy assignment_management_tasks_base on public.management_tasks
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_management_tasks_guard on public.management_tasks;
+create policy assignment_management_tasks_guard on public.management_tasks
+  as restrictive for all to authenticated
+  using (public.assignment_is_overseer() or assigned_user_id = auth.uid())
+  with check (
+    public.assignment_is_superuser()
+    and (public.assignment_is_overseer() or assigned_user_id = auth.uid())
+  );
+
+drop policy if exists assignment_management_runs_base on public.management_task_runs;
+create policy assignment_management_runs_base on public.management_task_runs
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_management_runs_guard on public.management_task_runs;
+create policy assignment_management_runs_guard on public.management_task_runs
+  as restrictive for all to authenticated
+  using (
+    exists (
+      select 1 from public.management_tasks mt
+      where mt.id = management_task_runs.management_task_id
+        and (public.assignment_is_overseer() or mt.assigned_user_id = auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.management_tasks mt
+      where mt.id = management_task_runs.management_task_id
+        and (public.assignment_is_overseer() or mt.assigned_user_id = auth.uid())
+    )
+  );
+
+drop policy if exists assignment_management_rooms_base on public.management_task_run_rooms;
+create policy assignment_management_rooms_base on public.management_task_run_rooms
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_management_rooms_guard on public.management_task_run_rooms;
+create policy assignment_management_rooms_guard on public.management_task_run_rooms
+  as restrictive for all to authenticated
+  using (
+    exists (
+      select 1
+      from public.management_task_runs mtr
+      join public.management_tasks mt on mt.id = mtr.management_task_id
+      where mtr.id = management_task_run_rooms.management_task_run_id
+        and (public.assignment_is_overseer() or mt.assigned_user_id = auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.management_task_runs mtr
+      join public.management_tasks mt on mt.id = mtr.management_task_id
+      where mtr.id = management_task_run_rooms.management_task_run_id
+        and (public.assignment_is_overseer() or mt.assigned_user_id = auth.uid())
+    )
+  );
+
+drop policy if exists assignment_daily_templates_base on public.daily_form_templates;
+create policy assignment_daily_templates_base on public.daily_form_templates
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_daily_templates_guard on public.daily_form_templates;
+create policy assignment_daily_templates_guard on public.daily_form_templates
+  as restrictive for all to authenticated
+  using (public.assignment_is_overseer() or assigned_user_id = auth.uid())
+  with check (
+    public.assignment_is_superuser()
+    and (public.assignment_is_overseer() or assigned_user_id = auth.uid())
+  );
+
+drop policy if exists assignment_daily_questions_base on public.daily_form_questions;
+create policy assignment_daily_questions_base on public.daily_form_questions
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_daily_questions_guard on public.daily_form_questions;
+create policy assignment_daily_questions_guard on public.daily_form_questions
+  as restrictive for all to authenticated
+  using (
+    exists (
+      select 1 from public.daily_form_templates dft
+      where dft.id = daily_form_questions.template_id
+        and (public.assignment_is_overseer() or dft.assigned_user_id = auth.uid())
+    )
+  )
+  with check (
+    public.assignment_is_superuser()
+    and exists (
+      select 1 from public.daily_form_templates dft
+      where dft.id = daily_form_questions.template_id
+        and (public.assignment_is_overseer() or dft.assigned_user_id = auth.uid())
+    )
+  );
+
+drop policy if exists assignment_daily_submissions_base on public.daily_form_submissions;
+create policy assignment_daily_submissions_base on public.daily_form_submissions
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_daily_submissions_guard on public.daily_form_submissions;
+create policy assignment_daily_submissions_guard on public.daily_form_submissions
+  as restrictive for all to authenticated
+  using (
+    public.assignment_is_overseer()
+    or (
+      submitted_by_user_id = auth.uid()
+      and exists (
+        select 1 from public.daily_form_templates dft
+        where dft.id = daily_form_submissions.template_id
+          and dft.assigned_user_id = auth.uid()
+      )
+    )
+  )
+  with check (
+    public.assignment_is_overseer()
+    or (
+      submitted_by_user_id = auth.uid()
+      and exists (
+        select 1 from public.daily_form_templates dft
+        where dft.id = daily_form_submissions.template_id
+          and dft.assigned_user_id = auth.uid()
+      )
+    )
+  );
+
+drop policy if exists assignment_daily_answers_base on public.daily_form_answers;
+create policy assignment_daily_answers_base on public.daily_form_answers
+  for all to authenticated using (true) with check (true);
+drop policy if exists assignment_daily_answers_guard on public.daily_form_answers;
+create policy assignment_daily_answers_guard on public.daily_form_answers
+  as restrictive for all to authenticated
+  using (
+    exists (
+      select 1
+      from public.daily_form_submissions dfs
+      join public.daily_form_templates dft on dft.id = dfs.template_id
+      where dfs.id = daily_form_answers.submission_id
+        and (
+          public.assignment_is_overseer()
+          or (dfs.submitted_by_user_id = auth.uid() and dft.assigned_user_id = auth.uid())
+        )
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.daily_form_submissions dfs
+      join public.daily_form_templates dft on dft.id = dfs.template_id
+      where dfs.id = daily_form_answers.submission_id
+        and (
+          public.assignment_is_overseer()
+          or (dfs.submitted_by_user_id = auth.uid() and dft.assigned_user_id = auth.uid())
+        )
+    )
+  );
+
+commit;
