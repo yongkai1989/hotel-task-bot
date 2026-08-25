@@ -33,6 +33,10 @@ type LostFoundEntry = {
   collector_name?: string | null;
   collector_ic?: string | null;
   returned_by_name?: string | null;
+  disposed?: boolean;
+  disposed_at?: string | null;
+  disposed_by_name?: string | null;
+  disposal_proof_path?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -86,6 +90,7 @@ function canUseLostFound(profile: DashboardUser | null) {
 }
 
 function statusBadge(entry: LostFoundEntry) {
+  if (entry.disposed) return { label: 'Disposed', color: '#9f1239', bg: '#fff1f2', border: '#fecdd3' };
   if (entry.returned) return { label: 'Returned', color: '#166534', bg: '#dcfce7', border: '#bbf7d0' };
   return { label: 'In Storage', color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' };
 }
@@ -145,9 +150,12 @@ export default function LostFoundPage() {
   const [returnMethod, setReturnMethod] = useState<ReturnMethod>('Collected In Person');
   const [waybillNumber, setWaybillNumber] = useState('');
   const [postagePaid, setPostagePaid] = useState(false);
+  const [disposeEntry, setDisposeEntry] = useState<LostFoundEntry | null>(null);
+  const [disposalProofFile, setDisposalProofFile] = useState<File | null>(null);
 
-  const activeEntries = entries.filter((entry) => !entry.returned);
-  const returnedEntries = entries.filter((entry) => entry.returned);
+  const activeEntries = entries.filter((entry) => !entry.returned && !entry.disposed);
+  const returnedEntries = entries.filter((entry) => entry.returned && !entry.disposed);
+  const disposedEntries = entries.filter((entry) => entry.disposed);
   const isSuperuser = profile?.role === 'SUPERUSER';
   const canAccess = canUseLostFound(profile);
 
@@ -222,6 +230,7 @@ export default function LostFoundPage() {
       const { data, error } = await supabase
         .from('lost_found_entries')
         .select('*')
+        .order('disposed', { ascending: true })
         .order('returned', { ascending: true })
         .order('lost_date', { ascending: false })
         .order('created_at', { ascending: false });
@@ -331,6 +340,81 @@ export default function LostFoundPage() {
   function closeReturnModal() {
     if (saving) return;
     setReturnEntry(null);
+  }
+
+  function openDisposeModal(entry: LostFoundEntry) {
+    setDisposeEntry(entry);
+    setDisposalProofFile(null);
+    setErrorMsg('');
+    setSuccessMsg('');
+  }
+
+  function closeDisposeModal() {
+    if (saving) return;
+    setDisposeEntry(null);
+    setDisposalProofFile(null);
+  }
+
+  async function disposeItem() {
+    try {
+      if (!disposeEntry) throw new Error('No item selected');
+      if (!disposalProofFile) throw new Error("Upload the guest's approval screenshot before disposing this item");
+
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const token = await getAccessToken();
+      if (!token) throw new Error('Login required');
+
+      const image = await imageToDataUrl(disposalProofFile);
+      const res = await fetch('/api/lost-found/dispose', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ entryId: disposeEntry.id, image }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to dispose item');
+
+      setDisposeEntry(null);
+      setDisposalProofFile(null);
+      setSuccessMsg('Item marked as disposed. Guest approval proof has been saved securely.');
+      await loadEntries();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to dispose item');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function viewDisposalProof(entry: LostFoundEntry) {
+    const proofWindow = window.open('', '_blank');
+
+    try {
+      setErrorMsg('');
+      const token = await getAccessToken();
+      if (!token) throw new Error('Login required');
+
+      const res = await fetch(`/api/lost-found/dispose?entryId=${encodeURIComponent(entry.id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok || !json.url) throw new Error(json?.error || 'Failed to open disposal proof');
+
+      if (proofWindow) {
+        proofWindow.opener = null;
+        proofWindow.location.href = String(json.url);
+      } else {
+        window.location.href = String(json.url);
+      }
+    } catch (err: any) {
+      proofWindow?.close();
+      setErrorMsg(err?.message || 'Failed to open disposal proof');
+    }
   }
 
   async function markReturned() {
@@ -542,12 +626,20 @@ export default function LostFoundPage() {
             {entry.return_method === 'Courier' ? <div><b>Postage Paid:</b> {entry.postage_paid ? 'Yes' : 'No'}</div> : null}
             {entry.collector_name ? <div><b>Collector:</b> {entry.collector_name}</div> : null}
             {entry.collector_ic ? <div><b>IC:</b> {entry.collector_ic}</div> : null}
+            {entry.disposed ? <div><b>Disposed:</b> {formatDateTime(entry.disposed_at)}</div> : null}
+            {entry.disposed_by_name ? <div><b>Disposed By:</b> {entry.disposed_by_name}</div> : null}
           </div>
 
           <div style={styles.cardActions}>
-            {!entry.returned ? (
+            {!entry.returned && !entry.disposed ? (
               <button type="button" onClick={() => openReturnModal(entry)} disabled={saving} style={styles.primarySmall}>
                 Mark Returned
+              </button>
+            ) : null}
+
+            {!entry.returned && !entry.disposed ? (
+              <button type="button" onClick={() => openDisposeModal(entry)} disabled={saving} style={styles.disposeSmall}>
+                Dispose
               </button>
             ) : null}
 
@@ -560,6 +652,12 @@ export default function LostFoundPage() {
             {entry.returned ? (
               <button type="button" onClick={() => void reverseReturned(entry)} disabled={saving} style={styles.warningSmall}>
                 Reverse Return
+              </button>
+            ) : null}
+
+            {entry.disposed && entry.disposal_proof_path ? (
+              <button type="button" onClick={() => void viewDisposalProof(entry)} style={styles.secondarySmall}>
+                View Guest Approval
               </button>
             ) : null}
 
@@ -689,6 +787,13 @@ export default function LostFoundPage() {
           {!loading && returnedEntries.length === 0 ? <div style={styles.empty}>No returned items yet.</div> : null}
           <div style={styles.list}>{returnedEntries.map(renderEntry)}</div>
         </section>
+
+        <section style={styles.panel}>
+          <div style={styles.panelTitle}>Disposed Items</div>
+          <div style={styles.helper}>Disposal records retain the staff member, date, time, and guest-approval proof.</div>
+          {!loading && disposedEntries.length === 0 ? <div style={styles.empty}>No disposed items yet.</div> : null}
+          <div style={styles.list}>{disposedEntries.map(renderEntry)}</div>
+        </section>
       </div>
 
       {returnEntry ? (
@@ -766,6 +871,55 @@ export default function LostFoundPage() {
           </div>
         </div>
       ) : null}
+
+      {disposeEntry ? (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHead}>
+              <div>
+                <div style={styles.panelTitle}>Dispose Lost Item</div>
+                <div style={styles.helper}>{disposeEntry.item_description} | Room {disposeEntry.room_number}</div>
+              </div>
+              <button type="button" onClick={closeDisposeModal} style={styles.iconBtn}>x</button>
+            </div>
+
+            <div style={styles.disposeWarning}>
+              Disposal can only be submitted after proof of the guest's approval is uploaded. The proof and disposal details will remain in history.
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Guest Approval Screenshot (Required)</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setDisposalProofFile(e.target.files?.[0] || null)}
+                style={styles.fileInput}
+              />
+              <div style={styles.helper}>
+                Upload a clear screenshot showing that the guest agreed to dispose of this item.
+              </div>
+            </div>
+
+            <div style={styles.actions}>
+              <button
+                type="button"
+                onClick={() => void disposeItem()}
+                disabled={saving || !disposalProofFile}
+                style={{
+                  ...styles.disposeBtn,
+                  opacity: saving || !disposalProofFile ? 0.5 : 1,
+                  cursor: saving || !disposalProofFile ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {saving ? 'Saving...' : 'Confirm Dispose'}
+              </button>
+              <button type="button" onClick={closeDisposeModal} disabled={saving} style={styles.secondaryBtn}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -798,6 +952,9 @@ const styles: Record<string, React.CSSProperties> = {
   primarySmall: { border: 'none', background: '#2563eb', color: '#ffffff', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   secondarySmall: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   warningSmall: { border: '1px solid #fed7aa', background: '#fff7ed', color: '#c2410c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
+  disposeSmall: { border: '1px solid #fecdd3', background: '#fff1f2', color: '#be123c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
+  disposeBtn: { border: 'none', background: '#be123c', color: '#ffffff', borderRadius: 14, padding: '12px 16px', fontWeight: 900, boxShadow: '0 10px 24px rgba(190, 18, 60, 0.2)' },
+  disposeWarning: { border: '1px solid #fecdd3', background: '#fff1f2', color: '#9f1239', borderRadius: 16, padding: 14, marginBottom: 14, fontSize: 13, lineHeight: 1.5, fontWeight: 800 },
   deleteSmall: { border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   errorBox: { border: '1px solid #fecaca', background: '#fff1f2', color: '#b91c1c', borderRadius: 16, padding: '12px 14px', fontWeight: 900 },
   successBox: { border: '1px solid #bbf7d0', background: '#ecfdf5', color: '#166534', borderRadius: 16, padding: '12px 14px', fontWeight: 900 },

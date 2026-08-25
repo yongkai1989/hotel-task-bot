@@ -1,0 +1,46 @@
+-- Lost & Found disposal tracking
+-- Safe to run more than once.
+
+alter table public.lost_found_entries
+  add column if not exists disposed boolean not null default false,
+  add column if not exists disposed_at timestamptz,
+  add column if not exists disposed_by_user_id uuid,
+  add column if not exists disposed_by_name text,
+  add column if not exists disposal_proof_path text;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'lost_found_entries_not_returned_and_disposed'
+      and conrelid = 'public.lost_found_entries'::regclass
+  ) then
+    alter table public.lost_found_entries
+      add constraint lost_found_entries_not_returned_and_disposed
+      check (not (returned and disposed));
+  end if;
+end
+$$;
+
+create index if not exists lost_found_entries_status_lost_date_idx
+  on public.lost_found_entries (disposed, returned, lost_date desc);
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'lost-found-disposal-proofs',
+  'lost-found-disposal-proofs',
+  false,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;

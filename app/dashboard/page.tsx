@@ -77,6 +77,7 @@ type DashboardInsights = {
   foChecklistSubmitted: number;
   foChecklistHasNoAnswer: boolean;
   supervisorChecklistSubmitted: number;
+  supervisorChecklistRequired: number;
   paChecklistSubmitted: number;
   fnbChecklistSubmitted: number;
   managerRoomCheck: {
@@ -756,6 +757,7 @@ export default function DashboardPage() {
     foChecklistSubmitted: 0,
     foChecklistHasNoAnswer: false,
     supervisorChecklistSubmitted: 0,
+    supervisorChecklistRequired: 0,
     paChecklistSubmitted: 0,
     fnbChecklistSubmitted: 0,
     managerRoomCheck: {
@@ -1585,6 +1587,7 @@ export default function DashboardPage() {
       let foChecklistSubmitted = 0;
       let foChecklistHasNoAnswer = false;
       let supervisorChecklistSubmitted = 0;
+      let supervisorChecklistRequired = 0;
       let paChecklistSubmitted = 0;
       let fnbChecklistSubmitted = 0;
       const foChecklistDate = getFoChecklistServiceDateString();
@@ -1636,27 +1639,38 @@ export default function DashboardPage() {
       const supervisorChecklistDate = getSupervisorChecklistServiceDateString();
       const { data: supervisorTemplates, error: supervisorTemplatesError } = await supabase
         .from('supervisor_checklist_templates')
-        .select('id')
+        .select('id, title')
         .eq('is_active', true);
 
       if (!supervisorTemplatesError) {
-        const supervisorTemplateIds = ((supervisorTemplates || []) as Array<{ id: string }>)
+        const supervisorTemplateIds = ((supervisorTemplates || []) as Array<{ id: string; title?: string | null }>)
           .map((template) => template.id)
           .filter(Boolean);
 
         if (supervisorTemplateIds.length > 0) {
-          const { data: supervisorSubmissions, error: supervisorSubmissionsError } = await supabase
-            .from('supervisor_checklist_submissions')
-            .select('submitted_by_email, template_id')
-            .eq('submission_date', supervisorChecklistDate)
-            .in('template_id', supervisorTemplateIds);
+          const primaryTemplateId = supervisorTemplateIds[0];
+          const { data: trackerRows, error: trackerError } = await supabase.rpc(
+            'get_supervisor_checklist_tracker',
+            {
+              p_template_id: primaryTemplateId,
+              p_submission_date: supervisorChecklistDate,
+            }
+          );
 
-          if (!supervisorSubmissionsError) {
-            supervisorChecklistSubmitted = new Set(
-              ((supervisorSubmissions || []) as Array<{ submitted_by_email?: string | null }>)
-                .map((submission) => String(submission.submitted_by_email || '').trim().toLowerCase())
-                .filter((email) => HOUSEKEEPING_SUPERVISOR_EMAILS.includes(email))
-            ).size;
+          if (!trackerError) {
+            const scheduledSupervisors = ((trackerRows || []) as Array<{
+              email?: string | null;
+              submission_id?: string | null;
+            }>).filter((row) =>
+              HOUSEKEEPING_SUPERVISOR_EMAILS.includes(
+                String(row.email || '').trim().toLowerCase()
+              )
+            );
+
+            supervisorChecklistRequired = scheduledSupervisors.length;
+            supervisorChecklistSubmitted = scheduledSupervisors.filter(
+              (row) => Boolean(row.submission_id)
+            ).length;
           }
         }
       }
@@ -1749,7 +1763,11 @@ export default function DashboardPage() {
         overduePm,
         foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
         foChecklistHasNoAnswer,
-        supervisorChecklistSubmitted: Math.max(0, Math.min(3, supervisorChecklistSubmitted)),
+        supervisorChecklistSubmitted: Math.max(
+          0,
+          Math.min(supervisorChecklistRequired, supervisorChecklistSubmitted)
+        ),
+        supervisorChecklistRequired: Math.max(0, supervisorChecklistRequired),
         paChecklistSubmitted: Math.max(0, Math.min(1, paChecklistSubmitted)),
         fnbChecklistSubmitted: Math.max(0, Math.min(1, fnbChecklistSubmitted)),
         managerRoomCheck,
@@ -3129,11 +3147,11 @@ async function handleDeleteTask(task: Task) {
                       <OverviewMetricCard
                         href="/dashboard/supervisor-checklist"
                         title="Supervisor Checklist"
-                        value={`${insights.supervisorChecklistSubmitted}/3`}
+                        value={`${insights.supervisorChecklistSubmitted}/${insights.supervisorChecklistRequired}`}
                         note="Housekeeping supervisors submitted"
-                        tone={insights.supervisorChecklistSubmitted >= 3 ? 'done' : 'violet'}
+                        tone={insights.supervisorChecklistSubmitted >= insights.supervisorChecklistRequired ? 'done' : 'violet'}
                         icon="housekeeping"
-                        alert={insights.supervisorChecklistSubmitted < 3}
+                        alert={insights.supervisorChecklistSubmitted < insights.supervisorChecklistRequired}
                       />
                       <OverviewMetricCard
                         href="/dashboard/pa-checklist"
