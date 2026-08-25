@@ -273,3 +273,97 @@ create policy assignment_daily_answers_guard on public.daily_form_answers
   );
 
 commit;
+
+-- Optional one-time management tasks.
+-- NULL repeat_every_days means the task runs once and closes permanently when done.
+begin;
+
+alter table public.management_tasks
+  alter column repeat_every_days drop not null;
+
+create or replace function public.run_management_task_recurrence()
+returns void
+language sql
+set search_path = 'public', 'pg_temp'
+as $$
+  update public.management_task_runs
+  set status = 'OVERDUE',
+      updated_at = now()
+  where status = 'OPEN'
+    and due_date < current_date;
+
+  insert into public.management_task_runs (
+    management_task_id,
+    run_start_date,
+    due_date,
+    status
+  )
+  select
+    t.id,
+    coalesce(t.start_date, current_date),
+    coalesce(t.start_date, current_date) + t.due_in_days,
+    case
+      when coalesce(t.start_date, current_date) + t.due_in_days < current_date then 'OVERDUE'
+      else 'OPEN'
+    end
+  from public.management_tasks t
+  where t.is_active = true
+    and coalesce(t.start_date, current_date) <= current_date
+    and not exists (
+      select 1
+      from public.management_task_runs r
+      where r.management_task_id = t.id
+    );
+
+  with latest_runs as (
+    select distinct on (r.management_task_id)
+      r.management_task_id,
+      r.run_start_date,
+      r.status,
+      r.created_at
+    from public.management_task_runs r
+    join public.management_tasks t
+      on t.id = r.management_task_id
+    where t.is_active = true
+      and t.repeat_every_days is not null
+    order by r.management_task_id, r.run_start_date desc, r.created_at desc
+  ),
+  next_candidates as (
+    select
+      t.id as management_task_id,
+      (lr.run_start_date + t.repeat_every_days) as next_start,
+      (lr.run_start_date + t.repeat_every_days + t.due_in_days) as next_due
+    from public.management_tasks t
+    join latest_runs lr
+      on lr.management_task_id = t.id
+    where t.is_active = true
+      and t.repeat_every_days is not null
+      and lr.status = 'DONE'
+  )
+  insert into public.management_task_runs (
+    management_task_id,
+    run_start_date,
+    due_date,
+    status
+  )
+  select
+    nc.management_task_id,
+    nc.next_start,
+    nc.next_due,
+    case
+      when nc.next_due < current_date then 'OVERDUE'
+      else 'OPEN'
+    end
+  from next_candidates nc
+  where nc.next_start <= current_date
+    and not exists (
+      select 1
+      from public.management_task_runs r
+      where r.management_task_id = nc.management_task_id
+        and r.run_start_date = nc.next_start
+    );
+$$;
+
+grant execute on function public.run_management_task_recurrence() to authenticated;
+
+commit;

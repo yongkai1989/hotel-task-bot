@@ -45,7 +45,7 @@ type ManagementTask = {
   id: string;
   title: string;
   description: string | null;
-  repeat_every_days: number;
+  repeat_every_days: number | null;
   due_in_days: number;
   start_date: string | null;
   has_room_checklist: boolean;
@@ -174,6 +174,7 @@ export default function ManagementTasksPage() {
 
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
+  const [taskRepeats, setTaskRepeats] = useState(true);
   const [repeatEveryDaysInput, setRepeatEveryDaysInput] = useState('30');
   const [dueInDaysInput, setDueInDaysInput] = useState('7');
   const [taskStartDate, setTaskStartDate] = useState(getTodayLocalDateString());
@@ -350,6 +351,7 @@ export default function ManagementTasksPage() {
   function resetTaskModalFields() {
     setTaskTitle('');
     setTaskDescription('');
+    setTaskRepeats(true);
     setRepeatEveryDaysInput('30');
     setDueInDaysInput('7');
     setTaskStartDate(getTodayLocalDateString());
@@ -373,7 +375,8 @@ export default function ManagementTasksPage() {
     setEditingTaskId(card.task.id);
     setTaskTitle(card.task.title);
     setTaskDescription(card.task.description || '');
-    setRepeatEveryDaysInput(String(card.task.repeat_every_days));
+    setTaskRepeats(card.task.repeat_every_days !== null);
+    setRepeatEveryDaysInput(String(card.task.repeat_every_days || 30));
     setDueInDaysInput(String(card.task.due_in_days));
     setTaskStartDate(card.task.start_date || getTodayLocalDateString());
     setTaskHasRoomChecklist(!!card.task.has_room_checklist);
@@ -396,8 +399,8 @@ export default function ManagementTasksPage() {
     const title = taskTitle.trim();
     if (!title) return setErrorMsg('Please enter a task title.');
 
-    const parsedRepeatEveryDays = parseWholeNumber(repeatEveryDaysInput);
-    if (parsedRepeatEveryDays === null || parsedRepeatEveryDays <= 0) {
+    const parsedRepeatEveryDays = taskRepeats ? parseWholeNumber(repeatEveryDaysInput) : null;
+    if (taskRepeats && (parsedRepeatEveryDays === null || parsedRepeatEveryDays <= 0)) {
       return setErrorMsg('Repeat Every days must be more than 0.');
     }
 
@@ -425,7 +428,7 @@ export default function ManagementTasksPage() {
           .insert([{
             title,
             description: taskDescription.trim() || null,
-            repeat_every_days: parsedRepeatEveryDays,
+            repeat_every_days: taskRepeats ? parsedRepeatEveryDays : null,
             due_in_days: parsedDueInDays,
             start_date: startDate,
             has_room_checklist: taskHasRoomChecklist,
@@ -468,7 +471,7 @@ export default function ManagementTasksPage() {
           .update({
             title,
             description: taskDescription.trim() || null,
-            repeat_every_days: parsedRepeatEveryDays,
+            repeat_every_days: taskRepeats ? parsedRepeatEveryDays : null,
             due_in_days: parsedDueInDays,
             start_date: startDate,
             has_room_checklist: taskHasRoomChecklist,
@@ -733,7 +736,9 @@ export default function ManagementTasksPage() {
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Repeat</div>
-            <div style={styles.metaValue}>{card.task.repeat_every_days} days</div>
+            <div style={styles.metaValue}>
+              {card.task.repeat_every_days === null ? 'Does not repeat' : `${card.task.repeat_every_days} days`}
+            </div>
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Due In</div>
@@ -880,7 +885,7 @@ export default function ManagementTasksPage() {
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.summaryLabel}>Recurring Tasks</div>
-            <div style={styles.summaryValue}>{tasks.length}</div>
+            <div style={styles.summaryValue}>{tasks.filter((task) => task.repeat_every_days !== null).length}</div>
           </div>
         </div>
 
@@ -947,16 +952,42 @@ export default function ManagementTasksPage() {
               </div>
             </div>
 
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Repeat</label>
+              <div style={styles.repeatChoiceRow}>
+                <button
+                  type="button"
+                  onClick={() => setTaskRepeats(false)}
+                  style={{ ...styles.repeatChoice, ...(!taskRepeats ? styles.repeatChoiceActive : {}) }}
+                  disabled={savingTask}
+                >
+                  <strong>Does not repeat</strong>
+                  <span style={styles.repeatChoiceHint}>Complete once and close permanently</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTaskRepeats(true)}
+                  style={{ ...styles.repeatChoice, ...(taskRepeats ? styles.repeatChoiceActive : {}) }}
+                  disabled={savingTask}
+                >
+                  <strong>Repeating task</strong>
+                  <span style={styles.repeatChoiceHint}>Create the next cycle after completion</span>
+                </button>
+              </div>
+            </div>
+
             <div style={styles.formRow}>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Start Date</label>
                 <input type="date" value={taskStartDate} onChange={(e) => setTaskStartDate(e.target.value)} style={styles.input} disabled={savingTask} />
               </div>
 
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Repeat Every (Days)</label>
-                <input type="number" value={repeatEveryDaysInput} onChange={(e) => setRepeatEveryDaysInput(e.target.value)} style={styles.input} placeholder="30" disabled={savingTask} />
-              </div>
+              {taskRepeats ? (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Repeat Every (Days)</label>
+                  <input type="number" min="1" value={repeatEveryDaysInput} onChange={(e) => setRepeatEveryDaysInput(e.target.value)} style={styles.input} placeholder="30" disabled={savingTask} />
+                </div>
+              ) : null}
 
               <div style={styles.formGroup}>
                 <label style={styles.label}>Due In (Days)</label>
@@ -1090,6 +1121,10 @@ const styles: Record<string, React.CSSProperties> = {
   formGroup: { marginBottom: '14px', display: 'flex', flexDirection: 'column', gap: '8px', flex: '1 1 220px', minWidth: 0 },
   formGroupCompact: { display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '220px' },
   formRow: { display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' },
+  repeatChoiceRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' },
+  repeatChoice: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px', minHeight: '70px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '14px', padding: '12px 14px', fontSize: '14px', textAlign: 'left', cursor: 'pointer' },
+  repeatChoiceActive: { borderColor: '#2563eb', background: '#eff6ff', color: '#1d4ed8', boxShadow: '0 0 0 2px rgba(37, 99, 235, 0.12)' },
+  repeatChoiceHint: { fontSize: '12px', fontWeight: 600, lineHeight: 1.35, color: '#64748b' },
   label: { fontSize: '14px', color: '#334155', fontWeight: 700 },
   helpText: { fontSize: '12px', color: '#64748b', lineHeight: 1.4 },
   checkboxLabel: { display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '14px', fontSize: '14px', color: '#334155', fontWeight: 700 },
