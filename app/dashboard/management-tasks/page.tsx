@@ -65,6 +65,10 @@ type ManagementTaskRun = {
   run_start_date: string;
   due_date: string;
   status: 'OPEN' | 'DONE' | 'OVERDUE';
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by_user_id: string | null;
+  deleted_by_name: string | null;
   completed_at: string | null;
   completed_by_user_id: string | null;
   completed_by_name: string | null;
@@ -182,7 +186,7 @@ export default function ManagementTasksPage() {
   const [taskAssignedUserId, setTaskAssignedUserId] = useState('');
 
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
-  const [busyDeleteTaskId, setBusyDeleteTaskId] = useState<string | null>(null);
+  const [busyDeleteRunId, setBusyDeleteRunId] = useState<string | null>(null);
 
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistLoading, setChecklistLoading] = useState(false);
@@ -303,7 +307,7 @@ export default function ManagementTasksPage() {
 
       const [taskRes, runRes, roomRes, assignableUsers] = await Promise.all([
         supabase.from('management_tasks').select('*').eq('is_active', true).order('created_at', { ascending: false }),
-        supabase.from('management_task_runs').select('*').order('created_at', { ascending: false }),
+        supabase.from('management_task_runs').select('*').eq('is_deleted', false).order('created_at', { ascending: false }),
         supabase.from('room_master').select('room_number').eq('is_active', true).order('room_number', { ascending: true }),
         isSuperuser ? fetchAssignmentUsers(supabase) : Promise.resolve([]),
       ]);
@@ -653,33 +657,37 @@ export default function ManagementTasksPage() {
     }
   }
 
-  async function handleDeleteTask(taskId: string, taskTitle: string) {
+  async function handleDeleteRun(card: TaskCardData) {
     const supabase = getSupabaseSafe();
     if (!supabase) return setErrorMsg('Supabase is not configured.');
-    if (!isSuperuser) return setErrorMsg('Only superuser can delete tasks.');
+    if (!profile?.user_id) return setErrorMsg('User not found.');
+    if (!isSuperuser) return setErrorMsg('Only superuser can delete task cycles.');
 
     const confirmed = window.confirm(
-      `Delete recurring task "${taskTitle}"? Existing history stays, but the task will be hidden from active use.`
+      `Delete only the cycle due ${formatDate(card.run.due_date)} for "${card.task.title}"? The other cycles and recurring task setup will remain.`
     );
     if (!confirmed) return;
 
     try {
-      setBusyDeleteTaskId(taskId);
+      setBusyDeleteRunId(card.run.id);
       const { error } = await supabase
-        .from('management_tasks')
+        .from('management_task_runs')
         .update({
-          is_active: false,
+          is_deleted: true,
+          deleted_at: new Date().toISOString(),
+          deleted_by_user_id: profile.user_id,
+          deleted_by_name: profile.name || profile.email,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', taskId);
+        .eq('id', card.run.id);
 
       if (error) throw error;
-      setSuccessMsg(`Task "${taskTitle}" deleted.`);
+      setSuccessMsg(`The ${formatDate(card.run.due_date)} cycle for "${card.task.title}" was deleted. Other cycles remain.`);
       await loadAllData();
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to delete task');
+      setErrorMsg(err?.message || 'Failed to delete task cycle');
     } finally {
-      setBusyDeleteTaskId(null);
+      setBusyDeleteRunId(null);
     }
   }
 
@@ -728,7 +736,7 @@ export default function ManagementTasksPage() {
         <div style={styles.metaGrid}>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Task Start</div>
-            <div style={styles.metaValue}>{formatDate(card.task.start_date)}</div>
+            <div style={styles.metaValue}>{formatDate(card.run.run_start_date)}</div>
           </div>
           <div style={styles.metaItem}>
             <div style={styles.metaLabel}>Due</div>
@@ -812,11 +820,11 @@ export default function ManagementTasksPage() {
               </button>
               <button
                 type="button"
-                onClick={() => void handleDeleteTask(card.task.id, card.task.title)}
-                disabled={busyDeleteTaskId === card.task.id}
-                style={{ ...styles.deleteBtn, opacity: busyDeleteTaskId === card.task.id ? 0.5 : 1 }}
+                onClick={() => void handleDeleteRun(card)}
+                disabled={busyDeleteRunId === card.run.id}
+                style={{ ...styles.deleteBtn, opacity: busyDeleteRunId === card.run.id ? 0.5 : 1 }}
               >
-                {busyDeleteTaskId === card.task.id ? 'Deleting...' : 'Delete'}
+                {busyDeleteRunId === card.run.id ? 'Deleting...' : 'Delete Cycle'}
               </button>
             </>
           ) : null}
@@ -1017,7 +1025,7 @@ export default function ManagementTasksPage() {
               <div>
                 <div style={styles.modalTitle}>{selectedChecklistCard?.task.title || 'Room Checklist'}</div>
                 <div style={styles.checklistHeaderMeta}>
-                  {selectedChecklistCard ? `Task Start: ${formatDate(selectedChecklistCard.task.start_date)} · Due: ${formatDate(selectedChecklistCard.run.due_date)}` : ''}
+                  {selectedChecklistCard ? `Task Start: ${formatDate(selectedChecklistCard.run.run_start_date)} · Due: ${formatDate(selectedChecklistCard.run.due_date)}` : ''}
                 </div>
               </div>
               <button type="button" onClick={closeChecklistModal} style={styles.closeBtn} disabled={!!checklistSavingRoomId}>×</button>

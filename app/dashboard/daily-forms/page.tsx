@@ -315,6 +315,7 @@ export default function DailyFormsPage() {
               is_active
             )
           `)
+          .eq('is_deleted', false)
           .in('status', ['OPEN', 'OVERDUE'])
           .lte('run_start_date', today)
           .eq('management_tasks.is_active', true)

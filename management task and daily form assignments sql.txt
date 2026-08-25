@@ -274,12 +274,23 @@ create policy assignment_daily_answers_guard on public.daily_form_answers
 
 commit;
 
--- Optional one-time management tasks.
+-- Optional one-time tasks and independently deletable dated cycles.
 -- NULL repeat_every_days means the task runs once and closes permanently when done.
+-- Deleted cycles remain as audit tombstones, so the same cycle is not recreated.
 begin;
 
 alter table public.management_tasks
   alter column repeat_every_days drop not null;
+
+alter table public.management_task_runs
+  add column if not exists is_deleted boolean not null default false,
+  add column if not exists deleted_at timestamptz,
+  add column if not exists deleted_by_user_id uuid,
+  add column if not exists deleted_by_name text;
+
+create index if not exists management_task_runs_visible_idx
+  on public.management_task_runs (management_task_id, status, run_start_date)
+  where is_deleted = false;
 
 create or replace function public.run_management_task_recurrence()
 returns void
@@ -290,6 +301,7 @@ as $$
   set status = 'OVERDUE',
       updated_at = now()
   where status = 'OPEN'
+    and is_deleted = false
     and due_date < current_date;
 
   insert into public.management_task_runs (
@@ -320,6 +332,7 @@ as $$
       r.management_task_id,
       r.run_start_date,
       r.status,
+      r.is_deleted,
       r.created_at
     from public.management_task_runs r
     join public.management_tasks t
@@ -338,7 +351,7 @@ as $$
       on lr.management_task_id = t.id
     where t.is_active = true
       and t.repeat_every_days is not null
-      and lr.status = 'DONE'
+      and (lr.status = 'DONE' or lr.is_deleted = true)
   )
   insert into public.management_task_runs (
     management_task_id,
