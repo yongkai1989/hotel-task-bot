@@ -870,6 +870,7 @@ export default function DashboardSidebar({
     canSeeSupervisorChecklist;
   const showPublicAreaGroup = canSeePAChecklist || canSeePALinenEntry;
   const showManagementGroup =
+    canSeePastTask ||
     canSeeDailyForms ||
     canSeeDailyOperationsSummary ||
     canSeeManagementTasks ||
@@ -1238,12 +1239,6 @@ export default function DashboardSidebar({
           {canSeeDashboard ? (
             <Link href="/dashboard" prefetch={false} onClick={closeSidebar} style={styles.navBtn}>
               <SidebarNavContent icon="dashboard">Dashboard</SidebarNavContent>
-            </Link>
-          ) : null}
-
-          {canSeePastTask ? (
-            <Link href="/dashboard?view=past" prefetch={false} onClick={closeSidebar} style={styles.navBtn}>
-              <SidebarNavContent icon="archive">Past Task</SidebarNavContent>
             </Link>
           ) : null}
 
@@ -1641,6 +1636,17 @@ export default function DashboardSidebar({
               open={managementOpen}
               setOpen={setManagementOpen}
             >
+              {canSeePastTask ? (
+                <Link
+                  href="/dashboard?view=past"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="archive" sub>Past Task</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeDailyForms ? (
                 <Link
                   href="/dashboard/daily-forms"

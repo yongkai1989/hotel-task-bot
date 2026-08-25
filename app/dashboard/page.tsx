@@ -3014,7 +3014,7 @@ async function handleDeleteTask(task: Task) {
                 </section>
               ) : null}
 
-              {sidebarView === 'DASHBOARD' ? (
+              {sidebarView === 'DASHBOARD' && guestWaitingTasks.length > 0 ? (
                 <section style={styles.guestWaitingPanel}>
                   <div style={styles.guestWaitingHeader}>
                     <div>
@@ -3024,29 +3024,23 @@ async function handleDeleteTask(task: Task) {
                     <div style={styles.guestWaitingCount}>{guestWaitingTasks.length}</div>
                   </div>
 
-                  {guestWaitingTasks.length === 0 ? (
-                    <div style={styles.guestWaitingEmpty}>
-                      No guest-waiting tasks right now.
-                    </div>
-                  ) : (
-                    <div style={styles.guestWaitingList}>
-                      {guestWaitingTasks.slice(0, isMobile ? 4 : 6).map((task) => (
-                        <article key={`waiting-${task.id}`} style={styles.guestWaitingItem}>
-                          <div style={styles.guestWaitingRoom}>{task.room || '-'}</div>
-                          <div style={styles.guestWaitingBody}>
-                            <div style={styles.guestWaitingTask}>{task.task_text}</div>
-                            <div style={styles.guestWaitingMeta}>
-                              <span style={deptBadgeStyle(task.department)}>{task.department}</span>
-                              <span>{task.created_by_name || task.created_by_email || 'Created task'}</span>
-                            </div>
+                  <div style={styles.guestWaitingList}>
+                    {guestWaitingTasks.slice(0, isMobile ? 4 : 6).map((task) => (
+                      <article key={`waiting-${task.id}`} style={styles.guestWaitingItem}>
+                        <div style={styles.guestWaitingRoom}>{task.room || '-'}</div>
+                        <div style={styles.guestWaitingBody}>
+                          <div style={styles.guestWaitingTask}>{task.task_text}</div>
+                          <div style={styles.guestWaitingMeta}>
+                            <span style={deptBadgeStyle(task.department)}>{task.department}</span>
+                            <span>{task.created_by_name || task.created_by_email || 'Created task'}</span>
                           </div>
-                          <div style={styles.guestWaitingTimer}>
-                            {formatWaitingDuration(task.created_at, timerNow)}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  )}
+                        </div>
+                        <div style={styles.guestWaitingTimer}>
+                          {formatWaitingDuration(task.created_at, timerNow)}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 </section>
               ) : null}
 
