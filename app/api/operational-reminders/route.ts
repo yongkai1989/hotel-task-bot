@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
+const HK_TASK_CHAT_ID = '-1003784764929';
 const MT_TASK_CHAT_ID = '-1003860980789';
 const MAX_VISIBLE_ITEMS = 12;
 
@@ -49,7 +50,7 @@ function clipped(values: string[], limit = MAX_VISIBLE_ITEMS) {
   return `${visible.join(', ')}${remaining > 0 ? ` (+${remaining} more)` : ''}`;
 }
 
-async function sendTelegramMessage(text: string) {
+async function sendTelegramMessage(chatId: string, text: string, failureLabel: string) {
   const botToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!botToken) throw new Error('Missing TELEGRAM_BOT_TOKEN');
 
@@ -57,14 +58,14 @@ async function sendTelegramMessage(text: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      chat_id: MT_TASK_CHAT_ID,
+      chat_id: chatId,
       text: text.slice(0, 4090),
       disable_web_page_preview: true,
     }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload?.ok) {
-    throw new Error(payload?.description || 'Maintenance Telegram reminder failed');
+    throw new Error(payload?.description || `${failureLabel} Telegram reminder failed`);
   }
   return Number(payload?.result?.message_id || 0) || null;
 }
@@ -100,23 +101,39 @@ async function chambermaidReminder(today: string) {
   }
 
   const profiles = await resolvePushProfiles({ emails: HK_PUSH_EMAILS });
-  const pushResult = await sendPushNotifications({
-    userIds: profiles.map((profile) => profile.user_id),
-    topic: `rooms-${today}`,
-    ttlSeconds: 4 * 60 * 60,
-    payload: {
-      kind: 'REMINDER',
-      title: `${missingRooms.length} ROOM SAVE${missingRooms.length === 1 ? '' : 'S'} PENDING`,
-      body: `Chambermaid entries still not saved at 5:00 PM: ${clipped(missingRooms)}`,
-      url: '/dashboard/chambermaid-entry',
-    },
-  });
+  const [pushResult, telegramMessageId] = await Promise.all([
+    sendPushNotifications({
+      userIds: profiles.map((profile) => profile.user_id),
+      topic: `rooms-${today}`,
+      ttlSeconds: 4 * 60 * 60,
+      payload: {
+        kind: 'REMINDER',
+        title: `${missingRooms.length} ROOM SAVE${missingRooms.length === 1 ? '' : 'S'} PENDING`,
+        body: `Chambermaid entries still not saved at 5:00 PM: ${clipped(missingRooms)}`,
+        url: '/dashboard/chambermaid-entry',
+      },
+    }),
+    sendTelegramMessage(
+      HK_TASK_CHAT_ID,
+      [
+        '🧹 CHAMBERMAID SAVE REMINDER',
+        `Date: ${displayDate(today)}`,
+        `Pending rooms: ${missingRooms.length}`,
+        '',
+        `Rooms: ${clipped(missingRooms)}`,
+        '',
+        'Please open Chambermaid Entry and save the pending rooms.',
+      ].join('\n'),
+      'Housekeeping'
+    ),
+  ]);
   if (pushResult.warning) throw new Error(pushResult.warning);
 
   return {
     findingCount: missingRooms.length,
     delivered: pushResult.delivered,
     attempted: pushResult.attempted,
+    telegramMessageId,
     details: { missingRooms },
   };
 }
@@ -168,7 +185,7 @@ async function preventiveMaintenanceReminder(today: string) {
         url: '/dashboard/preventive-maintenance',
       },
     }),
-    sendTelegramMessage([
+    sendTelegramMessage(MT_TASK_CHAT_ID, [
       '🔧 OVERDUE PREVENTIVE MAINTENANCE REMINDER',
       `Date: ${displayDate(today)}`,
       `Overdue: ${overdueCount}`,
@@ -176,7 +193,7 @@ async function preventiveMaintenanceReminder(today: string) {
       ...itemLines,
       '',
       'Please open Preventive Maintenance and follow up.',
-    ].join('\n')),
+    ].join('\n'), 'Maintenance'),
   ]);
   if (pushResult.warning) throw new Error(pushResult.warning);
 
@@ -211,6 +228,7 @@ export async function GET(request: NextRequest) {
 
   const notificationDate = singaporeDate();
   const force = request.nextUrl.searchParams.get('force') === '1';
+  console.info('[operational-reminders] started', { notificationDate, reminderType, force });
   if (!force) {
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('daily_operational_notification_runs')
@@ -263,6 +281,16 @@ export async function GET(request: NextRequest) {
       .eq('notification_date', notificationDate)
       .eq('notification_type', reminderType);
 
+    console.info('[operational-reminders] completed', {
+      notificationDate,
+      reminderType,
+      status,
+      findingCount: result.findingCount,
+      attempted: result.attempted,
+      delivered: result.delivered,
+      telegramMessageId: 'telegramMessageId' in result ? result.telegramMessageId : null,
+    });
+
     return NextResponse.json({
       ok: true,
       notificationDate,
@@ -273,6 +301,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     const message = error?.message || 'Operational reminder failed';
+    console.error('[operational-reminders] failed', { notificationDate, reminderType, error: message });
     await supabaseAdmin
       .from('daily_operational_notification_runs')
       .update({ status: 'FAILED', error_text: message })
