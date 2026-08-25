@@ -46,7 +46,10 @@ export default function PushNotificationControl({ userId }: { userId?: string })
         return;
       }
       try {
-        const registration = await navigator.serviceWorker.register('/push-service-worker.js');
+        const registration = await navigator.serviceWorker.register('/push-service-worker.js', {
+          updateViaCache: 'none',
+        });
+        await registration.update();
         const subscription = await registration.pushManager.getSubscription();
         if (mounted) setState(subscription ? 'on' : 'off');
       } catch {
@@ -68,7 +71,9 @@ export default function PushNotificationControl({ userId }: { userId?: string })
       }
 
       const [registration, keyResponse] = await Promise.all([
-        navigator.serviceWorker.register('/push-service-worker.js'),
+        navigator.serviceWorker.register('/push-service-worker.js', {
+          updateViaCache: 'none',
+        }),
         fetch('/api/push/public-key', { cache: 'no-store' }),
       ]);
       const keyPayload = await responseJson(keyResponse);
