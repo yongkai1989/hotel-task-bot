@@ -170,6 +170,16 @@ type DailyGroup = {
   bankedCount: number;
 };
 
+const CASH_ENTRY_SELECT = 'id, submission_id, shift_title, service_date, submitted_by_name, submitted_by_email, person_name, cash_amount, excess_amount, cash_bank_in_id, excess_bank_in_id, created_at' as const;
+const MANUAL_CASH_SELECT = 'id, service_date, description, amount, bank_in_id, excess_amount, excess_bank_in_id, created_by_name, created_by_email, created_at' as const;
+const SMALL_CHANGE_SELECT = 'id, source_bank_in_id, bank_in_date, amount, consumed_by_bank_in_id, created_at' as const;
+const BANK_IN_SELECT = 'id, bank_in_date, source_mode, selected_total, banked_amount, balance_to_small_change, receipt_paths, created_by_name, created_by_email, created_at, reversed_at, reversed_by_name, reversal_reason' as const;
+const AMENDMENT_SELECT = 'id, cash_entry_id, previous_amount, new_amount, reason, amended_by_name, amended_by_email, amended_at' as const;
+const EXCESS_WITHDRAWAL_SELECT = 'id, cash_entry_id, manual_cash_entry_id, folio_number, reason_for_excess, error_staff_name, withdrawn_amount, withdrawn_by_name, withdrawn_by_email, withdrawn_at' as const;
+const BANK_IN_SOURCE_SELECT = 'id, bank_in_id, source_type, source_id, source_amount' as const;
+const BANK_IN_DELETION_SELECT = 'id, bank_in_id, bank_in_date, bank_in_snapshot, deletion_reason, deleted_by_name, deleted_by_email, deleted_at' as const;
+const CASH_ENTRY_DELETION_SELECT = 'id, source_type, source_id, service_date, entry_snapshot, deletion_reason, deleted_by_name, deleted_by_email, deleted_at, restored_at, restored_by_name, restored_by_email, restoration_reason' as const;
+
 const money = new Intl.NumberFormat('en-MY', {
   style: 'currency',
   currency: 'MYR',
@@ -356,48 +366,48 @@ export default function BankInCashPage() {
     const [cashResult, manualResult, smallChangeResult, bankInResult, amendmentResult, withdrawalResult, sourceResult, deletionResult, cashDeletionResult] = await Promise.all([
       supabase
         .from('fo_checklist_cash_entries')
-        .select('*')
+        .select(CASH_ENTRY_SELECT)
         .gte('service_date', retentionStart)
         .order('service_date', { ascending: false })
         .order('line_number', { ascending: true }),
       supabase
         .from('cash_manual_entries')
-        .select('*')
+        .select(MANUAL_CASH_SELECT)
         .gte('service_date', retentionStart)
         .order('service_date', { ascending: false })
         .order('created_at', { ascending: false }),
       supabase
         .from('cash_small_change')
-        .select('*')
+        .select(SMALL_CHANGE_SELECT)
         .gte('bank_in_date', retentionStart)
         .order('bank_in_date', { ascending: false }),
       supabase
         .from('cash_bank_ins')
-        .select('*')
+        .select(BANK_IN_SELECT)
         .gte('bank_in_date', retentionStart)
         .order('bank_in_date', { ascending: false })
         .order('created_at', { ascending: false }),
       supabase
         .from('cash_entry_amendments')
-        .select('*')
+        .select(AMENDMENT_SELECT)
         .gte('amended_at', retentionStart)
         .order('amended_at', { ascending: false }),
       supabase
         .from('cash_excess_withdrawals')
-        .select('*')
+        .select(EXCESS_WITHDRAWAL_SELECT)
         .gte('withdrawn_at', retentionStart)
         .order('withdrawn_at', { ascending: false }),
       supabase
         .from('cash_bank_in_sources')
-        .select('*'),
+        .select(BANK_IN_SOURCE_SELECT),
       supabase
         .from('cash_bank_in_deletions')
-        .select('*')
+        .select(BANK_IN_DELETION_SELECT)
         .gte('deleted_at', retentionStart)
         .order('deleted_at', { ascending: false }),
       supabase
         .from('cash_entry_deletions')
-        .select('*')
+        .select(CASH_ENTRY_DELETION_SELECT)
         .gte('deleted_at', retentionStart)
         .order('deleted_at', { ascending: false }),
     ]);

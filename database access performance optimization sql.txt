@@ -1,0 +1,217 @@
+-- Database access performance optimisation
+-- Prepared and transaction-tested on 25/08/2026. Apply once in Supabase.
+-- It preserves the existing access rules while removing redundant policy checks
+-- and ensuring auth/helper functions are evaluated once per statement.
+
+begin;
+
+-- Management task assignment guards: same authorization, fewer per-row calls.
+alter policy assignment_management_tasks_guard on public.management_tasks
+  using (
+    (select public.assignment_is_overseer())
+    or assigned_user_id = (select auth.uid())
+  )
+  with check (
+    (select public.assignment_is_superuser())
+    and (
+      (select public.assignment_is_overseer())
+      or assigned_user_id = (select auth.uid())
+    )
+  );
+
+alter policy assignment_management_runs_guard on public.management_task_runs
+  using (
+    exists (
+      select 1
+      from public.management_tasks mt
+      where mt.id = management_task_runs.management_task_id
+        and (
+          (select public.assignment_is_overseer())
+          or mt.assigned_user_id = (select auth.uid())
+        )
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.management_tasks mt
+      where mt.id = management_task_runs.management_task_id
+        and (
+          (select public.assignment_is_overseer())
+          or mt.assigned_user_id = (select auth.uid())
+        )
+    )
+  );
+
+alter policy assignment_management_rooms_guard on public.management_task_run_rooms
+  using (
+    exists (
+      select 1
+      from public.management_task_runs mtr
+      join public.management_tasks mt on mt.id = mtr.management_task_id
+      where mtr.id = management_task_run_rooms.management_task_run_id
+        and (
+          (select public.assignment_is_overseer())
+          or mt.assigned_user_id = (select auth.uid())
+        )
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.management_task_runs mtr
+      join public.management_tasks mt on mt.id = mtr.management_task_id
+      where mtr.id = management_task_run_rooms.management_task_run_id
+        and (
+          (select public.assignment_is_overseer())
+          or mt.assigned_user_id = (select auth.uid())
+        )
+    )
+  );
+
+-- Daily form assignment guards: same authorization, fewer per-row calls.
+alter policy assignment_daily_templates_guard on public.daily_form_templates
+  using (
+    (select public.assignment_is_overseer())
+    or assigned_user_id = (select auth.uid())
+  )
+  with check (
+    (select public.assignment_is_superuser())
+    and (
+      (select public.assignment_is_overseer())
+      or assigned_user_id = (select auth.uid())
+    )
+  );
+
+alter policy assignment_daily_questions_guard on public.daily_form_questions
+  using (
+    exists (
+      select 1
+      from public.daily_form_templates dft
+      where dft.id = daily_form_questions.template_id
+        and (
+          (select public.assignment_is_overseer())
+          or dft.assigned_user_id = (select auth.uid())
+        )
+    )
+  )
+  with check (
+    (select public.assignment_is_superuser())
+    and exists (
+      select 1
+      from public.daily_form_templates dft
+      where dft.id = daily_form_questions.template_id
+        and (
+          (select public.assignment_is_overseer())
+          or dft.assigned_user_id = (select auth.uid())
+        )
+    )
+  );
+
+alter policy assignment_daily_submissions_guard on public.daily_form_submissions
+  using (
+    (select public.assignment_is_overseer())
+    or (
+      submitted_by_user_id = (select auth.uid())
+      and exists (
+        select 1
+        from public.daily_form_templates dft
+        where dft.id = daily_form_submissions.template_id
+          and dft.assigned_user_id = (select auth.uid())
+      )
+    )
+  )
+  with check (
+    (select public.assignment_is_overseer())
+    or (
+      submitted_by_user_id = (select auth.uid())
+      and exists (
+        select 1
+        from public.daily_form_templates dft
+        where dft.id = daily_form_submissions.template_id
+          and dft.assigned_user_id = (select auth.uid())
+      )
+    )
+  );
+
+alter policy assignment_daily_answers_guard on public.daily_form_answers
+  using (
+    exists (
+      select 1
+      from public.daily_form_submissions dfs
+      join public.daily_form_templates dft on dft.id = dfs.template_id
+      where dfs.id = daily_form_answers.submission_id
+        and (
+          (select public.assignment_is_overseer())
+          or (
+            dfs.submitted_by_user_id = (select auth.uid())
+            and dft.assigned_user_id = (select auth.uid())
+          )
+        )
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.daily_form_submissions dfs
+      join public.daily_form_templates dft on dft.id = dfs.template_id
+      where dfs.id = daily_form_answers.submission_id
+        and (
+          (select public.assignment_is_overseer())
+          or (
+            dfs.submitted_by_user_id = (select auth.uid())
+            and dft.assigned_user_id = (select auth.uid())
+          )
+        )
+    )
+  );
+
+-- These older true policies are redundant with each table's ALL base policy.
+drop policy if exists "management tasks read" on public.management_tasks;
+drop policy if exists "management tasks insert" on public.management_tasks;
+drop policy if exists "management tasks update" on public.management_tasks;
+drop policy if exists "management tasks delete" on public.management_tasks;
+
+drop policy if exists "management task runs read" on public.management_task_runs;
+drop policy if exists "management task runs insert" on public.management_task_runs;
+drop policy if exists "management task runs update" on public.management_task_runs;
+drop policy if exists "management task runs delete" on public.management_task_runs;
+
+drop policy if exists "management task run rooms read" on public.management_task_run_rooms;
+drop policy if exists "management task run rooms insert" on public.management_task_run_rooms;
+drop policy if exists "management task run rooms update" on public.management_task_run_rooms;
+drop policy if exists "management task run rooms delete" on public.management_task_run_rooms;
+
+drop policy if exists "daily forms templates read" on public.daily_form_templates;
+drop policy if exists "daily forms templates insert" on public.daily_form_templates;
+drop policy if exists "daily forms templates update" on public.daily_form_templates;
+
+drop policy if exists "daily forms questions read" on public.daily_form_questions;
+drop policy if exists "daily forms questions insert" on public.daily_form_questions;
+drop policy if exists "daily forms questions update" on public.daily_form_questions;
+drop policy if exists "daily forms questions delete" on public.daily_form_questions;
+
+drop policy if exists "daily forms submissions read" on public.daily_form_submissions;
+drop policy if exists "daily forms submissions insert" on public.daily_form_submissions;
+drop policy if exists "daily forms submissions update" on public.daily_form_submissions;
+
+drop policy if exists "daily forms answers read" on public.daily_form_answers;
+drop policy if exists "daily forms answers insert" on public.daily_form_answers;
+drop policy if exists "daily forms answers update" on public.daily_form_answers;
+drop policy if exists "daily forms answers delete" on public.daily_form_answers;
+
+-- Public task policies already include authenticated users. Remove only the
+-- identical authenticated copies; anonymous and signed-in behavior is unchanged.
+drop policy if exists "Allow insert tasks to authenticated users" on public.tasks;
+drop policy if exists "Allow read tasks to authenticated users" on public.tasks;
+drop policy if exists tasks_realtime_read_authenticated on public.tasks;
+drop policy if exists "Allow update tasks to authenticated users" on public.tasks;
+
+-- The public PM delete policy already covers authenticated users.
+drop policy if exists "Allow delete pm tasks to authenticated users" on public.pm_tasks;
+
+commit;
+
+-- Verification: the seven assignment guards should no longer be reported by
+-- the auth_rls_initplan advisor, and each assignment table should have one
+-- permissive ALL base policy plus one restrictive ALL guard policy.

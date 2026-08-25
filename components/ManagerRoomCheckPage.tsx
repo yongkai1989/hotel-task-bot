@@ -107,6 +107,9 @@ const UPLOAD_DB_NAME = 'hotelhallmark-manager-room-check-uploads';
 const UPLOAD_DB_STORE = 'files';
 const MANAGER_ROOM_CHECK_CLEANUP_KEY = 'manager-room-check-cleanup-at';
 const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
+const ROOM_CHECK_SELECT = 'id, department, room_number, title, description, status, created_by_user_id, created_by_name, created_by_email, submitted_for_check_at, submitted_for_check_by_name, checked_at, checked_by_name, created_at, updated_at' as const;
+const CHECK_MEDIA_SELECT = 'id, check_id, media_url, media_path, media_type, caption, position, completed_at, completed_by_name, completed_by_email, created_at' as const;
+const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, created_at' as const;
 
 function formatMegabytes(bytes: number) {
   return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
@@ -779,7 +782,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
       const { data: checkRows, error: checkError } = await supabase
         .from('manager_room_checks')
-        .select('*')
+        .select(ROOM_CHECK_SELECT)
         .eq('department', department)
         .order('created_at', { ascending: false })
         .limit(120);
@@ -793,12 +796,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           await Promise.all([
             supabase
               .from('manager_room_check_media')
-              .select('*')
+              .select(CHECK_MEDIA_SELECT)
               .in('check_id', ids)
               .order('position', { ascending: true }),
             supabase
               .from('manager_room_check_uploads')
-              .select('*')
+              .select(DURABLE_UPLOAD_SELECT)
               .in('check_id', ids)
               .neq('status', 'READY')
               .order('position', { ascending: true }),
@@ -947,7 +950,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (!supabase) return null;
     const { data, error } = await supabase
       .from('manager_room_checks')
-      .select('*')
+      .select(ROOM_CHECK_SELECT)
       .eq('department', targetDepartment)
       .eq('room_number', targetRoomNumber)
       .neq('status', 'DONE')
@@ -1244,7 +1247,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           updated_at: now,
         },
       ])
-      .select('*')
+      .select(ROOM_CHECK_SELECT)
       .single();
     if (checkError) throw checkError;
 
@@ -1380,7 +1383,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (!supabase) throw new Error('Supabase is not configured.');
     const { data, error } = await supabase
       .from('manager_room_check_uploads')
-      .select('*')
+      .select(DURABLE_UPLOAD_SELECT)
       .eq('id', id)
       .single();
     if (error) throw error;
@@ -2038,7 +2041,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               updated_at: now,
             },
           ])
-          .select('*')
+          .select(ROOM_CHECK_SELECT)
           .single();
         if (error) throw error;
         destinationCheck = data as RoomCheck;

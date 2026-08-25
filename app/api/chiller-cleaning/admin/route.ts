@@ -55,7 +55,33 @@ async function loadAdminRecords(branch: ChillerBranch) {
     .order('chiller_name', { ascending: true });
 
   if (error) throw new Error(error.message);
-  return Promise.all((data || []).map((row: any) => signChillerRecord(row)));
+  return (data || []).map((row: any) => ({
+    id: String(row.id),
+    branch: normalizeChillerBranch(row.branch),
+    week_start: String(row.week_start),
+    week_end: String(row.week_end),
+    chiller_name: row.chiller_name,
+    staff_name: row.staff_name || null,
+    before_available: Boolean(row.before_path),
+    before_submitted_at: row.before_submitted_at || null,
+    after_available: Boolean(row.after_path),
+    after_submitted_at: row.after_submitted_at || null,
+    created_at: String(row.created_at || ''),
+    updated_at: String(row.updated_at || ''),
+  }));
+}
+
+async function loadAdminRecordMedia(branch: ChillerBranch, recordId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('chiller_cleaning_submissions')
+    .select(CHILLER_RECORD_SELECT)
+    .eq('branch', branch)
+    .eq('id', recordId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return signChillerRecord(data);
 }
 
 export async function GET(req: NextRequest) {
@@ -64,6 +90,13 @@ export async function GET(req: NextRequest) {
     if (!allowed) return jsonNoCache({ ok: false, error: 'Access denied' }, 401);
 
     const branch = normalizeChillerBranch(req.nextUrl.searchParams.get('branch'));
+    const recordId = String(req.nextUrl.searchParams.get('record_id') || '').trim();
+    if (recordId) {
+      const record = await loadAdminRecordMedia(branch, recordId);
+      if (!record) return jsonNoCache({ ok: false, error: 'Routine duty record not found' }, 404);
+      return jsonNoCache({ ok: true, branch, record });
+    }
+
     const [settings, records] = await Promise.all([getChillerSettings(branch), loadAdminRecords(branch)]);
     const week = getCurrentChillerWeek();
     return jsonNoCache({

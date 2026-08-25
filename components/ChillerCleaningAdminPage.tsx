@@ -8,8 +8,10 @@ type ChillerRecord = {
   week_end: string;
   chiller_name: string;
   staff_name: string | null;
+  before_available?: boolean;
   before_url?: string | null;
   before_submitted_at?: string | null;
+  after_available?: boolean;
   after_url?: string | null;
   after_submitted_at?: string | null;
   created_at?: string;
@@ -81,8 +83,10 @@ function formatTime(value?: string | null) {
 }
 
 function statusFor(record?: ChillerRecord) {
-  if (record?.before_url && record?.after_url) return 'complete';
-  if (record?.before_url || record?.after_url) return 'partial';
+  const hasBefore = Boolean(record?.before_available || record?.before_url);
+  const hasAfter = Boolean(record?.after_available || record?.after_url);
+  if (hasBefore && hasAfter) return 'complete';
+  if (hasBefore || hasAfter) return 'partial';
   return 'missing';
 }
 
@@ -118,6 +122,7 @@ export default function ChillerCleaningAdminPage() {
   const [resetChiller, setResetChiller] = useState('Chiller 1');
   const [confirmReset, setConfirmReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [mediaLoadingIds, setMediaLoadingIds] = useState<Set<string>>(() => new Set());
   const [lightbox, setLightbox] = useState<{ url: string; title: string } | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -227,6 +232,42 @@ export default function ChillerCleaningAdminPage() {
     } finally {
       window.clearTimeout(timeout);
       setBusy(false);
+    }
+  }
+
+  async function loadRecordMedia(recordId: string) {
+    if (!recordId || mediaLoadingIds.has(recordId)) return;
+    setMediaLoadingIds((current) => new Set(current).add(recordId));
+    setError('');
+    try {
+      const res = await fetch(
+        `/api/chiller-cleaning/admin?branch=${activeBranch}&record_id=${encodeURIComponent(recordId)}`,
+        {
+          cache: 'no-store',
+          headers: { 'x-chiller-token': token },
+        },
+      );
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || 'Unable to load routine duty photos');
+      const signedRecord = json.record || {};
+      setRecords((current) => current.map((record) => (
+        record.id === recordId
+          ? {
+            ...record,
+            ...signedRecord,
+            before_available: Boolean(signedRecord.before_path || signedRecord.before_url),
+            after_available: Boolean(signedRecord.after_path || signedRecord.after_url),
+          }
+          : record
+      )));
+    } catch (err: any) {
+      setError(err?.message || 'Unable to load routine duty photos');
+    } finally {
+      setMediaLoadingIds((current) => {
+        const next = new Set(current);
+        next.delete(recordId);
+        return next;
+      });
     }
   }
 
@@ -485,14 +526,20 @@ export default function ChillerCleaningAdminPage() {
                   <div className="thumbGrid">
                     <PhotoTile
                       label="Before"
+                      available={item.record?.before_available}
                       url={item.record?.before_url}
                       time={item.record?.before_submitted_at}
+                      loading={Boolean(item.record?.id && mediaLoadingIds.has(item.record.id))}
+                      onLoad={() => item.record?.id && void loadRecordMedia(item.record.id)}
                       onOpen={(url) => setLightbox({ url, title: `${item.chiller} Before` })}
                     />
                     <PhotoTile
                       label="After"
+                      available={item.record?.after_available}
                       url={item.record?.after_url}
                       time={item.record?.after_submitted_at}
+                      loading={Boolean(item.record?.id && mediaLoadingIds.has(item.record.id))}
+                      onLoad={() => item.record?.id && void loadRecordMedia(item.record.id)}
                       onOpen={(url) => setLightbox({ url, title: `${item.chiller} After` })}
                     />
                   </div>
@@ -616,13 +663,19 @@ export default function ChillerCleaningAdminPage() {
 
 function PhotoTile({
   label,
+  available,
   url,
   time,
+  loading,
+  onLoad,
   onOpen,
 }: {
   label: string;
+  available?: boolean;
   url?: string | null;
   time?: string | null;
+  loading: boolean;
+  onLoad: () => void;
   onOpen: (url: string) => void;
 }) {
   return (
@@ -634,6 +687,11 @@ function PhotoTile({
       {url ? (
         <button type="button" onClick={() => onOpen(url)}>
           <img src={url} alt={`${label} submission`} />
+        </button>
+      ) : available ? (
+        <button type="button" className="loadPhoto" onClick={onLoad} disabled={loading}>
+          <strong>{loading ? 'Loading photo…' : 'View photo'}</strong>
+          <span>{loading ? 'Creating a secure link' : 'Loaded only when requested'}</span>
         </button>
       ) : (
         <div className="missingPhoto">No photo</div>
@@ -917,6 +975,16 @@ const styles = `
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+  .photoTile button.loadPhoto {
+    flex-direction: column;
+    gap: 5px;
+    padding: 16px;
+    color: #174ea6;
+  }
+  .photoTile button.loadPhoto span {
+    color: #607997;
+    font-size: 11px;
   }
   .empty {
     border: 1px dashed #b8cff0;
