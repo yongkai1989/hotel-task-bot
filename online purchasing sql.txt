@@ -182,6 +182,7 @@ declare
   v_issue text;
   v_remark text;
   v_has_assignment boolean;
+  v_deleted_snapshot jsonb;
 begin
   select * into v_actor
   from public.user_profiles
@@ -213,6 +214,43 @@ begin
     select * into v_order from public.online_purchase_orders where id = p_order_id for update;
     if not found then raise exception 'Order not found'; end if;
     v_previous_status := v_order.status;
+
+    if p_action = 'DELETE_ORDER' then
+      if v_actor.role <> 'SUPERUSER' then raise exception 'Only Superuser can delete purchasing history'; end if;
+      if v_order.status not in ('COMPLETE_CLAIMED','REFUND_COMPLETED','CANCELLED') then
+        raise exception 'Only completed or cancelled history can be deleted';
+      end if;
+
+      v_deleted_snapshot := jsonb_build_object(
+        'deleted_order_id', v_order.id,
+        'purchase_number', v_order.purchase_number,
+        'hotel_code', v_order.hotel_code,
+        'status', v_order.status,
+        'purchase_amount', v_order.purchase_amount,
+        'refund_amount', v_order.refund_amount,
+        'shopee_url', v_order.shopee_url,
+        'created_at', v_order.created_at
+      );
+
+      update public.online_purchase_audit
+      set order_id = null,
+          details = coalesce(details, '{}'::jsonb) || jsonb_build_object('deleted_order_id', v_order.id)
+      where order_id = v_order.id;
+
+      delete from public.online_purchase_documents where order_id = v_order.id;
+      delete from public.online_purchase_ledger_entries where order_id = v_order.id;
+      delete from public.online_purchase_orders where id = v_order.id;
+
+      insert into public.online_purchase_audit (
+        order_id, hotel_code, action, previous_status, new_status, details,
+        actor_user_id, actor_name, actor_email
+      ) values (
+        null, v_order.hotel_code, 'DELETE_ORDER', v_order.status, null, v_deleted_snapshot,
+        p_actor_user_id, coalesce(v_actor.name, v_actor.email, 'User'), coalesce(v_actor.email, '')
+      );
+
+      return jsonb_build_object('id', v_order.id, 'deleted', true);
+    end if;
 
     if p_action in ('SAVE_PURCHASE','MARK_ARRIVED','SUBMIT_DOCUMENTS','START_REFUND','COMPLETE_REFUND') then
       select exists (
@@ -326,4 +364,4 @@ grant execute on function public.online_purchasing_apply_action(uuid,text,uuid,j
 
 commit;
 
--- Records are intentionally retained. Archive/export only after seven years.
+-- Completed history can only be permanently deleted by Superuser. A deletion audit snapshot is retained.

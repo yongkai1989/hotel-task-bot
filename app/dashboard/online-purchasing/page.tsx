@@ -138,7 +138,9 @@ export default function OnlinePurchasingPage() {
       });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || 'Unable to save');
-      setNotice('Saved successfully.');
+      setNotice(action === 'DELETE_ORDER'
+        ? (json.storage_cleanup_pending ? 'History deleted. One or more uploaded files require storage cleanup.' : 'History deleted successfully.')
+        : 'Saved successfully.');
       await load();
       return true;
     } catch (err: any) {
@@ -299,6 +301,12 @@ export default function OnlinePurchasingPage() {
                         </> : null}
                         {order.status === 'PENDING_REIMBURSEMENT' && hod ? <button className={styles.successButton} disabled={!!busy} onClick={() => window.confirm(`Confirm ${money(order.purchase_amount)} has been reimbursed?`) && void runAction('COMPLETE_CLAIM', order.id)}>Complete &amp; Claimed</button> : null}
                         {['PURCHASED_IN_TRANSIT','ARRIVED_INVOICE_PENDING','PENDING_REIMBURSEMENT'].includes(order.status) && purchaser ? <button className={styles.warningButton} onClick={() => { setRefundOrder(refundOrder === order.id ? null : order.id); setRefundAmount(order); }}>Lost / defective</button> : null}
+                        {tab === 'HISTORY' && isSuperuser ? <button className={styles.dangerButton} disabled={!!busy} onClick={() => {
+                          const orderNumber = `OP-${String(order.purchase_number).padStart(6, '0')}`;
+                          if (window.confirm(`Permanently delete ${orderNumber} and its uploaded documents, ledger entries, and history? This cannot be undone.`)) {
+                            void runAction('DELETE_ORDER', order.id);
+                          }
+                        }}>Delete history</button> : null}
                       </div>
 
                       {refundOrder === order.id ? <div className={styles.refundPanel}>

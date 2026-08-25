@@ -140,11 +140,28 @@ export async function POST(req: NextRequest) {
 
   const allowedActions = new Set([
     'CREATE_ORDER', 'SAVE_PURCHASE', 'MARK_ARRIVED', 'SUBMIT_DOCUMENTS',
-    'COMPLETE_CLAIM', 'START_REFUND', 'COMPLETE_REFUND', 'CANCEL_ORDER',
+    'COMPLETE_CLAIM', 'START_REFUND', 'COMPLETE_REFUND', 'CANCEL_ORDER', 'DELETE_ORDER',
   ]);
   if (!allowedActions.has(action)) return jsonError('Unsupported action');
 
   const orderId = body.order_id ? String(body.order_id) : null;
+  if (action === 'DELETE_ORDER' && user.role !== 'SUPERUSER') {
+    return jsonError('Only Superuser can delete purchasing history', 403);
+  }
+
+  let storagePaths: string[] = [];
+  if (action === 'DELETE_ORDER') {
+    if (!orderId) return jsonError('Order is required');
+    const documentResult = await supabaseAdmin
+      .from('online_purchase_documents')
+      .select('storage_path')
+      .eq('order_id', orderId);
+    if (documentResult.error) return jsonError(documentResult.error.message, 500);
+    storagePaths = (documentResult.data || [])
+      .map((row: any) => String(row.storage_path || '').trim())
+      .filter(Boolean);
+  }
+
   const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
   const { data, error } = await supabaseAdmin.rpc('online_purchasing_apply_action', {
     p_actor_user_id: user.user_id,
@@ -153,5 +170,12 @@ export async function POST(req: NextRequest) {
     p_payload: payload,
   });
   if (error) return jsonError(error.message, 400);
-  return NextResponse.json({ ok: true, result: data });
+
+  let storageCleanupPending = false;
+  if (action === 'DELETE_ORDER' && storagePaths.length > 0) {
+    const removal = await supabaseAdmin.storage.from('online-purchasing-documents').remove(storagePaths);
+    storageCleanupPending = !!removal.error;
+  }
+
+  return NextResponse.json({ ok: true, result: data, storage_cleanup_pending: storageCleanupPending });
 }
