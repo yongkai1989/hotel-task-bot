@@ -21,6 +21,20 @@ export const CHILLER_NAMES = [
   'Microwave 2',
 ] as const;
 export const GRAND_CHILLER_NAMES = CHILLER_NAMES.filter((name) => name !== 'Grease Trap 3');
+export const CHILLER_RECORD_SELECT = `
+  id,
+  branch,
+  week_start,
+  week_end,
+  chiller_name,
+  staff_name,
+  before_path,
+  before_submitted_at,
+  after_path,
+  after_submitted_at,
+  created_at,
+  updated_at
+`;
 
 export const CHILLER_BRANCHES = [
   { id: 'regency', name: 'Regency F&B Routine Duties', url: '/regency-fnb-routine-duties' },
@@ -56,6 +70,13 @@ export type ChillerRecord = {
   before_url?: string | null;
   after_url?: string | null;
 };
+
+const SETTINGS_CACHE_MS = 30_000;
+const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const settingsCache = new Map<string, { value: ChillerSettings; expiresAt: number }>();
+const settingsRequests = new Map<string, Promise<ChillerSettings>>();
+let lastCleanupAt = 0;
+let cleanupRequest: Promise<void> | null = null;
 
 export function hashPasscode(passcode: string) {
   return createHash('sha256').update(passcode.trim()).digest('hex');
@@ -104,59 +125,99 @@ export async function getChillerSettings(
   signal?: AbortSignal,
 ): Promise<ChillerSettings> {
   const id = normalizeChillerBranch(branch);
-  const settingsQuery = supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .select('*')
-    .eq('id', id);
-  const { data, error } = await (signal ? settingsQuery.abortSignal(signal) : settingsQuery).maybeSingle();
+  const cached = settingsCache.get(id);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  if (error) throw new Error(error.message);
-  if (data) return normalizeSettings(data, id);
+  const pending = settingsRequests.get(id);
+  if (pending) return pending;
 
-  const legacyQuery = supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .select('*')
-    .eq('id', 'singleton');
-  const { data: legacy } = await (signal ? legacyQuery.abortSignal(signal) : legacyQuery).maybeSingle();
-  const fallback = normalizeSettings(legacy, id);
+  const request = (async () => {
+    const settingsQuery = supabaseAdmin
+      .from('chiller_cleaning_settings')
+      .select('id, passcode_hash, staff_passcode_hash, admin_passcode_hash, updated_at')
+      .eq('id', id);
+    const { data, error } = await (signal ? settingsQuery.abortSignal(signal) : settingsQuery).maybeSingle();
 
-  const insertQuery = supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .insert({
-      id,
-      passcode_hash: fallback.staff_passcode_hash,
-      staff_passcode_hash: fallback.staff_passcode_hash,
-      admin_passcode_hash: fallback.admin_passcode_hash,
-    } as any)
-    .select('*');
-  const { data: inserted, error: insertError } = await (signal ? insertQuery.abortSignal(signal) : insertQuery).single();
+    if (error) throw new Error(error.message);
+    if (data) return normalizeSettings(data, id);
 
-  if (insertError) throw new Error(insertError.message);
-  return normalizeSettings(inserted, id);
+    const legacyQuery = supabaseAdmin
+      .from('chiller_cleaning_settings')
+      .select('id, passcode_hash, staff_passcode_hash, admin_passcode_hash, updated_at')
+      .eq('id', 'singleton');
+    const { data: legacy } = await (signal ? legacyQuery.abortSignal(signal) : legacyQuery).maybeSingle();
+    const fallback = normalizeSettings(legacy, id);
+
+    const insertQuery = supabaseAdmin
+      .from('chiller_cleaning_settings')
+      .insert({
+        id,
+        passcode_hash: fallback.staff_passcode_hash,
+        staff_passcode_hash: fallback.staff_passcode_hash,
+        admin_passcode_hash: fallback.admin_passcode_hash,
+      } as any)
+      .select('id, passcode_hash, staff_passcode_hash, admin_passcode_hash, updated_at');
+    const { data: inserted, error: insertError } = await (signal ? insertQuery.abortSignal(signal) : insertQuery).single();
+
+    if (insertError) throw new Error(insertError.message);
+    return normalizeSettings(inserted, id);
+  })();
+
+  settingsRequests.set(id, request);
+  try {
+    const value = await request;
+    settingsCache.set(id, { value, expiresAt: Date.now() + SETTINGS_CACHE_MS });
+    return value;
+  } finally {
+    settingsRequests.delete(id);
+  }
 }
 
 export async function getChillerAdminSettings(signal?: AbortSignal): Promise<ChillerSettings> {
-  const settingsQuery = supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .select('*')
-    .eq('id', 'singleton');
-  const { data, error } = await (signal ? settingsQuery.abortSignal(signal) : settingsQuery).maybeSingle();
-  if (error) throw new Error(error.message);
-  if (data) return normalizeSettings(data, 'singleton');
+  const id = 'singleton';
+  const cached = settingsCache.get(id);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const regency = await getChillerSettings('regency', signal);
-  const insertQuery = supabaseAdmin
-    .from('chiller_cleaning_settings')
-    .insert({
-      id: 'singleton',
-      passcode_hash: regency.staff_passcode_hash,
-      staff_passcode_hash: regency.staff_passcode_hash,
-      admin_passcode_hash: regency.admin_passcode_hash,
-    } as any)
-    .select('*');
-  const { data: inserted, error: insertError } = await (signal ? insertQuery.abortSignal(signal) : insertQuery).single();
-  if (insertError) throw new Error(insertError.message);
-  return normalizeSettings(inserted, 'singleton');
+  const pending = settingsRequests.get(id);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const settingsQuery = supabaseAdmin
+      .from('chiller_cleaning_settings')
+      .select('id, passcode_hash, staff_passcode_hash, admin_passcode_hash, updated_at')
+      .eq('id', id);
+    const { data, error } = await (signal ? settingsQuery.abortSignal(signal) : settingsQuery).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return normalizeSettings(data, id);
+
+    const regency = await getChillerSettings('regency', signal);
+    const insertQuery = supabaseAdmin
+      .from('chiller_cleaning_settings')
+      .insert({
+        id,
+        passcode_hash: regency.staff_passcode_hash,
+        staff_passcode_hash: regency.staff_passcode_hash,
+        admin_passcode_hash: regency.admin_passcode_hash,
+      } as any)
+      .select('id, passcode_hash, staff_passcode_hash, admin_passcode_hash, updated_at');
+    const { data: inserted, error: insertError } = await (signal ? insertQuery.abortSignal(signal) : insertQuery).single();
+    if (insertError) throw new Error(insertError.message);
+    return normalizeSettings(inserted, id);
+  })();
+
+  settingsRequests.set(id, request);
+  try {
+    const value = await request;
+    settingsCache.set(id, { value, expiresAt: Date.now() + SETTINGS_CACHE_MS });
+    return value;
+  } finally {
+    settingsRequests.delete(id);
+  }
+}
+
+export function clearChillerSettingsCache(branch?: ChillerBranch) {
+  if (branch) settingsCache.delete(normalizeChillerBranch(branch));
+  else settingsCache.clear();
 }
 
 export async function verifyChillerToken(
@@ -167,15 +228,16 @@ export async function verifyChillerToken(
   const token = req.headers.get('x-chiller-token') || '';
   if (!token) return false;
 
-  const [settings, adminSettings] = await Promise.all([
-    getChillerSettings(branch),
-    getChillerAdminSettings(),
-  ]);
+  if (mode === 'admin') {
+    const adminSettings = await getChillerAdminSettings();
+    return token === tokenForHash(adminSettings.admin_passcode_hash, 'admin');
+  }
+
+  const [settings, adminSettings] = await Promise.all([getChillerSettings(branch), getChillerAdminSettings()]);
   const staffToken = tokenForHash(settings.staff_passcode_hash, `staff:${branch}`);
   const adminToken = tokenForHash(adminSettings.admin_passcode_hash, 'admin');
 
   if (mode === 'staff') return token === staffToken || token === adminToken;
-  if (mode === 'admin') return token === adminToken;
   return token === staffToken || token === adminToken;
 }
 
@@ -280,14 +342,14 @@ export async function signChillerRecord(record: any): Promise<ChillerRecord> {
     after_url: null,
   };
 
-  for (const key of ['before', 'after'] as const) {
+  await Promise.all((['before', 'after'] as const).map(async (key) => {
     const path = signed[`${key}_path`];
-    if (!path) continue;
+    if (!path) return;
     const { data } = await supabaseAdmin.storage
       .from(chillerBucketForBranch(branch))
       .createSignedUrl(path, 60 * 60);
     signed[`${key}_url`] = data?.signedUrl || null;
-  }
+  }));
 
   return signed;
 }
@@ -330,23 +392,43 @@ export function chillerStoragePath(
 }
 
 export async function cleanupOldChillerSubmissions() {
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - 4);
-  const cutoffDate = localDateKey(cutoff);
+  if (Date.now() - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  if (cleanupRequest) return cleanupRequest;
 
-  const { data } = await supabaseAdmin
-    .from('chiller_cleaning_submissions')
-    .select('id, branch, before_path, after_path')
-    .lt('week_start', cutoffDate);
+  cleanupRequest = (async () => {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 4);
+    const cutoffDate = localDateKey(cutoff);
 
-  for (const branch of ['regency', 'grand'] as ChillerBranch[]) {
-    const paths = (data || [])
-      .filter((row: any) => normalizeChillerBranch(row.branch) === branch)
-      .flatMap((row: any) => [row.before_path, row.after_path].filter(Boolean));
-    if (paths.length) {
-      await supabaseAdmin.storage.from(chillerBucketForBranch(branch)).remove(paths as string[]);
+    const { data, error } = await supabaseAdmin
+      .from('chiller_cleaning_submissions')
+      .select('id, branch, before_path, after_path')
+      .lt('week_start', cutoffDate);
+    if (error) throw new Error(error.message);
+
+    if (data?.length) {
+      for (const branch of ['regency', 'grand'] as ChillerBranch[]) {
+        const paths = data
+          .filter((row: any) => normalizeChillerBranch(row.branch) === branch)
+          .flatMap((row: any) => [row.before_path, row.after_path].filter(Boolean));
+        if (paths.length) {
+          await supabaseAdmin.storage.from(chillerBucketForBranch(branch)).remove(paths as string[]);
+        }
+      }
+
+      const { error: deleteError } = await supabaseAdmin
+        .from('chiller_cleaning_submissions')
+        .delete()
+        .lt('week_start', cutoffDate);
+      if (deleteError) throw new Error(deleteError.message);
     }
-  }
 
-  await supabaseAdmin.from('chiller_cleaning_submissions').delete().lt('week_start', cutoffDate);
+    lastCleanupAt = Date.now();
+  })();
+
+  try {
+    await cleanupRequest;
+  } finally {
+    cleanupRequest = null;
+  }
 }

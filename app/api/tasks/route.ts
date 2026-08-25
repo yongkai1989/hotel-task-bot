@@ -10,13 +10,17 @@ import { sendTaskPushNotifications } from '../../../lib/taskPush';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
+export const maxDuration = 30;
 
 const GET_TASK_LIMIT = 300;
 const CUSTOMER_WAITING_REMINDER_BUDGET_MS = 1200;
+const CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS = 30_000;
 const TELEGRAM_SEND_TIMEOUT_MS = 5000;
 const MAX_MEDIA = 30;
 const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+let customerWaitingReminderCheck: Promise<void> | null = null;
+let lastCustomerWaitingReminderCheckAt = 0;
 
 // Department-specific Telegram group chat IDs
 const MT_CHAT_ID = -1003860980789;
@@ -480,8 +484,19 @@ async function sendTelegramText(chatId: number, text: string) {
 }
 
 async function sendCustomerWaitingRemindersWithBudget() {
+  if (Date.now() - lastCustomerWaitingReminderCheckAt < CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS) {
+    return;
+  }
+
+  if (!customerWaitingReminderCheck) {
+    lastCustomerWaitingReminderCheckAt = Date.now();
+    customerWaitingReminderCheck = sendCustomerWaitingReminders().finally(() => {
+      customerWaitingReminderCheck = null;
+    });
+  }
+
   await Promise.race([
-    sendCustomerWaitingReminders(),
+    customerWaitingReminderCheck,
     delay(CUSTOMER_WAITING_REMINDER_BUDGET_MS),
   ]);
 }

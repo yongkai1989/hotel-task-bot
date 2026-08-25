@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   ChillerBranch,
+  CHILLER_RECORD_SELECT,
   canManageChillerCleaning,
   chillerBucketForBranch,
   chillerNamesForBranch,
+  clearChillerSettingsCache,
   cleanupOldChillerSubmissions,
   getChillerAdminSettings,
   getChillerSettings,
@@ -21,6 +23,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -42,7 +45,7 @@ async function loadAdminRecords(branch: ChillerBranch) {
   await cleanupOldChillerSubmissions();
   let query = supabaseAdmin
     .from('chiller_cleaning_submissions')
-    .select('*')
+    .select(CHILLER_RECORD_SELECT)
     .eq('branch', branch)
     .gte('week_start', '2026-07-20');
 
@@ -118,7 +121,7 @@ export async function PATCH(req: NextRequest) {
         } as any,
         { onConflict: 'id' },
       )
-      .select('*')
+      .select('id, passcode_hash, staff_passcode_hash, admin_passcode_hash, updated_at')
       .single();
 
     if (error) throw new Error(error.message);
@@ -138,6 +141,8 @@ export async function PATCH(req: NextRequest) {
         );
       if (adminUpdateError) throw new Error(adminUpdateError.message);
     }
+
+    clearChillerSettingsCache();
 
     return jsonNoCache({
       ok: true,

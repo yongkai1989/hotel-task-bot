@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   ChillerBranch,
   ChillerKind,
+  CHILLER_RECORD_SELECT,
   chillerBucketForBranch,
   chillerNamesForBranch,
   chillerStoragePath,
@@ -17,6 +18,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -32,7 +34,7 @@ async function getCurrentWeekRows(branch: ChillerBranch) {
   const { start: weekStart, end: weekEnd } = week;
   let query = supabaseAdmin
     .from('chiller_cleaning_submissions')
-    .select('*')
+    .select(CHILLER_RECORD_SELECT)
     .eq('branch', branch)
     .eq('week_start', weekStart);
 
@@ -92,7 +94,7 @@ export async function POST(req: NextRequest) {
     const week = getCurrentChillerWeek();
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('chiller_cleaning_submissions')
-      .select('*')
+      .select(CHILLER_RECORD_SELECT)
       .eq('branch', branch)
       .eq('week_start', week.start)
       .eq('chiller_name', chillerName)
@@ -137,7 +139,7 @@ export async function POST(req: NextRequest) {
         .from('chiller_cleaning_submissions')
         .update(updateData)
         .eq('id', existing.id)
-        .select('*')
+        .select(CHILLER_RECORD_SELECT)
         .single();
 
       if (error) throw new Error(error.message);
@@ -153,7 +155,7 @@ export async function POST(req: NextRequest) {
           staff_name: resolvedStaffName,
           ...updateData,
         })
-        .select('*')
+        .select(CHILLER_RECORD_SELECT)
         .single();
 
       if (error) throw new Error(error.message);
