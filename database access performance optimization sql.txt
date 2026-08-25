@@ -1,5 +1,5 @@
 -- Database access performance optimisation
--- Prepared and transaction-tested on 25/08/2026. Apply once in Supabase.
+-- Applied to Supabase and verified on 25/08/2026. Kept here as the migration record.
 -- It preserves the existing access rules while removing redundant policy checks
 -- and ensuring auth/helper functions are evaluated once per statement.
 
