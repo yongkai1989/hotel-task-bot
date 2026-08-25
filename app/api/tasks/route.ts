@@ -873,6 +873,16 @@ export async function POST(req: NextRequest) {
 
       let telegramWarning = '';
 
+      if (task.department === 'HK' || task.department === 'MT') {
+        const pushResult = await sendTaskPushNotifications(task);
+        if (pushResult.warning) warnings.push(pushResult.warning);
+      }
+
+      // Deliver the in-app event immediately after Web Push recipients have
+      // been prepared. Telegram is an independent external service and must
+      // never delay a tablet alert.
+      await broadcastTaskChange(task.id, 'INSERT');
+
       try {
         if (!telegramExcluded) {
           const telegramMessageId = await sendTelegramTaskCard({
@@ -928,15 +938,6 @@ export async function POST(req: NextRequest) {
         ...task,
         task_images: finalImagesError ? [] : taskImages || [],
       });
-
-      if (task.department === 'HK' || task.department === 'MT') {
-        const pushResult = await sendTaskPushNotifications(task);
-        if (pushResult.warning) warnings.push(pushResult.warning);
-      }
-
-      // Timed recipient rows are guaranteed by the push helper before the
-      // broadcast, so every selected user can load the red popup immediately.
-      await broadcastTaskChange(task.id, 'INSERT');
 
       if (telegramWarning) {
         warnings.push(telegramWarning);

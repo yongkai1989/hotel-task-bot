@@ -18,6 +18,7 @@ self.addEventListener('push', (event) => {
     body: String(payload.body || 'A hotel task requires your attention.'),
     tag: taskId ? `hotel-task-${taskId}` : 'hotel-task-alert',
     renotify: true,
+    silent: false,
     requireInteraction: isTimed,
     vibrate: isUrgent
       ? [300, 120, 300, 120, 600]
