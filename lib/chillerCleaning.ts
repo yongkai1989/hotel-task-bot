@@ -99,25 +99,28 @@ function normalizeSettings(row: any, id = 'singleton'): ChillerSettings {
   };
 }
 
-export async function getChillerSettings(branch: ChillerBranch = 'regency'): Promise<ChillerSettings> {
+export async function getChillerSettings(
+  branch: ChillerBranch = 'regency',
+  signal?: AbortSignal,
+): Promise<ChillerSettings> {
   const id = normalizeChillerBranch(branch);
-  const { data, error } = await supabaseAdmin
+  const settingsQuery = supabaseAdmin
     .from('chiller_cleaning_settings')
     .select('*')
-    .eq('id', id)
-    .maybeSingle();
+    .eq('id', id);
+  const { data, error } = await (signal ? settingsQuery.abortSignal(signal) : settingsQuery).maybeSingle();
 
   if (error) throw new Error(error.message);
   if (data) return normalizeSettings(data, id);
 
-  const { data: legacy } = await supabaseAdmin
+  const legacyQuery = supabaseAdmin
     .from('chiller_cleaning_settings')
     .select('*')
-    .eq('id', 'singleton')
-    .maybeSingle();
+    .eq('id', 'singleton');
+  const { data: legacy } = await (signal ? legacyQuery.abortSignal(signal) : legacyQuery).maybeSingle();
   const fallback = normalizeSettings(legacy, id);
 
-  const { data: inserted, error: insertError } = await supabaseAdmin
+  const insertQuery = supabaseAdmin
     .from('chiller_cleaning_settings')
     .insert({
       id,
@@ -125,24 +128,24 @@ export async function getChillerSettings(branch: ChillerBranch = 'regency'): Pro
       staff_passcode_hash: fallback.staff_passcode_hash,
       admin_passcode_hash: fallback.admin_passcode_hash,
     } as any)
-    .select('*')
-    .single();
+    .select('*');
+  const { data: inserted, error: insertError } = await (signal ? insertQuery.abortSignal(signal) : insertQuery).single();
 
   if (insertError) throw new Error(insertError.message);
   return normalizeSettings(inserted, id);
 }
 
-export async function getChillerAdminSettings(): Promise<ChillerSettings> {
-  const { data, error } = await supabaseAdmin
+export async function getChillerAdminSettings(signal?: AbortSignal): Promise<ChillerSettings> {
+  const settingsQuery = supabaseAdmin
     .from('chiller_cleaning_settings')
     .select('*')
-    .eq('id', 'singleton')
-    .maybeSingle();
+    .eq('id', 'singleton');
+  const { data, error } = await (signal ? settingsQuery.abortSignal(signal) : settingsQuery).maybeSingle();
   if (error) throw new Error(error.message);
   if (data) return normalizeSettings(data, 'singleton');
 
-  const regency = await getChillerSettings('regency');
-  const { data: inserted, error: insertError } = await supabaseAdmin
+  const regency = await getChillerSettings('regency', signal);
+  const insertQuery = supabaseAdmin
     .from('chiller_cleaning_settings')
     .insert({
       id: 'singleton',
@@ -150,8 +153,8 @@ export async function getChillerAdminSettings(): Promise<ChillerSettings> {
       staff_passcode_hash: regency.staff_passcode_hash,
       admin_passcode_hash: regency.admin_passcode_hash,
     } as any)
-    .select('*')
-    .single();
+    .select('*');
+  const { data: inserted, error: insertError } = await (signal ? insertQuery.abortSignal(signal) : insertQuery).single();
   if (insertError) throw new Error(insertError.message);
   return normalizeSettings(inserted, 'singleton');
 }

@@ -128,6 +128,7 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
   const [records, setRecords] = useState<ChillerRecord[]>([]);
   const [selectedChiller, setSelectedChiller] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loginBusy, setLoginBusy] = useState(false);
   const [saving, setSaving] = useState<UploadKind | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -183,6 +184,10 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
   }, []);
 
   async function login() {
+    if (loginBusy) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    setLoginBusy(true);
     setError('');
     setMessage('');
     try {
@@ -190,6 +195,7 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ passcode, mode: 'staff', branch }),
+        signal: controller.signal,
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || 'Invalid passcode');
@@ -198,7 +204,12 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
       setPasscode('');
       await load(json.token);
     } catch (err: any) {
-      setError(err?.message || 'Unable to login');
+      setError(err?.name === 'AbortError'
+        ? 'The database is temporarily busy. Please wait a moment and try once.'
+        : err?.message || 'Unable to login');
+    } finally {
+      window.clearTimeout(timeout);
+      setLoginBusy(false);
     }
   }
 
@@ -276,12 +287,13 @@ export default function ChillerCleaningPage({ branch = 'regency' }: { branch?: B
             autoComplete="current-password"
             placeholder="Enter passcode"
             onKeyDown={(event) => {
-              if (event.key === 'Enter') login();
+              if (event.key === 'Enter' && !loginBusy) login();
             }}
+            disabled={loginBusy}
           />
           {error ? <div className="alert error loginAlert">{error}</div> : null}
-          <button className="primaryBtn loginButton" onClick={login}>
-            Continue
+          <button className="primaryBtn loginButton" onClick={login} disabled={loginBusy}>
+            {loginBusy ? 'Checking...' : 'Continue'}
           </button>
         </div>
       </section>

@@ -203,6 +203,9 @@ export default function ChillerCleaningAdminPage() {
 
   async function login(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
     setBusy(true);
     setError('');
     setNotice('');
@@ -211,14 +214,18 @@ export default function ChillerCleaningAdminPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'admin', passcode }),
+        signal: controller.signal,
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || 'Wrong admin passcode');
       setPasscode('');
       await load(json.token);
     } catch (err: any) {
-      setError(err?.message || 'Wrong admin passcode');
+      setError(err?.name === 'AbortError'
+        ? 'The database is temporarily busy. Please wait a moment and try once.'
+        : err?.message || 'Wrong admin passcode');
     } finally {
+      window.clearTimeout(timeout);
       setBusy(false);
     }
   }

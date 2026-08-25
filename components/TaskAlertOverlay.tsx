@@ -30,6 +30,16 @@ async function responseJson(response: Response) {
   return payload;
 }
 
+async function fetchTaskAlerts(input: RequestInfo | URL, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function timerLabel(dueAt: string | null | undefined, now: number) {
   const parsed = Date.parse(String(dueAt || ''));
   if (!Number.isFinite(parsed)) return 'ATTEND NOW';
@@ -51,7 +61,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
 
   const loadAlerts = useCallback(async (token: string) => {
     if (!token || !userId) return;
-    const response = await fetch('/api/task-alerts', {
+    const response = await fetchTaskAlerts('/api/task-alerts', {
       cache: 'no-store',
       credentials: 'include',
       headers: { Authorization: `Bearer ${token}` },
@@ -139,7 +149,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
     setBusy(true);
     setError('');
     try {
-      const response = await fetch('/api/task-alerts', {
+      const response = await fetchTaskAlerts('/api/task-alerts', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'include',
