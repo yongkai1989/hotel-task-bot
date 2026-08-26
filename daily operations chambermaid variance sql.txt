@@ -16,7 +16,7 @@ declare
   );
   v_month_start date := date_trunc('month', v_report_date)::date;
   v_month_end date := (date_trunc('month', v_report_date) + interval '1 month - 1 day')::date;
-  v_threshold integer := 3;
+  v_threshold integer := 2;
   v_current_flags jsonb := '[]'::jsonb;
   v_monthly_top jsonb := '[]'::jsonb;
   v_current_areas_compared integer := 0;
