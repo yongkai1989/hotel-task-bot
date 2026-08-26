@@ -58,6 +58,43 @@ type LinenItem = {
   bill_minus_total_use: number;
 };
 
+type LinenAreaVarianceItem = {
+  key: string;
+  label: string;
+  maid_use: number;
+  in_bill: number;
+  difference: number;
+};
+
+type LinenAreaFlag = {
+  block_no: number;
+  floor_no: number;
+  room_entries: number;
+  bill_rows: number;
+  largest_abs_difference: number;
+  flagged_items: LinenAreaVarianceItem[];
+};
+
+type LinenMonthlyFlag = {
+  rank: number;
+  block_no: number;
+  floor_no: number;
+  flagged_days: number;
+  days_compared: number;
+  latest_flag_date: string;
+  largest_abs_difference: number;
+};
+
+type LinenAreaVariance = {
+  report_date: string;
+  month_start: string;
+  month_end: string;
+  threshold: number;
+  current_areas_compared: number;
+  current_flags: LinenAreaFlag[];
+  monthly_top: LinenMonthlyFlag[];
+};
+
 type Summary = {
   report_date: string;
   generated_at: string;
@@ -156,6 +193,7 @@ export default function DailyOperationsSummaryPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [reportDate, setReportDate] = useState(singaporeOperationsDate());
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [linenAreaVariance, setLinenAreaVariance] = useState<LinenAreaVariance | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -196,11 +234,19 @@ export default function DailyOperationsSummaryPage() {
     if (!hasAccess) return;
     setLoading(true);
     setError('');
-    const { data, error: summaryError } = await supabase.rpc('get_daily_operations_summary', {
-      p_report_date: reportDate,
-    });
-    if (summaryError) setError(summaryError.message);
-    else setSummary(data as Summary);
+    setLinenAreaVariance(null);
+    const [summaryResult, varianceResult] = await Promise.all([
+      supabase.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
+      supabase.rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate }),
+    ]);
+    if (summaryResult.error) setError(summaryResult.error.message);
+    else setSummary(summaryResult.data as Summary);
+    if (varianceResult.error) {
+      setLinenAreaVariance(null);
+      setError((current) => current || varianceResult.error.message);
+    } else {
+      setLinenAreaVariance(varianceResult.data as LinenAreaVariance);
+    }
     setLoading(false);
   }, [hasAccess, reportDate, supabase]);
 
@@ -218,7 +264,8 @@ export default function DailyOperationsSummaryPage() {
     + (summary && !summary.linen.bill_saved ? 1 : 0)
     + (summary && !summary.linen.return_saved ? 1 : 0)
     + (summary?.rooms?.open_manager_room_checks ? 1 : 0)
-    + projectExceptions.length;
+    + projectExceptions.length
+    + (linenAreaVariance?.current_flags?.length || 0);
   const completionPercent = requiredChecklistRows.length
     ? Math.round(submittedRows.length * 100 / requiredChecklistRows.length)
     : 100;
@@ -294,6 +341,21 @@ export default function DailyOperationsSummaryPage() {
         <article className={projects.some((row) => row.status === 'OVERDUE') ? 'score danger' : stalledProjects.length ? 'score warn' : 'score good'}><span>Special projects</span><strong>{projects.filter((row) => row.status !== 'DONE').length}</strong><small>{projects.filter((row) => row.moving_today).length} moving today - {stalledProjects.length} unchanged</small></article>
       </section>
 
+      <section className="panel variance-panel">
+        <div className="panel-title variance-title"><div><span className="eyebrow">CHAMBERMAID ACCURACY WATCH</span><h2>Block and level differences</h2><p>Flags an area when any chambermaid linen total differs from its In Bill by ±{linenAreaVariance?.threshold || 3} or more.</p></div><Link href="/dashboard/laundry-count">Review Linen Count</Link></div>
+        <div className="variance-layout">
+          <section className="variance-section">
+            <div className="variance-section-heading"><div><span>SELECTED DATE</span><strong>{formatDate(reportDate)}</strong></div><b className={(linenAreaVariance?.current_flags || []).length ? 'variance-count alert' : 'variance-count clear'}>{(linenAreaVariance?.current_flags || []).length} flagged</b></div>
+            {(linenAreaVariance?.current_flags || []).length ? <div className="area-flag-list">{linenAreaVariance!.current_flags.map((area) => <article className="area-flag-card" key={`${area.block_no}-${area.floor_no}`}><div className="area-flag-head"><div><span>BLOCK {area.block_no}</span><strong>Level {area.floor_no}</strong></div><small>{area.room_entries} chambermaid room entr{area.room_entries === 1 ? 'y' : 'ies'}</small></div><div className="variance-chips">{area.flagged_items.map((item) => <div className={item.difference > 0 ? 'variance-chip positive' : 'variance-chip negative'} key={item.key}><span>{item.label}</span><b>{signed(item.difference)}</b><small>{item.maid_use} entered · {item.in_bill} billed</small></div>)}</div></article>)}</div> : <div className="empty variance-empty">All {linenAreaVariance?.current_areas_compared || 0} recorded block/level areas are below the ±{linenAreaVariance?.threshold || 3} flag threshold.</div>}
+          </section>
+          <section className="variance-section monthly-watch">
+            <div className="variance-section-heading"><div><span>MONTHLY REPEAT WATCH</span><strong>Top 3 most frequently flagged</strong></div><small>{formatDate(linenAreaVariance?.month_start)} – {formatDate(linenAreaVariance?.month_end)}</small></div>
+            {(linenAreaVariance?.monthly_top || []).length ? <div className="ranking-list">{linenAreaVariance!.monthly_top.map((area) => <article className="ranking-card" key={`${area.block_no}-${area.floor_no}`}><b className="rank-number">#{area.rank}</b><div className="rank-area"><span>Block {area.block_no}</span><strong>Level {area.floor_no}</strong><small>Latest: {formatDate(area.latest_flag_date)}</small></div><div className="rank-frequency"><strong>{area.flagged_days}</strong><span>flagged day{area.flagged_days === 1 ? '' : 's'}</span><small>out of {area.days_compared} recorded</small></div></article>)}</div> : <div className="empty variance-empty">No block or level has been flagged this month.</div>}
+            <p className="variance-note">Each block/level counts once per day, even when several linen types differ. Positive means In Bill is higher; negative means chambermaid entry is higher.</p>
+          </section>
+        </div>
+      </section>
+
       <section className="panel">
         <div className="panel-title"><div><span className="eyebrow">ACCOUNTABILITY</span><h2>Reports and checklists</h2></div><span>{submittedRows.length}/{requiredChecklistRows.length} required submitted</span></div>
         <div className="table-wrap"><table><thead><tr><th>Status</th><th>Report / Checklist</th><th>Expected owner</th><th>Deadline</th><th>Submitted by</th>{isSuperuser ? <th>Rule</th> : null}</tr></thead><tbody>
@@ -343,6 +405,8 @@ function Styles() {
   return <style jsx global>{`
     *{box-sizing:border-box}body{margin:0;background:#f2f5f9;color:#132238;font-family:Inter,system-ui,sans-serif}.ops-page{min-height:100vh;padding:24px}.ops-header,.panel,.score,.state-card{border:1px solid #dbe3ed;border-radius:12px;background:#fff;box-shadow:0 10px 28px rgba(27,48,78,.06)}.ops-header{max-width:1500px;margin:0 auto 14px;padding:22px;display:flex;justify-content:space-between;align-items:center;gap:20px}.ops-header h1{margin:3px 0;font-size:29px}.ops-header p,.panel-title p{margin:0;color:#697a91;font-size:13px}.eyebrow{font-size:10px;font-weight:900;letter-spacing:.12em;color:#2764d8}.header-controls{display:flex;align-items:end;gap:9px}.header-controls label,.modal label{display:grid;gap:5px;font-size:11px;font-weight:800;color:#53657c}.header-controls input,.modal input{min-height:40px;border:1px solid #cbd6e3;border-radius:8px;padding:8px 10px;background:#fff}.header-controls button,.header-controls a,.modal button{min-height:40px;border:1px solid #1f5ed0;border-radius:8px;padding:9px 14px;background:#1f5ed0;color:#fff;text-decoration:none;font-weight:800;cursor:pointer}.header-controls a{border-color:#ccd7e4;background:#fff;color:#23344d}.notice{max-width:1500px;margin:0 auto 12px;padding:12px 15px;border:1px solid #f0b8b3;border-radius:9px;background:#fff4f3;color:#a62b23;font-weight:700}.score-grid{max-width:1500px;margin:0 auto 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.score{padding:17px;border-top:4px solid #8ca2bb;display:grid;gap:3px}.score.good{border-top-color:#17a566}.score.warn{border-top-color:#e8a11b}.score.danger{border-top-color:#d74338}.score span{font-size:11px;text-transform:uppercase;font-weight:900;color:#64758b}.score strong{font-size:29px}.score small{color:#718298}.panel{max-width:1500px;margin:0 auto 14px;padding:18px}.panel-title{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:13px}.panel-title h2{margin:3px 0 0;font-size:20px}.panel-title>a{font-size:12px;font-weight:800;color:#1f5ed0}.panel-title>span{font-size:12px;font-weight:800;color:#687a91}.empty{padding:25px;border:1px dashed #9fd4b9;border-radius:9px;text-align:center;color:#147347;background:#f2fcf7}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;padding:9px;color:#607189;background:#f6f8fb;border-bottom:1px solid #dce4ee;white-space:nowrap}td{padding:10px 9px;border-bottom:1px solid #e6ebf2;vertical-align:middle}td a,td>span,td>b{display:block}td a{color:inherit;text-decoration:none}td small{display:block;margin-top:2px;color:#74859a}.status{width:max-content;border-radius:999px;padding:5px 8px;font-size:9px;font-weight:900}.status.submitted{background:#e9f9f0;color:#0c7a47}.status.missing{background:#fff3d9;color:#9a5d05}.status.overdue{background:#ffe8e6;color:#b12c24}.muted{color:#8a98aa}.text-button{border:0;background:transparent;color:#1f5ed0;font-weight:800;cursor:pointer}.two-column{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:1.15fr .85fr;gap:14px}.two-column .panel{width:100%}.project-list{display:grid;gap:9px}.project{padding:12px;border:1px solid #dce4ee;border-radius:9px}.project-top,.project-meta{display:flex;justify-content:space-between;gap:12px;align-items:center}.project-top>div{display:grid;gap:2px}.project-top span,.project small{font-size:11px;color:#708198}.project-top em{font-style:normal;font-size:9px;font-weight:900}.project-top em.overdue{color:#bd3127}.project-top em.open{color:#a36108}.project-top em.done{color:#0f7c49}.progress{height:8px;margin:10px 0;border-radius:99px;background:#e5ebf2;overflow:hidden}.progress i{display:block;height:100%;background:linear-gradient(90deg,#1d62d6,#19a66a)}.project-meta{font-size:11px}.moving{color:#0d824c;font-weight:800}.stalled{color:#a76509;font-weight:800}.room-cards{display:grid;grid-template-columns:1fr 1fr;gap:9px}.room-card{padding:13px;border:1px solid #dce4ee;border-left:4px solid #91a4bb;border-radius:9px;color:inherit;text-decoration:none;display:grid;gap:3px}.room-card.good{border-left-color:#18a667;background:#f6fcf9}.room-card.warn{border-left-color:#e4a01e;background:#fffaf1}.room-card span{font-size:10px;font-weight:900;text-transform:uppercase;color:#687a91}.room-card strong{font-size:23px}.room-card small{color:#6d7e93;line-height:1.4}.reconciliation-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.reconciliation-card{min-width:0;border:1px solid #dce4ee;border-radius:10px;overflow:hidden;background:#fff}.reconciliation-card.return-card{border-color:#c9daf3}.reconciliation-heading{padding:13px 14px;border-bottom:1px solid #dce4ee;background:#f7f9fc;display:flex;justify-content:space-between;gap:12px}.return-card .reconciliation-heading{background:#f3f7fd}.reconciliation-heading div{display:grid;gap:3px}.reconciliation-heading strong{font-size:13px}.reconciliation-heading span,.reconciliation-heading small{color:#6d7e93;font-size:10px}.reconciliation-heading small{max-width:240px;text-align:right}.linen-table td:not(:first-child),.linen-table th:not(:first-child){text-align:right}.diff{display:inline-block!important;min-width:34px;padding:4px 6px;border-radius:6px;font-weight:900;text-align:center}.diff.zero{background:#eaf8f0;color:#147448}.diff.positive{background:#ffe8e6;color:#b42f26}.diff.negative{background:#e8f1ff;color:#245bad}.generated{max-width:1500px;margin:0 auto 25px;text-align:right;color:#7d8b9c;font-size:11px}.state-card{max-width:600px;margin:15vh auto;padding:30px;text-align:center}.modal-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:rgba(12,25,44,.62)}.modal{width:min(540px,100%);padding:22px;border-radius:12px;background:#fff;box-shadow:0 30px 80px rgba(0,0,0,.3)}.modal h2{margin:4px 0}.modal p{color:#6c7c91;font-size:12px}.modal label{margin-top:10px}.day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:13px}.day-grid label{display:flex;gap:4px;align-items:center;justify-content:center;padding:7px 3px;border:1px solid #d7e0ea;border-radius:7px;font-size:10px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.modal button.secondary{border-color:#ccd7e4;background:#fff;color:#23344d}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:1100px){.reconciliation-grid{grid-template-columns:1fr}}@media(max-width:980px){.score-grid{grid-template-columns:1fr 1fr}.two-column{grid-template-columns:1fr}.ops-header{align-items:flex-start;display:grid}.header-controls{flex-wrap:wrap}}@media(max-width:620px){.ops-page{padding:9px}.score-grid{grid-template-columns:1fr;gap:7px}.score{padding:12px}.score strong{font-size:24px}.panel{padding:12px}.room-cards{grid-template-columns:1fr}.reconciliation-heading{display:grid}.reconciliation-heading small{text-align:left;max-width:none}.header-controls label{width:100%}.header-controls input{width:100%}.day-grid{grid-template-columns:repeat(4,1fr)}}
     .status.not_required{background:#eef2f6;color:#59697d}
-    .modal button.reset-rule{margin-right:auto;border-color:#efb4ae;background:#fff4f3;color:#b42318}
+    .variance-panel{border-top:4px solid #e49a19}.variance-title{align-items:flex-start}.variance-layout{display:grid;grid-template-columns:1.25fr .75fr;gap:12px}.variance-section{min-width:0;padding:14px;border:1px solid #dce4ee;border-radius:10px;background:#f8fafc}.monthly-watch{background:#f6f8fd}.variance-section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:11px}.variance-section-heading>div{display:grid;gap:3px}.variance-section-heading span{font-size:9px;font-weight:900;letter-spacing:.08em;color:#687a91}.variance-section-heading strong{font-size:14px}.variance-section-heading>small{font-size:10px;color:#74859a;text-align:right}.variance-count{padding:6px 9px;border-radius:999px;font-size:10px}.variance-count.alert{background:#ffe7e4;color:#b52d25}.variance-count.clear{background:#e5f8ed;color:#137647}.area-flag-list,.ranking-list{display:grid;gap:8px}.area-flag-card{padding:12px;border:1px solid #efc2bd;border-left:4px solid #d74439;border-radius:9px;background:#fff}.area-flag-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.area-flag-head>div{display:flex;align-items:baseline;gap:7px}.area-flag-head span{font-size:9px;font-weight:900;color:#b22f28}.area-flag-head strong{font-size:17px}.area-flag-head small{font-size:10px;color:#718197}.variance-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.variance-chip{min-width:145px;display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:7px 9px;border-radius:7px}.variance-chip.positive{background:#fff0ee;color:#a82922}.variance-chip.negative{background:#eaf2ff;color:#2457a7}.variance-chip span{font-size:10px;font-weight:800}.variance-chip b{grid-row:1/3;grid-column:2;font-size:17px;align-self:center}.variance-chip small{font-size:9px;opacity:.8}.ranking-card{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:10px;padding:10px;border:1px solid #d7e0ed;border-radius:9px;background:#fff}.rank-number{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#132c55;color:#fff}.rank-area,.rank-frequency{display:grid;gap:2px}.rank-area span,.rank-frequency span{font-size:9px;font-weight:900;text-transform:uppercase;color:#687a91}.rank-area strong{font-size:15px}.rank-area small,.rank-frequency small{font-size:9px;color:#7a899c}.rank-frequency{text-align:right}.rank-frequency strong{font-size:22px;color:#b22f28}.variance-note{margin:10px 0 0;color:#6c7d92;font-size:10px;line-height:1.45}.variance-empty{padding:18px}.modal button.reset-rule{margin-right:auto;border-color:#efb4ae;background:#fff4f3;color:#b42318}
+    @media(max-width:1100px){.variance-layout{grid-template-columns:1fr}}
+    @media(max-width:620px){.variance-section{padding:10px}.variance-section-heading{display:grid}.variance-section-heading>small{text-align:left}.area-flag-head{align-items:flex-start}.area-flag-head>div{display:grid;gap:1px}.variance-chip{min-width:calc(50% - 3px);flex:1}.ranking-card{grid-template-columns:34px 1fr auto}}
   `}</style>;
 }

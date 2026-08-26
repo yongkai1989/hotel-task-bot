@@ -1,0 +1,203 @@
+-- Daily Operations Summary: chambermaid entry vs In Bill by block and level.
+-- Safe to run more than once in the Supabase SQL Editor.
+
+create or replace function public.get_daily_operations_linen_area_variance(
+  p_report_date date default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_report_date date := coalesce(
+    p_report_date,
+    (now() at time zone 'Asia/Singapore')::date
+  );
+  v_month_start date := date_trunc('month', v_report_date)::date;
+  v_month_end date := (date_trunc('month', v_report_date) + interval '1 month - 1 day')::date;
+  v_threshold integer := 3;
+  v_current_flags jsonb := '[]'::jsonb;
+  v_monthly_top jsonb := '[]'::jsonb;
+  v_current_areas_compared integer := 0;
+begin
+  if not public.can_view_daily_operations_summary() then
+    raise exception 'Management access required';
+  end if;
+
+  with maid as (
+    select
+      service_date,
+      block_no,
+      floor_no,
+      count(*)::integer room_entries,
+      coalesce(sum(bedsheet_king), 0)::integer bedsheet_king,
+      coalesce(sum(bedsheet_single), 0)::integer bedsheet_single,
+      coalesce(sum(pillow_case), 0)::integer pillow_case,
+      coalesce(sum(bath_towel), 0)::integer bath_towel,
+      coalesce(sum(bath_mat), 0)::integer bath_mat,
+      coalesce(sum(duvet_cover_king), 0)::integer duvet_cover_king,
+      coalesce(sum(duvet_cover_single), 0)::integer duvet_cover_single
+    from public.linen_room_entry
+    where service_date between v_month_start and v_month_end
+      and block_no is not null
+      and floor_no is not null
+      and coalesce(is_dnd, false) = false
+    group by service_date, block_no, floor_no
+  ), bill as (
+    select
+      service_date,
+      block_no,
+      floor_no,
+      count(*)::integer bill_rows,
+      coalesce(sum(bedsheet_king), 0)::integer bedsheet_king,
+      coalesce(sum(bedsheet_single), 0)::integer bedsheet_single,
+      coalesce(sum(pillow_case), 0)::integer pillow_case,
+      coalesce(sum(bath_towel), 0)::integer bath_towel,
+      coalesce(sum(bath_mat), 0)::integer bath_mat,
+      coalesce(sum(duvet_cover_king), 0)::integer duvet_cover_king,
+      coalesce(sum(duvet_cover_single), 0)::integer duvet_cover_single
+    from public.linen_laundry_bill
+    where service_date between v_month_start and v_month_end
+      and block_no is not null
+      and floor_no is not null
+    group by service_date, block_no, floor_no
+  ), area_days as (
+    select
+      coalesce(maid.service_date, bill.service_date) service_date,
+      coalesce(maid.block_no, bill.block_no) block_no,
+      coalesce(maid.floor_no, bill.floor_no) floor_no,
+      coalesce(maid.room_entries, 0)::integer room_entries,
+      coalesce(bill.bill_rows, 0)::integer bill_rows,
+      coalesce(maid.bedsheet_king, 0)::integer maid_bedsheet_king,
+      coalesce(maid.bedsheet_single, 0)::integer maid_bedsheet_single,
+      coalesce(maid.pillow_case, 0)::integer maid_pillow_case,
+      coalesce(maid.bath_towel, 0)::integer maid_bath_towel,
+      coalesce(maid.bath_mat, 0)::integer maid_bath_mat,
+      coalesce(maid.duvet_cover_king, 0)::integer maid_duvet_cover_king,
+      coalesce(maid.duvet_cover_single, 0)::integer maid_duvet_cover_single,
+      coalesce(bill.bedsheet_king, 0)::integer bill_bedsheet_king,
+      coalesce(bill.bedsheet_single, 0)::integer bill_bedsheet_single,
+      coalesce(bill.pillow_case, 0)::integer bill_pillow_case,
+      coalesce(bill.bath_towel, 0)::integer bill_bath_towel,
+      coalesce(bill.bath_mat, 0)::integer bill_bath_mat,
+      coalesce(bill.duvet_cover_king, 0)::integer bill_duvet_cover_king,
+      coalesce(bill.duvet_cover_single, 0)::integer bill_duvet_cover_single
+    from maid
+    full join bill using (service_date, block_no, floor_no)
+  ), item_metrics as (
+    select
+      area.service_date,
+      area.block_no,
+      area.floor_no,
+      area.room_entries,
+      area.bill_rows,
+      item.sort_order,
+      item.item_key,
+      item.label,
+      item.maid_use,
+      item.in_bill,
+      (item.in_bill - item.maid_use)::integer difference
+    from area_days area
+    cross join lateral (values
+      (1, 'bedsheet_king', 'Bedsheet King', area.maid_bedsheet_king, area.bill_bedsheet_king),
+      (2, 'bedsheet_single', 'Bedsheet Single', area.maid_bedsheet_single, area.bill_bedsheet_single),
+      (3, 'pillow_case', 'Pillow Case', area.maid_pillow_case, area.bill_pillow_case),
+      (4, 'bath_towel', 'Bath Towel', area.maid_bath_towel, area.bill_bath_towel),
+      (5, 'bath_mat', 'Bath Mat', area.maid_bath_mat, area.bill_bath_mat),
+      (6, 'duvet_cover_king', 'Duvet Cover King', area.maid_duvet_cover_king, area.bill_duvet_cover_king),
+      (7, 'duvet_cover_single', 'Duvet Cover Single', area.maid_duvet_cover_single, area.bill_duvet_cover_single)
+    ) item(sort_order, item_key, label, maid_use, in_bill)
+  ), daily_flags as (
+    select
+      service_date,
+      block_no,
+      floor_no,
+      max(room_entries)::integer room_entries,
+      max(bill_rows)::integer bill_rows,
+      max(abs(difference))::integer largest_abs_difference,
+      jsonb_agg(
+        jsonb_build_object(
+          'key', item_key,
+          'label', label,
+          'maid_use', maid_use,
+          'in_bill', in_bill,
+          'difference', difference
+        ) order by sort_order
+      ) filter (where abs(difference) >= v_threshold) flagged_items
+    from item_metrics
+    group by service_date, block_no, floor_no
+    having bool_or(abs(difference) >= v_threshold)
+  ), current_rows as (
+    select *
+    from daily_flags
+    where service_date = v_report_date
+  ), area_days_count as (
+    select block_no, floor_no, count(distinct service_date)::integer days_compared
+    from area_days
+    group by block_no, floor_no
+  ), ranked_month as (
+    select
+      flags.block_no,
+      flags.floor_no,
+      count(*)::integer flagged_days,
+      area_count.days_compared,
+      max(flags.service_date) latest_flag_date,
+      max(flags.largest_abs_difference)::integer largest_abs_difference,
+      row_number() over (
+        order by
+          count(*) desc,
+          max(flags.largest_abs_difference) desc,
+          flags.block_no,
+          flags.floor_no
+      )::integer rank
+    from daily_flags flags
+    join area_days_count area_count using (block_no, floor_no)
+    group by flags.block_no, flags.floor_no, area_count.days_compared
+  )
+  select
+    coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'block_no', block_no,
+          'floor_no', floor_no,
+          'room_entries', room_entries,
+          'bill_rows', bill_rows,
+          'largest_abs_difference', largest_abs_difference,
+          'flagged_items', flagged_items
+        ) order by largest_abs_difference desc, block_no, floor_no
+      )
+      from current_rows
+    ), '[]'::jsonb),
+    coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'rank', rank,
+          'block_no', block_no,
+          'floor_no', floor_no,
+          'flagged_days', flagged_days,
+          'days_compared', days_compared,
+          'latest_flag_date', latest_flag_date,
+          'largest_abs_difference', largest_abs_difference
+        ) order by rank
+      )
+      from ranked_month
+      where rank <= 3
+    ), '[]'::jsonb),
+    (select count(*)::integer from area_days where service_date = v_report_date)
+  into v_current_flags, v_monthly_top, v_current_areas_compared;
+
+  return jsonb_build_object(
+    'report_date', v_report_date,
+    'month_start', v_month_start,
+    'month_end', v_month_end,
+    'threshold', v_threshold,
+    'current_areas_compared', v_current_areas_compared,
+    'current_flags', v_current_flags,
+    'monthly_top', v_monthly_top
+  );
+end;
+$$;
+
+revoke all on function public.get_daily_operations_linen_area_variance(date) from public, anon;
+grant execute on function public.get_daily_operations_linen_area_variance(date) to authenticated, service_role;
