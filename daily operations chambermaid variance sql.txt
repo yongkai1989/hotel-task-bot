@@ -182,7 +182,7 @@ begin
         ) order by rank
       )
       from ranked_month
-      where rank <= 3
+      where rank <= 5
     ), '[]'::jsonb),
     (select count(*)::integer from area_days where service_date = v_report_date)
   into v_current_flags, v_monthly_top, v_current_areas_compared;
