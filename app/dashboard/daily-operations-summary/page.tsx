@@ -260,6 +260,11 @@ export default function DailyOperationsSummaryPage() {
   const stalledProjects = projects.filter((project) => project.status !== 'DONE' && !project.moving_today);
   const projectExceptions = projects.filter((project) => project.status === 'OVERDUE' || !project.moving_today);
   const missingRooms = summary?.rooms?.linen_rooms_missing || [];
+  const currentLinenAreaFlags = linenAreaVariance?.current_flags || [];
+  const currentLinenDifferenceCount = currentLinenAreaFlags.reduce(
+    (total, area) => total + area.flagged_items.length,
+    0
+  );
   const attentionCount = missingRows.length + missingRooms.length
     + (summary && !summary.linen.bill_saved ? 1 : 0)
     + (summary && !summary.linen.return_saved ? 1 : 0)
@@ -342,11 +347,11 @@ export default function DailyOperationsSummaryPage() {
       </section>
 
       <section className="panel variance-panel">
-        <div className="panel-title variance-title"><div><span className="eyebrow">CHAMBERMAID ACCURACY WATCH</span><h2>Block and level differences</h2><p>Flags an area when any chambermaid linen total differs from its In Bill by ±{linenAreaVariance?.threshold || 3} or more.</p></div><Link href="/dashboard/laundry-count">Review Linen Count</Link></div>
+        <div className="panel-title variance-title"><div><span className="eyebrow">CHAMBERMAID ACCURACY WATCH</span><h2>Block and level differences</h2><p>The daily list includes every linen type across every recorded block and floor when the difference is ±{linenAreaVariance?.threshold || 3} or more. Only the monthly ranking is limited to three.</p></div><Link href="/dashboard/laundry-count">Review Linen Count</Link></div>
         <div className="variance-layout">
           <section className="variance-section">
-            <div className="variance-section-heading"><div><span>SELECTED DATE</span><strong>{formatDate(reportDate)}</strong></div><b className={(linenAreaVariance?.current_flags || []).length ? 'variance-count alert' : 'variance-count clear'}>{(linenAreaVariance?.current_flags || []).length} flagged</b></div>
-            {(linenAreaVariance?.current_flags || []).length ? <div className="area-flag-list">{linenAreaVariance!.current_flags.map((area) => <article className="area-flag-card" key={`${area.block_no}-${area.floor_no}`}><div className="area-flag-head"><div><span>BLOCK {area.block_no}</span><strong>Level {area.floor_no}</strong></div><small>{area.room_entries} chambermaid room entr{area.room_entries === 1 ? 'y' : 'ies'}</small></div><div className="variance-chips">{area.flagged_items.map((item) => <div className={item.difference > 0 ? 'variance-chip positive' : 'variance-chip negative'} key={item.key}><span>{item.label}</span><b>{signed(item.difference)}</b><small>{item.maid_use} entered · {item.in_bill} billed</small></div>)}</div></article>)}</div> : <div className="empty variance-empty">All {linenAreaVariance?.current_areas_compared || 0} recorded block/level areas are below the ±{linenAreaVariance?.threshold || 3} flag threshold.</div>}
+            <div className="variance-section-heading"><div><span>ALL DAILY DIFFERENCES</span><strong>{formatDate(reportDate)}</strong><small>{currentLinenAreaFlags.length} block/level area{currentLinenAreaFlags.length === 1 ? '' : 's'} checked and flagged below</small></div><b className={currentLinenDifferenceCount ? 'variance-count alert' : 'variance-count clear'}>{currentLinenDifferenceCount} linen difference{currentLinenDifferenceCount === 1 ? '' : 's'} · all shown</b></div>
+            {currentLinenAreaFlags.length ? <div className="area-flag-list">{currentLinenAreaFlags.map((area) => <article className="area-flag-card" key={`${area.block_no}-${area.floor_no}`}><div className="area-flag-head"><div><span>BLOCK {area.block_no}</span><strong>Level {area.floor_no}</strong></div><small>{area.room_entries} chambermaid room entr{area.room_entries === 1 ? 'y' : 'ies'} · {area.flagged_items.length} linen difference{area.flagged_items.length === 1 ? '' : 's'}</small></div><div className="variance-chips">{area.flagged_items.map((item) => <div className={item.difference > 0 ? 'variance-chip positive' : 'variance-chip negative'} key={item.key}><span>{item.label}</span><b>{signed(item.difference)}</b><small>{item.maid_use} entered · {item.in_bill} billed</small></div>)}</div></article>)}</div> : <div className="empty variance-empty">All {linenAreaVariance?.current_areas_compared || 0} recorded block/level areas are below the ±{linenAreaVariance?.threshold || 3} flag threshold.</div>}
           </section>
           <section className="variance-section monthly-watch">
             <div className="variance-section-heading"><div><span>MONTHLY REPEAT WATCH</span><strong>Top 3 most frequently flagged</strong></div><small>{formatDate(linenAreaVariance?.month_start)} – {formatDate(linenAreaVariance?.month_end)}</small></div>
