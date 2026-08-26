@@ -41,6 +41,16 @@ type LostFoundEntry = {
   updated_at?: string | null;
 };
 
+type LostFoundUpdate = {
+  id: string;
+  entry_id: string;
+  previous_location: string;
+  new_location: string;
+  comment?: string | null;
+  created_by_name: string;
+  created_at: string;
+};
+
 type ReturnMethod = 'Courier' | 'Collected In Person';
 
 const RETURN_METHODS: ReturnMethod[] = ['Courier', 'Collected In Person'];
@@ -136,6 +146,7 @@ export default function LostFoundPage() {
   const [successMsg, setSuccessMsg] = useState('');
 
   const [entries, setEntries] = useState<LostFoundEntry[]>([]);
+  const [entryUpdates, setEntryUpdates] = useState<LostFoundUpdate[]>([]);
   const [lostDate, setLostDate] = useState(todayLocalDate());
   const [roomNumber, setRoomNumber] = useState('');
   const [itemDescription, setItemDescription] = useState('');
@@ -152,10 +163,22 @@ export default function LostFoundPage() {
   const [postagePaid, setPostagePaid] = useState(false);
   const [disposeEntry, setDisposeEntry] = useState<LostFoundEntry | null>(null);
   const [disposalProofFile, setDisposalProofFile] = useState<File | null>(null);
+  const [updateEntry, setUpdateEntry] = useState<LostFoundEntry | null>(null);
+  const [updatedLocation, setUpdatedLocation] = useState('');
+  const [updateComment, setUpdateComment] = useState('');
 
   const activeEntries = entries.filter((entry) => !entry.returned && !entry.disposed);
   const returnedEntries = entries.filter((entry) => entry.returned && !entry.disposed);
   const disposedEntries = entries.filter((entry) => entry.disposed);
+  const updatesByEntry = useMemo(() => {
+    const grouped = new Map<string, LostFoundUpdate[]>();
+    entryUpdates.forEach((update) => {
+      const current = grouped.get(update.entry_id) || [];
+      current.push(update);
+      grouped.set(update.entry_id, current);
+    });
+    return grouped;
+  }, [entryUpdates]);
   const isSuperuser = profile?.role === 'SUPERUSER';
   const canAccess = canUseLostFound(profile);
 
@@ -227,16 +250,31 @@ export default function LostFoundPage() {
       setLoading(true);
       setErrorMsg('');
 
-      const { data, error } = await supabase
-        .from('lost_found_entries')
-        .select('*')
-        .order('disposed', { ascending: true })
-        .order('returned', { ascending: true })
-        .order('lost_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      const token = await getAccessToken();
+      if (!token) throw new Error('Login required');
 
-      if (error) throw error;
-      setEntries((data || []) as LostFoundEntry[]);
+      const [entryResult, updateResponse] = await Promise.all([
+        supabase
+          .from('lost_found_entries')
+          .select('*')
+          .order('disposed', { ascending: true })
+          .order('returned', { ascending: true })
+          .order('lost_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        fetch('/api/lost-found/updates', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        }),
+      ]);
+
+      if (entryResult.error) throw entryResult.error;
+      const updateJson = await updateResponse.json();
+      if (!updateResponse.ok || !updateJson?.ok) {
+        throw new Error(updateJson?.error || 'Failed to load item updates');
+      }
+
+      setEntries((entryResult.data || []) as LostFoundEntry[]);
+      setEntryUpdates((updateJson.updates || []) as LostFoundUpdate[]);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load Lost & Found entries');
     } finally {
@@ -353,6 +391,63 @@ export default function LostFoundPage() {
     if (saving) return;
     setDisposeEntry(null);
     setDisposalProofFile(null);
+  }
+
+  function openUpdateModal(entry: LostFoundEntry) {
+    setUpdateEntry(entry);
+    setUpdatedLocation(entry.location_stored || '');
+    setUpdateComment('');
+    setErrorMsg('');
+    setSuccessMsg('');
+  }
+
+  function closeUpdateModal() {
+    if (saving) return;
+    setUpdateEntry(null);
+    setUpdatedLocation('');
+    setUpdateComment('');
+  }
+
+  async function saveItemUpdate() {
+    try {
+      if (!updateEntry) throw new Error('No item selected');
+      if (!updatedLocation.trim()) throw new Error('Stored location is required');
+      if (updatedLocation.trim() === updateEntry.location_stored.trim() && !updateComment.trim()) {
+        throw new Error('Change the stored location or add a comment before saving');
+      }
+
+      setSaving(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+
+      const token = await getAccessToken();
+      if (!token) throw new Error('Login required');
+
+      const response = await fetch('/api/lost-found/updates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          entryId: updateEntry.id,
+          locationStored: updatedLocation.trim(),
+          comment: updateComment.trim(),
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok || !json?.ok) throw new Error(json?.error || 'Failed to update item');
+
+      setUpdateEntry(null);
+      setUpdatedLocation('');
+      setUpdateComment('');
+      setSuccessMsg('Item location and update history saved.');
+      await loadEntries();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update item');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function disposeItem() {
@@ -597,6 +692,7 @@ export default function LostFoundPage() {
 
   function renderEntry(entry: LostFoundEntry) {
     const badge = statusBadge(entry);
+    const updates = updatesByEntry.get(entry.id) || [];
 
     return (
       <article key={entry.id} style={styles.entryCard}>
@@ -630,7 +726,34 @@ export default function LostFoundPage() {
             {entry.disposed_by_name ? <div><b>Disposed By:</b> {entry.disposed_by_name}</div> : null}
           </div>
 
+          {updates.length > 0 ? (
+            <div style={styles.updateHistory}>
+              <div style={styles.updateHistoryTitle}>Item Updates</div>
+              <div style={styles.updateHistoryList}>
+                {updates.map((update) => (
+                  <div key={update.id} style={styles.updateHistoryRow}>
+                    <div style={styles.updateHistoryMeta}>
+                      {update.created_by_name} | {formatDateTime(update.created_at)}
+                    </div>
+                    {update.previous_location !== update.new_location ? (
+                      <div style={styles.locationChange}>
+                        Location: {update.previous_location} → {update.new_location}
+                      </div>
+                    ) : null}
+                    {update.comment ? <div style={styles.updateComment}>{update.comment}</div> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div style={styles.cardActions}>
+            {!entry.returned && !entry.disposed ? (
+              <button type="button" onClick={() => openUpdateModal(entry)} disabled={saving} style={styles.updateSmall}>
+                Update Item
+              </button>
+            ) : null}
+
             {!entry.returned && !entry.disposed ? (
               <button type="button" onClick={() => openReturnModal(entry)} disabled={saving} style={styles.primarySmall}>
                 Mark Returned
@@ -872,6 +995,63 @@ export default function LostFoundPage() {
         </div>
       ) : null}
 
+      {updateEntry ? (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <div style={styles.modalHead}>
+              <div>
+                <div style={styles.panelTitle}>Update Stored Item</div>
+                <div style={styles.helper}>{updateEntry.item_description} | Room {updateEntry.room_number}</div>
+              </div>
+              <button type="button" onClick={closeUpdateModal} style={styles.iconBtn}>x</button>
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Current Stored Location</label>
+              <input
+                value={updatedLocation}
+                onChange={(e) => setUpdatedLocation(e.target.value)}
+                placeholder="e.g. FO cabinet"
+                maxLength={200}
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.field}>
+              <label style={styles.label}>Update Comment (Optional)</label>
+              <textarea
+                value={updateComment}
+                onChange={(e) => setUpdateComment(e.target.value)}
+                placeholder="e.g. Guest will collect during the next visit"
+                maxLength={1000}
+                style={styles.textarea}
+              />
+              <div style={styles.helper}>
+                Add follow-up information such as who may collect the item. Every comment keeps the staff name, date, and time.
+              </div>
+            </div>
+
+            <div style={styles.actions}>
+              <button
+                type="button"
+                onClick={() => void saveItemUpdate()}
+                disabled={saving || !updatedLocation.trim()}
+                style={{
+                  ...styles.primaryBtn,
+                  opacity: saving || !updatedLocation.trim() ? 0.55 : 1,
+                  cursor: saving || !updatedLocation.trim() ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {saving ? 'Saving...' : 'Save Update'}
+              </button>
+              <button type="button" onClick={closeUpdateModal} disabled={saving} style={styles.secondaryBtn}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {disposeEntry ? (
         <div style={styles.modalOverlay}>
           <div style={styles.modal}>
@@ -951,6 +1131,7 @@ const styles: Record<string, React.CSSProperties> = {
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: 14, padding: '11px 14px', fontWeight: 900, cursor: 'pointer' },
   primarySmall: { border: 'none', background: '#2563eb', color: '#ffffff', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   secondarySmall: { border: '1px solid #cbd5e1', background: '#ffffff', color: '#0f172a', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
+  updateSmall: { border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   warningSmall: { border: '1px solid #fed7aa', background: '#fff7ed', color: '#c2410c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   disposeSmall: { border: '1px solid #fecdd3', background: '#fff1f2', color: '#be123c', borderRadius: 12, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' },
   disposeBtn: { border: 'none', background: '#be123c', color: '#ffffff', borderRadius: 14, padding: '12px 16px', fontWeight: 900, boxShadow: '0 10px 24px rgba(190, 18, 60, 0.2)' },
@@ -968,6 +1149,13 @@ const styles: Record<string, React.CSSProperties> = {
   entryMeta: { color: '#64748b', fontSize: 13, marginTop: 3, fontWeight: 700 },
   badge: { border: '1px solid', borderRadius: 999, padding: '6px 10px', fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap' },
   detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8, color: '#475569', fontSize: 13, lineHeight: 1.35 },
+  updateHistory: { marginTop: 12, border: '1px solid #dbeafe', background: '#f8fbff', borderRadius: 14, padding: 11 },
+  updateHistoryTitle: { color: '#1e3a8a', fontSize: 12, fontWeight: 900, marginBottom: 7, textTransform: 'uppercase' },
+  updateHistoryList: { display: 'grid', gap: 7, maxHeight: 190, overflowY: 'auto' },
+  updateHistoryRow: { borderTop: '1px solid #dbeafe', paddingTop: 7 },
+  updateHistoryMeta: { color: '#64748b', fontSize: 11, fontWeight: 800, marginBottom: 3 },
+  locationChange: { color: '#1e40af', fontSize: 13, fontWeight: 800, overflowWrap: 'anywhere' },
+  updateComment: { color: '#334155', fontSize: 13, lineHeight: 1.45, marginTop: 3, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
   cardActions: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   empty: { border: '1px dashed #cbd5e1', borderRadius: 16, padding: 22, textAlign: 'center', color: '#64748b', fontWeight: 900, background: '#f8fafc' },
   modalOverlay: { position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(15, 23, 42, 0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 },

@@ -1,0 +1,25 @@
+-- Lost & Found stored-location changes and staff comments
+-- Safe to run more than once in the Supabase SQL Editor.
+
+create table if not exists public.lost_found_entry_updates (
+  id uuid primary key default gen_random_uuid(),
+  entry_id uuid not null references public.lost_found_entries(id) on delete cascade,
+  previous_location text not null,
+  new_location text not null,
+  comment text,
+  created_by_user_id uuid,
+  created_by_name text not null,
+  created_at timestamptz not null default now(),
+  constraint lost_found_entry_updates_location_length
+    check (char_length(new_location) between 1 and 200),
+  constraint lost_found_entry_updates_comment_length
+    check (comment is null or char_length(comment) <= 1000)
+);
+
+create index if not exists lost_found_entry_updates_entry_created_idx
+  on public.lost_found_entry_updates (entry_id, created_at desc);
+
+alter table public.lost_found_entry_updates enable row level security;
+
+revoke all on table public.lost_found_entry_updates from anon, authenticated;
+grant select, insert, update, delete on table public.lost_found_entry_updates to service_role;

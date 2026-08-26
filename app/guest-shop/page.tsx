@@ -176,6 +176,21 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     preparingPaymentNotice: 'Preparing secure payment...',
     unableStartPayment: 'Unable to start payment',
     unableStartPaymentFrontOffice: 'Unable to start payment. Please contact Front Office.',
+    chooseBeforeAdding: 'Please choose {option} before adding {item}.',
+    loadingMenu: 'Loading your menu…',
+    preparingMenu: 'Preparing the latest images and prices.',
+    menuTemporarilyUnavailable: 'The menu is temporarily unavailable.',
+    refreshOrContact: 'Please refresh the page or contact Front Office.',
+    noItemsAvailable: 'No items are currently available.',
+    hotelSuiteAlt: 'Luxury hotel suite',
+    brandAria: 'Hallmark Crown Hotel guest shop',
+    languageAria: 'Language selection',
+    storefrontAria: 'Choose what to shop',
+    fnbCategoriesAria: 'Food and beverage categories',
+    guestCategoriesAria: 'Guest shop categories',
+    contactAria: 'Contact Front Office',
+    whatsappAria: 'Contact Front Office on WhatsApp',
+    shopNavigationAria: 'Shop navigation',
     cartAria: 'Cart with',
     jumpCartAria: 'Jump to cart with',
   },
@@ -240,6 +255,21 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     preparingPaymentNotice: 'Menyediakan bayaran selamat...',
     unableStartPayment: 'Tidak dapat memulakan bayaran',
     unableStartPaymentFrontOffice: 'Tidak dapat memulakan bayaran. Sila hubungi Front Office.',
+    chooseBeforeAdding: 'Sila pilih {option} sebelum menambah {item}.',
+    loadingMenu: 'Memuatkan menu anda…',
+    preparingMenu: 'Gambar dan harga terkini sedang disediakan.',
+    menuTemporarilyUnavailable: 'Menu tidak dapat dimuatkan buat masa ini.',
+    refreshOrContact: 'Sila muat semula halaman atau hubungi Front Office.',
+    noItemsAvailable: 'Tiada item tersedia buat masa ini.',
+    hotelSuiteAlt: 'Suite hotel mewah',
+    brandAria: 'Kedai Tetamu Hallmark Crown Hotel',
+    languageAria: 'Pilihan bahasa',
+    storefrontAria: 'Pilih bahagian untuk membeli-belah',
+    fnbCategoriesAria: 'Kategori makanan dan minuman',
+    guestCategoriesAria: 'Kategori Kedai Tetamu',
+    contactAria: 'Hubungi Front Office',
+    whatsappAria: 'Hubungi Front Office melalui WhatsApp',
+    shopNavigationAria: 'Navigasi kedai',
     cartAria: 'Troli dengan',
     jumpCartAria: 'Pergi ke troli dengan',
   },
@@ -303,75 +333,24 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     preparingPaymentNotice: '正在准备安全付款...',
     unableStartPayment: '无法开始付款',
     unableStartPaymentFrontOffice: '无法开始付款。请联系前台。',
+    chooseBeforeAdding: '加入{item}前，请先选择{option}。',
+    loadingMenu: '正在加载您的菜单…',
+    preparingMenu: '正在准备最新图片和价格。',
+    menuTemporarilyUnavailable: '菜单暂时无法加载。',
+    refreshOrContact: '请刷新页面或联系前台。',
+    noItemsAvailable: '目前没有可订购商品。',
+    hotelSuiteAlt: '豪华酒店套房',
+    brandAria: 'Hallmark Crown Hotel 住客商店',
+    languageAria: '语言选择',
+    storefrontAria: '选择购物类别',
+    fnbCategoriesAria: '餐饮类别',
+    guestCategoriesAria: '住客商店类别',
+    contactAria: '联系前台',
+    whatsappAria: '通过 WhatsApp 联系前台',
+    shopNavigationAria: '商店导航',
     cartAria: '购物车内有',
     jumpCartAria: '跳到购物车，内有',
   },
-};
-
-LANGUAGE_OPTIONS[2] = { code: 'zh', label: '简体中文', shortLabel: '中文' };
-COPY.zh = {
-  guestShop: '住客商店',
-  cart: '购物车',
-  exploreCollection: '浏览商品',
-  viewOrder: '查看订单',
-  all: '全部',
-  guestShopFilter: '住客商店',
-  fnbFilter: '餐饮',
-  shopEssentials: '住宿用品',
-  shopEssentialsBody: '客房用品、日常必需品与酒店服务',
-  orderFood: '订购餐饮',
-  orderFoodBody: '新鲜美食送到您的房间',
-  selectedStore: '已选择',
-  openNow: '营业中',
-  browseBy: '按类别浏览',
-  shopHeading: '让您的住宿更加舒适便利',
-  foodHeading: '轻点几下，美食送到房间',
-  productsAvailable: '项可选',
-  fnbClosed: '餐饮目前暂停服务。',
-  guestMenu: '住客菜单',
-  curated: '为您的住宿精选',
-  customize: '自选项目',
-  customizeHint: '选择加购或制作选项',
-  required: '必选',
-  optional: '可选',
-  remove: '移除',
-  currentlyClosed: '暂停服务',
-  outOfStock: '缺货',
-  available: '可订购',
-  closed: '关闭',
-  unavailable: '不可订购',
-  added: '已加入',
-  add: '加入',
-  yourOrder: '您的订单',
-  item: '件商品',
-  items: '件商品',
-  each: '每份',
-  specialInstructions: '特别要求',
-  specialInstructionsPlaceholder: '例如：少辣、不要洋葱、多辣椒',
-  noItemsSelected: '尚未选择商品',
-  addItemToBegin: '请先加入商品开始下单。',
-  roomNumber: '房号',
-  roomPlaceholder: '例如：1205',
-  guestName: '住客姓名',
-  guestNamePlaceholder: '入住姓名',
-  emailOptional: '电邮（可选）',
-  emailPlaceholder: '用于收据，可选',
-  total: '总额',
-  openingPayment: '正在开启安全付款...',
-  proceedPayment: '前往付款',
-  paymentNote: '订单会在付款供应商确认后才发送给酒店团队。',
-  fnbPaymentNote: ' 餐饮订单随后会由厨房接单。',
-  needAssistance: '需要协助？',
-  speakFrontOffice: '联系前台',
-  assistanceBody: '如有订单问题或特别要求，可直接发送给我们的团队。',
-  whatsappFrontOffice: 'WhatsApp 前台',
-  selectItemNotice: '付款前请至少选择一件商品。',
-  enterDetailsNotice: '付款前请输入房号和住客姓名。',
-  preparingPaymentNotice: '正在准备安全付款...',
-  unableStartPayment: '无法开始付款',
-  unableStartPaymentFrontOffice: '无法开始付款。请联系前台。',
-  cartAria: '购物车内有',
-  jumpCartAria: '跳到购物车，内有',
 };
 
 function itemWord(language: LanguageCode, count: number) {
@@ -807,7 +786,11 @@ export default function GuestShopPage() {
     });
 
     if (missing) {
-      setNotice(`Please choose ${localizedText(missing.name, missing.nameMs, missing.nameZh, language)} before adding ${displayItemName(item)}.`);
+      setNotice(
+        t.chooseBeforeAdding
+          .replace('{option}', localizedText(missing.name, missing.nameMs, missing.nameZh, language))
+          .replace('{item}', displayItemName(item))
+      );
       return;
     }
 
@@ -932,7 +915,7 @@ export default function GuestShopPage() {
           <img
             className={heroReady ? 'hero-image hero-image-ready' : 'hero-image'}
             src={hero.hero_image_url}
-            alt="Luxury hotel suite"
+            alt={t.hotelSuiteAlt}
             loading="eager"
             decoding="async"
             onLoad={() => setHeroReady(true)}
@@ -941,7 +924,7 @@ export default function GuestShopPage() {
         <div className="hero-shade" />
 
         <header className="nav">
-          <a className="brand" href="/guest-shop" aria-label="Hallmark Crown Hotel guest shop">
+          <a className="brand" href="/guest-shop" aria-label={t.brandAria}>
             <span className="brand-mark">
               <img src="/logo.png" alt="" />
             </span>
@@ -952,7 +935,7 @@ export default function GuestShopPage() {
           </a>
 
           <div className="nav-actions">
-            <div className="language-switch" aria-label="Language selection">
+            <div className="language-switch" aria-label={t.languageAria}>
               {LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.code}
@@ -998,7 +981,7 @@ export default function GuestShopPage() {
       </section>
 
       <section id="shop" className="collection">
-        <div className="storefront-switcher" role="tablist" aria-label="Choose what to shop">
+        <div className="storefront-switcher" role="tablist" aria-label={t.storefrontAria}>
           <button
             type="button"
             role="tab"
@@ -1063,7 +1046,7 @@ export default function GuestShopPage() {
             {activeCategory === 'FNB' ? (
               <>
                 {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || t.fnbClosed}</strong> : null}
-                <div className="categories" role="tablist" aria-label="Food and beverage categories">
+                <div className="categories" role="tablist" aria-label={t.fnbCategoriesAria}>
                   {fnbSubmenuChoices.map((submenu) => (
                     <button
                       key={submenu}
@@ -1077,7 +1060,7 @@ export default function GuestShopPage() {
                 </div>
               </>
             ) : (
-              <div className="categories" role="tablist" aria-label="Guest shop categories">
+              <div className="categories" role="tablist" aria-label={t.guestCategoriesAria}>
                 {guestCategories.map((category) => (
                   <button
                     key={category}
@@ -1100,19 +1083,19 @@ export default function GuestShopPage() {
           <div className="products">
             {shopLoading ? (
               <div className="catalog-state" role="status" aria-live="polite">
-                <strong>{language === 'ms' ? 'Memuatkan menu anda…' : language === 'zh' ? '正在加载您的菜单…' : 'Loading your menu…'}</strong>
-                <span>{language === 'ms' ? 'Gambar dan harga terkini sedang disediakan.' : language === 'zh' ? '正在准备最新图片和价格。' : 'Preparing the latest images and prices.'}</span>
+                <strong>{t.loadingMenu}</strong>
+                <span>{t.preparingMenu}</span>
               </div>
             ) : null}
             {!shopLoading && shopLoadError ? (
               <div className="catalog-state catalog-error" role="alert">
-                <strong>{language === 'ms' ? 'Menu tidak dapat dimuatkan buat masa ini.' : language === 'zh' ? '菜单暂时无法加载。' : 'The menu is temporarily unavailable.'}</strong>
-                <span>{language === 'ms' ? 'Sila muat semula halaman atau hubungi Front Office.' : language === 'zh' ? '请刷新页面或联系前台。' : 'Please refresh the page or contact Front Office.'}</span>
+                <strong>{t.menuTemporarilyUnavailable}</strong>
+                <span>{t.refreshOrContact}</span>
               </div>
             ) : null}
             {!shopLoading && !shopLoadError && !visibleItems.length ? (
               <div className="catalog-state">
-                <strong>{language === 'ms' ? 'Tiada item tersedia.' : language === 'zh' ? '目前没有可订购商品。' : 'No items are currently available.'}</strong>
+                <strong>{t.noItemsAvailable}</strong>
               </div>
             ) : null}
             {!shopLoading && !shopLoadError ? visibleItems.map((item) => {
@@ -1317,7 +1300,7 @@ export default function GuestShopPage() {
         </div>
       </section>
 
-      <section className="front-office-contact" aria-label="Contact Front Office">
+      <section className="front-office-contact" aria-label={t.contactAria}>
         <div>
           <p className="eyebrow">{t.needAssistance}</p>
           <h2>{t.speakFrontOffice}</h2>
@@ -1328,7 +1311,7 @@ export default function GuestShopPage() {
           href="https://wa.me/60126308316"
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="Contact Front Office on WhatsApp"
+          aria-label={t.whatsappAria}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3.2a8.8 8.8 0 0 0-7.6 13.2L3.5 21l4.7-1.2A8.8 8.8 0 1 0 12 3.2Z" />
@@ -1351,7 +1334,7 @@ export default function GuestShopPage() {
         <b>{cartCount}</b>
       </a>
 
-      <nav className="mobile-commerce-nav" aria-label="Shop navigation">
+      <nav className="mobile-commerce-nav" aria-label={t.shopNavigationAria}>
         <button
           type="button"
           className={activeCategory !== 'FNB' ? 'active' : ''}

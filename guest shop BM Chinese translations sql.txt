@@ -1,0 +1,142 @@
+-- Complete Bahasa Melayu and Simplified Chinese translations for Guest Shop.
+-- Safe to run more than once: rows are matched to their existing IDs or English names.
+
+begin;
+
+update public.guest_shop_settings
+set hero_kicker_ms = 'Pilihan eksklusif untuk bilik',
+    hero_kicker_zh = '客房专属精选',
+    hero_title_ms = 'Keselesaan istimewa, tersedia atas permintaan.',
+    hero_title_zh = '舒适臻选，按需送达。',
+    hero_body_ms = 'Pesan pilihan keselesaan, keperluan tetamu dan servis hotel terus dari bilik anda. Pesanan disediakan oleh pasukan kami selepas bayaran disahkan.',
+    hero_body_zh = '您可直接在房内订购精选舒适用品、住客必需品和酒店服务。付款确认后，我们的团队将为您准备订单。';
+
+update public.guest_shop_categories c
+set name_ms = v.name_ms,
+    name_zh = v.name_zh
+from (values
+  ('Food & Beverage (F&B)', 'Makanan & Minuman (F&B)', '餐饮 (F&B)'),
+  ('F&B', 'Makanan & Minuman', '餐饮'),
+  ('Comfort', 'Keselesaan', '舒适用品'),
+  ('Laundry', 'Dobi', '洗衣服务'),
+  ('Room Service', 'Servis Bilik', '客房服务'),
+  ('Essentials', 'Keperluan', '必需品')
+) as v(name, name_ms, name_zh)
+where c.name = v.name;
+
+with translations(id, name_ms, name_zh, submenu_ms, submenu_zh, description_ms, description_zh, label_ms, label_zh) as (values
+  ('8caa2add-307b-4689-8708-7e9a3f10805e'::uuid, 'Sarapan Amerika', '美式早餐', 'Masakan Barat', '西式料理', 'Roti bakar dengan sapuan mentega, telur hancur, sosej dan kacang panggang.', '牛油烤面包配炒蛋、香肠和焗豆。', '', ''),
+  ('227af24d-144e-4156-83aa-b3cc388f88bb'::uuid, 'Ayam Masak Merah dengan Nasi', '马来红酱鸡配饭', 'Masakan Asia', '亚洲风味', 'Pilihan chef. Hidangan kampung manis dan berperisa yang dimasak dengan tomato serta rempah. Buah-buahan dan minuman tidak termasuk.', '厨师推荐。以番茄和香料烹制的甘香传统乡村风味鸡肉。水果和饮料不包括在内。', '', ''),
+  ('8e3d1f3f-6f94-4d3f-afe0-878d2c1f9a2c'::uuid, 'Bihun Goreng', '炒米粉', 'Masakan Asia', '亚洲风味', 'Pilihan chef. Bihun yang ringan menghasilkan hidangan yang sihat tetapi tetap mengenyangkan. Buah-buahan dan minuman tidak termasuk.', '厨师推荐。清爽的米粉，健康又饱足。水果和饮料不包括在内。', '', ''),
+  ('14fb40a1-c00f-4029-abfa-3bfc899937eb'::uuid, 'Chicken Chop Lada Hitam', '黑椒鸡扒', 'Masakan Barat', '西式料理', 'Potongan ayam dengan sos lada hitam, dihidangkan bersama sayur-sayuran harian.', '鸡扒淋上黑椒酱，配每日时蔬。', '', ''),
+  ('213f0b03-f672-4117-953d-ce7e5d12c413'::uuid, 'Ayam Lada Hitam dengan Nasi', '黑椒鸡配饭', 'Masakan Asia', '亚洲风味', 'Jika anda gemarkan rasa lada, inilah hidangan pilihan anda. Sos disediakan menggunakan lada segar yang dikisar.', '如果您喜欢胡椒香味，这道菜就是理想选择；酱汁采用新鲜研磨胡椒制作。', '', ''),
+  ('7363a571-9aa2-4f32-b10e-8361835dfd65'::uuid, 'Ikan Dori Lada Hitam', '黑椒多利鱼', 'Masakan Barat', '西式料理', 'Ikan dori dengan sos lada hitam, dihidangkan bersama sayur-sayuran harian.', '多利鱼淋上黑椒酱，配每日时蔬。', '', ''),
+  ('fb4e3a94-1ab7-496e-a812-fc554eee3ab9'::uuid, 'Ikan Dori Lada Hitam dengan Nasi', '黑椒多利鱼配饭', 'Masakan Asia', '亚洲风味', 'Jika anda gemarkan rasa lada, inilah hidangan pilihan anda. Sos disediakan menggunakan lada segar yang dikisar.', '如果您喜欢胡椒香味，这道菜就是理想选择；酱汁采用新鲜研磨胡椒制作。', '', ''),
+  ('b6558ad8-96ad-43cf-8192-6ef05116a590'::uuid, 'Rendang Ayam Chef dengan Nasi', '厨师特制仁当鸡配饭', 'Masakan Asia', '亚洲风味', 'Resipi chef yang penuh rasa daripada pes rempah karamel dan santan yang digunakan untuk memasak ayam. Buah-buahan dan minuman tidak termasuk.', '厨师特制，鸡肉以焦香香料酱和椰浆慢煮，风味浓郁。水果和饮料不包括在内。', '', ''),
+  ('496d2901-b2b5-4fae-ba3c-8289e5de7b54'::uuid, 'Ayam Popcorn (1 Hidangan)', '爆米花鸡（1份）', 'Hidangan Sampingan', '小食', '', '', '', ''),
+  ('b9c8096b-5e75-4864-9df3-8c098b4f2271'::uuid, 'Jejari Ayam Rangup', '香脆鸡柳', 'Hidangan Sampingan', '小食', '', '', '', ''),
+  ('7539e9c3-4677-4f7c-9222-c6c17e17bc50'::uuid, 'Nugget Keemasan Rangup', '香脆黄金鸡块', 'Hidangan Sampingan', '小食', '', '', '', ''),
+  ('19b8e92c-37f3-4f27-b626-46883da14478'::uuid, 'Dobi Ekspres', '特快洗衣', '', '', 'Perkhidmatan dobi keutamaan untuk pakaian yang perlu disiapkan dengan lebih cepat.', '为需要更快送回的衣物提供优先洗衣服务。', '', ''),
+  ('4bd202bf-fd0b-4ea6-9b2c-2840dfc04c9a'::uuid, 'Katil Tambahan', '加床', '', '', '', '', 'Setiap Katil Setiap Malam', '每张床每晚'),
+  ('7883bb00-cf24-4057-be62-0e349bc28247'::uuid, 'Bantal Tambahan', '加枕头', '', '', 'Bantal bersih dihantar ke bilik anda untuk tidur yang lebih selesa.', '洁净枕头送至您的房间，让您睡得更舒适。', 'Setiap Bantal', '每个枕头'),
+  ('d7015928-48a4-4b9e-a1ae-564a1bcb0642'::uuid, 'Fish & Chips', '炸鱼薯条', 'Masakan Barat', '西式料理', 'Filet ikan dori segar digoreng sehingga sempurna. Perahkan lemon untuk rasa yang lebih menyegarkan. Buah-buahan dan minuman tidak termasuk.', '新鲜多利鱼柳炸至金黄，挤上柠檬汁增添清新风味。水果和饮料不包括在内。', '', ''),
+  ('2f1f9435-f3ac-4f7f-a8a9-741dfe5b79f3'::uuid, 'Chicken Chop Goreng', '香炸鸡扒', 'Masakan Barat', '西式料理', 'Pilihan chef. Ayam lembut disalut serbuk roti dan digoreng sehingga sempurna, kemudian dipadankan dengan sos lada hitam. Buah-buahan dan minuman tidak termasuk.', '厨师推荐。嫩鸡肉裹上面包糠炸至金黄，搭配浓郁黑椒酱。水果和饮料不包括在内。', '', ''),
+  ('8156cfe4-4d14-4176-8de2-9b72fa540b98'::uuid, 'Popia Goreng', '炸春卷', 'Hidangan Sampingan', '小食', '', '', '', ''),
+  ('362f0884-675b-43a0-9659-095399f7e659'::uuid, 'Samosa Goreng', '炸咖喱角', '', '', '', '', '', ''),
+  ('ec4f0147-d0f3-4b15-af15-f3bd7ee0ed8c'::uuid, 'Kentang Goreng (1 Hidangan)', '薯条（1份）', 'Hidangan Sampingan', '小食', '', '', '', ''),
+  ('96a6e8fe-28e3-493e-931a-8b6f1b56c218'::uuid, 'Nasi Goreng Hallmark', 'Hallmark 招牌炒饭', 'Masakan Asia', '亚洲风味', 'Rasa seimbang yang mengingatkan anda kepada masakan ibu, khas untuk cita rasa yang teliti. Buah-buahan dan minuman tidak termasuk.', '滋味均衡，令人想起妈妈的家常味，适合讲究的味蕾。水果和饮料不包括在内。', '', ''),
+  ('6ea4475a-e61d-4273-b0eb-3c5b0f0ec299'::uuid, 'Ikan Asam Pedas dengan Nasi', '酸辣鱼配饭', 'Masakan Asia', '亚洲风味', 'Hidangan ikan rebus masam pedas Malaysia yang menyelerakan dan berapi. Buah-buahan dan minuman tidak termasuk.', '马来西亚风味酸辣鱼，酸香开胃、辣味十足。水果和饮料不包括在内。', '', ''),
+  ('10f350a9-b462-4d6f-87e3-9bae9924b407'::uuid, 'Nasi Goreng Kampung', '乡村炒饭', 'Masakan Asia', '亚洲风味', 'Pilihan chef. Nasi goreng kampung dimasak menggunakan bahan tempatan yang segar untuk kepuasan dalam setiap suapan. Buah-buahan dan minuman tidak termasuk.', '厨师推荐。采用新鲜本地食材烹制的传统乡村炒饭，每一口都满足。水果和饮料不包括在内。', '', ''),
+  ('05f5ee90-f997-4f67-a551-ba57cf44f8bd'::uuid, 'Bihun Goreng Kanak-kanak', '儿童炒米粉', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak.', '儿童份量。', '', ''),
+  ('c921edad-c194-4de1-a13b-1c7db683976e'::uuid, 'Fish & Chips Kanak-kanak', '儿童炸鱼薯条', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak. Disertakan kentang goreng.', '儿童份量，配薯条。', '', ''),
+  ('d080c32a-c3ae-44ea-876b-e89580397c1e'::uuid, 'Nasi Goreng Kanak-kanak', '儿童炒饭', 'Menu Kanak-kanak', '儿童餐', 'Tidak pedas. Hidangan kanak-kanak.', '不辣，儿童份量。', '', ''),
+  ('bfe4fe91-04f8-4559-b718-9d4dbd7a5b94'::uuid, 'Mi Goreng Kanak-kanak', '儿童炒面', 'Menu Kanak-kanak', '儿童餐', 'Tidak pedas. Hidangan kanak-kanak.', '不辣，儿童份量。', '', ''),
+  ('58272833-7822-4db1-8afd-9354fa13ed3a'::uuid, 'Hidangan Campuran Kanak-kanak', '儿童小食拼盘', 'Menu Kanak-kanak', '儿童餐', '2 nugget, hidangan kecil wedges, hidangan kecil kentang goreng, ayam popcorn dan 3 jejari ayam.', '2块鸡块、小份薯角、小份薯条、爆米花鸡和3条鸡柳。', '', ''),
+  ('6527cdb3-a357-4d1b-839b-885df2c79a8a'::uuid, 'Spageti Bolognese Tomato Kanak-kanak', '儿童番茄肉酱意大利面', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak.', '儿童份量。', '', ''),
+  ('df71b163-16cd-435a-ac83-6d6e0bf21f89'::uuid, 'Spageti Aglio Olio Tidak Pedas Kanak-kanak', '儿童不辣蒜香意大利面', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak.', '儿童份量。', '', ''),
+  ('c1def8e2-77fd-45e8-883f-090d4d80e041'::uuid, 'Spageti Carbonara Berkrim Kanak-kanak', '儿童奶油培根意大利面', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak.', '儿童份量。', '', ''),
+  ('5baf2df2-1ec4-4742-9795-f681e7120f7d'::uuid, 'Ikan Masam Manis dengan Nasi Kanak-kanak', '儿童糖醋鱼配饭', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak.', '儿童份量。', '', ''),
+  ('c7db1682-4c1c-4ba2-95c5-a7c86a898c0a'::uuid, 'Ayam Masam Manis dengan Nasi Kanak-kanak', '儿童糖醋鸡配饭', 'Menu Kanak-kanak', '儿童餐', 'Hidangan kanak-kanak.', '儿童份量。', '', ''),
+  ('a1ae53b0-7b9b-4a12-9912-03488430e68b'::uuid, 'Kuey Teow Goreng', '炒粿条', 'Masakan Asia', '亚洲风味', 'Kuey teow digoreng dengan api besar dalam kuali berperisa bersama udang, telur mata, tauge rangup dan keropok. Buah-buahan dan minuman tidak termasuk.', '粿条以猛火炒制，配虾、太阳蛋、爽脆豆芽和炸鱼饼。水果和饮料不包括在内。', '', ''),
+  ('a30ca10c-f99f-4ffc-9254-b8ec059a8249'::uuid, 'Daftar Keluar Lewat', '延迟退房', '', '', 'Lanjutkan penginapan anda dengan selesa, tertakluk kepada pengesahan Front Office.', '舒适延长您的住宿时间，须经前台确认。', 'Setiap Jam Mulai 12 Tengah Hari', '中午12时起每小时'),
+  ('f8eb3fee-635a-44e8-85d3-b7bc8f04a657'::uuid, 'Mi Goreng', '炒面', 'Masakan Asia', '亚洲风味', 'Mi goreng Malaysia digaul dengan sayur-sayuran berwarna-warni dan sos yang enak. Buah-buahan dan minuman tidak termasuk.', '马来西亚风味炒面，加入多彩蔬菜并裹上鲜香酱汁。水果和饮料不包括在内。', '', ''),
+  ('e7e0a113-2607-4932-96e4-7aed2eedb4df'::uuid, 'Air Mineral', '矿泉水', '', '', 'Air mineral botol sejuk dihantar terus ke bilik anda.', '冰凉瓶装矿泉水直接送到您的房间。', '', ''),
+  ('ae69dcbb-e6cb-4a8e-a9b3-83026f8ada86'::uuid, 'Nasi Lemak Bungkus', '椰浆饭包', 'Masakan Asia', '亚洲风味', 'Nasi lemak kegemaran ramai, dihidangkan dengan sambal, telur, ikan bilis rangup, kacang tanah panggang dan timun.', '广受欢迎的马来西亚椰浆饭，配参巴酱、鸡蛋、香脆江鱼仔、烤花生和黄瓜。', '', ''),
+  ('16e7ee80-8f49-4717-bbcd-ed44d896a118'::uuid, 'Kentang Wedges (1 Hidangan)', '薯角（1份）', 'Hidangan Sampingan', '小食', '', '', '', ''),
+  ('202df018-32d6-490f-addb-cdd2c28fa37e'::uuid, 'Ayam Sos Telur Masin dengan Nasi', '咸蛋酱鸡肉配饭', 'Masakan Asia', '亚洲风味', 'Sos telur masin kegemaran ramai yang kaya dan berperisa.', '浓郁鲜香、广受欢迎的咸蛋酱风味。', '', ''),
+  ('be9b633a-d857-4a7f-a3cc-b5de81f43f43'::uuid, 'Ikan Dori Goreng Sos Telur Masin dengan Nasi', '咸蛋酱炸多利鱼配饭', 'Masakan Asia', '亚洲风味', 'Sos telur masin kegemaran ramai yang kaya dan berperisa.', '浓郁鲜香、广受欢迎的咸蛋酱风味。', '', ''),
+  ('9b188c51-93a0-4bc4-b45c-16062d617716'::uuid, 'Aglio Olio Makanan Laut', '海鲜蒜香意大利面', 'Masakan Barat', '西式料理', 'Spageti lazat dengan bawang putih, minyak zaitun, udang dan emping cili merah. Buah-buahan dan minuman tidak termasuk.', '蒜香意大利面配橄榄油、虾和红辣椒碎。水果和饮料不包括在内。', '', ''),
+  ('976814b9-ab27-4fd3-b6d1-0d71891e3b21'::uuid, 'Spageti Bolognese', '肉酱意大利面', 'Masakan Barat', '西式料理', 'Sos Bolognese yang pekat dan kaya rasa. Buah-buahan dan minuman tidak termasuk.', '浓厚醇香的肉酱意大利面。水果和饮料不包括在内。', '', ''),
+  ('b17143b0-bdeb-4466-bcdf-b80eec742397'::uuid, 'Spageti Carbonara', '奶油培根意大利面', 'Masakan Barat', '西式料理', 'Carbonara yang pekat, kaya dan berkrim, cair di dalam mulut. Buah-buahan dan minuman tidak termasuk.', '浓郁顺滑、入口即化的奶油培根意大利面。水果和饮料不包括在内。', '', ''),
+  ('26802a6c-82f1-4496-b571-64194d6c5ff8'::uuid, 'Ayam Masam Manis dengan Nasi', '糖醋鸡配饭', 'Masakan Asia', '亚洲风味', 'Hidangan Asia popular dengan ayam goreng dan sos masam manis yang digaul sempurna.', '经典亚洲菜式，炸鸡肉裹上酸甜适中的糖醋酱。', '', ''),
+  ('6c131137-8522-4a69-9137-c4072365c4e0'::uuid, 'Ikan Dori Masam Manis dengan Nasi', '糖醋多利鱼配饭', 'Masakan Asia', '亚洲风味', 'Hidangan Asia popular dengan ikan dori goreng dan sos masam manis yang digaul sempurna.', '经典亚洲菜式，炸多利鱼裹上酸甜适中的糖醋酱。', '', ''),
+  ('960d4720-db2f-40d9-a380-2c6b7fe6f4bc'::uuid, 'Ayam Sos Thai dengan Nasi', '泰式酱鸡肉配饭', 'Masakan Asia', '亚洲风味', 'Sos Thai dibuat menggunakan sos cili manis Thai dan disiram pada ayam lembut untuk rasa manis pedas yang seimbang.', '以泰式甜辣酱调制酱汁，淋在嫩鸡肉上，甜辣平衡。', '', ''),
+  ('086cf830-d8b8-43eb-afe1-0e44141375e1'::uuid, 'Ikan Dori Sos Thai dengan Nasi', '泰式酱多利鱼配饭', 'Masakan Asia', '亚洲风味', 'Sos Thai dibuat menggunakan sos cili manis Thai dan disiram pada ikan dori untuk rasa manis pedas yang seimbang.', '以泰式甜辣酱调制酱汁，淋在多利鱼上，甜辣平衡。', '', ''),
+  ('f3a059f4-1c4c-4ca5-b216-7a82c203ff2c'::uuid, 'Roti Bakar', '烤面包', 'Roti Bakar', '烤面包', '', '', '', ''),
+  ('64f0e9b0-e420-4795-97f4-b07156fb4e0f'::uuid, 'Kopi Tradisional', '传统咖啡', 'Minuman', '饮品', '', '', '', ''),
+  ('f5b7a917-68ca-462f-a47c-1ab79f8b6103'::uuid, 'Teh Tradisional', '传统奶茶', 'Minuman', '饮品', '', '', '', ''),
+  ('b8cae886-bfe7-4d79-ba94-5522a4b6d7d4'::uuid, 'Penyesuai Perjalanan', '旅行转换插头', '', '', 'Penyesuai universal disediakan untuk kemudahan tetamu sepanjang penginapan.', '通用转换插头，为住客在住宿期间提供便利。', '', ''),
+  ('be2d55df-b27c-4b46-add5-01c045f121fc'::uuid, 'Wafel', '华夫饼', 'Wafel', '华夫饼', '', '', '', '')
+)
+update public.guest_shop_items i
+set name_ms = t.name_ms,
+    name_zh = t.name_zh,
+    submenu_ms = t.submenu_ms,
+    submenu_zh = t.submenu_zh,
+    description_ms = t.description_ms,
+    description_zh = t.description_zh,
+    label_ms = t.label_ms,
+    label_zh = t.label_zh
+from translations t
+where i.id = t.id;
+
+update public.guest_shop_item_option_groups g
+set name_ms = v.name_ms,
+    name_zh = v.name_zh
+from (values
+  ('Add-ons', 'Tambahan', '加购'),
+  ('Size', 'Saiz', '份量'),
+  ('Spicy Level', 'Tahap Kepedasan', '辣度'),
+  ('Types', 'Pilihan', '选择')
+) as v(name, name_ms, name_zh)
+where g.name = v.name;
+
+update public.guest_shop_item_options o
+set name_ms = v.name_ms,
+    name_zh = v.name_zh
+from (values
+  ('Add Egg', 'Tambah Telur', '加蛋'),
+  ('Butter', 'Mentega', '牛油'),
+  ('Chocolate', 'Coklat', '巧克力'),
+  ('Chocolate Toast', 'Roti Bakar Coklat', '巧克力吐司'),
+  ('Extra Large (24 Pcs)', 'Sangat Besar (24 Ketul)', '特大（24件）'),
+  ('Extra Rice', 'Nasi Tambahan', '加饭'),
+  ('French Toast', 'Roti Bakar Perancis', '法式吐司'),
+  ('Fruit Jam', 'Jem Buah', '水果果酱'),
+  ('Fruit Jam Toast', 'Roti Bakar Jem Buah', '水果果酱吐司'),
+  ('Kaya', 'Kaya', '咖椰'),
+  ('Kaya Butter Toast', 'Roti Bakar Kaya Mentega', '咖椰牛油吐司'),
+  ('Large (12 Pcs)', 'Besar (12 Ketul)', '大份（12件）'),
+  ('Less Spicy', 'Kurang Pedas', '少辣'),
+  ('Medium (9 Pcs)', 'Sederhana (9 Ketul)', '中份（9件）'),
+  ('Normal', 'Biasa', '正常辣度'),
+  ('Not Spicy', 'Tidak Pedas', '不辣'),
+  ('Peanut Butter', 'Mentega Kacang', '花生酱'),
+  ('Peanut Butter Toast', 'Roti Bakar Mentega Kacang', '花生酱吐司'),
+  ('Plain', 'Kosong', '原味'),
+  ('Regular', 'Biasa', '普通'),
+  ('Regular (10Pcs)', 'Biasa (10 Ketul)', '普通（10件）'),
+  ('Regular (6 pcs)', 'Biasa (6 Ketul)', '普通（6件）'),
+  ('Regular (6 Pcs)', 'Biasa (6 Ketul)', '普通（6件）'),
+  ('Upsize', 'Saiz Besar', '加大'),
+  ('Upsize (20Pcs)', 'Saiz Besar (20 Ketul)', '加大（20件）')
+) as v(name, name_ms, name_zh)
+where o.name = v.name;
+
+commit;
+
+-- Verification: all active guest-facing records should now have BM and Chinese names.
+select
+  (select count(*) from public.guest_shop_items where is_active = true and (nullif(btrim(name_ms), '') is null or nullif(btrim(name_zh), '') is null)) as untranslated_items,
+  (select count(*) from public.guest_shop_item_option_groups where is_active = true and (nullif(btrim(name_ms), '') is null or nullif(btrim(name_zh), '') is null)) as untranslated_option_groups,
+  (select count(*) from public.guest_shop_item_options where is_active = true and (nullif(btrim(name_ms), '') is null or nullif(btrim(name_zh), '') is null)) as untranslated_options;

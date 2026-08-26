@@ -219,6 +219,10 @@ function getYesterdayLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function getCurrentLocalMonthString() {
+  return getTodayLocalDateString().slice(0, 7);
+}
+
 function getFoChecklistServiceDateString() {
   const d = new Date();
   if (d.getHours() < 12) {
@@ -252,6 +256,16 @@ function formatDateLabel(value: string) {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+  });
+}
+
+function formatMonthLabel(value: string) {
+  if (!/^\d{4}-\d{2}$/.test(value)) return value;
+  const d = new Date(`${value}-01T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
   });
 }
 
@@ -741,7 +755,7 @@ export default function DashboardPage() {
   const [dept, setDept] = useState<(typeof departments)[number]>('ALL');
   const [status, setStatus] = useState<(typeof liveStatuses)[number]>('OPEN');
   const [sidebarView, setSidebarView] = useState<SidebarView>('DASHBOARD');
-  const [pastTaskDate, setPastTaskDate] = useState(getYesterdayLocalDateString());
+  const [pastTaskMonth, setPastTaskMonth] = useState(getCurrentLocalMonthString());
 
   const [loading, setLoading] = useState(true);
   const [authLoading, setAuthLoading] = useState(true);
@@ -2747,12 +2761,12 @@ async function handleDeleteTask(task: Task) {
       if (!doneDate) return false;
 
       const isPastTask = doneDate < todayLocal;
-      const matchesSelectedDate = doneDate === pastTaskDate;
+      const matchesSelectedMonth = doneDate.slice(0, 7) === pastTaskMonth;
       const deptOk = dept === 'ALL' || task.department === dept;
 
-      return isPastTask && matchesSelectedDate && deptOk;
+      return isPastTask && matchesSelectedMonth && deptOk;
     });
-  }, [tasks, dept, pastTaskDate, todayLocal]);
+  }, [tasks, dept, pastTaskMonth, todayLocal]);
 
   const filtered = sidebarView === 'DASHBOARD' ? liveTasks : pastTasks;
   const taskRenderLimit = isMobile ? MAX_RENDERED_TASK_CARDS_MOBILE : MAX_RENDERED_TASK_CARDS;
@@ -2807,7 +2821,7 @@ async function handleDeleteTask(task: Task) {
   const pageSubtitle =
     sidebarView === 'DASHBOARD'
       ? ''
-      : 'Browse previously completed tasks by completed date';
+      : 'Browse previously completed tasks by completed month';
 
   const taskMainRowStyle: React.CSSProperties = styles.taskMainRow;
   const showInitialDashboardLoader =
@@ -3226,7 +3240,7 @@ async function handleDeleteTask(task: Task) {
                     <div style={styles.filterPanelSubtitle}>
                       {sidebarView === 'DASHBOARD'
                         ? 'Filter the task list below'
-                        : 'Search older completed tasks by department and date'}
+                        : 'Search older completed tasks by department and month'}
                     </div>
                   </div>
 
@@ -3297,19 +3311,19 @@ async function handleDeleteTask(task: Task) {
                   ) : (
                     <div style={styles.filterBlock}>
                       <div style={styles.filterLabelRow}>
-                        <div style={styles.filterLabel}>Completed Date</div>
+                        <div style={styles.filterLabel}>Completed Month</div>
                         <div style={styles.filterHint}>Archive</div>
                       </div>
                       <div style={styles.dateFilterRow}>
                         <input
-                          type="date"
-                          value={pastTaskDate}
-                          max={getYesterdayLocalDateString()}
-                          onChange={(e) => setPastTaskDate(e.target.value)}
+                          type="month"
+                          value={pastTaskMonth}
+                          max={getCurrentLocalMonthString()}
+                          onChange={(e) => setPastTaskMonth(e.target.value)}
                           style={styles.dateInput}
                         />
                         <div style={styles.dateHint}>
-                          Tasks here are filtered using completion date
+                          Shows every archived task completed within the selected month
                         </div>
                       </div>
                     </div>
@@ -3330,8 +3344,8 @@ async function handleDeleteTask(task: Task) {
                     ? 'Loading tasks…'
                     : sidebarView === 'DASHBOARD'
                     ? `${filtered.length} live task${filtered.length === 1 ? '' : 's'} shown`
-                    : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatDateLabel(
-                        pastTaskDate
+                    : `${filtered.length} past task${filtered.length === 1 ? '' : 's'} shown for ${formatMonthLabel(
+                        pastTaskMonth
                       )}`}
                 </div>
                 {refreshing ? <div style={styles.updatingText}>Refreshing…</div> : null}
@@ -3343,7 +3357,7 @@ async function handleDeleteTask(task: Task) {
                 <div style={styles.emptyState}>
                   {sidebarView === 'DASHBOARD'
                     ? 'No tasks found for this filter.'
-                    : `No past tasks found for ${formatDateLabel(pastTaskDate)}.`}
+                    : `No past tasks found for ${formatMonthLabel(pastTaskMonth)}.`}
                 </div>
               ) : (
                 <div style={styles.cardList}>
