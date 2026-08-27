@@ -46,6 +46,7 @@ const PROFILE_SELECT = `
   can_access_lost_found,
   can_access_fo_checklist,
   can_access_fo_quick_actions,
+  can_access_fo_schedule,
   can_access_supervisor_checklist,
   can_access_price_guide,
   can_access_guest_laundry,
@@ -128,6 +129,7 @@ const permissionKeys = [
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_fo_quick_actions',
+  'can_access_fo_schedule',
   'can_access_supervisor_checklist',
   'can_access_price_guide',
   'can_access_guest_laundry',
@@ -229,6 +231,8 @@ function buildUser(profile: any, authEmail: string) {
       effectiveFoChecklist(role, profile.email || authEmail, profile.can_access_fo_checklist),
     can_access_fo_quick_actions:
       effectiveBoolean(role, profile.can_access_fo_quick_actions),
+    can_access_fo_schedule:
+      effectiveBoolean(role, profile.can_access_fo_schedule),
     can_access_supervisor_checklist:
       effectiveBoolean(role, profile.can_access_supervisor_checklist),
     can_access_price_guide:

@@ -38,6 +38,7 @@ type UpdateBody = {
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_fo_quick_actions?: boolean;
+  can_access_fo_schedule?: boolean;
   can_access_supervisor_checklist?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
@@ -83,6 +84,7 @@ const permissionKeys = [
   'can_access_lost_found',
   'can_access_fo_checklist',
   'can_access_fo_quick_actions',
+  'can_access_fo_schedule',
   'can_access_supervisor_checklist',
   'can_access_price_guide',
   'can_access_guest_laundry',
@@ -135,6 +137,7 @@ const profileSelect = `
   can_access_lost_found,
   can_access_fo_checklist,
   can_access_fo_quick_actions,
+  can_access_fo_schedule,
   can_access_supervisor_checklist,
   can_access_price_guide,
   can_access_guest_laundry,
@@ -244,6 +247,8 @@ function withPermissions(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_quick_actions:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fo_quick_actions),
+    can_access_fo_schedule:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fo_schedule),
     can_access_fo_checklist:
       role === 'SUPERUSER' ||
       (

@@ -37,6 +37,7 @@ type CreateBody = {
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_fo_quick_actions?: boolean;
+  can_access_fo_schedule?: boolean;
   can_access_supervisor_checklist?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
@@ -111,6 +112,8 @@ function withPermissions(row: any) {
     can_access_supervisor_checklist: toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_quick_actions:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fo_quick_actions),
+    can_access_fo_schedule:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fo_schedule),
     can_access_fo_checklist:
       role === 'SUPERUSER' ||
       (
@@ -273,6 +276,8 @@ export async function POST(req: NextRequest) {
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fo_checklist),
       can_access_fo_quick_actions:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fo_quick_actions),
+      can_access_fo_schedule:
+        role === 'SUPERUSER' || toPermissionBoolean(body.can_access_fo_schedule),
       can_access_price_guide:
         role === 'SUPERUSER' || toPermissionBoolean(body.can_access_price_guide),
       can_access_guest_laundry:
@@ -382,6 +387,7 @@ export async function POST(req: NextRequest) {
         can_access_supervisor_checklist,
         can_access_fo_checklist,
         can_access_fo_quick_actions,
+        can_access_fo_schedule,
         can_access_price_guide,
         can_access_guest_laundry,
         can_access_fnb_checklist,

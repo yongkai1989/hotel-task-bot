@@ -298,3 +298,21 @@
   .fitMode .toolbar{grid-template-columns:minmax(0,1fr) 104px}
   .fitMode .monthControl{width:104px}
 }
+
+.foCoverageShortage{
+  background:#fff1f2!important;
+  color:#b91c1c!important;
+  box-shadow:inset 0 -3px 0 #ef4444!important;
+}
+
+.foJtkException{
+  background:#fef3c7!important;
+  border-color:#f59e0b!important;
+  color:#92400e!important;
+  box-shadow:inset 0 0 0 1px rgba(245,158,11,.22)!important;
+}
+
+.foJtkException small{
+  color:#b45309!important;
+  font-weight:900;
+}

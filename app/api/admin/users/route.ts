@@ -71,6 +71,7 @@ function enabledCount(row: any) {
     row?.can_access_breakfast_vouchers,
     row?.can_access_staff_meal,
     row?.can_access_fo_quick_actions,
+    row?.can_access_fo_schedule,
     row?.can_access_pa_checklist,
     row?.can_access_pa_linen_entry,
     role === 'SUPERUSER' ||
@@ -145,6 +146,8 @@ function normalizeProfileRow(row: any) {
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_supervisor_checklist),
     can_access_fo_quick_actions:
       role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fo_quick_actions),
+    can_access_fo_schedule:
+      role === 'SUPERUSER' || toPermissionBoolean(row.can_access_fo_schedule),
     can_access_fo_checklist:
       role === 'SUPERUSER' ||
       (
@@ -330,6 +333,7 @@ const profileSelect = `
   can_access_supervisor_checklist,
   can_access_fo_checklist,
   can_access_fo_quick_actions,
+  can_access_fo_schedule,
   can_access_price_guide,
   can_access_guest_laundry,
   can_access_fnb_checklist,

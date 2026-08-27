@@ -46,6 +46,7 @@ export type DashboardUser = {
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
   can_access_fo_quick_actions: boolean;
+  can_access_fo_schedule: boolean;
   can_access_supervisor_checklist: boolean;
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
@@ -89,6 +90,7 @@ export type DashboardUser = {
     can_access_lost_found: boolean;
     can_access_fo_checklist: boolean;
     can_access_fo_quick_actions: boolean;
+    can_access_fo_schedule: boolean;
     can_access_supervisor_checklist: boolean;
     can_access_price_guide: boolean;
     can_access_guest_laundry: boolean;
@@ -260,6 +262,7 @@ export async function getDashboardUserFromRequest(
         can_access_lost_found,
         can_access_fo_checklist,
         can_access_fo_quick_actions,
+        can_access_fo_schedule,
         can_access_supervisor_checklist,
         can_access_price_guide,
         can_access_guest_laundry,
@@ -344,6 +347,8 @@ export async function getDashboardUserFromRequest(
         effectiveFoChecklist(role, profile.email || authUser.email, profile.can_access_fo_checklist),
       can_access_fo_quick_actions:
         effectiveBoolean(role, profile.can_access_fo_quick_actions),
+      can_access_fo_schedule:
+        effectiveBoolean(role, profile.can_access_fo_schedule),
       can_access_supervisor_checklist:
         effectiveBoolean(role, profile.can_access_supervisor_checklist),
       can_access_price_guide:

@@ -40,6 +40,7 @@ type DashboardUser = {
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_fo_quick_actions?: boolean;
+  can_access_fo_schedule?: boolean;
   can_access_supervisor_checklist?: boolean;
   can_access_guest_shop_orders?: boolean;
   permissions?: Partial<Record<
@@ -71,6 +72,7 @@ type DashboardUser = {
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
     | 'can_access_fo_quick_actions'
+    | 'can_access_fo_schedule'
     | 'can_access_breakfast_vouchers'
     | 'can_access_staff_meal'
     | 'can_access_supervisor_checklist'

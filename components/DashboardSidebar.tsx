@@ -44,6 +44,7 @@ type SidebarProfile = {
   can_access_lost_found?: boolean;
   can_access_fo_checklist?: boolean;
   can_access_fo_quick_actions?: boolean;
+  can_access_fo_schedule?: boolean;
   can_access_price_guide?: boolean;
   can_access_guest_laundry?: boolean;
   can_access_fnb_checklist?: boolean;
@@ -87,6 +88,7 @@ type SidebarProfile = {
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
     | 'can_access_fo_quick_actions'
+    | 'can_access_fo_schedule'
     | 'can_access_price_guide'
     | 'can_access_guest_laundry'
     | 'can_access_fnb_checklist'
@@ -173,6 +175,7 @@ type EffectiveProfile = Required<
     | 'can_access_lost_found'
     | 'can_access_fo_checklist'
     | 'can_access_fo_quick_actions'
+    | 'can_access_fo_schedule'
     | 'can_access_price_guide'
     | 'can_access_guest_laundry'
     | 'can_access_fnb_checklist'
@@ -283,6 +286,8 @@ function normalizeProfile(profile: SidebarProfile | null): EffectiveProfile | nu
       ),
     can_access_fo_quick_actions:
       isSuperuser || hasAccess(permissionValue('can_access_fo_quick_actions')),
+    can_access_fo_schedule:
+      isSuperuser || hasAccess(permissionValue('can_access_fo_schedule')),
     can_access_price_guide:
       isSuperuser ||
       role === 'FO' ||
@@ -849,6 +854,7 @@ export default function DashboardSidebar({
       )
     );
   const canSeeFoQuickActions = !!effectiveProfile?.can_access_fo_quick_actions;
+  const canSeeFoSchedule = !!effectiveProfile?.can_access_fo_schedule;
 
   const showMaintenanceGroup =
     canSeePM ||
@@ -879,6 +885,7 @@ export default function DashboardSidebar({
     canSeeCommissionChecker ||
     canSeeAdminSettings;
   const showFrontOfficeGroup =
+    canSeeFoSchedule ||
     canSeeFoQuickActions ||
     canSeeLostFound ||
     canSeeFoChecklist ||
@@ -901,6 +908,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_maintenance_stock_card,
     effectiveProfile?.can_access_maintenance_damaged,
     effectiveProfile?.can_access_hk_schedule,
+    effectiveProfile?.can_access_fo_schedule,
     effectiveProfile?.can_access_hk_special_project,
     effectiveProfile?.can_access_hk_manager_room_check,
     effectiveProfile?.can_access_chambermaid_entry,
@@ -932,6 +940,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_staff_meal,
     effectiveProfile?.can_access_fo_checklist,
     effectiveProfile?.can_access_fo_quick_actions,
+    effectiveProfile?.can_access_fo_schedule,
     effectiveProfile?.can_create_task,
     effectiveProfile?.can_update_task_status,
     effectiveProfile?.can_edit_task,
@@ -1433,6 +1442,17 @@ export default function DashboardSidebar({
               open={frontOfficeOpen}
               setOpen={setFrontOfficeOpen}
             >
+              {canSeeFoSchedule ? (
+                <Link
+                  href="/dashboard/fo-schedule"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="calendar" sub>Schedule</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeFoQuickActions ? (
                 <Link
                   href="/dashboard/fo-quick-actions"

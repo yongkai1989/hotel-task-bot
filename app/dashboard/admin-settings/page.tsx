@@ -40,6 +40,7 @@ type UserProfile = {
   can_access_lost_found: boolean;
   can_access_fo_checklist: boolean;
   can_access_fo_quick_actions: boolean;
+  can_access_fo_schedule: boolean;
   can_access_price_guide: boolean;
   can_access_guest_laundry: boolean;
   can_access_fnb_checklist: boolean;
@@ -99,6 +100,7 @@ const accessFieldDefs: Array<{
   { key: 'can_access_lost_found', label: 'Lost & Found', group: 'Front Office' },
   { key: 'can_access_fo_checklist', label: 'FO Checklist', group: 'Front Office' },
   { key: 'can_access_fo_quick_actions', label: 'FO Quick Actions', group: 'Front Office' },
+  { key: 'can_access_fo_schedule', label: 'FO Schedule', group: 'Front Office' },
   { key: 'can_access_price_guide', label: 'Price Guide', group: 'Front Office' },
   { key: 'can_access_guest_laundry', label: 'Guest Laundry', group: 'Front Office' },
   { key: 'can_access_fnb_checklist', label: 'F&B Check List', group: 'F&B' },
@@ -143,6 +145,7 @@ function emptyPermissions(): Omit<UserProfile, 'user_id' | 'email' | 'name' | 'r
     can_access_lost_found: false,
     can_access_fo_checklist: false,
     can_access_fo_quick_actions: false,
+    can_access_fo_schedule: false,
     can_access_price_guide: false,
     can_access_guest_laundry: false,
     can_access_fnb_checklist: false,
@@ -253,6 +256,8 @@ function normalizeUser(
       toPermissionBoolean(permissionValue('can_access_fo_checklist')),
     can_access_fo_quick_actions:
       toPermissionBoolean(permissionValue('can_access_fo_quick_actions')),
+    can_access_fo_schedule:
+      toPermissionBoolean(permissionValue('can_access_fo_schedule')),
     can_access_price_guide:
       toPermissionBoolean(permissionValue('can_access_price_guide')),
     can_access_guest_laundry:
@@ -315,6 +320,7 @@ function buildSavedPayload(draft: EditableUser): UserProfile {
     can_access_lost_found: toPermissionBoolean(draft.can_access_lost_found),
     can_access_fo_checklist: toPermissionBoolean(draft.can_access_fo_checklist),
     can_access_fo_quick_actions: toPermissionBoolean(draft.can_access_fo_quick_actions),
+    can_access_fo_schedule: toPermissionBoolean(draft.can_access_fo_schedule),
     can_access_price_guide: toPermissionBoolean(draft.can_access_price_guide),
     can_access_guest_laundry: toPermissionBoolean(draft.can_access_guest_laundry),
     can_access_fnb_checklist: toPermissionBoolean(draft.can_access_fnb_checklist),
