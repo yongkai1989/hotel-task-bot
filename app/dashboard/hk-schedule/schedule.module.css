@@ -143,6 +143,57 @@
   box-shadow:0 2px 5px rgba(20,49,84,.06);
 }
 .fitToggle[aria-pressed="true"]{border-color:#8eb5ee;background:#eaf2ff;color:#1553b7}
+
+/* Front Office staff setup uses cards so its five controls remain usable on phones. */
+.foStaffBody{overflow-x:hidden;background:#f7f9fc}
+.foStaffAddSection{padding:15px;border:1px solid #d7e2ef;border-radius:14px;background:#fff;box-shadow:0 4px 14px rgba(22,52,89,.05)}
+.foStaffSectionHeading{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:13px}
+.foStaffSectionHeading span{display:block;color:#2563eb;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.foStaffSectionHeading h3{margin:3px 0 0;color:#14243c;font-size:17px}
+.foStaffSectionHeading small{color:#6f7e94;font-size:11px}
+.foStaffAddGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.foStaffAddGrid label,.foStaffControlGrid label{min-width:0;margin:0;color:#44566f;font-size:10px}
+.foStaffNameField{grid-column:1/-1}
+.foAddStaffButton{grid-column:1/-1;min-height:46px}
+.foStaffRuleNote{display:flex;align-items:flex-start;gap:10px;margin:13px 0!important;border:1px solid #bfdbfe}
+.foStaffRuleNote strong{flex:0 0 auto;color:#174ea6}
+.foStaffRuleNote span{line-height:1.4}
+.foStaffList{display:flex;flex-direction:column;gap:10px}
+.foStaffCard{min-width:0;padding:14px;border:1px solid #d7e2ef;border-radius:14px;background:#fff;box-shadow:0 3px 10px rgba(24,52,86,.045)}
+.foStaffCardHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.foStaffCardHeader h3{margin:0;color:#17263e;font-size:16px;line-height:1.25}
+.foStaffCardHeader p{margin:3px 0 0;color:#6c7c93;font-size:11px;line-height:1.35}
+.foActiveBadge,.foInactiveBadge{flex:0 0 auto;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:900;text-transform:uppercase}
+.foActiveBadge{background:#e8f8ee;color:#137443}
+.foInactiveBadge{background:#edf1f6;color:#64748b}
+.foStaffControlGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.foStaffControlGrid select{min-width:0;min-height:42px!important;margin-top:5px;padding:8px!important;font-size:13px!important}
+.foStaffCardActions{display:flex;align-items:center;gap:8px;margin-top:11px;padding-top:11px;border-top:1px solid #e8edf4}
+.foStaffCardActions .dangerOutline{margin-left:auto;min-height:40px}
+
+@media(max-width:760px){
+  .foStaffBody{padding:13px!important}
+  .foStaffAddSection{padding:12px}
+  .foStaffSectionHeading{align-items:flex-start;flex-direction:column;gap:3px}
+  .foStaffSectionHeading small{font-size:10px}
+  .foStaffAddGrid{grid-template-columns:1fr 1fr;gap:9px}
+  .foStaffNameField{grid-column:1/-1}
+  .foStaffAddGrid label:nth-of-type(4),.foStaffAddGrid label:nth-of-type(5){grid-column:1/-1}
+  .foStaffRuleNote{flex-direction:column;gap:3px;padding:11px!important;font-size:11px}
+  .foStaffCard{padding:12px}
+  .foStaffControlGrid{grid-template-columns:1fr 1fr}
+  .foStaffControlGrid label:last-child{grid-column:1/-1}
+  .foStaffCardActions{display:grid;grid-template-columns:minmax(0,1fr) auto}
+  .foStaffCardActions .primaryButton,.foStaffCardActions .secondaryButton{min-width:0;padding:0 11px;white-space:normal}
+  .foStaffCardActions .dangerOutline{margin-left:0;padding:0 12px}
+}
+
+@media(max-width:390px){
+  .foStaffAddGrid,.foStaffControlGrid{grid-template-columns:1fr}
+  .foStaffAddGrid label,.foStaffControlGrid label{grid-column:1!important}
+  .foStaffCardActions{grid-template-columns:1fr}
+  .foStaffCardActions .dangerOutline{width:100%}
+}
 .staffCount{
   padding:3px 8px;
   border-radius:999px;
