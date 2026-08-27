@@ -24,9 +24,9 @@ create table if not exists public.fo_schedule_staff (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists fo_schedule_one_hybrid_night_idx
-  on public.fo_schedule_staff (is_hybrid_night)
-  where is_hybrid_night and is_active;
+-- More than one staff member may be eligible to rotate into the hybrid night role.
+-- Dropping this legacy unique index does not change any staff details or schedules.
+drop index if exists public.fo_schedule_one_hybrid_night_idx;
 create index if not exists fo_schedule_staff_active_order_idx
   on public.fo_schedule_staff (is_active, is_manager, sort_order, staff_name);
 
@@ -146,11 +146,6 @@ begin
   if p_fixed_off_day is not null and p_fixed_off_day not between 1 and 7 then raise exception 'Invalid fixed off day'; end if;
   if coalesce(p_is_permanent_night, false) then v_preference := 'NIGHT'; v_role := 'NIGHT_AUDITOR'; end if;
   if coalesce(p_is_manager, false) then v_role := 'MANAGER'; end if;
-
-  if coalesce(p_is_hybrid_night, false) then
-    update public.fo_schedule_staff set is_hybrid_night = false, updated_at = now()
-    where is_hybrid_night and id is distinct from p_staff_id;
-  end if;
 
   if p_staff_id is null then
     insert into public.fo_schedule_staff (
@@ -293,8 +288,7 @@ declare
 begin
   if not public.can_manage_fo_schedule() then raise exception 'You do not have permission to manage Front Office Schedule'; end if;
   if not exists(select 1 from public.fo_schedule_staff where is_active and is_permanent_night) then raise exception 'Set a permanent night auditor before Auto Fill'; end if;
-  if not exists(select 1 from public.fo_schedule_staff where is_active and is_hybrid_night) then raise exception 'Choose one hybrid night staff member before Auto Fill'; end if;
-  if (select count(*) from public.fo_schedule_staff where is_active and is_hybrid_night)>1 then raise exception 'Only one hybrid night staff member may be selected'; end if;
+  if not exists(select 1 from public.fo_schedule_staff where is_active and is_hybrid_night) then raise exception 'Choose at least one hybrid night staff member before Auto Fill'; end if;
   foreach v_shift_code in array array['MORNING','AFTERNOON','NIGHT','RESERVATIONS','MID'] loop
     if not exists(select 1 from public.fo_schedule_shifts where is_active and upper(shift_code)=v_shift_code) then raise exception 'Required shift % is missing',v_shift_code; end if;
   end loop;
@@ -312,7 +306,7 @@ begin
     insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,auto_filled,updated_by_user_id,updated_by_name)
     select s.id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,true,(select auth.uid()),public.fo_schedule_actor_name()
     from public.fo_schedule_staff s
-    where s.is_active and (s.is_permanent_night or s.is_hybrid_night)
+    where s.is_active and s.is_permanent_night
       and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
     on conflict do nothing;
     get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
@@ -327,10 +321,10 @@ begin
         from public.fo_schedule_staff s
         left join public.fo_schedule_entries prev on prev.staff_id=s.id and prev.schedule_date=v_date-1
         where s.is_active and not s.is_permanent_night
-          and (v_shift_code='NIGHT' or not s.is_hybrid_night)
           and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
           and not (v_shift_code='MORNING' and upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON')
         order by s.is_manager,
+          case when v_shift_code='NIGHT' and s.is_hybrid_night then 0 when v_shift_code='NIGHT' then 1 else 0 end,
           case when s.preferred_shift=v_shift_code then 0 when s.preferred_shift='FLEX' then 1 else 2 end,
           case when upper(coalesce(prev.shift_code_snapshot,''))=v_shift_code then 0 else 1 end,
           s.sort_order,s.staff_name limit 1;
@@ -338,7 +332,7 @@ begin
         if v_staff_id is null and v_shift_code='MORNING' then
           select s.id into v_staff_id from public.fo_schedule_staff s
           left join public.fo_schedule_entries prev on prev.staff_id=s.id and prev.schedule_date=v_date-1
-          where s.is_active and not s.is_permanent_night and not s.is_hybrid_night
+          where s.is_active and not s.is_permanent_night
             and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
           order by s.is_manager,case when upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON' then 1 else 0 end,s.sort_order,s.staff_name limit 1;
           if v_staff_id is not null then v_is_exception:=true; end if;
