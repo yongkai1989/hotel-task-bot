@@ -37,6 +37,7 @@ function dateKey(date:Date){ return `${date.getFullYear()}-${pad(date.getMonth()
 function monthKey(date=new Date()){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}`; }
 function addMonths(value:string,amount:number){ const [y,m]=value.split('-').map(Number); return monthKey(new Date(y,m-1+amount,1)); }
 function monthBounds(value:string){ const [y,m]=value.split('-').map(Number); const end=new Date(y,m,0); return {start:`${value}-01`,end:dateKey(end),days:end.getDate()}; }
+function weekKey(value:string){ const date=new Date(`${value}T00:00:00`);date.setDate(date.getDate()-((date.getDay()+6)%7));return dateKey(date); }
 function displayDate(value:string){ return new Intl.DateTimeFormat('en-MY',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(`${value}T00:00:00`)); }
 function timeText(value:string|null){ if(!value)return ''; const [h,m]=value.slice(0,5).split(':').map(Number); return `${h%12||12}:${pad(m)} ${h>=12?'PM':'AM'}`; }
 function durationText(total:number){ const h=Math.floor(total/60),m=total%60; return `${h?`${h} hr `:''}${m?`${m} min`:h?'':'0 min'}`.trim(); }
@@ -104,8 +105,24 @@ export default function FrontOfficeSchedulePage(){
     }
     return result;
   },[entries]);
+  const approvedSoloNightDates=useMemo(()=>{
+    const staffById=new Map(activeStaff.map(person=>[person.id,person]));
+    const nightByDate=new Map<string,Entry[]>();
+    for(const entry of entries){
+      if(entry.status!=='WORK'||!['NIGHT','COVER_NOON'].includes(shiftCode(entry)))continue;
+      const rows=nightByDate.get(entry.schedule_date)||[];rows.push(entry);nightByDate.set(entry.schedule_date,rows);
+    }
+    const byWeek=new Map<string,string[]>();
+    for(const [date,rows] of nightByDate){
+      if(rows.length!==1||staffById.get(rows[0].staff_id)?.staff_name.trim().toLowerCase()!=='saravanan')continue;
+      const key=weekKey(date),dates=byWeek.get(key)||[];dates.push(date);byWeek.set(key,dates);
+    }
+    const approved=new Set<string>();
+    for(const dates of byWeek.values())for(const date of dates.sort().slice(0,2))approved.add(date);
+    return approved;
+  },[activeStaff,entries]);
   const coverage=useMemo(()=>days.map(day=>{
-    const counts:Record<string,number>={MORNING:0,AFTERNOON:0,NIGHT:0,RESERVATIONS:0,MID:0,MANAGER:0,COVER_MORNING:0,COVER_NOON:0};
+    const counts:Record<string,number>={MORNING:0,AFTERNOON:0,NIGHT:0,RESERVATIONS:0,MID:0,MANAGER:0,COVER_MORNING:0,COVER_NOON:0,COVER_MANAGER:0};
     const nightNames:string[]=[];
     let nightMale=0;
     for(const person of activeStaff){
@@ -115,19 +132,20 @@ export default function FrontOfficeSchedulePage(){
       counts[code]=(counts[code]||0)+1;
       if(code==='COVER_MORNING'){counts.MORNING+=1;counts.AFTERNOON+=1;}
       if(code==='COVER_NOON'){counts.AFTERNOON+=1;counts.NIGHT+=1;}
+      if(code==='COVER_MANAGER')counts.AFTERNOON+=1;
       if(code==='NIGHT'||code==='COVER_NOON'){
         nightNames.push(person.staff_name.trim().toLowerCase());
         if(person.staff_gender==='MALE')nightMale+=1;
       }
     }
-    const saravananSolo=(counts.NIGHT||0)===1&&nightNames.includes('saravanan');
+    const saravananSolo=(counts.NIGHT||0)===1&&nightNames.includes('saravanan')&&approvedSoloNightDates.has(day.value);
     const shortages=Object.entries(TARGETS).filter(([code,target])=>!(code==='NIGHT'&&saravananSolo)&&(counts[code]||0)<target).map(([code,target])=>`${code} ${counts[code]||0}/${target}`);
     if((counts.NIGHT||0)>0&&nightMale===0)shortages.push('NIGHT male 0/1');
     if(nightNames.includes('jia')&&(!nightNames.some(name=>name==='harish'||name==='zaim')||nightNames.includes('saravanan'))){
       shortages.push('JIA must pair with Harish or Zaim');
     }
     return{date:day.value,counts,nightMale,shortages};
-  }),[activeStaff,days,entryMap]);
+  }),[activeStaff,approvedSoloNightDates,days,entryMap]);
   const coverageMap=useMemo(()=>new Map(coverage.map(item=>[item.date,item])),[coverage]);
   const shortageDays=coverage.filter(item=>item.shortages.length);
   const reportRows=useMemo(()=>activeStaff.map(person=>{const rows=entries.filter(e=>e.staff_id===person.id);return{person,work:rows.filter(e=>e.status==='WORK').length,noShow:rows.filter(e=>e.status==='NO_SHOW').length,late:rows.filter(e=>e.is_late).length,ot:rows.reduce((n,e)=>n+e.overtime_minutes,0),al:rows.filter(e=>e.status==='AL').length,upl:rows.filter(e=>e.status==='UPL').length,mc:rows.filter(e=>e.status==='MC').length,off:rows.filter(e=>e.status==='OFF').length};}),[activeStaff,entries]);
@@ -136,7 +154,7 @@ export default function FrontOfficeSchedulePage(){
   async function autoFill(){ if(!supabase||!canEdit)return; const hybrids=activeStaff.filter(s=>s.is_hybrid_night); const permanent=activeStaff.find(s=>s.is_permanent_night);
     if(!permanent||!hybrids.length){setError('Set Saravanan/permanent Night Auditor and choose at least one Hybrid Night staff member under Staff before Auto Fill.');return;}
     const missingGender=activeStaff.filter(person=>!person.staff_gender);if(missingGender.length){setError(`Set Male or Female for every active staff member before Auto Fill: ${missingGender.map(person=>person.staff_name).join(', ')}.`);return;}
-    if(!window.confirm(`Rebuild Auto Fill assignments for ${new Intl.DateTimeFormat('en-MY',{month:'long',year:'numeric'}).format(new Date(`${month}-01T00:00:00`))}?\n\nChanged fixed-off days will be reapplied across the generated month. Unrelated manually saved shifts and leave remain unchanged. Shift changes providing less than 24 hours of rest are avoided unless coverage is impossible. Cover Morning (9:00 AM–7:00 PM) and Cover Noon (7:00 PM–3:30 AM) are used only as overtime bridges when ordinary shifts cannot cover the core target. Mid remains surplus-only, with Harish first priority. Night requires two staff when Saravanan is absent; Saravanan may cover alone when manpower is insufficient, and a female staff member is never accepted alone. Walter normally remains Manager 9:00 AM–5:00 PM; unresolved coverage moves him only in this order: Reservations, Morning, Afternoon, then Night as the final resort.`))return;
+    if(!window.confirm(`Rebuild Auto Fill assignments for ${new Intl.DateTimeFormat('en-MY',{month:'long',year:'numeric'}).format(new Date(`${month}-01T00:00:00`))}?\n\nChanged fixed-off days will be reapplied across the generated month. Unrelated manually saved shifts and leave remain unchanged. Shift changes providing less than 24 hours of rest are avoided unless coverage is impossible. On short-staffed days when Saravanan is working, Auto Fill may use up to two solo Saravanan Night dates per Monday-Sunday week. The released staff member returns to daytime coverage, Cover Morning works 9:00 AM-7:30 PM, Cover Noon works 7:00 PM-3:30 AM, and Walter works Cover Manager 11:00 AM-7:00 PM to protect the afternoon overlap. These staggered cover shifts are never used when Saravanan is absent. Mid remains surplus-only, with Harish first priority. A female staff member is never accepted alone on Night.`))return;
     setBusy(true); const {data,error:fillError}=await supabase.rpc('autofill_fo_schedule_month',{p_month:`${month}-01`}); setBusy(false);
     if(fillError){setError(fillError.message);return;} const result=(data||{}) as any;
     flash(`${Number(result.inserted||0)} schedule cells filled. ${Number(result.replaced||0)} earlier AUTO cells recalculated; manual cells preserved. ${Number(result.exceptions||0)} rest exception(s), ${Number(result.shortages||0)} uncovered position(s).`); await loadData();
@@ -154,7 +172,7 @@ export default function FrontOfficeSchedulePage(){
       <div className={styles.monthControl}><button onClick={()=>setMonth(addMonths(month,-1))}>‹</button><input type="month" value={month} min={addMonths(monthKey(),-6)} max={addMonths(monthKey(),12)} onChange={e=>setMonth(e.target.value||monthKey())}/><button onClick={()=>setMonth(addMonths(month,1))}>›</button></div></div></section>
     {tab==='SCHEDULE'?<>
       <section className={styles.legend}><span><i className={styles.workDot}/> Work</span><span><i className={styles.alDot}/> AL</span><span><i className={styles.uplDot}/> UPL</span><span><i className={styles.mcDot}/> MC</span><span><i className={styles.offDot}/> Off</span><span><i className={styles.noShowDot}/> No Show</span><span className={styles.staffCount}>{activeStaff.length} staff</span><small>Yellow = a change of shift with less than 24 hours of rest. Red date = insufficient coverage, no male on Night, or Jia is not paired with Harish/Zaim.</small></section>
-      {shortageDays.length?<section className={styles.error}><strong>{shortageDays.length} day{shortageDays.length===1?'':'s'} below required coverage:</strong> {shortageDays.slice(0,8).map(item=>`${displayDate(item.date)} (${item.shortages.join(', ')})`).join(' · ')}{shortageDays.length>8?' …':''}</section>:<div className={styles.success}>All visible dates meet required coverage. Night requires two staff unless Saravanan is covering alone due to limited manpower.</div>}
+      {shortageDays.length?<section className={styles.error}><strong>{shortageDays.length} day{shortageDays.length===1?'':'s'} below required coverage:</strong> {shortageDays.slice(0,8).map(item=>`${displayDate(item.date)} (${item.shortages.join(', ')})`).join(' · ')}{shortageDays.length>8?' …':''}</section>:<div className={styles.success}>All visible dates meet required coverage. Saravanan may cover Night alone on no more than two dates in each Monday-Sunday week; staggered OT cover is used only while he is working.</div>}
       <section className={styles.scheduleCard}>{loading?<PageState title="Loading timetable..." compact/>:<div className={styles.gridWrap}><table className={styles.scheduleTable}><thead><tr><th className={styles.staffColumn}>Staff member</th>{days.map(day=><th key={day.value} className={`${day.weekend?styles.weekend:''} ${day.today?styles.today:''} ${coverageMap.get(day.value)?.shortages.length?styles.foCoverageShortage:''}`} title={coverageMap.get(day.value)?.shortages.join(', ')}><span>{day.weekday}</span>{day.day}</th>)}</tr></thead><tbody>
         {ROLES.flatMap(role=>{const people=activeStaff.filter(person=>person.staff_role===role.value);if(!people.length)return[];return[<tr className={styles.roleDivider} key={`role-${role.value}`}><th className={styles.staffColumn}>{role.label}</th><td colSpan={days.length}/></tr>,...people.map(person=><tr key={person.id}><th className={styles.staffColumn}><strong>{person.staff_name}</strong>{person.is_permanent_night?<small>Permanent Night</small>:person.is_hybrid_night?<small>Hybrid Night</small>:person.preferred_shift!=='FLEX'?<small>{person.preferred_shift}</small>:null}{canEdit?<button onClick={()=>setBulkStaff(person)}>Fill dates</button>:null}</th>{days.map(day=>{const entry=entryMap.get(`${person.id}:${day.value}`)||null;const restReason=restExceptions.get(`${person.id}:${day.value}`);return <td key={day.value} className={day.weekend?styles.weekend:''}><button disabled={!canEdit} className={`${styles.dayCell} ${entry?styles[`status_${entry.status}`]:''} ${entry?.is_late?styles.lateDay:''} ${restReason?styles.foJtkException:''}`} title={restReason?`Rest warning: ${restReason}`:entry?`${entry.shift_name_snapshot||entry.status}${entry.notes?` · ${entry.notes}`:''}`:`Schedule ${person.staff_name}`} onClick={()=>canEdit&&setCell({staff:person,date:day.value,entry})}><strong>{entry?entry.status==='WORK'?(entry.shift_code_snapshot||'Work'):STATUS_OPTIONS.find(x=>x.value===entry.status)?.short:'+'}</strong>{restReason?<small>REST</small>:entry?.is_late?<small>LATE</small>:entry?.auto_filled?<small>AUTO</small>:null}</button></td>;})}</tr>)];})}
       </tbody></table></div>}</section>
