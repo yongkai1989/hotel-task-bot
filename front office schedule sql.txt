@@ -166,6 +166,7 @@ begin
   if v_preference not in ('FLEX','MORNING','AFTERNOON','NIGHT','RESERVATIONS') then raise exception 'Invalid preferred shift'; end if;
   if v_gender is not null and v_gender not in ('MALE','FEMALE') then raise exception 'Gender must be Male or Female'; end if;
   if p_fixed_off_day is not null and p_fixed_off_day not between 1 and 7 then raise exception 'Invalid fixed off day'; end if;
+  if p_fixed_off_day=6 then raise exception 'Saturday cannot be selected as a fixed off day'; end if;
   if coalesce(p_is_permanent_night, false) then v_preference := 'NIGHT'; v_role := 'NIGHT_AUDITOR'; end if;
   if coalesce(p_is_manager, false) then v_role := 'MANAGER'; end if;
 
@@ -427,6 +428,8 @@ begin
             )
           )
           and not (v_shift_code='MORNING' and upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON')
+          and not (v_shift_code='AFTERNOON' and upper(coalesce(prev.shift_code_snapshot,''))='NIGHT')
+          and not (v_shift_code='MORNING' and lower(trim(s.staff_name))='sri')
         order by s.is_manager,
           case
             -- If Jia was manually placed on Night, only an approved male
@@ -479,19 +482,26 @@ begin
           ) else 0 end,
           s.sort_order,s.staff_name limit 1;
 
-        if v_staff_id is null and v_shift_code='MORNING' then
+        if v_staff_id is null and v_shift_code in ('MORNING','AFTERNOON') then
           select s.id into v_staff_id from public.fo_schedule_staff s
           left join public.fo_schedule_entries prev on prev.staff_id=s.id and prev.schedule_date=v_date-1
           where s.is_active and not s.is_permanent_night
             and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
-          order by s.is_manager,case when upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON' then 1 else 0 end,s.sort_order,s.staff_name limit 1;
-          if v_staff_id is not null then v_is_exception:=true; end if;
+          order by s.is_manager,
+            case
+              when v_shift_code='MORNING' and lower(trim(s.staff_name))='sri' then 2
+              when v_shift_code='MORNING' and upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON' then 1
+              when v_shift_code='AFTERNOON' and upper(coalesce(prev.shift_code_snapshot,''))='NIGHT' then 1
+              else 0
+            end,
+            s.sort_order,s.staff_name limit 1;
         end if;
         exit when v_staff_id is null;
         select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)=v_shift_code limit 1;
         select upper(coalesce(shift_code_snapshot,'')) into v_prev_code from public.fo_schedule_entries where staff_id=v_staff_id and schedule_date=v_date-1;
+        v_is_exception:=coalesce((v_shift_code='MORNING' and v_prev_code='AFTERNOON') or (v_shift_code='AFTERNOON' and v_prev_code='NIGHT'),false);
         insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,notes,auto_filled,compliance_exception,updated_by_user_id,updated_by_name)
-        values(v_staff_id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,case when v_is_exception then 'JTK exception: Afternoon to next-day Morning used to maintain minimum coverage.' end,true,v_is_exception,(select auth.uid()),public.fo_schedule_actor_name());
+        values(v_staff_id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,case when v_is_exception then case when v_shift_code='AFTERNOON' and v_prev_code='NIGHT' then 'Rest exception: Night to Afternoon used to maintain minimum coverage.' else 'Rest exception: Afternoon to next-day Morning used to maintain minimum coverage.' end end,true,v_is_exception,(select auth.uid()),public.fo_schedule_actor_name());
         if v_shift_code='NIGHT' and exists(select 1 from public.fo_schedule_staff where id=v_staff_id and staff_gender='MALE') then v_night_male:=v_night_male+1; end if;
         v_inserted:=v_inserted+1; if v_is_exception then v_exceptions:=v_exceptions+1; end if; v_current:=v_current+1; v_staff_id:=null;
       end loop;
@@ -514,11 +524,17 @@ begin
     from public.fo_schedule_staff s
     where s.is_active and not s.is_manager
       and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
-    order by s.sort_order,s.staff_name on conflict do nothing;
+    order by case when lower(trim(s.staff_name))='harish' then 0 else 1 end,s.sort_order,s.staff_name on conflict do nothing;
     get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
   end loop;
   return jsonb_build_object('replaced',v_replaced,'inserted',v_inserted,'exceptions',v_exceptions,'shortages',v_shortages);
 end $$;
+
+-- Sri's normal assignment is Afternoon. She remains eligible for Night as a
+-- hybrid, while Auto Fill avoids assigning her to Morning unless unavoidable.
+update public.fo_schedule_staff
+set preferred_shift='AFTERNOON', updated_at=now()
+where lower(trim(staff_name))='sri';
 
 insert into public.fo_schedule_shifts(shift_name,shift_code,start_time,end_time,color,is_active,created_by_user_id,created_by_name)
 select x.name,x.code,x.start_at,x.end_at,x.color,true,coalesce((select user_id from public.user_profiles where upper(role)='SUPERUSER' limit 1),'00000000-0000-0000-0000-000000000000'::uuid),'System'
