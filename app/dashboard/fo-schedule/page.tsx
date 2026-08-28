@@ -105,7 +105,7 @@ export default function FrontOfficeSchedulePage(){
     return result;
   },[entries]);
   const coverage=useMemo(()=>days.map(day=>{
-    const counts:Record<string,number>={MORNING:0,AFTERNOON:0,NIGHT:0,RESERVATIONS:0,MID:0,MANAGER:0};
+    const counts:Record<string,number>={MORNING:0,AFTERNOON:0,NIGHT:0,RESERVATIONS:0,MID:0,MANAGER:0,COVER_MORNING:0,COVER_NOON:0};
     const nightNames:string[]=[];
     let nightMale=0;
     for(const person of activeStaff){
@@ -113,7 +113,9 @@ export default function FrontOfficeSchedulePage(){
       if(entry?.status!=='WORK')continue;
       const code=shiftCode(entry);
       counts[code]=(counts[code]||0)+1;
-      if(code==='NIGHT'){
+      if(code==='COVER_MORNING'){counts.MORNING+=1;counts.AFTERNOON+=1;}
+      if(code==='COVER_NOON'){counts.AFTERNOON+=1;counts.NIGHT+=1;}
+      if(code==='NIGHT'||code==='COVER_NOON'){
         nightNames.push(person.staff_name.trim().toLowerCase());
         if(person.staff_gender==='MALE')nightMale+=1;
       }
@@ -134,7 +136,7 @@ export default function FrontOfficeSchedulePage(){
   async function autoFill(){ if(!supabase||!canEdit)return; const hybrids=activeStaff.filter(s=>s.is_hybrid_night); const permanent=activeStaff.find(s=>s.is_permanent_night);
     if(!permanent||!hybrids.length){setError('Set Saravanan/permanent Night Auditor and choose at least one Hybrid Night staff member under Staff before Auto Fill.');return;}
     const missingGender=activeStaff.filter(person=>!person.staff_gender);if(missingGender.length){setError(`Set Male or Female for every active staff member before Auto Fill: ${missingGender.map(person=>person.staff_name).join(', ')}.`);return;}
-    if(!window.confirm(`Rebuild Auto Fill assignments for ${new Intl.DateTimeFormat('en-MY',{month:'long',year:'numeric'}).format(new Date(`${month}-01T00:00:00`))}?\n\nChanged fixed-off days will be reapplied across the generated month. Unrelated manually saved shifts and leave remain unchanged. Shift changes providing less than 24 hours of rest are avoided unless coverage is impossible. Reservations follows Jia first, Harish second, then Walter only when both are unavailable. Mid is assigned only after every standard shift is fully covered, with Harish first priority. Night requires two staff when Saravanan is absent; Saravanan may cover alone when manpower is insufficient, and a female staff member is never accepted alone. Sri remains Afternoon-first and Night-second. Walter otherwise remains on Manager 9:00 AM–5:00 PM; if absolutely required for coverage, he may be assigned Morning but not Afternoon.`))return;
+    if(!window.confirm(`Rebuild Auto Fill assignments for ${new Intl.DateTimeFormat('en-MY',{month:'long',year:'numeric'}).format(new Date(`${month}-01T00:00:00`))}?\n\nChanged fixed-off days will be reapplied across the generated month. Unrelated manually saved shifts and leave remain unchanged. Shift changes providing less than 24 hours of rest are avoided unless coverage is impossible. Cover Morning (9:00 AM–7:00 PM) and Cover Noon (7:00 PM–3:30 AM) are used only as overtime bridges when ordinary shifts cannot cover the core target. Mid remains surplus-only, with Harish first priority. Night requires two staff when Saravanan is absent; Saravanan may cover alone when manpower is insufficient, and a female staff member is never accepted alone. Walter normally remains Manager 9:00 AM–5:00 PM; unresolved coverage moves him only in this order: Reservations, Morning, Afternoon, then Night as the final resort.`))return;
     setBusy(true); const {data,error:fillError}=await supabase.rpc('autofill_fo_schedule_month',{p_month:`${month}-01`}); setBusy(false);
     if(fillError){setError(fillError.message);return;} const result=(data||{}) as any;
     flash(`${Number(result.inserted||0)} schedule cells filled. ${Number(result.replaced||0)} earlier AUTO cells recalculated; manual cells preserved. ${Number(result.exceptions||0)} rest exception(s), ${Number(result.shortages||0)} uncovered position(s).`); await loadData();

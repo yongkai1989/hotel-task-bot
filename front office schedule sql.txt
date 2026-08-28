@@ -378,6 +378,9 @@ declare
   v_prev_code text; v_prev_date date; v_prev_start time; v_prev_end time;
   v_rest_hours numeric; v_is_exception boolean; v_night_male integer:=0; v_missing_gender text;
   v_replaced integer:=0; v_core_ready boolean:=false;
+  v_morning_count integer:=0; v_afternoon_count integer:=0;
+  v_night_count integer:=0; v_reservations_count integer:=0;
+  v_manager_target text; v_saravanan_solo boolean:=false;
 begin
   if not public.can_manage_fo_schedule() then raise exception 'You do not have permission to manage Front Office Schedule'; end if;
   if not exists(select 1 from public.fo_schedule_staff where is_active and is_permanent_night) then raise exception 'Set a permanent night auditor before Auto Fill'; end if;
@@ -387,7 +390,7 @@ begin
   if v_missing_gender is not null then
     raise exception 'Set Male or Female for every active staff member before Auto Fill: %', v_missing_gender;
   end if;
-  foreach v_shift_code in array array['MORNING','AFTERNOON','NIGHT','RESERVATIONS','MID','MANAGER'] loop
+  foreach v_shift_code in array array['MORNING','AFTERNOON','NIGHT','RESERVATIONS','MID','MANAGER','COVER_MORNING','COVER_NOON'] loop
     if not exists(select 1 from public.fo_schedule_shifts where is_active and upper(shift_code)=v_shift_code) then raise exception 'Required shift % is missing',v_shift_code; end if;
   end loop;
 
@@ -452,7 +455,7 @@ begin
           order by prior.schedule_date desc
           limit 1
         ) prev on true
-        where s.is_active and not s.is_permanent_night
+        where s.is_active and not s.is_permanent_night and not s.is_manager
           and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
           and (v_shift_code<>'NIGHT' or v_night_male>0 or s.staff_gender='MALE')
           and (
@@ -557,22 +560,6 @@ begin
           ) else 0 end,
           s.sort_order,s.staff_name limit 1;
 
-        -- If Jia and Harish are both unavailable, Walter may cover
-        -- Reservations. This is deliberately a last-resort selection and any
-        -- shift change providing under 24 hours of rest is recorded below as
-        -- a visible compliance exception.
-        if v_staff_id is null and v_shift_code='RESERVATIONS' then
-          select s.id into v_staff_id
-          from public.fo_schedule_staff s
-          where s.is_active and s.is_manager
-            and not exists(
-              select 1 from public.fo_schedule_entries e
-              where e.staff_id=s.id and e.schedule_date=v_date
-            )
-          order by s.sort_order,s.staff_name
-          limit 1;
-        end if;
-
         if v_staff_id is null and v_shift_code in ('MORNING','AFTERNOON') then
           select s.id into v_staff_id from public.fo_schedule_staff s
           left join lateral (
@@ -582,10 +569,9 @@ begin
             order by prior.schedule_date desc
             limit 1
           ) prev on true
-          where s.is_active and not s.is_permanent_night
+          where s.is_active and not s.is_permanent_night and not s.is_manager
             and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
-            and not (v_shift_code='AFTERNOON' and s.is_manager)
-          order by s.is_manager,
+          order by
             case
               when v_shift_code='MORNING' and lower(trim(s.staff_name))='sri' then 2
               when upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
@@ -614,40 +600,126 @@ begin
         if v_shift_code='NIGHT' and exists(select 1 from public.fo_schedule_staff where id=v_staff_id and staff_gender='MALE') then v_night_male:=v_night_male+1; end if;
         v_inserted:=v_inserted+1; if v_is_exception then v_exceptions:=v_exceptions+1; end if; v_current:=v_current+1; v_staff_id:=null;
       end loop;
-      if v_current<v_target then
-        -- Saravanan may cover Night alone when no second eligible person is
-        -- available. Every other Night arrangement still requires two staff.
-        if not (
-          v_shift_code='NIGHT' and v_current=1 and exists(
-            select 1
-            from public.fo_schedule_entries e
-            join public.fo_schedule_staff s on s.id=e.staff_id
-            where e.schedule_date=v_date and e.status='WORK'
-              and upper(coalesce(e.shift_code_snapshot,''))='NIGHT'
-              and lower(trim(s.staff_name))='saravanan'
-          )
-        ) then
-          v_shortages:=v_shortages+(v_target-v_current);
-        end if;
-      end if;
-      if v_shift_code='NIGHT' and v_current>0 and v_night_male=0 then v_shortages:=v_shortages+1; end if;
     end loop;
 
-    select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)='MANAGER' limit 1;
-    insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,auto_filled,updated_by_user_id,updated_by_name)
-    select s.id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,true,(select auth.uid()),public.fo_schedule_actor_name()
-    from public.fo_schedule_staff s
+    -- Overtime bridge shifts are used only after ordinary staffing cannot meet
+    -- the core targets. Cover Morning spans Morning and early Afternoon;
+    -- Cover Noon spans late Afternoon and early Night. They are never spare Mid.
+    select
+      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,'')) in ('MORNING','COVER_MORNING')),
+      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,'')) in ('AFTERNOON','COVER_MORNING','COVER_NOON')),
+      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,'')) in ('NIGHT','COVER_NOON')),
+      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='RESERVATIONS')
+    into v_morning_count,v_afternoon_count,v_night_count,v_reservations_count
+    from public.fo_schedule_entries where schedule_date=v_date;
+
+    while v_afternoon_count<2 and v_morning_count>=2 loop
+      select e.staff_id into v_staff_id
+      from public.fo_schedule_entries e
+      join public.fo_schedule_staff s on s.id=e.staff_id
+      where e.schedule_date=v_date and e.status='WORK' and e.auto_filled=true
+        and upper(coalesce(e.shift_code_snapshot,''))='MORNING'
+        and not s.is_manager
+      order by case when lower(trim(s.staff_name))='harish' then 1 else 0 end,s.sort_order,s.staff_name
+      limit 1;
+      exit when v_staff_id is null;
+      select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)='COVER_MORNING' limit 1;
+      update public.fo_schedule_entries set
+        shift_id=v_shift.id,shift_name_snapshot=v_shift.shift_name,shift_code_snapshot=v_shift.shift_code,
+        scheduled_start=v_shift.start_time,scheduled_end=v_shift.end_time,
+        notes=concat_ws(' ',nullif(notes,''),'OT bridge: covers Morning and early Afternoon.'),updated_at=now()
+      where staff_id=v_staff_id and schedule_date=v_date;
+      v_afternoon_count:=v_afternoon_count+1; v_staff_id:=null;
+    end loop;
+
+    select exists(
+      select 1 from public.fo_schedule_entries e join public.fo_schedule_staff s on s.id=e.staff_id
+      where e.schedule_date=v_date and e.status='WORK'
+        and upper(coalesce(e.shift_code_snapshot,'')) in ('NIGHT','COVER_NOON')
+        and lower(trim(s.staff_name))='saravanan'
+    ) and v_night_count=1 into v_saravanan_solo;
+
+    while v_night_count<2 and not v_saravanan_solo loop
+      select e.staff_id into v_staff_id
+      from public.fo_schedule_entries e
+      join public.fo_schedule_staff s on s.id=e.staff_id
+      where e.schedule_date=v_date and e.status='WORK' and e.auto_filled=true
+        and upper(coalesce(e.shift_code_snapshot,''))='AFTERNOON'
+        and not s.is_manager
+        and (
+          exists(
+            select 1 from public.fo_schedule_entries n join public.fo_schedule_staff ns on ns.id=n.staff_id
+            where n.schedule_date=v_date and n.status='WORK'
+              and upper(coalesce(n.shift_code_snapshot,'')) in ('NIGHT','COVER_NOON') and ns.staff_gender='MALE'
+          ) or s.staff_gender='MALE'
+        )
+        and (
+          not exists(
+            select 1 from public.fo_schedule_entries n join public.fo_schedule_staff ns on ns.id=n.staff_id
+            where n.schedule_date=v_date and n.status='WORK'
+              and upper(coalesce(n.shift_code_snapshot,'')) in ('NIGHT','COVER_NOON')
+              and lower(trim(ns.staff_name))='jia'
+          ) or lower(trim(s.staff_name)) in ('harish','zaim')
+        )
+      order by case when lower(trim(s.staff_name))='harish' then 1 else 0 end,s.sort_order,s.staff_name
+      limit 1;
+      exit when v_staff_id is null;
+      select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)='COVER_NOON' limit 1;
+      update public.fo_schedule_entries set
+        shift_id=v_shift.id,shift_name_snapshot=v_shift.shift_name,shift_code_snapshot=v_shift.shift_code,
+        scheduled_start=v_shift.start_time,scheduled_end=v_shift.end_time,
+        notes=concat_ws(' ',nullif(notes,''),'OT bridge: covers late Afternoon and early Night.'),updated_at=now()
+      where staff_id=v_staff_id and schedule_date=v_date;
+      v_night_count:=v_night_count+1; v_staff_id:=null;
+    end loop;
+
+    -- Walter normally remains on Manager hours. Only unresolved coverage moves
+    -- him, in this exact order: Reservations, Morning, Afternoon, then Night.
+    select s.id into v_staff_id from public.fo_schedule_staff s
     where s.is_active and s.is_manager
       and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
-    order by s.sort_order,s.staff_name on conflict do nothing;
-    get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
+    order by s.sort_order,s.staff_name limit 1;
+    if v_staff_id is not null then
+      v_manager_target:=case
+        when v_reservations_count<1 then 'RESERVATIONS'
+        when v_morning_count<2 then 'MORNING'
+        when v_afternoon_count<2 then 'AFTERNOON'
+        when v_night_count<2 and not v_saravanan_solo then 'NIGHT'
+        else 'MANAGER'
+      end;
+      select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)=v_manager_target limit 1;
+      insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,auto_filled,updated_by_user_id,updated_by_name)
+      values(v_staff_id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,true,(select auth.uid()),public.fo_schedule_actor_name())
+      on conflict do nothing;
+      get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
+      if v_current>0 then
+        if v_manager_target='RESERVATIONS' then v_reservations_count:=v_reservations_count+1;
+        elsif v_manager_target='MORNING' then v_morning_count:=v_morning_count+1;
+        elsif v_manager_target='AFTERNOON' then v_afternoon_count:=v_afternoon_count+1;
+        elsif v_manager_target='NIGHT' then v_night_count:=v_night_count+1; end if;
+      end if;
+    end if;
+
+    select exists(
+      select 1 from public.fo_schedule_entries e join public.fo_schedule_staff s on s.id=e.staff_id
+      where e.schedule_date=v_date and e.status='WORK'
+        and upper(coalesce(e.shift_code_snapshot,'')) in ('NIGHT','COVER_NOON')
+        and lower(trim(s.staff_name))='saravanan'
+    ) and v_night_count=1 into v_saravanan_solo;
+    v_shortages:=v_shortages+greatest(0,2-v_morning_count)+greatest(0,2-v_afternoon_count)+greatest(0,1-v_reservations_count);
+    if v_night_count<2 and not v_saravanan_solo then v_shortages:=v_shortages+(2-v_night_count); end if;
+    select count(*) into v_night_male
+    from public.fo_schedule_entries e join public.fo_schedule_staff s on s.id=e.staff_id
+    where e.schedule_date=v_date and e.status='WORK'
+      and upper(coalesce(e.shift_code_snapshot,'')) in ('NIGHT','COVER_NOON') and s.staff_gender='MALE';
+    if v_night_count>0 and v_night_male=0 then v_shortages:=v_shortages+1; end if;
 
     -- Mid is surplus coverage only. Never create any Mid assignment until all
     -- standard targets, including two Night staff, are actually filled.
     select
-      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='MORNING')>=2
-      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='AFTERNOON')>=2
-      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='NIGHT')>=2
+      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,'')) in ('MORNING','COVER_MORNING'))>=2
+      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,'')) in ('AFTERNOON','COVER_MORNING','COVER_NOON'))>=2
+      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,'')) in ('NIGHT','COVER_NOON'))>=2
       and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='RESERVATIONS')>=1
     into v_core_ready
     from public.fo_schedule_entries
@@ -680,7 +752,9 @@ from (values
   ('Afternoon','AFTERNOON','14:30'::time,'23:00'::time,'PURPLE'),
   ('Night','NIGHT','22:45'::time,'07:15'::time,'SLATE'),
   ('Reservations','RESERVATIONS','09:00'::time,'17:30'::time,'TEAL'),
+  ('Cover Morning','COVER_MORNING','09:00'::time,'19:00'::time,'AMBER'),
   ('Mid','MID','12:00'::time,'20:30'::time,'AMBER'),
+  ('Cover Noon','COVER_NOON','19:00'::time,'03:30'::time,'AMBER'),
   ('Manager','MANAGER','09:00'::time,'17:00'::time,'TEAL')
 ) as x(name,code,start_at,end_at,color)
 on conflict do nothing;
