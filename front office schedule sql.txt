@@ -496,7 +496,7 @@ begin
             and upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
             and public.fo_schedule_rest_hours(
               prev.schedule_date,prev.scheduled_start,prev.scheduled_end,v_date,v_shift.start_time
-            )<24
+            )<16
           )
           and not (v_shift_code='MORNING' and lower(trim(s.staff_name))='sri')
           -- Reservations follows a strict staffing order. Jia is primary and
@@ -579,7 +579,7 @@ begin
               when upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
                 and public.fo_schedule_rest_hours(
                   prev.schedule_date,prev.scheduled_start,prev.scheduled_end,v_date,v_shift.start_time
-                )<24 then 1
+                )<16 then 1
               else 0
             end,
             case when lower(trim(s.staff_name))='harish' then 1 else 0 end,
@@ -594,7 +594,7 @@ begin
         where staff_id=v_staff_id and schedule_date<v_date and status='WORK'
         order by schedule_date desc limit 1;
         v_rest_hours:=public.fo_schedule_rest_hours(v_prev_date,v_prev_start,v_prev_end,v_date,v_shift.start_time);
-        v_is_exception:=coalesce(v_prev_code<>v_shift_code and v_rest_hours<24,false);
+        v_is_exception:=coalesce(v_prev_code<>v_shift_code and v_rest_hours<16,false);
         insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,notes,auto_filled,compliance_exception,updated_by_user_id,updated_by_name)
         values(v_staff_id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,
           case when v_is_exception then 'Rest exception: '||v_prev_code||' to '||v_shift_code||' provides only '||trim(to_char(v_rest_hours,'FM999990.00'))||' hours before the next shift.' end,
@@ -664,7 +664,7 @@ begin
         where staff_id=v_staff_id and schedule_date<v_date and status='WORK'
         order by schedule_date desc limit 1;
         v_rest_hours:=public.fo_schedule_rest_hours(v_prev_date,v_prev_start,v_prev_end,v_date,v_shift.start_time);
-        v_is_exception:=coalesce(v_prev_code<>v_rebalance_target and v_rest_hours<24,false);
+        v_is_exception:=coalesce(v_prev_code<>v_rebalance_target and v_rest_hours<16,false);
         update public.fo_schedule_entries set
           shift_id=v_shift.id,shift_name_snapshot=v_shift.shift_name,shift_code_snapshot=v_shift.shift_code,
           scheduled_start=v_shift.start_time,scheduled_end=v_shift.end_time,
