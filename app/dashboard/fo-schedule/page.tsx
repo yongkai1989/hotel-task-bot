@@ -40,8 +40,19 @@ function monthBounds(value:string){ const [y,m]=value.split('-').map(Number); co
 function displayDate(value:string){ return new Intl.DateTimeFormat('en-MY',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(`${value}T00:00:00`)); }
 function timeText(value:string|null){ if(!value)return ''; const [h,m]=value.slice(0,5).split(':').map(Number); return `${h%12||12}:${pad(m)} ${h>=12?'PM':'AM'}`; }
 function durationText(total:number){ const h=Math.floor(total/60),m=total%60; return `${h?`${h} hr `:''}${m?`${m} min`:h?'':'0 min'}`.trim(); }
-function previousDate(value:string){ const date=new Date(`${value}T00:00:00`); date.setDate(date.getDate()-1); return dateKey(date); }
 function shiftCode(entry:Entry|null|undefined){ return String(entry?.shift_code_snapshot||'').toUpperCase(); }
+function shiftTimestamp(entry:Entry,kind:'start'|'end'){
+  const value=kind==='start'?entry.scheduled_start:entry.scheduled_end;
+  if(!value||!entry.scheduled_start||!entry.scheduled_end)return null;
+  const stamp=new Date(`${entry.schedule_date}T${value.slice(0,8)}`).getTime();
+  if(kind==='end'&&entry.scheduled_end<=entry.scheduled_start)return stamp+86_400_000;
+  return stamp;
+}
+function restHours(previous:Entry,current:Entry){
+  const previousEnd=shiftTimestamp(previous,'end'),currentStart=shiftTimestamp(current,'start');
+  if(previousEnd===null||currentStart===null)return null;
+  return Math.round(((currentStart-previousEnd)/3_600_000)*100)/100;
+}
 function getSupabaseSafe(){ try{return createBrowserSupabaseClient();}catch{return null;} }
 
 export default function FrontOfficeSchedulePage(){
@@ -79,12 +90,20 @@ export default function FrontOfficeSchedulePage(){
   const entryMap=useMemo(()=>new Map(entries.map(entry=>[`${entry.staff_id}:${entry.schedule_date}`,entry])),[entries]);
   const days=useMemo(()=>Array.from({length:bounds.days},(_,i)=>{const value=`${month}-${pad(i+1)}`;const date=new Date(`${value}T00:00:00`);return{value,day:i+1,weekday:new Intl.DateTimeFormat('en-MY',{weekday:'short'}).format(date).slice(0,2),weekend:[0,6].includes(date.getDay()),today:value===dateKey(new Date())};}).filter(day=>half==='FULL'||(half==='FIRST'?day.day<=15:day.day>=16)),[bounds.days,half,month]);
   const activeStaff=useMemo(()=>staff.filter(person=>person.is_active),[staff]);
-  const restExceptions=useMemo(()=>{const result=new Map<string,string>();for(const entry of entries){
-    if(entry.status!=='WORK')continue;
-    const current=shiftCode(entry),previous=shiftCode(entryMap.get(`${entry.staff_id}:${previousDate(entry.schedule_date)}`));
-    if(current==='MORNING'&&previous==='AFTERNOON')result.set(`${entry.staff_id}:${entry.schedule_date}`,'Afternoon followed by next-day Morning');
-    if(current==='AFTERNOON'&&previous==='NIGHT')result.set(`${entry.staff_id}:${entry.schedule_date}`,'Night followed by same-day Afternoon');
-  }return result;},[entries,entryMap]);
+  const restExceptions=useMemo(()=>{
+    const result=new Map<string,string>(),lastWork=new Map<string,Entry>();
+    const ordered=[...entries].sort((a,b)=>a.schedule_date.localeCompare(b.schedule_date));
+    for(const entry of ordered){
+      if(entry.status!=='WORK')continue;
+      const previous=lastWork.get(entry.staff_id);
+      if(previous&&shiftCode(previous)!==shiftCode(entry)){
+        const hours=restHours(previous,entry);
+        if(hours!==null&&hours<24)result.set(`${entry.staff_id}:${entry.schedule_date}`,`${hours.toFixed(2)} hours rest · ${shiftCode(previous)} → ${shiftCode(entry)}`);
+      }
+      lastWork.set(entry.staff_id,entry);
+    }
+    return result;
+  },[entries]);
   const coverage=useMemo(()=>days.map(day=>{
     const counts:Record<string,number>={MORNING:0,AFTERNOON:0,NIGHT:0,RESERVATIONS:0,MID:0,MANAGER:0};
     const nightNames:string[]=[];
@@ -114,7 +133,7 @@ export default function FrontOfficeSchedulePage(){
   async function autoFill(){ if(!supabase||!canEdit)return; const hybrids=activeStaff.filter(s=>s.is_hybrid_night); const permanent=activeStaff.find(s=>s.is_permanent_night);
     if(!permanent||!hybrids.length){setError('Set Saravanan/permanent Night Auditor and choose at least one Hybrid Night staff member under Staff before Auto Fill.');return;}
     const missingGender=activeStaff.filter(person=>!person.staff_gender);if(missingGender.length){setError(`Set Male or Female for every active staff member before Auto Fill: ${missingGender.map(person=>person.staff_name).join(', ')}.`);return;}
-    if(!window.confirm(`Rebuild Auto Fill assignments for ${new Intl.DateTimeFormat('en-MY',{month:'long',year:'numeric'}).format(new Date(`${month}-01T00:00:00`))}?\n\nEvery manually saved cell will remain unchanged. Only earlier AUTO cells are recalculated. Jia will never share Night with Saravanan. Sri is prioritised for Afternoon and otherwise Night, avoiding Morning. Night-to-Afternoon and Afternoon-to-Morning changes are avoided unless coverage is impossible. Harish covers Reservations when Jia is away and otherwise stays available for Mid. Walter remains on Manager 9:00 AM–5:00 PM unless minimum coverage requires him.`))return;
+    if(!window.confirm(`Rebuild Auto Fill assignments for ${new Intl.DateTimeFormat('en-MY',{month:'long',year:'numeric'}).format(new Date(`${month}-01T00:00:00`))}?\n\nChanged fixed-off days will be reapplied across the generated month. Unrelated manually saved shifts and leave remain unchanged. Shift changes providing less than 24 hours of rest are avoided unless coverage is impossible. Harish is reserved for Jia's approved Night pairing, Reservations cover, and Mid duty. Sri remains Afternoon-first and Night-second. Walter remains on Manager 9:00 AM–5:00 PM; if absolutely required for coverage, he may be assigned Morning but not Afternoon.`))return;
     setBusy(true); const {data,error:fillError}=await supabase.rpc('autofill_fo_schedule_month',{p_month:`${month}-01`}); setBusy(false);
     if(fillError){setError(fillError.message);return;} const result=(data||{}) as any;
     flash(`${Number(result.inserted||0)} schedule cells filled. ${Number(result.replaced||0)} earlier AUTO cells recalculated; manual cells preserved. ${Number(result.exceptions||0)} rest exception(s), ${Number(result.shortages||0)} uncovered position(s).`); await loadData();
@@ -123,7 +142,7 @@ export default function FrontOfficeSchedulePage(){
   if(authLoading)return <PageState title="Checking access..."/>;
   if(!profile||!canAccess)return <PageState title="Front Office Schedule" message={error||'You do not have access to this page.'}/>;
   return <main className={styles.page}>
-    <section className={styles.hero}><div><span className={styles.eyebrow}>FRONT OFFICE WORKFORCE</span><h1>Front Office Schedule</h1><p>Night-first monthly roster with coverage targets and JTK rest checks.</p></div>
+    <section className={styles.hero}><div><span className={styles.eyebrow}>FRONT OFFICE WORKFORCE</span><h1>Front Office Schedule</h1><p>Night-first monthly roster with coverage targets and 24-hour shift-change rest checks.</p></div>
       {canEdit?<div className={styles.heroActions}><button className={styles.autoFillButton} disabled={busy||!activeStaff.length} onClick={()=>void autoFill()}>{busy?'Rebuilding...':'⚡ Auto Fill Month'}</button><button className={styles.secondaryButton} onClick={()=>setStaffOpen(true)}>Staff & night setup</button></div>:<span className={styles.viewOnlyBadge}>View only</span>}
     </section>
     {error?<div className={styles.error}>{error}</div>:null}{success?<div className={styles.success}>{success}</div>:null}
@@ -131,7 +150,7 @@ export default function FrontOfficeSchedulePage(){
       {tab==='SCHEDULE'?<div className={styles.halfButtons}><button className={half==='FIRST'?styles.selected:''} onClick={()=>setHalf(half==='FIRST'?'FULL':'FIRST')}>First Half</button><button className={half==='SECOND'?styles.selected:''} onClick={()=>setHalf(half==='SECOND'?'FULL':'SECOND')}>Second Half</button></div>:null}
       <div className={styles.monthControl}><button onClick={()=>setMonth(addMonths(month,-1))}>‹</button><input type="month" value={month} min={addMonths(monthKey(),-6)} max={addMonths(monthKey(),12)} onChange={e=>setMonth(e.target.value||monthKey())}/><button onClick={()=>setMonth(addMonths(month,1))}>›</button></div></div></section>
     {tab==='SCHEDULE'?<>
-      <section className={styles.legend}><span><i className={styles.workDot}/> Work</span><span><i className={styles.alDot}/> AL</span><span><i className={styles.uplDot}/> UPL</span><span><i className={styles.mcDot}/> MC</span><span><i className={styles.offDot}/> Off</span><span><i className={styles.noShowDot}/> No Show</span><span className={styles.staffCount}>{activeStaff.length} staff</span><small>Yellow = insufficient rest: Afternoon→Morning or Night→Afternoon. Red date = insufficient coverage, no male on Night, or Jia is not paired with Harish/Zaim.</small></section>
+      <section className={styles.legend}><span><i className={styles.workDot}/> Work</span><span><i className={styles.alDot}/> AL</span><span><i className={styles.uplDot}/> UPL</span><span><i className={styles.mcDot}/> MC</span><span><i className={styles.offDot}/> Off</span><span><i className={styles.noShowDot}/> No Show</span><span className={styles.staffCount}>{activeStaff.length} staff</span><small>Yellow = a change of shift with less than 24 hours of rest. Red date = insufficient coverage, no male on Night, or Jia is not paired with Harish/Zaim.</small></section>
       {shortageDays.length?<section className={styles.error}><strong>{shortageDays.length} day{shortageDays.length===1?'':'s'} below target:</strong> {shortageDays.slice(0,8).map(item=>`${displayDate(item.date)} (${item.shortages.join(', ')})`).join(' · ')}{shortageDays.length>8?' …':''}</section>:<div className={styles.success}>All visible dates meet the 2 Morning · 2 Afternoon · 2 Night · 1 Reservations target.</div>}
       <section className={styles.scheduleCard}>{loading?<PageState title="Loading timetable..." compact/>:<div className={styles.gridWrap}><table className={styles.scheduleTable}><thead><tr><th className={styles.staffColumn}>Staff member</th>{days.map(day=><th key={day.value} className={`${day.weekend?styles.weekend:''} ${day.today?styles.today:''} ${coverageMap.get(day.value)?.shortages.length?styles.foCoverageShortage:''}`} title={coverageMap.get(day.value)?.shortages.join(', ')}><span>{day.weekday}</span>{day.day}</th>)}</tr></thead><tbody>
         {ROLES.flatMap(role=>{const people=activeStaff.filter(person=>person.staff_role===role.value);if(!people.length)return[];return[<tr className={styles.roleDivider} key={`role-${role.value}`}><th className={styles.staffColumn}>{role.label}</th><td colSpan={days.length}/></tr>,...people.map(person=><tr key={person.id}><th className={styles.staffColumn}><strong>{person.staff_name}</strong>{person.is_permanent_night?<small>Permanent Night</small>:person.is_hybrid_night?<small>Hybrid Night</small>:person.preferred_shift!=='FLEX'?<small>{person.preferred_shift}</small>:null}{canEdit?<button onClick={()=>setBulkStaff(person)}>Fill dates</button>:null}</th>{days.map(day=>{const entry=entryMap.get(`${person.id}:${day.value}`)||null;const restReason=restExceptions.get(`${person.id}:${day.value}`);return <td key={day.value} className={day.weekend?styles.weekend:''}><button disabled={!canEdit} className={`${styles.dayCell} ${entry?styles[`status_${entry.status}`]:''} ${entry?.is_late?styles.lateDay:''} ${restReason?styles.foJtkException:''}`} title={restReason?`Rest warning: ${restReason}`:entry?`${entry.shift_name_snapshot||entry.status}${entry.notes?` · ${entry.notes}`:''}`:`Schedule ${person.staff_name}`} onClick={()=>canEdit&&setCell({staff:person,date:day.value,entry})}><strong>{entry?entry.status==='WORK'?(entry.shift_code_snapshot||'Work'):STATUS_OPTIONS.find(x=>x.value===entry.status)?.short:'+'}</strong>{restReason?<small>REST</small>:entry?.is_late?<small>LATE</small>:entry?.auto_filled?<small>AUTO</small>:null}</button></td>;})}</tr>)];})}

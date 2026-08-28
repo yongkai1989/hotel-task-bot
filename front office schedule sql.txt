@@ -155,6 +155,7 @@ language plpgsql security definer set search_path = public
 as $$
 declare
   v_row public.fo_schedule_staff;
+  v_old_fixed_off_day integer;
   v_name text := trim(coalesce(p_staff_name, ''));
   v_role text := upper(trim(coalesce(p_staff_role, 'FRONT_OFFICE')));
   v_preference text := upper(trim(coalesce(p_preferred_shift, 'FLEX')));
@@ -183,6 +184,10 @@ begin
       (select auth.uid()), public.fo_schedule_actor_name()
     ) returning * into v_row;
   else
+    select fixed_off_day into v_old_fixed_off_day
+    from public.fo_schedule_staff
+    where id=p_staff_id;
+
     update public.fo_schedule_staff set
       staff_name=v_name, staff_role=v_role, staff_gender=coalesce(v_gender,staff_gender), fixed_off_day=p_fixed_off_day,
       preferred_shift=v_preference, is_permanent_night=coalesce(p_is_permanent_night,false),
@@ -190,6 +195,29 @@ begin
       is_active=coalesce(p_is_active,true), updated_at=now()
     where id=p_staff_id returning * into v_row;
     if not found then raise exception 'Staff record not found'; end if;
+
+    -- Fixed off is authoritative for Auto Fill. Reclassify only the affected
+    -- old/new weekday cells as generated cells so the next Auto Fill can
+    -- rebuild them. Manual leave, MC, UPL and No Show records are preserved.
+    if v_old_fixed_off_day is distinct from p_fixed_off_day then
+      update public.fo_schedule_entries e
+      set auto_filled=true, updated_by_user_id=(select auth.uid()),
+          updated_by_name=public.fo_schedule_actor_name(), updated_at=now()
+      where e.staff_id=p_staff_id
+        and e.schedule_date >= date_trunc('month',current_date)::date
+        and e.status='OFF'
+        and v_old_fixed_off_day is not null
+        and extract(isodow from e.schedule_date)::integer=v_old_fixed_off_day;
+
+      update public.fo_schedule_entries e
+      set auto_filled=true, updated_by_user_id=(select auth.uid()),
+          updated_by_name=public.fo_schedule_actor_name(), updated_at=now()
+      where e.staff_id=p_staff_id
+        and e.schedule_date >= date_trunc('month',current_date)::date
+        and e.status in ('WORK','OFF')
+        and p_fixed_off_day is not null
+        and extract(isodow from e.schedule_date)::integer=p_fixed_off_day;
+    end if;
   end if;
   return v_row;
 end $$;
@@ -320,6 +348,26 @@ begin
   get diagnostics v_count=row_count; return v_count;
 end $$;
 
+create or replace function public.fo_schedule_rest_hours(
+  p_previous_date date,
+  p_previous_start time,
+  p_previous_end time,
+  p_current_date date,
+  p_current_start time
+) returns numeric
+language sql immutable security invoker set search_path=public
+as $$
+  select case
+    when p_previous_date is null or p_previous_start is null or p_previous_end is null
+      or p_current_date is null or p_current_start is null then null
+    else round(extract(epoch from (
+      (p_current_date::timestamp + p_current_start)
+      - (p_previous_date::timestamp + p_previous_end
+         + case when p_previous_end<=p_previous_start then interval '1 day' else interval '0 days' end)
+    )) / 3600.0, 2)
+  end
+$$;
+
 create or replace function public.autofill_fo_schedule_month(p_month date)
 returns jsonb language plpgsql security definer set search_path=public as $$
 declare
@@ -327,7 +375,8 @@ declare
   v_end date:=(date_trunc('month',p_month)+interval '1 month - 1 day')::date;
   v_date date; v_shift_code text; v_target integer; v_current integer; v_staff_id uuid;
   v_shift public.fo_schedule_shifts; v_inserted integer:=0; v_exceptions integer:=0; v_shortages integer:=0;
-  v_prev_code text; v_is_exception boolean; v_night_male integer:=0; v_missing_gender text;
+  v_prev_code text; v_prev_date date; v_prev_start time; v_prev_end time;
+  v_rest_hours numeric; v_is_exception boolean; v_night_male integer:=0; v_missing_gender text;
   v_replaced integer:=0;
 begin
   if not public.can_manage_fo_schedule() then raise exception 'You do not have permission to manage Front Office Schedule'; end if;
@@ -375,6 +424,10 @@ begin
     get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
 
     foreach v_shift_code in array array['NIGHT','RESERVATIONS','MORNING','AFTERNOON'] loop
+      select * into v_shift
+      from public.fo_schedule_shifts
+      where is_active and upper(shift_code)=v_shift_code
+      limit 1;
       v_target:=case v_shift_code when 'RESERVATIONS' then 1 else 2 end;
       select count(*) into v_current from public.fo_schedule_entries e
       where e.schedule_date=v_date and e.status='WORK' and upper(coalesce(e.shift_code_snapshot,''))=v_shift_code;
@@ -392,7 +445,13 @@ begin
         v_is_exception:=false;
         select s.id into v_staff_id
         from public.fo_schedule_staff s
-        left join public.fo_schedule_entries prev on prev.staff_id=s.id and prev.schedule_date=v_date-1
+        left join lateral (
+          select prior.*
+          from public.fo_schedule_entries prior
+          where prior.staff_id=s.id and prior.schedule_date<v_date and prior.status='WORK'
+          order by prior.schedule_date desc
+          limit 1
+        ) prev on true
         where s.is_active and not s.is_permanent_night
           and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
           and (v_shift_code<>'NIGHT' or v_night_male>0 or s.staff_gender='MALE')
@@ -427,9 +486,20 @@ begin
               )
             )
           )
-          and not (v_shift_code='MORNING' and upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON')
-          and not (v_shift_code='AFTERNOON' and upper(coalesce(prev.shift_code_snapshot,''))='NIGHT')
+          and not (
+            upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
+            and public.fo_schedule_rest_hours(
+              prev.schedule_date,prev.scheduled_start,prev.scheduled_end,v_date,v_shift.start_time
+            )<24
+          )
           and not (v_shift_code='MORNING' and lower(trim(s.staff_name))='sri')
+          -- Reserve Harish for Jia's Night pairing, Reservations cover, and
+          -- the first available Mid assignment. Use him for Morning/Afternoon
+          -- only through the last-resort coverage fallback.
+          and not (v_shift_code in ('MORNING','AFTERNOON') and lower(trim(s.staff_name))='harish')
+          -- Walter stays on Manager hours. He may cover Morning only through
+          -- the final fallback; he is never automatically placed Afternoon.
+          and not (v_shift_code in ('MORNING','AFTERNOON') and s.is_manager)
         order by s.is_manager,
           case
             -- If Jia was manually placed on Night, only an approved male
@@ -484,24 +554,42 @@ begin
 
         if v_staff_id is null and v_shift_code in ('MORNING','AFTERNOON') then
           select s.id into v_staff_id from public.fo_schedule_staff s
-          left join public.fo_schedule_entries prev on prev.staff_id=s.id and prev.schedule_date=v_date-1
+          left join lateral (
+            select prior.*
+            from public.fo_schedule_entries prior
+            where prior.staff_id=s.id and prior.schedule_date<v_date and prior.status='WORK'
+            order by prior.schedule_date desc
+            limit 1
+          ) prev on true
           where s.is_active and not s.is_permanent_night
             and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
+            and not (v_shift_code='AFTERNOON' and s.is_manager)
           order by s.is_manager,
             case
               when v_shift_code='MORNING' and lower(trim(s.staff_name))='sri' then 2
-              when v_shift_code='MORNING' and upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON' then 1
-              when v_shift_code='AFTERNOON' and upper(coalesce(prev.shift_code_snapshot,''))='NIGHT' then 1
+              when upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
+                and public.fo_schedule_rest_hours(
+                  prev.schedule_date,prev.scheduled_start,prev.scheduled_end,v_date,v_shift.start_time
+                )<24 then 1
               else 0
             end,
+            case when lower(trim(s.staff_name))='harish' then 1 else 0 end,
             s.sort_order,s.staff_name limit 1;
         end if;
         exit when v_staff_id is null;
         select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)=v_shift_code limit 1;
-        select upper(coalesce(shift_code_snapshot,'')) into v_prev_code from public.fo_schedule_entries where staff_id=v_staff_id and schedule_date=v_date-1;
-        v_is_exception:=coalesce((v_shift_code='MORNING' and v_prev_code='AFTERNOON') or (v_shift_code='AFTERNOON' and v_prev_code='NIGHT'),false);
+        v_prev_code:=null; v_prev_date:=null; v_prev_start:=null; v_prev_end:=null; v_rest_hours:=null;
+        select upper(coalesce(shift_code_snapshot,'')),schedule_date,scheduled_start,scheduled_end
+          into v_prev_code,v_prev_date,v_prev_start,v_prev_end
+        from public.fo_schedule_entries
+        where staff_id=v_staff_id and schedule_date<v_date and status='WORK'
+        order by schedule_date desc limit 1;
+        v_rest_hours:=public.fo_schedule_rest_hours(v_prev_date,v_prev_start,v_prev_end,v_date,v_shift.start_time);
+        v_is_exception:=coalesce(v_prev_code<>v_shift_code and v_rest_hours<24,false);
         insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,notes,auto_filled,compliance_exception,updated_by_user_id,updated_by_name)
-        values(v_staff_id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,case when v_is_exception then case when v_shift_code='AFTERNOON' and v_prev_code='NIGHT' then 'Rest exception: Night to Afternoon used to maintain minimum coverage.' else 'Rest exception: Afternoon to next-day Morning used to maintain minimum coverage.' end end,true,v_is_exception,(select auth.uid()),public.fo_schedule_actor_name());
+        values(v_staff_id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,
+          case when v_is_exception then 'Rest exception: '||v_prev_code||' to '||v_shift_code||' provides only '||trim(to_char(v_rest_hours,'FM999990.00'))||' hours before the next shift.' end,
+          true,v_is_exception,(select auth.uid()),public.fo_schedule_actor_name());
         if v_shift_code='NIGHT' and exists(select 1 from public.fo_schedule_staff where id=v_staff_id and staff_gender='MALE') then v_night_male:=v_night_male+1; end if;
         v_inserted:=v_inserted+1; if v_is_exception then v_exceptions:=v_exceptions+1; end if; v_current:=v_current+1; v_staff_id:=null;
       end loop;
@@ -584,6 +672,7 @@ revoke all on function public.delete_fo_schedule_entry(uuid,date) from public;
 revoke all on function public.fill_fo_schedule_range(uuid,date,date,integer[],text,uuid,boolean) from public;
 revoke all on function public.cleanup_fo_schedule_history() from public;
 revoke all on function public.autofill_fo_schedule_month(date) from public;
+revoke all on function public.fo_schedule_rest_hours(date,time,time,date,time) from public;
 revoke all on function public.fo_schedule_actor_name() from anon;
 revoke all on function public.can_access_fo_schedule() from anon;
 revoke all on function public.can_manage_fo_schedule() from anon;
@@ -596,6 +685,7 @@ revoke all on function public.delete_fo_schedule_entry(uuid,date) from anon;
 revoke all on function public.fill_fo_schedule_range(uuid,date,date,integer[],text,uuid,boolean) from anon;
 revoke all on function public.cleanup_fo_schedule_history() from anon;
 revoke all on function public.autofill_fo_schedule_month(date) from anon;
+revoke all on function public.fo_schedule_rest_hours(date,time,time,date,time) from anon;
 
 create index if not exists fo_schedule_entries_shift_id_idx
   on public.fo_schedule_entries(shift_id)
