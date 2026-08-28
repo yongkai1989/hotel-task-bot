@@ -377,7 +377,7 @@ declare
   v_shift public.fo_schedule_shifts; v_inserted integer:=0; v_exceptions integer:=0; v_shortages integer:=0;
   v_prev_code text; v_prev_date date; v_prev_start time; v_prev_end time;
   v_rest_hours numeric; v_is_exception boolean; v_night_male integer:=0; v_missing_gender text;
-  v_replaced integer:=0;
+  v_replaced integer:=0; v_core_ready boolean:=false;
 begin
   if not public.can_manage_fo_schedule() then raise exception 'You do not have permission to manage Front Office Schedule'; end if;
   if not exists(select 1 from public.fo_schedule_staff where is_active and is_permanent_night) then raise exception 'Set a permanent night auditor before Auto Fill'; end if;
@@ -487,7 +487,8 @@ begin
             )
           )
           and not (
-            upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
+            prev.schedule_date is not null
+            and upper(coalesce(prev.shift_code_snapshot,''))<>v_shift_code
             and public.fo_schedule_rest_hours(
               prev.schedule_date,prev.scheduled_start,prev.scheduled_end,v_date,v_shift.start_time
             )<24
@@ -613,7 +614,22 @@ begin
         if v_shift_code='NIGHT' and exists(select 1 from public.fo_schedule_staff where id=v_staff_id and staff_gender='MALE') then v_night_male:=v_night_male+1; end if;
         v_inserted:=v_inserted+1; if v_is_exception then v_exceptions:=v_exceptions+1; end if; v_current:=v_current+1; v_staff_id:=null;
       end loop;
-      if v_current<v_target then v_shortages:=v_shortages+(v_target-v_current); end if;
+      if v_current<v_target then
+        -- Saravanan may cover Night alone when no second eligible person is
+        -- available. Every other Night arrangement still requires two staff.
+        if not (
+          v_shift_code='NIGHT' and v_current=1 and exists(
+            select 1
+            from public.fo_schedule_entries e
+            join public.fo_schedule_staff s on s.id=e.staff_id
+            where e.schedule_date=v_date and e.status='WORK'
+              and upper(coalesce(e.shift_code_snapshot,''))='NIGHT'
+              and lower(trim(s.staff_name))='saravanan'
+          )
+        ) then
+          v_shortages:=v_shortages+(v_target-v_current);
+        end if;
+      end if;
       if v_shift_code='NIGHT' and v_current>0 and v_night_male=0 then v_shortages:=v_shortages+1; end if;
     end loop;
 
@@ -626,14 +642,27 @@ begin
     order by s.sort_order,s.staff_name on conflict do nothing;
     get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
 
-    select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)='MID' limit 1;
-    insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,auto_filled,updated_by_user_id,updated_by_name)
-    select s.id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,true,(select auth.uid()),public.fo_schedule_actor_name()
-    from public.fo_schedule_staff s
-    where s.is_active and not s.is_manager
-      and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
-    order by case when lower(trim(s.staff_name))='harish' then 0 else 1 end,s.sort_order,s.staff_name on conflict do nothing;
-    get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
+    -- Mid is surplus coverage only. Never create any Mid assignment until all
+    -- standard targets, including two Night staff, are actually filled.
+    select
+      count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='MORNING')>=2
+      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='AFTERNOON')>=2
+      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='NIGHT')>=2
+      and count(*) filter (where status='WORK' and upper(coalesce(shift_code_snapshot,''))='RESERVATIONS')>=1
+    into v_core_ready
+    from public.fo_schedule_entries
+    where schedule_date=v_date;
+
+    if coalesce(v_core_ready,false) then
+      select * into v_shift from public.fo_schedule_shifts where is_active and upper(shift_code)='MID' limit 1;
+      insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,auto_filled,updated_by_user_id,updated_by_name)
+      select s.id,v_date,'WORK',v_shift.id,v_shift.shift_name,v_shift.shift_code,v_shift.start_time,v_shift.end_time,true,(select auth.uid()),public.fo_schedule_actor_name()
+      from public.fo_schedule_staff s
+      where s.is_active and not s.is_manager
+        and not exists(select 1 from public.fo_schedule_entries e where e.staff_id=s.id and e.schedule_date=v_date)
+      order by case when lower(trim(s.staff_name))='harish' then 0 else 1 end,s.sort_order,s.staff_name on conflict do nothing;
+      get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
+    end if;
   end loop;
   return jsonb_build_object('replaced',v_replaced,'inserted',v_inserted,'exceptions',v_exceptions,'shortages',v_shortages);
 end $$;
