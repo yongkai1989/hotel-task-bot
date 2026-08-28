@@ -493,6 +493,10 @@ begin
             )<24
           )
           and not (v_shift_code='MORNING' and lower(trim(s.staff_name))='sri')
+          -- Reservations follows a strict staffing order. Jia is primary and
+          -- Harish is secondary; Walter is handled separately below only when
+          -- neither of them can cover the date.
+          and (v_shift_code<>'RESERVATIONS' or lower(trim(s.staff_name)) in ('jia','harish'))
           -- Reserve Harish for Jia's Night pairing, Reservations cover, and
           -- the first available Mid assignment. Use him for Morning/Afternoon
           -- only through the last-resort coverage fallback.
@@ -551,6 +555,22 @@ begin
               and upper(coalesce(month_night.shift_code_snapshot,''))='NIGHT'
           ) else 0 end,
           s.sort_order,s.staff_name limit 1;
+
+        -- If Jia and Harish are both unavailable, Walter may cover
+        -- Reservations. This is deliberately a last-resort selection and any
+        -- shift change providing under 24 hours of rest is recorded below as
+        -- a visible compliance exception.
+        if v_staff_id is null and v_shift_code='RESERVATIONS' then
+          select s.id into v_staff_id
+          from public.fo_schedule_staff s
+          where s.is_active and s.is_manager
+            and not exists(
+              select 1 from public.fo_schedule_entries e
+              where e.staff_id=s.id and e.schedule_date=v_date
+            )
+          order by s.sort_order,s.staff_name
+          limit 1;
+        end if;
 
         if v_staff_id is null and v_shift_code in ('MORNING','AFTERNOON') then
           select s.id into v_staff_id from public.fo_schedule_staff s
