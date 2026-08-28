@@ -245,9 +245,11 @@ create or replace function public.save_fo_schedule_entry(
 declare
   v_row public.fo_schedule_entries; v_shift public.fo_schedule_shifts;
   v_status text:=upper(trim(coalesce(p_status,''))); v_name text; v_code text; v_start time; v_end time;
+  v_staff_name text;
 begin
   if not public.can_manage_fo_schedule() then raise exception 'You do not have permission to manage Front Office Schedule'; end if;
-  if not exists(select 1 from public.fo_schedule_staff where id=p_staff_id) then raise exception 'Staff not found'; end if;
+  select staff_name into v_staff_name from public.fo_schedule_staff where id=p_staff_id;
+  if not found then raise exception 'Staff not found'; end if;
   if v_status not in ('WORK','AL','UPL','NO_SHOW','MC','OFF') then raise exception 'Invalid status'; end if;
   if v_status='WORK' then
     if p_shift_id is not null then select * into v_shift from public.fo_schedule_shifts where id=p_shift_id;
@@ -256,6 +258,24 @@ begin
     else
       if p_custom_start is null or p_custom_end is null then raise exception 'Custom hours are required'; end if;
       v_name:='Ad hoc hours'; v_code:=to_char(p_custom_start,'HH24:MI')||'-'||to_char(p_custom_end,'HH24:MI'); v_start:=p_custom_start; v_end:=p_custom_end;
+    end if;
+
+    -- This pairing is prohibited even for manual edits. The Auto Fill function
+    -- applies the same rule, while the UI continues to flag incomplete Night pairs.
+    if upper(coalesce(v_code,''))='NIGHT'
+      and lower(trim(v_staff_name)) in ('jia','saravanan')
+      and exists(
+        select 1
+        from public.fo_schedule_entries e
+        join public.fo_schedule_staff other_staff on other_staff.id=e.staff_id
+        where e.schedule_date=p_schedule_date
+          and e.staff_id<>p_staff_id
+          and e.status='WORK'
+          and upper(coalesce(e.shift_code_snapshot,''))='NIGHT'
+          and lower(trim(other_staff.staff_name))=
+            case when lower(trim(v_staff_name))='jia' then 'saravanan' else 'jia' end
+      ) then
+      raise exception 'Jia and Saravanan cannot be assigned to the same Night shift';
     end if;
   else p_shift_id:=null; p_is_late:=false; p_overtime_minutes:=0; end if;
   insert into public.fo_schedule_entries(staff_id,schedule_date,status,shift_id,shift_name_snapshot,shift_code_snapshot,scheduled_start,scheduled_end,is_late,overtime_minutes,notes,auto_filled,compliance_exception,updated_by_user_id,updated_by_name)
@@ -307,6 +327,7 @@ declare
   v_date date; v_shift_code text; v_target integer; v_current integer; v_staff_id uuid;
   v_shift public.fo_schedule_shifts; v_inserted integer:=0; v_exceptions integer:=0; v_shortages integer:=0;
   v_prev_code text; v_is_exception boolean; v_night_male integer:=0; v_missing_gender text;
+  v_replaced integer:=0;
 begin
   if not public.can_manage_fo_schedule() then raise exception 'You do not have permission to manage Front Office Schedule'; end if;
   if not exists(select 1 from public.fo_schedule_staff where is_active and is_permanent_night) then raise exception 'Set a permanent night auditor before Auto Fill'; end if;
@@ -319,6 +340,12 @@ begin
   foreach v_shift_code in array array['MORNING','AFTERNOON','NIGHT','RESERVATIONS','MID','MANAGER'] loop
     if not exists(select 1 from public.fo_schedule_shifts where is_active and upper(shift_code)=v_shift_code) then raise exception 'Required shift % is missing',v_shift_code; end if;
   end loop;
+
+  -- Rebuild only previous Auto Fill output. Every manually saved cell has
+  -- auto_filled=false and remains exactly as entered by the manager.
+  delete from public.fo_schedule_entries
+  where schedule_date between v_start and v_end and auto_filled=true;
+  get diagnostics v_replaced=row_count;
 
   for v_date in select generate_series(v_start,v_end,interval '1 day')::date loop
     insert into public.fo_schedule_entries(staff_id,schedule_date,status,auto_filled,updated_by_user_id,updated_by_name)
@@ -402,21 +429,54 @@ begin
           and not (v_shift_code='MORNING' and upper(coalesce(prev.shift_code_snapshot,''))='AFTERNOON')
         order by s.is_manager,
           case
+            -- If Jia was manually placed on Night, only an approved male
+            -- partner can be selected and Zaim is preferred over Harish.
             when v_shift_code='NIGHT'
-              and not exists(
+              and exists(
                 select 1 from public.fo_schedule_entries e
-                join public.fo_schedule_staff n on n.id=e.staff_id
+                join public.fo_schedule_staff j on j.id=e.staff_id
                 where e.schedule_date=v_date and e.status='WORK'
                   and upper(coalesce(e.shift_code_snapshot,''))='NIGHT'
-                  and lower(trim(n.staff_name))='saravanan'
+                  and lower(trim(j.staff_name))='jia'
               )
-              and lower(trim(s.staff_name)) in ('harish','zaim') then 0
-            when v_shift_code='NIGHT' and s.is_hybrid_night then 1
+              and lower(trim(s.staff_name))='zaim' then 0
+            when v_shift_code='NIGHT'
+              and exists(
+                select 1 from public.fo_schedule_entries e
+                join public.fo_schedule_staff j on j.id=e.staff_id
+                where e.schedule_date=v_date and e.status='WORK'
+                  and upper(coalesce(e.shift_code_snapshot,''))='NIGHT'
+                  and lower(trim(j.staff_name))='jia'
+              )
+              and lower(trim(s.staff_name))='harish' then 1
+            -- Normal Night rotation favours Sri, Zaim and Azalina. Harish is
+            -- deliberately held back for Reservations cover or spare Mid duty.
+            when v_shift_code='NIGHT' and lower(trim(s.staff_name)) in ('sri','zaim','azalina') then 0
+            when v_shift_code='NIGHT' and s.is_hybrid_night and lower(trim(s.staff_name))<>'jia' then 1
+            when v_shift_code='NIGHT' and lower(trim(s.staff_name))='jia' then 3
+            when v_shift_code='NIGHT' and lower(trim(s.staff_name))='harish' then 4
             when v_shift_code='NIGHT' then 2
+            -- Jia is the primary Reservations staff. Harish covers
+            -- Reservations when Jia is off, on leave, or already assigned.
+            when v_shift_code='RESERVATIONS' and lower(trim(s.staff_name))='jia' then 0
+            when v_shift_code='RESERVATIONS' and lower(trim(s.staff_name))='harish' then 1
+            when v_shift_code='RESERVATIONS' then 2
+            -- Once Night and Reservations have been covered, Sri is preferred
+            -- for Afternoon. Keep Harish available for Mid when manpower allows.
+            when v_shift_code='AFTERNOON' and lower(trim(s.staff_name))='sri' then 0
+            when v_shift_code in ('MORNING','AFTERNOON') and lower(trim(s.staff_name))='harish' then 3
             else 0
           end,
           case when s.preferred_shift=v_shift_code then 0 when s.preferred_shift='FLEX' then 1 else 2 end,
           case when upper(coalesce(prev.shift_code_snapshot,''))=v_shift_code then 0 else 1 end,
+          case when v_shift_code='NIGHT' then (
+            select count(*)
+            from public.fo_schedule_entries month_night
+            where month_night.staff_id=s.id
+              and month_night.schedule_date between v_start and v_date-1
+              and month_night.status='WORK'
+              and upper(coalesce(month_night.shift_code_snapshot,''))='NIGHT'
+          ) else 0 end,
           s.sort_order,s.staff_name limit 1;
 
         if v_staff_id is null and v_shift_code='MORNING' then
@@ -457,7 +517,7 @@ begin
     order by s.sort_order,s.staff_name on conflict do nothing;
     get diagnostics v_current=row_count; v_inserted:=v_inserted+v_current;
   end loop;
-  return jsonb_build_object('inserted',v_inserted,'exceptions',v_exceptions,'shortages',v_shortages);
+  return jsonb_build_object('replaced',v_replaced,'inserted',v_inserted,'exceptions',v_exceptions,'shortages',v_shortages);
 end $$;
 
 insert into public.fo_schedule_shifts(shift_name,shift_code,start_time,end_time,color,is_active,created_by_user_id,created_by_name)
