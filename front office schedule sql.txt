@@ -155,7 +155,6 @@ language plpgsql security definer set search_path = public
 as $$
 declare
   v_row public.fo_schedule_staff;
-  v_old_fixed_off_day integer;
   v_name text := trim(coalesce(p_staff_name, ''));
   v_role text := upper(trim(coalesce(p_staff_role, 'FRONT_OFFICE')));
   v_preference text := upper(trim(coalesce(p_preferred_shift, 'FLEX')));
@@ -184,10 +183,6 @@ begin
       (select auth.uid()), public.fo_schedule_actor_name()
     ) returning * into v_row;
   else
-    select fixed_off_day into v_old_fixed_off_day
-    from public.fo_schedule_staff
-    where id=p_staff_id;
-
     update public.fo_schedule_staff set
       staff_name=v_name, staff_role=v_role, staff_gender=coalesce(v_gender,staff_gender), fixed_off_day=p_fixed_off_day,
       preferred_shift=v_preference, is_permanent_night=coalesce(p_is_permanent_night,false),
@@ -196,28 +191,6 @@ begin
     where id=p_staff_id returning * into v_row;
     if not found then raise exception 'Staff record not found'; end if;
 
-    -- Fixed off is authoritative for Auto Fill. Reclassify only the affected
-    -- old/new weekday cells as generated cells so the next Auto Fill can
-    -- rebuild them. Manual leave, MC, UPL and No Show records are preserved.
-    if v_old_fixed_off_day is distinct from p_fixed_off_day then
-      update public.fo_schedule_entries e
-      set auto_filled=true, updated_by_user_id=(select auth.uid()),
-          updated_by_name=public.fo_schedule_actor_name(), updated_at=now()
-      where e.staff_id=p_staff_id
-        and e.schedule_date >= date_trunc('month',current_date)::date
-        and e.status='OFF'
-        and v_old_fixed_off_day is not null
-        and extract(isodow from e.schedule_date)::integer=v_old_fixed_off_day;
-
-      update public.fo_schedule_entries e
-      set auto_filled=true, updated_by_user_id=(select auth.uid()),
-          updated_by_name=public.fo_schedule_actor_name(), updated_at=now()
-      where e.staff_id=p_staff_id
-        and e.schedule_date >= date_trunc('month',current_date)::date
-        and e.status in ('WORK','OFF')
-        and p_fixed_off_day is not null
-        and extract(isodow from e.schedule_date)::integer=p_fixed_off_day;
-    end if;
   end if;
   return v_row;
 end $$;
@@ -930,5 +903,20 @@ revoke all on function public.fo_schedule_rest_hours(date,time,time,date,time) f
 create index if not exists fo_schedule_entries_shift_id_idx
   on public.fo_schedule_entries(shift_id)
   where shift_id is not null;
+
+-- Manual scheduling mode: preserve every existing assignment exactly as saved.
+-- Staff setup changes never reclassify cells, and Auto Fill is intentionally disabled.
+update public.fo_schedule_entries
+set auto_filled=false
+where auto_filled=true;
+
+create or replace function public.autofill_fo_schedule_month(p_month date)
+returns jsonb language plpgsql security definer set search_path=public as $$
+begin
+  if not public.can_manage_fo_schedule() then
+    raise exception 'You do not have permission to manage Front Office Schedule';
+  end if;
+  raise exception 'Auto Fill is disabled. The Front Office timetable is manual and saved cells will not be changed automatically.';
+end $$;
 
 notify pgrst, 'reload schema';
