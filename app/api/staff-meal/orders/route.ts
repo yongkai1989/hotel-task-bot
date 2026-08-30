@@ -188,14 +188,6 @@ function canManageStaffMeal(user: any) {
   return role === 'SUPERUSER';
 }
 
-async function cleanupOldOrders() {
-  try {
-    await supabaseAdmin.rpc('cleanup_staff_meal_orders');
-  } catch {
-    // Cleanup should never block normal staff meal ordering.
-  }
-}
-
 export async function GET(req: NextRequest) {
   const cycle = staffMealCycle();
   const adminMode = req.nextUrl.searchParams.get('admin') === '1';
@@ -215,8 +207,6 @@ export async function GET(req: NextRequest) {
   }
 
   if (publicListingMode) {
-    await cleanupOldOrders();
-
     const { data, error: listError } = await supabaseAdmin
       .from('staff_meal_orders')
       .select('id, order_week_start, order_week_end, branch, staff_name, meals, notes, created_at')
@@ -240,8 +230,6 @@ export async function GET(req: NextRequest) {
   const { user, error } = await getDashboardUserFromRequest(req);
   if (error || !user) return jsonNoCache({ ok: false, error: error || 'Unauthorized' }, 401);
   if (!canViewStaffMeal(user)) return jsonNoCache({ ok: false, error: 'Staff Meal is available to Superuser, F&B, and Fenny only.' }, 403);
-
-  await cleanupOldOrders();
 
   const weekStart = req.nextUrl.searchParams.get('week_start') || (reportMode ? cycle.service_week_start : cycle.order_week_start);
   const { data, error: listError } = await supabaseAdmin
@@ -267,8 +255,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  await cleanupOldOrders();
-
   const cycle = staffMealCycle();
   const body = await req.json().catch(() => ({}));
   const branch = normalizeBranch(body?.branch);
