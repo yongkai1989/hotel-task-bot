@@ -1,0 +1,56 @@
+-- Shared throttle for customer-waiting reminder scans. This prevents each
+-- serverless instance from independently scanning the same due-task queue.
+create or replace function public.claim_customer_waiting_reminder_check(
+  p_interval_seconds integer default 30
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_last_run timestamptz;
+begin
+  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' then
+    raise exception 'service role required';
+  end if;
+
+  if p_interval_seconds < 10 or p_interval_seconds > 300 then
+    raise exception 'interval must be between 10 and 300 seconds';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('hallmark_customer_waiting_reminder_check_v1'));
+
+  select updated_at
+    into v_last_run
+    from public.app_maintenance_state
+   where maintenance_key = 'customer_waiting_reminder_check'
+   for update;
+
+  if found and v_last_run > v_now - make_interval(secs => p_interval_seconds) then
+    return false;
+  end if;
+
+  insert into public.app_maintenance_state (maintenance_key, last_run_date, updated_at)
+  values (
+    'customer_waiting_reminder_check',
+    (v_now at time zone 'Asia/Kuala_Lumpur')::date,
+    v_now
+  )
+  on conflict (maintenance_key) do update
+    set last_run_date = excluded.last_run_date,
+        updated_at = excluded.updated_at;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.claim_customer_waiting_reminder_check(integer) from public;
+revoke execute on function public.claim_customer_waiting_reminder_check(integer) from anon, authenticated;
+grant execute on function public.claim_customer_waiting_reminder_check(integer) to service_role;
+
+-- Task cards load their photos newest-first. Cover both the relationship and
+-- ordering in one index so Postgres does not need an additional sort.
+create index if not exists idx_task_images_task_id_created_at
+  on public.task_images (task_id, created_at desc);

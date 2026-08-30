@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadLinenRoomTypeMap } from '../../../lib/linenRoomTypeMapClient';
 
 type DashboardUser = {
   user_id?: string;
@@ -451,9 +452,7 @@ export default function ChambermaidEntryPage() {
               .eq('service_date', serviceDate)
               .in('room_number', roomNumbers)
           : Promise.resolve({ data: [], error: null } as any),
-        supabase
-          .from('linen_room_type_map')
-          .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+        loadLinenRoomTypeMap(supabase),
       ]);
 
       if (entryRes.error) throw entryRes.error;

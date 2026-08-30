@@ -490,7 +490,15 @@ async function sendCustomerWaitingRemindersWithBudget() {
 
   if (!customerWaitingReminderCheck) {
     lastCustomerWaitingReminderCheckAt = Date.now();
-    customerWaitingReminderCheck = sendCustomerWaitingReminders().finally(() => {
+    customerWaitingReminderCheck = (async () => {
+      const { data: shouldRun, error } = await supabaseAdmin.rpc(
+        'claim_customer_waiting_reminder_check',
+        { p_interval_seconds: CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS / 1000 }
+      );
+
+      if (error || !shouldRun) return;
+      await sendCustomerWaitingReminders();
+    })().finally(() => {
       customerWaitingReminderCheck = null;
     });
   }

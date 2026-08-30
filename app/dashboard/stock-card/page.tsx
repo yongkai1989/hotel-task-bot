@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadLinenRoomTypeMap } from '../../../lib/linenRoomTypeMapClient';
 
 type DashboardUser = {
   user_id?: string;
@@ -360,9 +361,7 @@ export default function StockCardPage() {
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type, is_active')
           .eq('is_active', true),
-        supabase
-          .from('linen_room_type_map')
-          .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+        loadLinenRoomTypeMap(supabase),
       ]);
 
       if (stockRes.error) throw stockRes.error;

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadLinenRoomTypeMap } from '../../../lib/linenRoomTypeMapClient';
 
 type DashboardUser = {
   user_id?: string;
@@ -1175,9 +1176,7 @@ export default function LinenHistoryPage() {
           .from('linen_room_entry')
           .select('room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', selectedDate),
-        supabase
-          .from('linen_room_type_map')
-          .select('room_type, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single'),
+        loadLinenRoomTypeMap(supabase),
         supabase
           .from('linen_pa_entry')
           .select('room_number, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
