@@ -86,7 +86,7 @@ export default function FrontOfficeSchedulePage(){
     ]);
     const issue=a.error||b.error||c.error; if(issue)setError(issue.message); else{setStaff((a.data||[]) as Staff[]);setShifts((b.data||[]) as Shift[]);setEntries((c.data||[]) as Entry[]);} setLoading(false);
   },[bounds.end,bounds.start,canAccess,supabase]);
-  useEffect(()=>{if(!supabase||!canAccess)return; if(canEdit)void supabase.rpc('cleanup_fo_schedule_history').then(()=>loadData()); else void loadData();},[canAccess,canEdit,loadData,supabase]);
+  useEffect(()=>{if(!supabase||!canAccess)return; void loadData();},[canAccess,loadData,supabase]);
 
   const entryMap=useMemo(()=>new Map(entries.map(entry=>[`${entry.staff_id}:${entry.schedule_date}`,entry])),[entries]);
   const days=useMemo(()=>Array.from({length:bounds.days},(_,i)=>{const value=`${month}-${pad(i+1)}`;const date=new Date(`${value}T00:00:00`);return{value,day:i+1,weekday:new Intl.DateTimeFormat('en-MY',{weekday:'short'}).format(date).slice(0,2),weekend:[0,6].includes(date.getDay()),today:value===dateKey(new Date())};}).filter(day=>half==='FULL'||(half==='FIRST'?day.day<=15:day.day>=16)),[bounds.days,half,month]);

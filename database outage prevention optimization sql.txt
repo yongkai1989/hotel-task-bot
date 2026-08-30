@@ -1,0 +1,56 @@
+-- Database outage prevention optimisation
+-- Applied to Supabase on 30/08/2026 and kept here as the migration record.
+-- Normal page reads no longer invoke retention DELETE functions. The cleanup
+-- functions remain available to the service role for controlled maintenance.
+
+begin;
+
+revoke execute on function public.cleanup_hk_schedule_history() from public, anon, authenticated;
+revoke execute on function public.cleanup_fo_schedule_history() from public, anon, authenticated;
+revoke execute on function public.cleanup_staff_meal_orders() from public, anon, authenticated;
+
+grant execute on function public.cleanup_hk_schedule_history() to service_role;
+grant execute on function public.cleanup_fo_schedule_history() to service_role;
+grant execute on function public.cleanup_staff_meal_orders() to service_role;
+
+-- Cover every foreign key identified by the Supabase performance advisor.
+-- These indexes make parent-row updates/deletes and related lookups avoid full
+-- table scans as the operational history grows.
+create index if not exists cash_manual_entries_excess_bank_in_id_idx
+  on public.cash_manual_entries (excess_bank_in_id);
+
+create index if not exists online_purchase_audit_actor_user_id_idx
+  on public.online_purchase_audit (actor_user_id);
+create index if not exists online_purchase_audit_hotel_code_idx
+  on public.online_purchase_audit (hotel_code);
+create index if not exists online_purchase_documents_uploaded_by_idx
+  on public.online_purchase_documents (uploaded_by);
+create index if not exists online_purchase_ledger_entries_actor_user_id_idx
+  on public.online_purchase_ledger_entries (actor_user_id);
+
+create index if not exists online_purchase_orders_arrived_by_idx
+  on public.online_purchase_orders (arrived_by);
+create index if not exists online_purchase_orders_cancelled_by_idx
+  on public.online_purchase_orders (cancelled_by);
+create index if not exists online_purchase_orders_created_by_idx
+  on public.online_purchase_orders (created_by);
+create index if not exists online_purchase_orders_invoice_submitted_by_idx
+  on public.online_purchase_orders (invoice_submitted_by);
+create index if not exists online_purchase_orders_purchased_by_idx
+  on public.online_purchase_orders (purchased_by);
+create index if not exists online_purchase_orders_refund_completed_by_idx
+  on public.online_purchase_orders (refund_completed_by);
+create index if not exists online_purchase_orders_refund_requested_by_idx
+  on public.online_purchase_orders (refund_requested_by);
+create index if not exists online_purchase_orders_reimbursed_by_idx
+  on public.online_purchase_orders (reimbursed_by);
+
+create index if not exists online_purchasing_user_access_created_by_idx
+  on public.online_purchasing_user_access (created_by);
+create index if not exists online_purchasing_user_access_hotel_code_idx
+  on public.online_purchasing_user_access (hotel_code);
+
+commit;
+
+-- Verification:
+-- Supabase performance advisor should report zero unindexed foreign keys.

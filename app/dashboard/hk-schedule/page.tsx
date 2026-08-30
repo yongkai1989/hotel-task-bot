@@ -263,12 +263,8 @@ export default function HousekeepingSchedulePage() {
 
   useEffect(() => {
     if (!supabase || !canAccess) return;
-    if (canEdit) {
-      void supabase.rpc('cleanup_hk_schedule_history').then(() => loadData());
-    } else {
-      void loadData();
-    }
-  }, [canAccess, canEdit, loadData, supabase]);
+    void loadData();
+  }, [canAccess, loadData, supabase]);
 
   const entryMap = useMemo(() => {
     const map = new Map<string, Entry>();
