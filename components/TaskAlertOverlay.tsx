@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
-import {
-  TASK_BROADCAST_CHANNEL,
-  TASK_BROADCAST_EVENT,
-} from '../lib/taskRealtime';
+import { subscribeToTaskBroadcast } from '../lib/taskRealtimeClient';
 
 type AlertTask = {
   id: string;
@@ -87,7 +84,6 @@ export default function TaskAlertOverlay({ userId }: Props) {
 
   useEffect(() => {
     if (!accessToken || !userId) return;
-    let channel: any = null;
     let refreshTimer: number | null = null;
 
     const refreshAlerts = () => {
@@ -100,40 +96,27 @@ export default function TaskAlertOverlay({ userId }: Props) {
       }, 180);
     };
 
-    const startChannel = async () => {
-      if (channel || document.visibilityState !== 'visible') return;
-      await supabase.realtime.setAuth(accessToken);
-      channel = supabase
-        .channel(TASK_BROADCAST_CHANNEL, { config: { private: true } })
-        .on('broadcast', { event: TASK_BROADCAST_EVENT }, refreshAlerts)
-        .subscribe();
-    };
-
-    const stopChannel = () => {
+    const clearRefreshTimer = () => {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       refreshTimer = null;
-      if (!channel) return;
-      const activeChannel = channel;
-      channel = null;
-      void supabase.removeChannel(activeChannel);
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         void loadAlerts(accessToken);
-        void startChannel();
       } else {
-        stopChannel();
+        clearRefreshTimer();
       }
     };
 
-    void startChannel();
+    const unsubscribe = subscribeToTaskBroadcast(refreshAlerts, { accessToken });
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      stopChannel();
+      unsubscribe();
+      clearRefreshTimer();
     };
-  }, [accessToken, loadAlerts, supabase, userId]);
+  }, [accessToken, loadAlerts, userId]);
 
   const current = alerts[0] || null;
 

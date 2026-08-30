@@ -5,6 +5,7 @@ import DashboardSidebar from '../../components/DashboardSidebar';
 import PushNotificationControl from '../../components/PushNotificationControl';
 import TaskAlertOverlay from '../../components/TaskAlertOverlay';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../lib/dashboardSessionProfileClient';
 
 type DashboardUser = {
   user_id?: string;
@@ -92,10 +93,6 @@ function getSupabaseSafe() {
   return createBrowserSupabaseClient();
 }
 
-const PROFILE_CACHE_KEY = 'dashboard-session-profile';
-const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
-const PROFILE_REFRESH_MIN_MS = 1800000;
-
 export default function DashboardLayout({
   children,
 }: {
@@ -109,32 +106,6 @@ export default function DashboardLayout({
 
     async function loadProfile() {
       try {
-        const runtime =
-          typeof window !== 'undefined'
-            ? (window as typeof window & {
-                __dashboardProfilePromise?: Promise<any> | null;
-              })
-            : null;
-        const cached =
-          typeof window !== 'undefined'
-            ? window.sessionStorage.getItem(PROFILE_CACHE_KEY)
-            : null;
-
-        if (cached && mounted) {
-          try {
-            setProfile(JSON.parse(cached) as DashboardUser);
-          } catch {}
-        }
-
-        const cachedAt =
-          typeof window !== 'undefined'
-            ? Number(window.sessionStorage.getItem(PROFILE_CACHE_TS_KEY) || '0')
-            : 0;
-
-        if (cached && cachedAt && Date.now() - cachedAt < PROFILE_REFRESH_MIN_MS) {
-          return;
-        }
-
         const supabase = getSupabaseSafe();
         if (!supabase) return;
 
@@ -147,58 +118,9 @@ export default function DashboardLayout({
           return;
         }
 
-        if (runtime?.__dashboardProfilePromise) {
-          const json = await runtime.__dashboardProfilePromise;
-          if (!mounted) return;
-          if (json?.ok && json?.user) {
-            const nextProfile = json.user as DashboardUser;
-            setProfile(nextProfile);
-            window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(nextProfile));
-            window.sessionStorage.setItem(PROFILE_CACHE_TS_KEY, String(Date.now()));
-          }
-          return;
-        }
-
-        const profilePromise = fetch('/api/session-profile', {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: 'no-store',
-        }).then(async (res) => {
-          const json = await res.json();
-          if (!res.ok || !json?.ok) {
-            throw new Error(json?.error || `Request failed (${res.status})`);
-          }
-          return json;
-        });
-
-        if (runtime) {
-          runtime.__dashboardProfilePromise = profilePromise.finally(() => {
-            runtime.__dashboardProfilePromise = null;
-          });
-        }
-
-        const json = runtime?.__dashboardProfilePromise
-          ? await runtime.__dashboardProfilePromise
-          : await profilePromise;
-
+        const nextProfile = await loadDashboardSessionProfile<DashboardUser>(session.access_token);
         if (!mounted) return;
-
-        if (json?.ok && json?.user) {
-          const nextProfile = json.user as DashboardUser;
-          setProfile(nextProfile);
-          if (typeof window !== 'undefined') {
-            window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(nextProfile));
-            window.sessionStorage.setItem(PROFILE_CACHE_TS_KEY, String(Date.now()));
-          }
-        } else {
-          setProfile(null);
-          if (typeof window !== 'undefined') {
-            window.sessionStorage.removeItem(PROFILE_CACHE_KEY);
-            window.sessionStorage.removeItem(PROFILE_CACHE_TS_KEY);
-          }
-        }
+        setProfile(nextProfile);
       } catch {
         if (mounted) setProfile(null);
       }

@@ -4,6 +4,7 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type PageTab = 'daily' | 'excess' | 'small-change' | 'history';
 type SourceMode = 'DAILY' | 'EXCESS' | 'SMALL_CHANGE' | 'MIXED';
@@ -441,16 +442,7 @@ export default function BankInCashPage() {
         if (sessionError || !session?.access_token) {
           throw new Error('Your dashboard session has expired. Please sign in again.');
         }
-        const response = await fetch(`/api/session-profile?t=${Date.now()}`, {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-        const payload = await response.json();
-        const sessionProfile = payload?.user || payload?.profile || payload?.data?.user;
-        if (!response.ok || !sessionProfile) throw new Error(payload?.error || 'Unable to verify access.');
+        const sessionProfile = await loadDashboardSessionProfile<DashboardProfile>(session.access_token);
         if (active) setProfile(sessionProfile as DashboardProfile);
       } catch (nextError: any) {
         if (active) setAuthError(nextError?.message || 'Unable to verify access.');

@@ -6,6 +6,7 @@ import { reconcileManagerRoomCheckTasks } from '../../../lib/managerRoomCheckTas
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 import { attachTaskAlertAcknowledgements } from '../../../lib/taskAlertAcknowledgements';
 import { sendTaskPushNotifications } from '../../../lib/taskPush';
+import { logRouteTiming } from '../../../lib/routeTiming';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -584,13 +585,17 @@ async function sendCustomerWaitingReminders() {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
+  const stages: Record<string, number> = {};
+  const requestId = req.headers.get('x-vercel-id');
   try {
     // This maintenance check is independent of the task list read. Starting it
     // here lets its short time budget overlap the database work below instead
     // of adding up to 1.2 seconds to every dashboard refresh.
     const reminderPromise = sendCustomerWaitingRemindersWithBudget();
 
+    const taskReadStartedAt = Date.now();
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
       .select(
@@ -618,68 +623,48 @@ export async function GET() {
         customer_waiting_reminder_sent_at,
         urgent,
         urgent_due_at,
-        alert_cycle
+        alert_cycle,
+        task_images (
+          id,
+          image_url,
+          caption,
+          created_at
+        )
       `
       )
       .order('created_at', { ascending: false })
       .limit(GET_TASK_LIMIT);
+    stages.task_read_ms = Date.now() - taskReadStartedAt;
 
     if (tasksError) {
+      logRouteTiming({ route: '/api/tasks', method: 'GET', startedAt, status: 500, requestId, stages, error: tasksError.message });
       return jsonNoCache({ ok: false, error: tasksError.message }, 500);
     }
 
+    const reconcileStartedAt = Date.now();
     const reconciledTasks = await reconcileManagerRoomCheckTasks(tasks || []);
-    const taskIds = reconciledTasks.map((t) => t.id);
+    stages.reconcile_ms = Date.now() - reconcileStartedAt;
 
-    const taskImagesPromise = taskIds.length > 0
-      ? supabaseAdmin
-        .from('task_images')
-        .select(
-          `
-          id,
-          task_id,
-          image_url,
-          caption
-        `
-        )
-        .in('task_id', taskIds)
-        .order('created_at', { ascending: true })
-      : Promise.resolve({ data: [], error: null });
+    const acknowledgementsStartedAt = Date.now();
+    const tasksWithAcknowledgements = await attachTaskAlertAcknowledgements(reconciledTasks);
+    stages.acknowledgements_ms = Date.now() - acknowledgementsStartedAt;
 
-    // Media and acknowledgement history are independent reads. Loading them
-    // together avoids another full network round trip on the free database
-    // tier while preserving the exact response shape used by the dashboard.
-    const [taskImagesResult, tasksWithAcknowledgements] = await Promise.all([
-      taskImagesPromise,
-      attachTaskAlertAcknowledgements(reconciledTasks),
-    ]);
-
-    if (taskImagesResult.error) {
-      return jsonNoCache({ ok: false, error: taskImagesResult.error.message }, 500);
-    }
-
-    const imageMap = new Map<string, any[]>();
-
-    for (const img of taskImagesResult.data || []) {
-      const key = String(img.task_id);
-      const existing = imageMap.get(key) || [];
-      existing.push({
-        id: img.id,
-        image_url: img.image_url,
-        caption: img.caption,
-      });
-      imageMap.set(key, existing);
-    }
-
-    const finalTasks = tasksWithAcknowledgements.map((task) => ({
+    const finalTasks = tasksWithAcknowledgements.map((task: any) => ({
       ...task,
-      task_images: imageMap.get(String(task.id)) || [],
+      task_images: (Array.isArray(task.task_images) ? task.task_images : [])
+        .slice()
+        .sort((a: any, b: any) => Date.parse(String(a.created_at || '')) - Date.parse(String(b.created_at || '')))
+        .map(({ created_at: _createdAt, ...image }: any) => image),
     }));
 
+    const reminderStartedAt = Date.now();
     await reminderPromise;
+    stages.reminder_wait_ms = Date.now() - reminderStartedAt;
 
+    logRouteTiming({ route: '/api/tasks', method: 'GET', startedAt, status: 200, requestId, stages });
     return jsonNoCache({ ok: true, tasks: finalTasks });
   } catch (error: any) {
+    logRouteTiming({ route: '/api/tasks', method: 'GET', startedAt, status: 500, requestId, stages, error: error?.message || 'Unknown error' });
     return jsonNoCache(
       { ok: false, error: error?.message || 'Unknown error' },
       500

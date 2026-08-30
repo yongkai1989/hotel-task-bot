@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getRequestAccessToken } from '../../../lib/dashboardAuth';
+import { logRouteTiming } from '../../../lib/routeTiming';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -345,15 +346,25 @@ function buildDebugPayload(profileByUserId: any, emailProfiles: any[], authUserI
 }
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
+  const requestId = req.headers.get('x-vercel-id');
+  const stages: Record<string, number> = {};
+  const respond = (body: unknown, status = 200) => {
+    const error = status >= 400 && body && typeof body === 'object'
+      ? String((body as { error?: unknown }).error || '')
+      : undefined;
+    logRouteTiming({ route: '/api/session-profile', method: 'GET', startedAt, status, requestId, stages, error });
+    return NextResponse.json(body, {
+      status,
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    });
+  };
   try {
     const token = getRequestAccessToken(req);
     const includeDebug = req.nextUrl.searchParams.get('debug') === '1';
 
     if (!token) {
-      return NextResponse.json(
-        { ok: false, error: 'Missing Supabase session' },
-        { status: 401 }
-      );
+      return respond({ ok: false, error: 'Missing Supabase session' }, 401);
     }
 
     const authClient = createClient(
@@ -368,16 +379,15 @@ export async function GET(req: NextRequest) {
       }
     );
 
+    const authStartedAt = Date.now();
     const {
       data: { user: authUser },
       error: authError,
     } = await authClient.auth.getUser();
+    stages.auth_ms = Date.now() - authStartedAt;
 
     if (authError || !authUser?.id || !authUser?.email) {
-      return NextResponse.json(
-        { ok: false, error: 'Invalid session' },
-        { status: 401 }
-      );
+      return respond({ ok: false, error: 'Invalid session' }, 401);
     }
 
     const serviceClient = createClient(
@@ -385,73 +395,51 @@ export async function GET(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    const profileReadStartedAt = Date.now();
     const { data: profileByUserId, error: profileError } = await serviceClient
       .from('user_profiles')
       .select(PROFILE_SELECT)
       .eq('user_id', authUser.id)
       .maybeSingle();
+    stages.profile_read_ms = Date.now() - profileReadStartedAt;
 
     if (profileError) {
-      return NextResponse.json(
-        { ok: false, error: profileError.message },
-        { status: 500 }
-      );
+      return respond({ ok: false, error: profileError.message }, 500);
     }
 
     if (profileByUserId) {
-      return NextResponse.json(
-        {
+      return respond({
           ok: true,
           user: buildUser(profileByUserId, authUser.email),
           ...(includeDebug
             ? buildDebugPayload(profileByUserId, [profileByUserId], authUser.id)
             : {}),
-        },
-        {
-          headers: {
-            'Cache-Control': 'no-store, max-age=0',
-          },
-        }
-      );
+        });
     }
 
+    const fallbackStartedAt = Date.now();
     const { data: emailProfiles, error: emailProfilesError } = await serviceClient
       .from('user_profiles')
       .select(PROFILE_SELECT)
       .ilike('email', authUser.email);
+    stages.profile_fallback_ms = Date.now() - fallbackStartedAt;
 
     if (emailProfilesError) {
-      return NextResponse.json(
-        { ok: false, error: emailProfilesError.message },
-        { status: 500 }
-      );
+      return respond({ ok: false, error: emailProfilesError.message }, 500);
     }
 
     const profile = pickBestProfile(emailProfiles || []);
 
     if (!profile) {
-      return NextResponse.json(
-        { ok: false, error: 'User profile not found' },
-        { status: 404 }
-      );
+      return respond({ ok: false, error: 'User profile not found' }, 404);
     }
 
-    return NextResponse.json(
-      {
+    return respond({
         ok: true,
         user: buildUser(profile, authUser.email),
         ...(includeDebug ? buildDebugPayload(null, emailProfiles || [], authUser.id) : {}),
-      },
-      {
-        headers: {
-          'Cache-Control': 'no-store, max-age=0',
-        },
-      }
-    );
+      });
   } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: err?.message || 'Server error' },
-      { status: 500 }
-    );
+    return respond({ ok: false, error: err?.message || 'Server error' }, 500);
   }
 }

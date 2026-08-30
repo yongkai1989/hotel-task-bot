@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../lib/dashboardSessionProfileClient';
 
 type DepartmentCode = 'MT' | 'HK';
 type CheckStatus = 'OPEN' | 'PENDING_CHECK' | 'DONE';
@@ -649,18 +650,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           return;
         }
 
-        const res = await fetch('/api/session-profile', {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          cache: 'no-store',
-        });
-        const json = await res.json();
-        if (!res.ok || !json?.ok) {
-          throw new Error(json?.error || 'Failed to load access.');
-        }
-        const data = json.user || {};
+        const data = await loadDashboardSessionProfile<any>(session.access_token);
         if (!mounted) return;
         setProfile({
           user_id: data.user_id || session.user.id,

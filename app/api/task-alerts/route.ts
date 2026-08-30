@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
+import { logRouteTiming } from '../../../lib/routeTiming';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -16,10 +17,23 @@ function jsonNoCache(body: unknown, status = 200) {
 }
 
 export async function GET(req: NextRequest) {
+  const startedAt = Date.now();
+  const requestId = req.headers.get('x-vercel-id');
+  const stages: Record<string, number> = {};
+  const respond = (body: unknown, status = 200) => {
+    const error = status >= 400 && body && typeof body === 'object'
+      ? String((body as { error?: unknown }).error || '')
+      : undefined;
+    logRouteTiming({ route: '/api/task-alerts', method: 'GET', startedAt, status, requestId, stages, error });
+    return jsonNoCache(body, status);
+  };
   try {
+    const authStartedAt = Date.now();
     const { user, error: authError } = await getDashboardUserFromRequest(req);
-    if (!user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
+    stages.auth_ms = Date.now() - authStartedAt;
+    if (!user) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
 
+    const recipientsStartedAt = Date.now();
     const { data: recipients, error: recipientError } = await supabaseAdmin
       .from('task_alert_recipients')
       .select('task_id, alert_cycle, created_at')
@@ -27,18 +41,21 @@ export async function GET(req: NextRequest) {
       .is('acknowledged_at', null)
       .order('created_at', { ascending: true })
       .limit(30);
+    stages.recipients_ms = Date.now() - recipientsStartedAt;
 
-    if (recipientError) return jsonNoCache({ ok: false, error: recipientError.message }, 500);
-    if (!recipients?.length) return jsonNoCache({ ok: true, alerts: [] });
+    if (recipientError) return respond({ ok: false, error: recipientError.message }, 500);
+    if (!recipients?.length) return respond({ ok: true, alerts: [] });
 
     const taskIds = Array.from(new Set(recipients.map((row) => String(row.task_id))));
+    const tasksStartedAt = Date.now();
     const { data: tasks, error: taskError } = await supabaseAdmin
       .from('tasks')
       .select('id, task_code, room, department, task_text, status, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, created_at')
       .in('id', taskIds)
       .eq('status', 'OPEN');
+    stages.tasks_ms = Date.now() - tasksStartedAt;
 
-    if (taskError) return jsonNoCache({ ok: false, error: taskError.message }, 500);
+    if (taskError) return respond({ ok: false, error: taskError.message }, 500);
 
     const taskMap = new Map((tasks || []).map((task) => [String(task.id), task]));
     const alerts = recipients.flatMap((recipient) => {
@@ -52,9 +69,9 @@ export async function GET(req: NextRequest) {
       }];
     });
 
-    return jsonNoCache({ ok: true, alerts });
+    return respond({ ok: true, alerts });
   } catch (error: any) {
-    return jsonNoCache({ ok: false, error: error?.message || 'Unable to load task alerts' }, 500);
+    return respond({ ok: false, error: error?.message || 'Unable to load task alerts' }, 500);
   }
 }
 

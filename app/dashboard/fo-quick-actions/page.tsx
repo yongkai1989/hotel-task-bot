@@ -3,11 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
-import {
-  readTaskBroadcastPayload,
-  TASK_BROADCAST_CHANNEL,
-  TASK_BROADCAST_EVENT,
-} from '../../../lib/taskRealtime';
+import { subscribeToTaskBroadcast } from '../../../lib/taskRealtimeClient';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 import {
   FNB_ORDER_BROADCAST_CHANNEL,
   FNB_ORDER_BROADCAST_EVENT,
@@ -303,14 +300,8 @@ export default function FoQuickActionsPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Your dashboard session has expired.');
-        const response = await fetch('/api/session-profile', {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        const payload = await responseJson(response);
+        const nextProfile = await loadDashboardSessionProfile<Profile>(session.access_token);
         if (!mounted) return;
-        const nextProfile = payload.user as Profile;
         setProfile(nextProfile);
         setAccessToken(session.access_token);
         await loadData(false, session.access_token);
@@ -372,10 +363,7 @@ export default function FoQuickActionsPage() {
       });
     };
 
-    let channel: any = null;
-
-    const handleTaskChange = (message: any) => {
-      const payload = readTaskBroadcastPayload(message?.payload);
+    const handleTaskChange = (payload: { id: string; eventType: string }) => {
       const taskId = payload?.id || '';
       if (!taskId) {
         void loadFoTasks(accessToken).catch((nextError: any) => {
@@ -402,47 +390,30 @@ export default function FoQuickActionsPage() {
       refreshTimers.set(taskId, timer);
     };
 
-    const startChannel = async () => {
-      if (channel || document.visibilityState !== 'visible') return;
-      await supabase.realtime.setAuth();
-      channel = supabase
-        .channel(TASK_BROADCAST_CHANNEL, { config: { private: true } })
-        .on(
-          'broadcast',
-          { event: TASK_BROADCAST_EVENT },
-          handleTaskChange
-        )
-        .subscribe();
-    };
-
-    const stopChannel = () => {
+    const clearRefreshTimers = () => {
       refreshTimers.forEach((timer) => window.clearTimeout(timer));
       refreshTimers.clear();
-      if (!channel) return;
-      const activeChannel = channel;
-      channel = null;
-      void supabase.removeChannel(activeChannel);
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void startChannel();
         void loadFoTasks(accessToken).catch((nextError: any) => {
           setError(nextError?.message || 'Unable to synchronize FO tasks.');
         });
       } else {
-        stopChannel();
+        clearRefreshTimers();
       }
     };
 
-    void startChannel();
+    const unsubscribe = subscribeToTaskBroadcast(handleTaskChange, { accessToken });
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      stopChannel();
+      unsubscribe();
+      clearRefreshTimers();
     };
-  }, [accessToken, canAccess, loadFoTasks, profile?.user_id, supabase]);
+  }, [accessToken, canAccess, loadFoTasks, profile?.user_id]);
 
   useEffect(() => {
     if (!accessToken || !canAccess || !canAccessGuestShopOrders) return;

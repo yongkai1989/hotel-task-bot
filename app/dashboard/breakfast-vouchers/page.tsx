@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type Voucher = {
   id: string;
@@ -264,12 +265,8 @@ export default function BreakfastVouchersPage() {
       const token = await getToken();
       if (!token) throw new Error('Your login session is still loading. Please refresh once and try again.');
 
-      const res = await fetch('/api/session-profile', {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json().catch(() => ({}));
-      const role = String(json?.user?.role || '').trim().toUpperCase();
+      const nextProfile = await loadDashboardSessionProfile<{ user_id?: string; role?: string }>(token);
+      const role = String(nextProfile?.role || '').trim().toUpperCase();
       setIsSuperuser(role === 'SUPERUSER');
     } catch {
       setIsSuperuser(false);

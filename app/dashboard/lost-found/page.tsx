@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type DashboardRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 
@@ -54,7 +55,6 @@ type LostFoundUpdate = {
 type ReturnMethod = 'Courier' | 'Collected In Person';
 
 const RETURN_METHODS: ReturnMethod[] = ['Courier', 'Collected In Person'];
-const PROFILE_CACHE_KEY = 'dashboard-session-profile';
 
 function todayLocalDate() {
   const now = new Date();
@@ -211,33 +211,14 @@ export default function LostFoundPage() {
       setAuthLoading(true);
       setErrorMsg('');
 
-      const cached = typeof window !== 'undefined'
-        ? window.sessionStorage.getItem(PROFILE_CACHE_KEY)
-        : null;
-
-      if (cached) {
-        try {
-          setProfile(JSON.parse(cached) as DashboardUser);
-        } catch {}
-      }
-
       const token = await getAccessToken();
       if (!token) {
         setProfile(null);
         return;
       }
 
-      const res = await fetch('/api/session-profile', {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load profile');
-
-      setProfile(json.user);
-      if (typeof window !== 'undefined') {
-        window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(json.user));
-      }
+      const nextProfile = await loadDashboardSessionProfile<DashboardUser>(token);
+      setProfile(nextProfile);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load profile');
     } finally {

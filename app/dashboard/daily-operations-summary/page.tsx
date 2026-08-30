@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type PermissionValue = boolean | string | number | null | undefined;
 
@@ -213,14 +214,8 @@ export default function DailyOperationsSummaryPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Your dashboard session has expired.');
-        const response = await fetch('/api/session-profile', {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        const payload = await response.json();
-        if (!response.ok || !payload?.user) throw new Error(payload?.error || 'Unable to verify access.');
-        if (active) setProfile(payload.user as Profile);
+        const nextProfile = await loadDashboardSessionProfile<Profile>(session.access_token);
+        if (active) setProfile(nextProfile);
       } catch (nextError: any) {
         if (active) setError(nextError?.message || 'Unable to verify access.');
       } finally {

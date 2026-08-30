@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../lib/dashboardSessionProfileClient';
 import kitchenStyles from './OrderOperationsPage.module.css';
 import {
   FNB_ORDER_BROADCAST_CHANNEL,
@@ -237,20 +238,15 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
         const token = await getToken();
         if (!token) throw new Error('Please log in again');
 
-        const res = await fetch('/api/session-profile', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json();
-        if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load profile');
+        const user = await loadDashboardSessionProfile<any>(token);
 
         if (!alive) return;
         setProfile({
-          email: normalizeEmail(json.user?.email),
-          name: String(json.user?.name || json.user?.email || 'User'),
-          role: String(json.user?.role || '').toUpperCase(),
-          can_access_fnb_orders: json.user?.can_access_fnb_orders === true,
-          can_access_guest_shop_orders: json.user?.can_access_guest_shop_orders === true,
+          email: normalizeEmail(user?.email),
+          name: String(user?.name || user?.email || 'User'),
+          role: String(user?.role || '').toUpperCase(),
+          can_access_fnb_orders: user?.can_access_fnb_orders === true,
+          can_access_guest_shop_orders: user?.can_access_guest_shop_orders === true,
         });
       } catch (err: any) {
         if (alive) setError(err?.message || 'Failed to load F&B kitchen page');

@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type UserRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
 type ServiceType = 'standard' | 'express';
@@ -283,16 +284,9 @@ export default function GuestLaundryPage() {
         const token = await getAccessToken();
         if (!token) throw new Error('Login required');
 
-        const res = await fetch('/api/session-profile', {
-          cache: 'no-store',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const json = await res.json();
-        if (!res.ok || !json?.ok) throw new Error(json?.error || 'Unable to load profile');
+        const nextProfile = await loadDashboardSessionProfile<Profile>(token);
         if (!mounted) return;
-        setProfile(normalizeProfileFromSession(json.user));
+        setProfile(normalizeProfileFromSession(nextProfile));
       } catch (error: any) {
         if (mounted) setErrorMsg(error?.message || 'Unable to load profile');
       } finally {

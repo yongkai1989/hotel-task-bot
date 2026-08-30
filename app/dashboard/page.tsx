@@ -4,11 +4,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '../../lib/supabaseBrowser';
+import { subscribeToTaskBroadcast } from '../../lib/taskRealtimeClient';
 import {
-  readTaskBroadcastPayload,
-  TASK_BROADCAST_CHANNEL,
-  TASK_BROADCAST_EVENT,
-} from '../../lib/taskRealtime';
+  clearDashboardSessionProfileCache,
+  loadDashboardSessionProfile,
+} from '../../lib/dashboardSessionProfileClient';
 import Link from 'next/link';
 
 type TaskImage = {
@@ -90,12 +90,9 @@ type DashboardInsights = {
 
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
-const DASHBOARD_PROFILE_CACHE_KEY = 'dashboard-session-profile';
-const DASHBOARD_PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
 const MANUAL_TASK_REFRESH_MIN_MS = 45000;
 const INSIGHTS_REFRESH_MIN_MS = 600000;
-const PROFILE_REFRESH_MIN_MS = 1800000;
 const MAX_RENDERED_TASK_CARDS = 60;
 const MAX_RENDERED_TASK_CARDS_MOBILE = 30;
 const MAX_RENDERED_TASK_THUMBNAILS = 20;
@@ -1193,7 +1190,6 @@ export default function DashboardPage() {
   useEffect(() => {
     let mounted = true;
     const supabase = getSupabaseSafe();
-    let hydratedCachedProfile = false;
 
     if (!supabase) {
       setEnvError(
@@ -1203,25 +1199,10 @@ export default function DashboardPage() {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const cachedRaw = window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_KEY);
-      const cachedAt = Number(window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_TS_KEY) || '0');
-
-      if (cachedRaw && cachedAt && Date.now() - cachedAt < PROFILE_REFRESH_MIN_MS) {
-        try {
-          setProfile(JSON.parse(cachedRaw));
-          setAuthLoading(false);
-          hydratedCachedProfile = true;
-        } catch {}
-      }
-    }
-
     async function bootstrapAuth() {
       try {
         setEnvError('');
-        if (!hydratedCachedProfile) {
-          setAuthLoading(true);
-        }
+        setAuthLoading(true);
 
         const {
           data: { session },
@@ -1232,6 +1213,7 @@ export default function DashboardPage() {
         if (session?.access_token) {
           await loadProfile(session.access_token);
         } else {
+          clearDashboardSessionProfileCache();
           setProfile(null);
         }
       } catch {
@@ -1256,6 +1238,7 @@ export default function DashboardPage() {
         if (sessionNow?.access_token) {
           await loadProfile(sessionNow.access_token);
         } else {
+          clearDashboardSessionProfileCache();
           setProfile(null);
           setTasks([]);
         }
@@ -1314,8 +1297,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!profileKey) return;
-    const supabase = getSupabaseSafe();
-    if (!supabase) return;
     const refreshTimers = new Map<string, number>();
 
     const removeTaskFromState = (taskId: string) => {
@@ -1359,10 +1340,7 @@ export default function DashboardPage() {
       });
     };
 
-    let channel: any = null;
-
-    const handleTaskChange = (message: any) => {
-      const payload = readTaskBroadcastPayload(message?.payload);
+    const handleTaskChange = (payload: { id: string; eventType: string }) => {
       const taskId = payload?.id || '';
       if (!taskId) {
         void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
@@ -1387,43 +1365,26 @@ export default function DashboardPage() {
       refreshTimers.set(taskId, timer);
     };
 
-    const startChannel = async () => {
-      if (channel || document.visibilityState !== 'visible') return;
-      await supabase.realtime.setAuth();
-      channel = supabase
-        .channel(TASK_BROADCAST_CHANNEL, { config: { private: true } })
-        .on(
-          'broadcast',
-          { event: TASK_BROADCAST_EVENT },
-          handleTaskChange
-        )
-        .subscribe();
-    };
-
-    const stopChannel = () => {
+    const clearRefreshTimers = () => {
       refreshTimers.forEach((timer) => window.clearTimeout(timer));
       refreshTimers.clear();
-      if (!channel) return;
-      const activeChannel = channel;
-      channel = null;
-      void supabase.removeChannel(activeChannel);
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void startChannel();
         void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
       } else {
-        stopChannel();
+        clearRefreshTimers();
       }
     };
 
-    void startChannel();
+    const unsubscribe = subscribeToTaskBroadcast(handleTaskChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      stopChannel();
+      unsubscribe();
+      clearRefreshTimers();
     };
   }, [profileKey]);
 
@@ -1439,55 +1400,8 @@ export default function DashboardPage() {
   }
 
   async function loadProfile(token: string) {
-    if (typeof window !== 'undefined') {
-      const runtime = window as typeof window & {
-        __dashboardProfilePromise?: Promise<any> | null;
-      };
-      const cachedRaw = window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_KEY);
-      const cachedAt = Number(window.sessionStorage.getItem(DASHBOARD_PROFILE_CACHE_TS_KEY) || '0');
-
-      if (cachedRaw && cachedAt && Date.now() - cachedAt < PROFILE_REFRESH_MIN_MS) {
-        try {
-          setProfile(JSON.parse(cachedRaw));
-          return;
-        } catch {}
-      }
-
-      if (runtime.__dashboardProfilePromise) {
-        const json = await runtime.__dashboardProfilePromise;
-        if (json?.user) setProfile(json.user);
-        return;
-      }
-
-      runtime.__dashboardProfilePromise = fetchJson('/api/session-profile', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }).finally(() => {
-        runtime.__dashboardProfilePromise = null;
-      });
-
-      const json = await runtime.__dashboardProfilePromise;
-
-      setProfile(json.user);
-
-      if (json.user) {
-        window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_KEY, JSON.stringify(json.user));
-        window.sessionStorage.setItem(DASHBOARD_PROFILE_CACHE_TS_KEY, String(Date.now()));
-      }
-
-      return;
-    }
-
-    const json = await fetchJson('/api/session-profile', {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    setProfile(json.user);
+    const nextProfile = await loadDashboardSessionProfile<DashboardUser>(token);
+    setProfile(nextProfile);
   }
 
   async function loadDashboardInsights() {
@@ -1917,6 +1831,7 @@ export default function DashboardPage() {
 
       await supabase.auth.signOut();
 
+      clearDashboardSessionProfileCache();
       setProfile(null);
       setTasks([]);
       setLoginOpen(false);

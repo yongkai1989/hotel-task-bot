@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type Role = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT' | 'FNB';
 
@@ -680,15 +681,7 @@ export default function GuestShopAdminPage() {
         const token = await getToken();
         if (!token) throw new Error('Please log in again');
 
-        const profileRes = await fetch('/api/session-profile', {
-          cache: 'no-store',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const profileJson = await profileRes.json();
-        if (!profileRes.ok || !profileJson?.ok) {
-          throw new Error(profileJson?.error || 'Failed to read session profile');
-        }
-        const user = profileJson?.user;
+        const user = await loadDashboardSessionProfile<any>(token);
         const nextProfile: Profile | null = user
           ? {
               email: normalizeEmail(user.email),
