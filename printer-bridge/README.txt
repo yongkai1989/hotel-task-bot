@@ -81,13 +81,21 @@ CHECKOUT and STAYOVER rooms once. If any required Chambermaid entries remain
 unsaved, Izni, Sofea, Sulaiman, and Prem receive one Web Push reminder. If all
 rooms are saved, nothing is sent. It does not poll and does not use Vercel Cron.
 
+Linen difference follow-up:
+A separate 5:30 PM Windows task sends the HK Telegram chat one daily report. It lists
+every Block and Level with a linen difference of plus or minus 2 or more, including
+the linen type, Chambermaid use, In Bill quantity, and signed difference. A clear
+report is also sent when no level is flagged. Long reports are split into multiple
+Telegram messages so no flagged level is omitted. It does not use Vercel Cron.
+
 One-time setup on the always-on printer-bridge PC:
 1. Confirm config.json contains the same appUrl and bridgeKey used by the live bridge.
 2. Right-click install-daily-operations-report-task.ps1 and choose "Run with PowerShell".
 3. The installer creates a Windows Task Scheduler task named
    "Hallmark Daily Operations Telegram Report" for 9:00 AM every day.
 4. It also creates "Hallmark Chambermaid Save Reminder" for 5:00 PM every day.
-5. If the PC is off at either scheduled time, Windows runs it as soon as possible
+5. It creates "Hallmark Linen Difference Follow-up" for 5:30 PM every day.
+6. If the PC is off at a scheduled time, Windows runs it as soon as possible
    after startup. The server keeps a daily audit so the same reminder is not sent twice.
 
 To test the report once without changing the schedule, double-click

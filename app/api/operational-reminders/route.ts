@@ -15,7 +15,31 @@ const HK_TASK_CHAT_ID = '-1003784764929';
 const MT_TASK_CHAT_ID = '-1003860980789';
 const MAX_VISIBLE_ITEMS = 12;
 
-type ReminderKind = 'CHAMBERMAID_5PM' | 'PREVENTIVE_MAINTENANCE_9AM';
+type ReminderKind =
+  | 'CHAMBERMAID_5PM'
+  | 'PREVENTIVE_MAINTENANCE_9AM'
+  | 'LINEN_VARIANCE_530PM';
+
+type LinenVarianceItem = {
+  key?: string;
+  label?: string;
+  maid_use?: number;
+  in_bill?: number;
+  difference?: number;
+};
+
+type LinenAreaFlag = {
+  block_no?: number;
+  floor_no?: number;
+  bill_rows?: number;
+  flagged_items?: LinenVarianceItem[];
+};
+
+type LinenVarianceReport = {
+  threshold?: number;
+  current_areas_compared?: number;
+  current_flags?: LinenAreaFlag[];
+};
 
 function singaporeDate() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -40,6 +64,9 @@ function requestedKind(request: NextRequest): ReminderKind | null {
   if (kind === 'chambermaid' || kind === 'chambermaid-5pm') return 'CHAMBERMAID_5PM';
   if (kind === 'preventive-maintenance' || kind === 'pm' || kind === 'pm-9am') {
     return 'PREVENTIVE_MAINTENANCE_9AM';
+  }
+  if (kind === 'linen-variance' || kind === 'linen' || kind === 'linen-530pm') {
+    return 'LINEN_VARIANCE_530PM';
   }
   return null;
 }
@@ -68,6 +95,100 @@ async function sendTelegramMessage(chatId: string, text: string, failureLabel: s
     throw new Error(payload?.description || `${failureLabel} Telegram reminder failed`);
   }
   return Number(payload?.result?.message_id || 0) || null;
+}
+
+function signed(value: number) {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function telegramChunks(lines: string[], continuationTitle: string) {
+  const chunks: string[] = [];
+  let current: string[] = [];
+
+  for (const line of lines) {
+    const candidate = [...current, line].join('\n');
+    if (candidate.length > 3800 && current.length) {
+      chunks.push(current.join('\n'));
+      current = [continuationTitle, '', line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) chunks.push(current.join('\n'));
+  return chunks;
+}
+
+async function linenVarianceReminder(today: string) {
+  const { data, error } = await supabaseAdmin.rpc('get_daily_operations_linen_area_variance', {
+    p_report_date: today,
+  });
+  if (error) throw error;
+
+  const report = (data || {}) as LinenVarianceReport;
+  const threshold = Number(report.threshold || 2);
+  const areaFlags = Array.isArray(report.current_flags) ? report.current_flags : [];
+  const findingCount = areaFlags.reduce(
+    (total, area) => total + (Array.isArray(area.flagged_items) ? area.flagged_items.length : 0),
+    0
+  );
+  const lines = [
+    '🧺 5:30 PM LINEN DIFFERENCE FOLLOW-UP',
+    `Date: ${displayDate(today)}`,
+    `Flag rule: ±${threshold} or more`,
+    `Flagged: ${findingCount} linen difference${findingCount === 1 ? '' : 's'} across ${areaFlags.length} level${areaFlags.length === 1 ? '' : 's'}`,
+    '',
+  ];
+
+  if (!findingCount) {
+    lines.push(
+      `✅ No linen difference of ±${threshold} or more was found across ${Number(report.current_areas_compared || 0)} compared level${Number(report.current_areas_compared || 0) === 1 ? '' : 's'}.`,
+      'No immediate follow-up is needed.'
+    );
+  } else {
+    for (const area of areaFlags) {
+      lines.push(
+        `BLOCK ${Number(area.block_no || 0)} · LEVEL ${Number(area.floor_no || 0)}${Number(area.bill_rows || 0) ? '' : ' ⚠️ IN BILL NOT SAVED'}`
+      );
+      for (const item of area.flagged_items || []) {
+        const difference = Number(item.difference || 0);
+        lines.push(
+          `• ${item.label || 'Linen'} — Chambermaid ${Number(item.maid_use || 0)} | In Bill ${Number(item.in_bill || 0)} | Difference ${signed(difference)}`
+        );
+      }
+      lines.push('');
+    }
+    lines.push(
+      'Positive difference = In Bill is higher.',
+      'Negative difference = Chambermaid entry is higher.',
+      '',
+      'Please check the flagged levels and correct any wrong entry immediately.'
+    );
+  }
+
+  const messages = telegramChunks(lines, '🧺 5:30 PM LINEN DIFFERENCE FOLLOW-UP (CONTINUED)');
+  const telegramMessageIds: number[] = [];
+  for (const message of messages) {
+    const messageId = await sendTelegramMessage(
+      HK_TASK_CHAT_ID,
+      message,
+      'Housekeeping linen difference'
+    );
+    if (messageId) telegramMessageIds.push(messageId);
+  }
+
+  return {
+    findingCount,
+    delivered: 0,
+    attempted: messages.length,
+    telegramMessageId: telegramMessageIds[0] || null,
+    alwaysSent: true,
+    details: {
+      threshold,
+      areasCompared: Number(report.current_areas_compared || 0),
+      flaggedAreas: areaFlags,
+      telegramMessageIds,
+    },
+  };
 }
 
 async function chambermaidReminder(today: string) {
@@ -221,7 +342,7 @@ export async function GET(request: NextRequest) {
   const reminderType = requestedKind(request);
   if (!reminderType) {
     return NextResponse.json(
-      { ok: false, error: 'Use kind=chambermaid or kind=preventive-maintenance' },
+      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, or kind=linen-variance' },
       { status: 400 }
     );
   }
@@ -262,8 +383,12 @@ export async function GET(request: NextRequest) {
   try {
     const result = reminderType === 'CHAMBERMAID_5PM'
       ? await chambermaidReminder(notificationDate)
-      : await preventiveMaintenanceReminder(notificationDate);
-    const status = result.findingCount > 0 ? 'SENT' : 'NOT_NEEDED';
+      : reminderType === 'LINEN_VARIANCE_530PM'
+        ? await linenVarianceReminder(notificationDate)
+        : await preventiveMaintenanceReminder(notificationDate);
+    const status = result.findingCount > 0 || ('alwaysSent' in result && result.alwaysSent)
+      ? 'SENT'
+      : 'NOT_NEEDED';
     const sentAt = new Date().toISOString();
 
     await supabaseAdmin
