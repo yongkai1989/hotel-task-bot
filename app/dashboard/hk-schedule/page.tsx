@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatMonthRangeDDMMYYYY } from '../../../lib/dateDisplay';
 import styles from './schedule.module.css';
 
 type Profile = {
@@ -125,11 +126,7 @@ function monthBounds(value: string) {
 }
 
 function displayDate(value: string) {
-  return new Intl.DateTimeFormat('en-MY', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(`${value}T00:00:00`));
+  return formatDateDDMMYYYY(value);
 }
 
 function timeText(value: string | null) {
@@ -389,8 +386,7 @@ export default function HousekeepingSchedulePage() {
 
   async function autoFillMonth() {
     if (!supabase || !canEdit) return;
-    const monthName = new Intl.DateTimeFormat('en-MY', { month: 'long', year: 'numeric' })
-      .format(new Date(`${month}-01T00:00:00`));
+    const monthName = formatMonthRangeDDMMYYYY(month, month);
     const confirmed = window.confirm(
       `Auto fill ${monthName} for every active staff member?\n\n` +
       'Existing entries for the month will be overwritten. Fixed off days will be marked Off, and all other days will use the shift matching each staff role.\n\n' +

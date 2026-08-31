@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 import { loadLinenRoomTypeMap } from '../../../lib/linenRoomTypeMapClient';
+import { formatDateDDMMYYYY, formatMonthRangeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type DashboardUser = {
   user_id?: string;
@@ -256,25 +257,12 @@ function shiftDateString(baseDate: string, offsetDays: number) {
 }
 
 function formatHistoryDateLabel(value: string, today: string) {
-  if (value === shiftDateString(today, -1)) return 'Yesterday';
-
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
-
-  return d.toLocaleDateString(undefined, {
-    day: '2-digit',
-    month: 'short',
-  });
+  if (value === shiftDateString(today, -1)) return `Yesterday · ${formatDateDDMMYYYY(value)}`;
+  return formatDateDDMMYYYY(value);
 }
 
 function formatMonthLabel(value: string) {
-  const d = new Date(`${value}-01T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
-
-  return d.toLocaleDateString(undefined, {
-    month: 'long',
-    year: 'numeric',
-  });
+  return formatMonthRangeDDMMYYYY(value, value);
 }
 
 function getMonthStart(value: string) {

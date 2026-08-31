@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type DashboardUser = {
   user_id?: string;
@@ -86,18 +87,7 @@ function statusLabel(status: StatusValue) {
 }
 
 function formatUpdatedAt(value?: string | null) {
-  if (!value) return '';
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-
-  return date.toLocaleString('en-SG', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return formatDateTimeDDMMYYYY(value, '');
 }
 
 function nextStatus(status: StatusValue): StatusValue {

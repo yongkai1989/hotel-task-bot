@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type DashboardRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
@@ -65,23 +66,11 @@ function todayLocalDate() {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const [yyyy, mm, dd] = value.split('-');
-  if (!yyyy || !mm || !dd) return value;
-  return `${dd}/${mm}/${yyyy}`;
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function escapeHtml(value: unknown) {

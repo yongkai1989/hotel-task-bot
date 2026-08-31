@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type DashboardUser = {
   user_id?: string;
@@ -109,30 +110,11 @@ function getSupabaseSafe() {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'Asia/Kuala_Lumpur',
-  }).format(d);
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'Asia/Kuala_Lumpur',
-  }).format(d);
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function getTodayLocalDateString() {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { formatDateDDMMYYYY } from '../../../lib/dateDisplay';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -68,14 +69,7 @@ function singaporeDate(offsetDays = 0) {
 }
 
 function displayDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-MY', {
-    timeZone: SINGAPORE_TIME_ZONE,
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(Date.UTC(year, month - 1, day, 4)));
+  return formatDateDDMMYYYY(value);
 }
 
 function numberValue(value: unknown) {

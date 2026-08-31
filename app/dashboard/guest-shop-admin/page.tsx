@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type Role = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT' | 'FNB';
@@ -354,13 +355,7 @@ function money(value: number) {
 }
 
 function formatTime(value?: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function statusLabel(status: string) {

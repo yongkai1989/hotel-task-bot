@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY } from '../../../lib/dateDisplay';
 import styles from '../hk-schedule/schedule.module.css';
 
 type EntryStatus = 'WORK' | 'AL' | 'UPL' | 'NO_SHOW' | 'MC' | 'OFF';
@@ -38,7 +39,7 @@ function monthKey(date=new Date()){ return `${date.getFullYear()}-${pad(date.get
 function addMonths(value:string,amount:number){ const [y,m]=value.split('-').map(Number); return monthKey(new Date(y,m-1+amount,1)); }
 function monthBounds(value:string){ const [y,m]=value.split('-').map(Number); const end=new Date(y,m,0); return {start:`${value}-01`,end:dateKey(end),days:end.getDate()}; }
 function weekKey(value:string){ const date=new Date(`${value}T00:00:00`);date.setDate(date.getDate()-((date.getDay()+6)%7));return dateKey(date); }
-function displayDate(value:string){ return new Intl.DateTimeFormat('en-MY',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(`${value}T00:00:00`)); }
+function displayDate(value:string){ return formatDateDDMMYYYY(value); }
 function timeText(value:string|null){ if(!value)return ''; const [h,m]=value.slice(0,5).split(':').map(Number); return `${h%12||12}:${pad(m)} ${h>=12?'PM':'AM'}`; }
 function durationText(total:number){ const h=Math.floor(total/60),m=total%60; return `${h?`${h} hr `:''}${m?`${m} min`:h?'':'0 min'}`.trim(); }
 function shiftCode(entry:Entry|null|undefined){ return String(entry?.shift_code_snapshot||'').toUpperCase(); }

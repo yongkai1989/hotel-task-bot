@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { formatDateDDMMYYYY } from '../../lib/dateDisplay';
 
 type Branch = 'Crown' | 'Leisure' | 'View' | 'Express';
 type MealChoice = 'none' | 'lunch' | 'dinner' | 'both';
@@ -37,26 +38,19 @@ const EMPTY_CYCLE: Cycle = {
 };
 
 function formatLongDate(value: string) {
-  if (!value) return '-';
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDateDDMMYYYY(value);
 }
 
 function formatShortDate(value: string) {
-  if (!value) return '-';
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB', {
+  return formatDateDDMMYYYY(value);
+}
+
+function formatWeekday(value: string) {
+  const date = new Date(`${value}T00:00:00+08:00`);
+  return Number.isNaN(date.getTime()) ? '-' : new Intl.DateTimeFormat('en-GB', {
     weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-  });
+    timeZone: 'Asia/Singapore',
+  }).format(date);
 }
 
 function addDays(value: string, days: number) {
@@ -500,7 +494,7 @@ export default function StaffMealPage() {
               dates.map((date) => (
                 <article key={date} style={styles.dayRow}>
                   <div style={styles.dayInfo}>
-                    <span style={styles.dayBadge}>{formatShortDate(date).slice(0, 3)}</span>
+                    <span style={styles.dayBadge}>{formatWeekday(date)}</span>
                     <div>
                       <div style={styles.dayTitle}>{formatShortDate(date).replace(',', '')}</div>
                       <div style={styles.dayChoice}>{mealLabel(meals[date] || 'none')}</div>

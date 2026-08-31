@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import { loadDashboardSessionProfile } from '../lib/dashboardSessionProfileClient';
+import { formatDateTimeDDMMYYYY } from '../lib/dateDisplay';
 
 type DepartmentCode = 'MT' | 'HK';
 type CheckStatus = 'OPEN' | 'PENDING_CHECK' | 'DONE';
@@ -334,15 +335,7 @@ function getSupabaseSafe() {
 }
 
 function compactDateTime(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString('en-SG', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function statusLabel(status: CheckStatus) {

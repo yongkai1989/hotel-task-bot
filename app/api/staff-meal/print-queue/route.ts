@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
+import { formatDateDDMMYYYY } from '../../../../lib/dateDisplay';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -79,14 +80,7 @@ function currentServiceWeekStart(now = new Date()) {
 }
 
 function shortDate(value: string) {
-  const ms = utcMsFromIso(value);
-  if (!ms) return value;
-  return new Date(ms).toLocaleDateString('en-GB', {
-    timeZone: 'UTC',
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-  });
+  return formatDateDDMMYYYY(value, value);
 }
 
 function cleanText(value: unknown) {

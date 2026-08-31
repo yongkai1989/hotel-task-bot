@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendTaskPushNotifications } from '../../../lib/taskPush';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type Dept = 'HK' | 'MT' | 'FO';
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
@@ -97,12 +98,7 @@ function labelForStatus(status: TaskStatus) {
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function getAllowedChatIds(): number[] {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import css from './maintenanceOt.module.css';
 
 type DashboardUser = {
@@ -85,28 +86,15 @@ function safeNumber(value: unknown) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString();
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateLong(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function calculateHours(startTime: string, endTime: string): number {

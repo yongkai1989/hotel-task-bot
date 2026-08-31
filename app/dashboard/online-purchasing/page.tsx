@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import styles from './online-purchasing.module.css';
 
 type Hotel = {
@@ -76,10 +77,7 @@ function money(value: number | null | undefined) {
 }
 
 function dateTime(value: string | null | undefined) {
-  if (!value) return '—';
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
-  }).format(new Date(value));
+  return formatDateTimeDDMMYYYY(value, '—');
 }
 
 export default function OnlinePurchasingPage() {

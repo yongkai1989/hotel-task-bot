@@ -10,6 +10,7 @@ import {
   loadDashboardSessionProfile,
 } from '../../lib/dashboardSessionProfileClient';
 import Link from 'next/link';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatMonthRangeDDMMYYYY } from '../../lib/dateDisplay';
 
 type TaskImage = {
   id: string | number;
@@ -246,24 +247,11 @@ function getLocalDateStringFromISO(value?: string | null) {
 }
 
 function formatDateLabel(value: string) {
-  if (!value) return '';
-  const d = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatDateDDMMYYYY(value, '');
 }
 
 function formatMonthLabel(value: string) {
-  if (!/^\d{4}-\d{2}$/.test(value)) return value;
-  const d = new Date(`${value}-01T00:00:00`);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'long',
-  });
+  return formatMonthRangeDDMMYYYY(value, value);
 }
 
 function formatDurationFromMs(value: number | null) {
@@ -3346,7 +3334,7 @@ async function handleDeleteTask(task: Task) {
                                       Number(row.alert_cycle || 1) === Number(task.alert_cycle || 1)
                                     )).map((row) => (
                                       <span key={`${row.user_name}-${row.acknowledged_at}`}>
-                                        {row.user_name} · {new Date(row.acknowledged_at).toLocaleString()}
+                                        {row.user_name} · {formatDateTimeDDMMYYYY(row.acknowledged_at)}
                                       </span>
                                     ))}
                                   </div>
@@ -3358,7 +3346,7 @@ async function handleDeleteTask(task: Task) {
                               <div style={styles.metaCard}>
                                 <div style={styles.metaCardLabel}>Created</div>
                                 <div style={styles.metaCardValue}>
-                                  {new Date(task.created_at).toLocaleString()}
+                                  {formatDateTimeDDMMYYYY(task.created_at)}
                                 </div>
                               </div>
 
@@ -3373,7 +3361,7 @@ async function handleDeleteTask(task: Task) {
                                 <div style={styles.metaCard}>
                                   <div style={styles.metaCardLabel}>Completed</div>
                                   <div style={styles.metaCardValue}>
-                                    {new Date(task.done_at).toLocaleString()}
+                                    {formatDateTimeDDMMYYYY(task.done_at)}
                                   </div>
                                 </div>
                               ) : null}
@@ -3400,7 +3388,7 @@ async function handleDeleteTask(task: Task) {
                                 <div style={styles.metaCard}>
                                   <div style={styles.metaCardLabel}>Edited</div>
                                   <div style={styles.metaCardValue}>
-                                    {new Date(task.edited_at).toLocaleString()}
+                                    {formatDateTimeDDMMYYYY(task.edited_at)}
                                   </div>
                                 </div>
                               ) : null}

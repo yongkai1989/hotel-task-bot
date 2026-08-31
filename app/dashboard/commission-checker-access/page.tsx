@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type AccessRow = {
   id: string;
@@ -29,10 +30,7 @@ type IssuedPasscode = {
 };
 
 function formatDate(value: string | null) {
-  if (!value) return 'Never';
-  return new Intl.DateTimeFormat('en-MY', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(new Date(value));
+  return formatDateTimeDDMMYYYY(value, 'Never');
 }
 
 function passcodeState(row: AccessRow) {

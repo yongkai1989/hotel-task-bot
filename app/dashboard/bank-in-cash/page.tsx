@@ -4,6 +4,7 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type PageTab = 'daily' | 'excess' | 'small-change' | 'history';
@@ -210,26 +211,11 @@ function isPermissionEnabled(value: unknown) {
 }
 
 function formatDate(value: string) {
-  if (!value) return '-';
-  const date = new Date(`${value.slice(0, 10)}T00:00:00+08:00`);
-  return new Intl.DateTimeFormat('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Singapore',
-  }).format(date);
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateTime(value: string) {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Singapore',
-  }).format(new Date(value));
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function sourceModeLabel(value: SourceMode) {

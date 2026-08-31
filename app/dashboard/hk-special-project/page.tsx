@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type DashboardUser = {
   user_id?: string;
@@ -122,17 +123,11 @@ async function fetchAllHkRunRooms(
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString();
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function getTodayLocalDateString() {

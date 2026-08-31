@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
+import { formatDateDDMMYYYY } from '../../../../lib/dateDisplay';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -82,7 +83,7 @@ function staffMealCycle(now = new Date()) {
     order_week_end: toDateStringFromUtcMs(weekEndMs),
     service_week_start: toDateStringFromUtcMs(serviceWeekStartMs),
     service_week_end: toDateStringFromUtcMs(serviceWeekEndMs),
-    closes_at_label: `${toDateStringFromUtcMs(weekStartMs)} 7:00 AM`,
+    closes_at_label: `${formatDateDDMMYYYY(toDateStringFromUtcMs(weekStartMs))} 7:00 AM`,
   };
 }
 

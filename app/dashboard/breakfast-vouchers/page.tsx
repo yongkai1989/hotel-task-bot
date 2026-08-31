@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type Voucher = {
@@ -71,13 +72,7 @@ function todayIso() {
 }
 
 function formatTime(value: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function money(value: number) {
@@ -96,14 +91,7 @@ function qrUrl(value: string) {
 }
 
 function formatEntryDate(value: string | null | undefined) {
-  if (!value) return '-';
-  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
-  if (!year || !month || !day) return String(value);
-  return new Date(year, month - 1, day).toLocaleDateString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDateDDMMYYYY(value);
 }
 
 function voucherTickets(voucher: Voucher) {

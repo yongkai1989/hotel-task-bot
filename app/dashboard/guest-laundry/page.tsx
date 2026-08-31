@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type UserRole = 'SUPERUSER' | 'MANAGER' | 'SUPERVISOR' | 'FO' | 'HK' | 'MT';
@@ -151,15 +152,7 @@ function formatMoney(value: number | null) {
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('en-SG', {
-    timeZone: 'Asia/Singapore',
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  }).format(new Date(value));
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function thirtyDaysAgoIso() {
@@ -839,7 +832,7 @@ function printAcknowledgementSlip(entry: GuestLaundryEntry) {
           <h1>Guest Laundry Acknowledgement</h1>
         </div>
       </div>
-      <div class="date">${new Date().toLocaleString('en-SG')}</div>
+      <div class="date">${formatDateTimeDDMMYYYY(new Date())}</div>
     </section>
     <section class="grid">
       <div class="box"><div class="label">Room</div><div class="value">${escapeHtml(entry.room_number)}</div></div>

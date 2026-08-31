@@ -1,6 +1,7 @@
 'use client';
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../lib/dateDisplay';
 
 type ChillerRecord = {
   id: string;
@@ -43,22 +44,11 @@ const BRANCH_DETAILS: Record<BranchId, { name: string; shortName: string }> = {
 };
 
 function formatDate(value?: string) {
-  if (!value) return '-';
-  return new Date(`${value}T00:00:00+08:00`).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDateDDMMYYYY(value);
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return 'Not submitted';
-  return new Date(value).toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDDMMYYYY(value, 'Not submitted');
 }
 
 function statusFor(record?: ChillerRecord): ChillerStatus {

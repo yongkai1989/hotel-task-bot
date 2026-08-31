@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { subscribeToTaskBroadcast } from '../../../lib/taskRealtimeClient';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 import {
@@ -90,14 +91,7 @@ const CUSTOMER_WAITING_LIMIT_MS = 10 * 60 * 1000;
 const URGENT_LIMIT_MS = 5 * 60 * 1000;
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('en-SG', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Singapore',
-  }).format(new Date(value));
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function reorderTrackedItems(items: TrackedItem[], sourceId: string, targetId: string) {

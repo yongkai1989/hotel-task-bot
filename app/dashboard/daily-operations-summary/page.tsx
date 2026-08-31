@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import { loadDashboardSessionProfile } from '../../../lib/dashboardSessionProfileClient';
 
 type PermissionValue = boolean | string | number | null | undefined;
@@ -162,18 +163,13 @@ function enabled(value: unknown) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '-';
-  return new Intl.DateTimeFormat('en-SG', {
-    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Singapore',
-  }).format(new Date(`${value.slice(0, 10)}T00:00:00+08:00`));
+  return formatDateDDMMYYYY(value);
 }
 
 function formatTime(value?: string | null) {
   if (!value) return 'No deadline set';
   if (value.includes('T')) {
-    return new Intl.DateTimeFormat('en-SG', {
-      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore',
-    }).format(new Date(value));
+    return formatDateTimeDDMMYYYY(value);
   }
   const [hour, minute] = value.split(':').map(Number);
   const suffix = hour >= 12 ? 'PM' : 'AM';
@@ -388,7 +384,7 @@ export default function DailyOperationsSummaryPage() {
         </div>
       </section>
 
-      {summary ? <p className="generated">Generated {new Date(summary.generated_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}. Refreshes only when you open the page, change date, or press Refresh.</p> : null}
+      {summary ? <p className="generated">Generated {formatDateTimeDDMMYYYY(summary.generated_at)}. Refreshes only when you open the page, change date, or press Refresh.</p> : null}
 
       {ruleDraft ? <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setRuleDraft(null)}><section className="modal" role="dialog" aria-modal="true"><span className="eyebrow">SUPERUSER RULE</span><h2>{ruleDraft.row.title}</h2><p>{ruleDraft.row.source_type === 'SUPERVISOR_CHECKLIST' ? 'Only supervisors scheduled as WORK are expected. The housekeeping schedule decides the required days; this rule only controls the shared deadline.' : 'Set who is expected, the deadline, and which days this submission is required.'}</p>{ruleDraft.row.source_type !== 'SUPERVISOR_CHECKLIST' ? <><label>Responsible name<input value={ruleDraft.ownerName} onChange={(event) => setRuleDraft({ ...ruleDraft, ownerName: event.target.value })} /></label><label>Responsible email<input type="email" value={ruleDraft.ownerEmail} onChange={(event) => setRuleDraft({ ...ruleDraft, ownerEmail: event.target.value })} /></label></> : null}<label>Deadline<input type="time" value={ruleDraft.dueTime} onChange={(event) => setRuleDraft({ ...ruleDraft, dueTime: event.target.value })} /></label>{ruleDraft.row.source_type !== 'SUPERVISOR_CHECKLIST' ? <div className="day-grid">{DAY_OPTIONS.map((day) => <label key={day.value}><input type="checkbox" checked={ruleDraft.activeDays.includes(day.value)} onChange={(event) => setRuleDraft({ ...ruleDraft, activeDays: event.target.checked ? [...ruleDraft.activeDays, day.value].sort() : ruleDraft.activeDays.filter((value) => value !== day.value) })} />{day.label}</label>)}</div> : null}<div className="modal-actions"><button className="reset-rule" onClick={() => void resetRule()} disabled={savingRule || !ruleDraft.row.rule_id}>Reset Rule</button><button className="secondary" onClick={() => setRuleDraft(null)}>Cancel</button><button onClick={() => void saveRule()} disabled={savingRule}>{savingRule ? 'Saving...' : 'Save Rule'}</button></div></section></div> : null}
       <Styles />

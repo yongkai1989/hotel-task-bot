@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type OrderStatus = {
   id: string;
@@ -25,14 +26,7 @@ function money(value: number) {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDateTimeDDMMYYYY(value);
 }
 
 export default function RestaurantKioskPaymentStatusPage() {

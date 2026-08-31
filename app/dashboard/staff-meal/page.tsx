@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateDDMMYYYY } from '../../../lib/dateDisplay';
 
 type Branch = 'All' | 'Crown' | 'Leisure' | 'Express' | 'View';
 type RealBranch = Exclude<Branch, 'All'>;
@@ -80,17 +81,11 @@ function weekDates(start: string) {
 }
 
 function formatShort(value: string) {
-  if (!value) return '-';
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  return formatDateDDMMYYYY(value);
 }
 
 function formatLong(value: string) {
-  if (!value) return '-';
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDateDDMMYYYY(value);
 }
 
 function mealText(choice: MealChoice) {
@@ -385,9 +380,7 @@ export default function StaffMealAdminPage() {
     const printDateLabel = (date: string) => {
       const parsed = new Date(`${date}T00:00:00`);
       if (Number.isNaN(parsed.getTime())) return escapeHtml(date);
-      const day = parsed.toLocaleDateString('en-GB', { weekday: 'short' });
-      const dateNo = parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-      return `${escapeHtml(day)}<br /><span>${escapeHtml(dateNo)}</span>`;
+      return escapeHtml(formatDateDDMMYYYY(date));
     };
     const renderMealCells = (order: StaffMealOrder) =>
       dates

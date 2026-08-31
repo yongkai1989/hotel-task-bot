@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import { loadDashboardSessionProfile } from '../lib/dashboardSessionProfileClient';
+import { formatDateTimeDDMMYYYY } from '../lib/dateDisplay';
 import kitchenStyles from './OrderOperationsPage.module.css';
 import {
   FNB_ORDER_BROADCAST_CHANNEL,
@@ -82,15 +83,7 @@ function money(value: number) {
 }
 
 function formatTime(value?: string | null) {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('en-MY', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  }).replace(/\b(am|pm)\b/gi, (period) => period.toUpperCase());
+  return formatDateTimeDDMMYYYY(value);
 }
 
 function formatClock(value: Date) {

@@ -1,5 +1,6 @@
 export type TaskStatus = 'OPEN' | 'DONE';
 export type Dept = 'HK' | 'MT' | 'FO';
+import { formatDateTimeDDMMYYYY } from './dateDisplay';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -22,12 +23,7 @@ function labelForStatus(status: TaskStatus | string) {
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+  return formatDateTimeDDMMYYYY(value);
 }
 
 export function buildTaskMessageText(task: {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { formatDateDDMMYYYY } from '../../lib/dateDisplay';
 
 type VoucherType = {
   id: string;
@@ -41,12 +42,7 @@ function todayIso() {
 }
 
 function formatEntryDate(value: string) {
-  if (!value) return '-';
-  return new Date(`${value}T00:00:00+08:00`).toLocaleDateString('en-MY', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDateDDMMYYYY(value);
 }
 
 function cartKey(entryDate: string, typeId: string) {

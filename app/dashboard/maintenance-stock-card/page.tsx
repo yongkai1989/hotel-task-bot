@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
+import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 
 type DashboardUser = {
   user_id?: string;
@@ -863,7 +864,7 @@ export default function MaintenanceStockCardPage() {
                     {movement.reason ? <div style={styles.logMeta}>Reason: {movement.reason}</div> : null}
                     {movement.used_to ? <div style={styles.logMeta}>Used / moved to: {movement.used_to}</div> : null}
                     <div style={styles.logMeta}>
-                      By: {movement.created_by_name || '-'} | {movement.created_at ? new Date(movement.created_at).toLocaleString() : '-'}
+                      By: {movement.created_by_name || '-'} | {formatDateTimeDDMMYYYY(movement.created_at)}
                     </div>
                   </article>
                 );
