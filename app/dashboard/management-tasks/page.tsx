@@ -156,6 +156,7 @@ export default function ManagementTasksPage() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskModalMode, setTaskModalMode] = useState<'CREATE' | 'EDIT'>('CREATE');
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingRunId, setEditingRunId] = useState<string | null>(null);
   const [savingTask, setSavingTask] = useState(false);
 
   const [taskTitle, setTaskTitle] = useState('');
@@ -344,6 +345,7 @@ export default function ManagementTasksPage() {
     setTaskHasRoomChecklist(false);
     setTaskAssignedUserId('');
     setEditingTaskId(null);
+    setEditingRunId(null);
   }
 
   function openCreateModal() {
@@ -359,6 +361,7 @@ export default function ManagementTasksPage() {
     if (!isSuperuser) return;
     setTaskModalMode('EDIT');
     setEditingTaskId(card.task.id);
+    setEditingRunId(card.run.id);
     setTaskTitle(card.task.title);
     setTaskDescription(card.task.description || '');
     setTaskRepeats(card.task.repeat_every_days !== null);
@@ -469,6 +472,33 @@ export default function ManagementTasksPage() {
           .eq('id', editingTaskId);
 
         if (updateError) throw updateError;
+
+        const selectedRun = editingRunId
+          ? runs.find((run) => run.id === editingRunId)
+          : null;
+        if (
+          selectedRun &&
+          !selectedRun.is_deleted &&
+          (selectedRun.status === 'OPEN' || selectedRun.status === 'OVERDUE')
+        ) {
+          const dueDate = addDaysToDate(startDate, parsedDueInDays);
+          const today = getTodayLocalDateString();
+          const nextStatus: ManagementTaskRun['status'] = dueDate < today ? 'OVERDUE' : 'OPEN';
+          const { error: runUpdateError } = await supabase
+            .from('management_task_runs')
+            .update({
+              run_start_date: startDate,
+              due_date: dueDate,
+              status: nextStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', selectedRun.id)
+            .eq('management_task_id', editingTaskId)
+            .eq('is_deleted', false)
+            .in('status', ['OPEN', 'OVERDUE']);
+
+          if (runUpdateError) throw runUpdateError;
+        }
         setSuccessMsg('Management task updated successfully.');
       }
 
