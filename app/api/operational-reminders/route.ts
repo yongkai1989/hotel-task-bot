@@ -116,7 +116,7 @@ async function chambermaidReminder(today: string) {
     sendTelegramMessage(
       HK_TASK_CHAT_ID,
       [
-        '🧹 CHAMBERMAID SAVE REMINDER',
+        'CHAMBERMAID SAVE REMINDER',
         `Date: ${displayDate(today)}`,
         `Pending rooms: ${missingRooms.length}`,
         '',
