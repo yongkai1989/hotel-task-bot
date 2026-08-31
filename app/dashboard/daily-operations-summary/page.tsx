@@ -55,7 +55,6 @@ type LinenItem = {
   previous_total_use: number;
   previous_in_bill: number;
   returned: number;
-  previous_bill_minus_return: number;
   bill_minus_total_use: number;
 };
 
@@ -383,8 +382,8 @@ export default function DailyOperationsSummaryPage() {
             <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Maid use</th><th>PA use</th><th>Total use</th><th>Today In Bill</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.maid_use}</td><td>{item.pa_use}</td><td>{item.total_use}</td><td>{item.in_bill}</td><td><Diff value={item.bill_minus_total_use} /></td></tr>)}</tbody></table></div>
           </section>
           <section className="reconciliation-card return-card">
-            <div className="reconciliation-heading"><div><strong>Today&apos;s Return vs yesterday&apos;s In Bill</strong><span>Bill date: {formatDate(summary?.linen?.previous_bill_service_date)} - returned today for that bill</span></div><small>Positive means yesterday&apos;s bill quantity is still higher than today&apos;s return.</small></div>
-            <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Yesterday Total Use</th><th>Yesterday In Bill</th><th>Today Return</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.previous_total_use}</td><td>{item.previous_in_bill}</td><td>{item.returned}</td><td><Diff value={item.previous_bill_minus_return} /></td></tr>)}</tbody></table></div>
+            <div className="reconciliation-heading"><div><strong>Today&apos;s Return − yesterday&apos;s In Bill</strong><span>Bill date: {formatDate(summary?.linen?.previous_bill_service_date)} - returned today for that bill</span></div><small>Positive means today&apos;s return is higher; negative means yesterday&apos;s In Bill is higher.</small></div>
+            <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Yesterday Total Use</th><th>Yesterday In Bill</th><th>Today Return</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.previous_total_use}</td><td>{item.previous_in_bill}</td><td>{item.returned}</td><td><Diff value={item.returned - item.previous_in_bill} /></td></tr>)}</tbody></table></div>
           </section>
         </div>
       </section>

@@ -27,7 +27,8 @@ type ProjectRow = {
 
 type LinenItem = {
   label?: string;
-  previous_bill_minus_return?: number;
+  previous_in_bill?: number;
+  returned?: number;
 };
 
 type DailySummary = {
@@ -82,6 +83,10 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function returnMinusPreviousBill(item: LinenItem) {
+  return numberValue(item.returned) - numberValue(item.previous_in_bill);
+}
+
 function clippedList(values: string[], emptyText: string) {
   if (!values.length) return emptyText;
   const visible = values.slice(0, MAX_LIST_ITEMS);
@@ -118,7 +123,7 @@ function buildReportMessage(params: {
   const rooms = summary.rooms || {};
   const linen = summary.linen || {};
   const linenVarianceItems = (linen.items || []).filter(
-    (item) => Math.abs(numberValue(item.previous_bill_minus_return)) >= 3
+    (item) => Math.abs(returnMinusPreviousBill(item)) >= 3
   );
   const missingRooms = rooms.linen_rooms_missing || [];
   const lines = [
@@ -160,7 +165,7 @@ function buildReportMessage(params: {
     `LINEN RETURN VARIANCE — ${linenVarianceItems.length ? `⚠️ ${linenVarianceItems.length} at ±3 or more` : '✅ all below ±3'}`
   );
   for (const item of linenVarianceItems) {
-    const difference = numberValue(item.previous_bill_minus_return);
+    const difference = returnMinusPreviousBill(item);
     lines.push(`• ${item.label || 'Linen'}: ${difference > 0 ? '+' : ''}${difference}`);
   }
 
