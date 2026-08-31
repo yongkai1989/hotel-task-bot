@@ -26,14 +26,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const { title, startDate, dueDate, hasChecklist } = await req.json();
+    const { title, startDate, dueDate, status } = await req.json();
+    const statusLabel = String(status || '').trim().toUpperCase() === 'DONE'
+      ? 'Done'
+      : 'Pending';
 
     const text = [
       'PREVENTIVE MAINTENANCE',
       `Task: ${title}`,
       `Start: ${startDate}`,
       `Due: ${dueDate}`,
-      `Checklist: ${hasChecklist ? 'Room checklist attached' : 'No checklist'}`,
+      `Status: ${statusLabel}`,
     ].join('\n');
 
     const tg = await telegram('sendMessage', {

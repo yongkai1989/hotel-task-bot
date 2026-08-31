@@ -345,6 +345,34 @@ export default function PreventiveMaintenancePage() {
     return profile.role === 'SUPERUSER' || profile.role === 'MANAGER';
   }, [profile]);
 
+  async function sendPmTelegramStatus(input: {
+    title: string;
+    startDate: string;
+    dueDate: string;
+    status: 'PENDING' | 'DONE';
+  }) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch('/api/pm-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || `Telegram request failed (${response.status})`);
+      }
+      return true;
+    } catch (error) {
+      console.error('PM Telegram status update error:', error);
+      return false;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   async function sendPendingTelegramNotifications(supabase: any): Promise<boolean> {
     try {
       const { data: unsentRuns, error } = await supabase
@@ -356,8 +384,7 @@ export default function PreventiveMaintenancePage() {
           telegram_sent_at,
           pm_task_id,
           pm_tasks (
-            title,
-            has_room_checklist
+            title
           )
         `)
         .is('telegram_sent_at', null)
@@ -375,20 +402,14 @@ export default function PreventiveMaintenancePage() {
         const taskData = Array.isArray(run.pm_tasks) ? run.pm_tasks[0] : run.pm_tasks;
         if (!taskData?.title) continue;
 
-        const res = await fetch('/api/pm-telegram', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: taskData.title,
-            startDate: run.run_start_date,
-            dueDate: run.due_date,
-            hasChecklist: !!taskData.has_room_checklist,
-          }),
+        const sent = await sendPmTelegramStatus({
+          title: taskData.title,
+          startDate: run.run_start_date,
+          dueDate: run.due_date,
+          status: 'PENDING',
         });
 
-        if (res.ok) {
+        if (sent) {
           await supabase
             .from('pm_task_runs')
             .update({
@@ -1094,6 +1115,13 @@ export default function PreventiveMaintenancePage() {
 
       if (error) throw error;
 
+      void sendPmTelegramStatus({
+        title: card.task.title,
+        startDate: card.run.run_start_date,
+        dueDate: card.run.due_date,
+        status: 'DONE',
+      });
+
       setSuccessMsg(`Task "${card.task.title}" marked as done.`);
       await loadAllData();
     } catch (err: any) {
@@ -1137,6 +1165,13 @@ export default function PreventiveMaintenancePage() {
         .eq('id', card.run.id);
 
       if (error) throw error;
+
+      void sendPmTelegramStatus({
+        title: card.task.title,
+        startDate: card.run.run_start_date,
+        dueDate: card.run.due_date,
+        status: 'PENDING',
+      });
 
       setSuccessMsg(`Task "${card.task.title}" reopened.`);
       await loadAllData();
