@@ -41,6 +41,26 @@ type LinenVarianceReport = {
   current_flags?: LinenAreaFlag[];
 };
 
+type SupervisorChecklistPerson = {
+  email: string;
+  name: string;
+};
+
+type SupervisorChecklistStatus = {
+  templateId: string | null;
+  templateTitle: string | null;
+  required: SupervisorChecklistPerson[];
+  submitted: SupervisorChecklistPerson[];
+  pending: SupervisorChecklistPerson[];
+  warning?: string;
+};
+
+const HOUSEKEEPING_SUPERVISORS: SupervisorChecklistPerson[] = [
+  { email: 'hksup1@hotelhallmark.com', name: 'Ezni' },
+  { email: 'hksup2@hotelhallmark.com', name: 'Sofea' },
+  { email: 'hksup3@hotelhallmark.com', name: 'Sulaiman' },
+];
+
 function singaporeDate() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: SINGAPORE_TIME_ZONE,
@@ -118,10 +138,105 @@ function telegramChunks(lines: string[], continuationTitle: string) {
   return chunks;
 }
 
+function normalizedStaffName(value: unknown) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function supervisorForScheduleName(value: unknown) {
+  const normalized = normalizedStaffName(value);
+  if (normalized === 'ezni' || normalized === 'izni') return HOUSEKEEPING_SUPERVISORS[0];
+  if (normalized === 'sofea') return HOUSEKEEPING_SUPERVISORS[1];
+  if (normalized === 'sulaiman') return HOUSEKEEPING_SUPERVISORS[2];
+  return null;
+}
+
+async function supervisorChecklistStatus(today: string): Promise<SupervisorChecklistStatus> {
+  const { data: template, error: templateError } = await supabaseAdmin
+    .from('supervisor_checklist_templates')
+    .select('id, title')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (templateError) throw templateError;
+  if (!template?.id) {
+    return {
+      templateId: null,
+      templateTitle: null,
+      required: [],
+      submitted: [],
+      pending: [],
+      warning: 'No active HK supervisor checklist is configured.',
+    };
+  }
+
+  const { data: staffRows, error: staffError } = await supabaseAdmin
+    .from('hk_schedule_staff')
+    .select('id, staff_name')
+    .eq('is_active', true)
+    .eq('staff_role', 'SUPERVISOR');
+  if (staffError) throw staffError;
+
+  const staffIds = (staffRows || []).map((row) => row.id).filter(Boolean);
+  const [entryResult, submissionResult] = await Promise.all([
+    staffIds.length
+      ? supabaseAdmin
+          .from('hk_schedule_entries')
+          .select('staff_id, status')
+          .eq('schedule_date', today)
+          .in('staff_id', staffIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabaseAdmin
+      .from('supervisor_checklist_submissions')
+      .select('submitted_by_name, submitted_by_email')
+      .eq('template_id', template.id)
+      .eq('submission_date', today),
+  ]);
+  if (entryResult.error) throw entryResult.error;
+  if (submissionResult.error) throw submissionResult.error;
+
+  const scheduleEntries = entryResult.data || [];
+  const staffById = new Map((staffRows || []).map((row) => [String(row.id), row.staff_name]));
+  const scheduledWorkingEmails = new Set(
+    scheduleEntries
+      .filter((entry) => entry.status === 'WORK')
+      .map((entry) => supervisorForScheduleName(staffById.get(String(entry.staff_id)))?.email)
+      .filter((email): email is string => Boolean(email))
+  );
+  const required = scheduleEntries.length
+    ? HOUSEKEEPING_SUPERVISORS.filter((person) => scheduledWorkingEmails.has(person.email))
+    : HOUSEKEEPING_SUPERVISORS;
+  const submittedEmails = new Set(
+    (submissionResult.data || [])
+      .map((row) => String(row.submitted_by_email || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const submitted = required.filter((person) => submittedEmails.has(person.email));
+  const pending = required.filter((person) => !submittedEmails.has(person.email));
+
+  return {
+    templateId: String(template.id),
+    templateTitle: String(template.title || 'HK Supervisor Checklist'),
+    required,
+    submitted,
+    pending,
+  };
+}
+
 async function linenVarianceReminder(today: string) {
-  const { data, error } = await supabaseAdmin.rpc('get_daily_operations_linen_area_variance', {
-    p_report_date: today,
-  });
+  const [{ data, error }, checklistResult] = await Promise.all([
+    supabaseAdmin.rpc('get_daily_operations_linen_area_variance', {
+      p_report_date: today,
+    }),
+    supervisorChecklistStatus(today).catch((checklistError: any) => ({
+      templateId: null,
+      templateTitle: null,
+      required: [],
+      submitted: [],
+      pending: [],
+      warning: checklistError?.message || 'Unable to load HK supervisor checklist status.',
+    })),
+  ]);
   if (error) throw error;
 
   const report = (data || {}) as LinenVarianceReport;
@@ -137,7 +252,27 @@ async function linenVarianceReminder(today: string) {
     `Flag rule: ±${threshold} or more`,
     `Flagged: ${findingCount} linen difference${findingCount === 1 ? '' : 's'} across ${areaFlags.length} level${areaFlags.length === 1 ? '' : 's'}`,
     '',
+    '📋 HK SUPERVISOR CHECKLIST',
   ];
+
+  const checklistStatus = checklistResult as SupervisorChecklistStatus;
+  if (checklistStatus.warning) {
+    lines.push(`⚠️ ${checklistStatus.warning}`);
+  } else if (!checklistStatus.required.length) {
+    lines.push('ℹ️ No housekeeping supervisor is scheduled to work today.');
+  } else if (!checklistStatus.pending.length) {
+    lines.push(
+      `✅ ${checklistStatus.submitted.length}/${checklistStatus.required.length} scheduled supervisors submitted.`,
+      `Submitted: ${checklistStatus.submitted.map((person) => person.name).join(', ')}`
+    );
+  } else {
+    lines.push(
+      `⚠️ ${checklistStatus.submitted.length}/${checklistStatus.required.length} scheduled supervisors submitted.`,
+      `Pending: ${checklistStatus.pending.map((person) => person.name).join(', ')}`,
+      'Please submit the HK Supervisor Checklist immediately.'
+    );
+  }
+  lines.push('', '🧺 LINEN DIFFERENCES', '');
 
   if (!findingCount) {
     lines.push(
@@ -186,6 +321,7 @@ async function linenVarianceReminder(today: string) {
       threshold,
       areasCompared: Number(report.current_areas_compared || 0),
       flaggedAreas: areaFlags,
+      supervisorChecklist: checklistStatus,
       telegramMessageIds,
     },
   };
