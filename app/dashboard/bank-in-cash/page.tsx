@@ -1110,7 +1110,19 @@ export default function BankInCashPage() {
           <p>Reconcile Front Office cash, excess collections, balances not banked in, and receipt evidence.</p>
         </div>
         <div className="header-actions">
-          <button type="button" className="icon-button" title="Refresh cash records" onClick={() => void loadData()} disabled={dataLoading}>â†»</button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Refresh cash records"
+            aria-label="Refresh cash records"
+            onClick={() => void loadData()}
+            disabled={dataLoading}
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M20 6v5h-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M19 11a7 7 0 1 0 1 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
           <Link href="/dashboard" className="secondary-button">Dashboard</Link>
         </div>
       </header>
