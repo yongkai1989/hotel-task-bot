@@ -342,8 +342,7 @@ async function hkMorningReviewReminder(today: string) {
   const projects = yesterday.special_projects || [];
   const yesterdayRooms = yesterday.rooms || {};
   const yesterdayLinen = yesterday.linen || {};
-  const returnLinen = todaySummary.linen || {};
-  const returnItems = returnLinen.items || [];
+  const reconciliationItems = yesterdayLinen.items || [];
   const monthlyTop = (variance.monthly_top || []).slice(0, 5);
   const hkTasks = (taskResult.data || []) as HkTaskRow[];
   const managerRoomCount = numeric(todaySummary.rooms?.open_manager_room_checks);
@@ -360,7 +359,7 @@ async function hkMorningReviewReminder(today: string) {
     managerRoomCount +
     missingRooms.length +
     (yesterdayLinen.bill_saved ? 0 : 1) +
-    (returnLinen.return_saved ? 0 : 1);
+    (yesterdayLinen.return_saved ? 0 : 1);
 
   const lines = [
     '🌅 8:30 AM HK MORNING REVIEW',
@@ -387,20 +386,20 @@ async function hkMorningReviewReminder(today: string) {
     }
   }
 
-  const billDate = String(returnLinen.previous_bill_service_date || reportDate);
-  const returnRecordDate = today;
+  const billDate = String(yesterdayLinen.previous_bill_service_date || singaporeDate(-2));
+  const returnRecordDate = reportDate;
   lines.push(
     '',
-    "🧺 TODAY'S RETURN VS YESTERDAY'S IN BILL",
+    "🧺 YESTERDAY'S RETURN VS PREVIOUS DAY'S IN BILL",
     `• In Bill date: ${displayDate(billDate)}`,
     `• Return date: ${displayDate(returnRecordDate)}`
   );
-  for (const item of returnItems) {
+  for (const item of reconciliationItems) {
     const totalUse = numeric(item.previous_total_use);
     const inBill = numeric(item.previous_in_bill);
     const returned = numeric(item.returned);
     lines.push(
-      `• ${item.label || 'Linen'}: Yesterday Total Use ${totalUse} | Yesterday In Bill ${inBill} | Today Return ${returned} | Difference ${signed(returned - inBill)}`
+      `• ${item.label || 'Linen'}: Total Use ${totalUse} | In Bill ${inBill} | Return ${returned} | Difference ${signed(returned - inBill)}`
     );
   }
   lines.push('Positive = Returned is higher; negative = In Bill is higher.');
@@ -435,14 +434,14 @@ async function hkMorningReviewReminder(today: string) {
   const savedRooms = numeric(yesterdayRooms.linen_rooms_saved);
   const billSavedRows = numeric(yesterdayLinen.bill_saved_rows);
   const billExpectedRows = numeric(yesterdayLinen.bill_expected_rows) || 8;
-  const returnSavedRows = numeric(returnLinen.return_saved_rows);
-  const returnExpectedRows = numeric(returnLinen.return_expected_rows) || 2;
+  const returnSavedRows = numeric(yesterdayLinen.return_saved_rows);
+  const returnExpectedRows = numeric(yesterdayLinen.return_expected_rows) || 2;
   lines.push(
     '',
     '💾 YESTERDAY SAVE STATUS',
     `• Pending rooms saved: ${savedRooms}/${expectedRooms}${missingRooms.length ? ' ❌' : ' ✅'}`,
     `• In Bill saved (${displayDate(reportDate)}): ${billSavedRows}/${billExpectedRows}${yesterdayLinen.bill_saved ? ' ✅' : ' ❌'}`,
-    `• Return saved (${displayDate(returnRecordDate)} for bill ${displayDate(billDate)}): ${returnSavedRows}/${returnExpectedRows}${returnLinen.return_saved ? ' ✅' : ' ❌'}`
+    `• Return saved (${displayDate(returnRecordDate)} for bill ${displayDate(billDate)}): ${returnSavedRows}/${returnExpectedRows}${yesterdayLinen.return_saved ? ' ✅' : ' ❌'}`
   );
   if (missingRooms.length) lines.push(`• Missing rooms: ${missingRooms.join(', ')}`);
   lines.push('', 'Please follow up on every ❌ item immediately.');
@@ -468,7 +467,7 @@ async function hkMorningReviewReminder(today: string) {
       openManagerRoomChecks: managerRoomCount,
       missingRoomCount: missingRooms.length,
       billSaved: Boolean(yesterdayLinen.bill_saved),
-      returnSaved: Boolean(returnLinen.return_saved),
+      returnSaved: Boolean(yesterdayLinen.return_saved),
       telegramMessageIds,
     },
   };
