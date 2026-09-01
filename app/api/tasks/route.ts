@@ -441,13 +441,6 @@ function resolveTelegramChatId(department: Dept): number | null {
   return fallbackChatId;
 }
 
-function isManagerRoomCheckTelegramExcluded(sourcePage: string | null, taskText: string) {
-  if (sourcePage === 'MANAGER_ROOM_CHECK') return true;
-
-  // Protect older Manager Room Check tasks that pre-date source_page tagging.
-  return /^urgent manager room check\b/i.test(String(taskText || '').trim());
-}
-
 async function sendTelegramText(chatId: number, text: string) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
@@ -702,7 +695,6 @@ export async function POST(req: NextRequest) {
         : null;
     const room = String(body.room || '').trim() || extractRoomFromText(sourceMessage) || extractRoomFromText(rawTaskText);
     const taskText = rawTaskText || sourceMessage || room;
-    const telegramExcluded = isManagerRoomCheckTelegramExcluded(sourcePage, taskText);
     const inferredDept = inferDepartmentFromText(sourceMessage || taskText);
     const requestedDepartments = normalizeDeptList(body.departments);
     const departments =
@@ -746,9 +738,9 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Room/area and description is required' }, 400);
     }
 
-    const unresolvedDepartment = telegramExcluded
-      ? undefined
-      : departments.find((department) => !resolveTelegramChatId(department));
+    const unresolvedDepartment = departments.find(
+      (department) => !resolveTelegramChatId(department)
+    );
 
     if (unresolvedDepartment) {
       return jsonNoCache(
@@ -775,7 +767,7 @@ export async function POST(req: NextRequest) {
     const warnings: string[] = [];
 
     for (const department of departments) {
-      const telegramChatId = telegramExcluded ? null : resolveTelegramChatId(department);
+      const telegramChatId = resolveTelegramChatId(department);
 
       const { data: task, error: insertError } = await supabaseAdmin
         .from('tasks')
@@ -877,38 +869,36 @@ export async function POST(req: NextRequest) {
       await broadcastTaskChange(task.id, 'INSERT');
 
       try {
-        if (!telegramExcluded) {
-          const telegramMessageId = await sendTelegramTaskCard({
-            chatId: telegramChatId as number,
-            task: {
-              id: task.id,
-              task_code: task.task_code,
-              room: task.room,
-              department: task.department,
-              task_text: task.task_text,
-              created_by_name: task.created_by_name,
-              image_url: task.image_url,
-              status: task.status,
-              done_by_name: task.done_by_name,
-              done_at: task.done_at,
-              reopened_at: null,
-              last_updated_by_name: task.last_updated_by_name,
-            },
+        const telegramMessageId = await sendTelegramTaskCard({
+          chatId: telegramChatId as number,
+          task: {
+            id: task.id,
+            task_code: task.task_code,
+            room: task.room,
+            department: task.department,
+            task_text: task.task_text,
+            created_by_name: task.created_by_name,
+            image_url: task.image_url,
+            status: task.status,
+            done_by_name: task.done_by_name,
+            done_at: task.done_at,
+            reopened_at: null,
+            last_updated_by_name: task.last_updated_by_name,
+          },
+        });
+
+        if (telegramMessageId) {
+          await supabaseAdmin
+            .from('tasks')
+            .update({ telegram_task_message_id: telegramMessageId })
+            .eq('id', task.id);
+
+          await supabaseAdmin.from('telegram_messages').insert({
+            telegram_message_id: telegramMessageId,
+            chat_id: telegramChatId,
+            task_id: task.id,
+            message_type: 'TASK_CARD',
           });
-
-          if (telegramMessageId) {
-            await supabaseAdmin
-              .from('tasks')
-              .update({ telegram_task_message_id: telegramMessageId })
-              .eq('id', task.id);
-
-            await supabaseAdmin.from('telegram_messages').insert({
-              telegram_message_id: telegramMessageId,
-              chat_id: telegramChatId,
-              task_id: task.id,
-              message_type: 'TASK_CARD',
-            });
-          }
         }
       } catch (error: any) {
         telegramWarning = error?.message || `Telegram notification failed for ${department}`;
