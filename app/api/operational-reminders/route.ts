@@ -72,6 +72,7 @@ type SpecialProjectRow = {
 
 type DailyLinenItem = {
   label?: string;
+  previous_total_use?: number;
   previous_in_bill?: number;
   returned?: number;
 };
@@ -387,18 +388,19 @@ async function hkMorningReviewReminder(today: string) {
   }
 
   const billDate = String(returnLinen.previous_bill_service_date || reportDate);
-  const returnDate = String(returnLinen.return_service_date || reportDate);
+  const returnRecordDate = today;
   lines.push(
     '',
-    '🧺 IN BILL VS LAUNDRY RETURN',
+    "🧺 TODAY'S RETURN VS YESTERDAY'S IN BILL",
     `• In Bill date: ${displayDate(billDate)}`,
-    `• Return record date: ${displayDate(returnDate)}`
+    `• Return date: ${displayDate(returnRecordDate)}`
   );
   for (const item of returnItems) {
+    const totalUse = numeric(item.previous_total_use);
     const inBill = numeric(item.previous_in_bill);
     const returned = numeric(item.returned);
     lines.push(
-      `• ${item.label || 'Linen'}: In Bill ${inBill} | Returned ${returned} | Difference ${signed(returned - inBill)}`
+      `• ${item.label || 'Linen'}: Yesterday Total Use ${totalUse} | Yesterday In Bill ${inBill} | Today Return ${returned} | Difference ${signed(returned - inBill)}`
     );
   }
   lines.push('Positive = Returned is higher; negative = In Bill is higher.');
@@ -440,7 +442,7 @@ async function hkMorningReviewReminder(today: string) {
     '💾 YESTERDAY SAVE STATUS',
     `• Pending rooms saved: ${savedRooms}/${expectedRooms}${missingRooms.length ? ' ❌' : ' ✅'}`,
     `• In Bill saved (${displayDate(reportDate)}): ${billSavedRows}/${billExpectedRows}${yesterdayLinen.bill_saved ? ' ✅' : ' ❌'}`,
-    `• Return saved (bill date ${displayDate(returnDate)}): ${returnSavedRows}/${returnExpectedRows}${returnLinen.return_saved ? ' ✅' : ' ❌'}`
+    `• Return saved (${displayDate(returnRecordDate)} for bill ${displayDate(billDate)}): ${returnSavedRows}/${returnExpectedRows}${returnLinen.return_saved ? ' ✅' : ' ❌'}`
   );
   if (missingRooms.length) lines.push(`• Missing rooms: ${missingRooms.join(', ')}`);
   lines.push('', 'Please follow up on every ❌ item immediately.');
