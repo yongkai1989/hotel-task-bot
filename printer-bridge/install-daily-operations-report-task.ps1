@@ -51,14 +51,14 @@ Register-ScheduledTask `
   -Force | Out-Null
 
 $linenVarianceAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$linenVarianceBatchPath`"`""
-$linenVarianceTrigger = New-ScheduledTaskTrigger -Daily -At '17:30'
+$linenVarianceTrigger = New-ScheduledTaskTrigger -Daily -At '18:00'
 
 Register-ScheduledTask `
   -TaskName $linenVarianceTaskName `
   -Action $linenVarianceAction `
   -Trigger $linenVarianceTrigger `
   -Settings $settings `
-  -Description 'Sends all Block and Level linen differences of plus or minus 2 or more to the HK Telegram chat at 5:30 PM.' `
+  -Description 'Sends all Block and Level linen differences of plus or minus 2 or more to the HK Telegram chat at 6:00 PM.' `
   -Force | Out-Null
 
 $chambermaidAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$chambermaidBatchPath`"`""
@@ -75,4 +75,4 @@ Register-ScheduledTask `
 Write-Host "Installed '$taskName' for 9:00 AM every day."
 Write-Host "Installed '$hkMorningReviewTaskName' for 8:30 AM every day."
 Write-Host "Installed '$chambermaidTaskName' for 5:00 PM every day."
-Write-Host "Installed '$linenVarianceTaskName' for 5:30 PM every day."
+Write-Host "Installed '$linenVarianceTaskName' for 6:00 PM every day."

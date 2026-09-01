@@ -152,7 +152,14 @@ function requestedKind(request: NextRequest): ReminderKind | null {
   if (kind === 'preventive-maintenance' || kind === 'pm' || kind === 'pm-9am') {
     return 'PREVENTIVE_MAINTENANCE_9AM';
   }
-  if (kind === 'linen-variance' || kind === 'linen' || kind === 'linen-530pm') {
+  if (
+    kind === 'linen-variance' ||
+    kind === 'linen' ||
+    kind === 'linen-6pm' ||
+    kind === 'linen-530pm'
+  ) {
+    // Keep the legacy run key so a reminder already sent at the old time is
+    // not sent again on the same date after the schedule moves to 6:00 PM.
     return 'LINEN_VARIANCE_530PM';
   }
   if (kind === 'hk-morning-review' || kind === 'hk-review' || kind === 'hk-830am') {
@@ -503,7 +510,7 @@ async function linenVarianceReminder(today: string) {
     0
   );
   const lines = [
-    '🧺 5:30 PM LINEN DIFFERENCE FOLLOW-UP',
+    '🧺 6:00 PM LINEN DIFFERENCE FOLLOW-UP',
     `Date: ${displayDate(today)}`,
     `Flag rule: ±${threshold} or more`,
     `Flagged: ${findingCount} linen difference${findingCount === 1 ? '' : 's'} across ${areaFlags.length} level${areaFlags.length === 1 ? '' : 's'}`,
@@ -556,7 +563,7 @@ async function linenVarianceReminder(today: string) {
     );
   }
 
-  const messages = telegramChunks(lines, '🧺 5:30 PM LINEN DIFFERENCE FOLLOW-UP (CONTINUED)');
+  const messages = telegramChunks(lines, '🧺 6:00 PM LINEN DIFFERENCE FOLLOW-UP (CONTINUED)');
   const telegramMessageIds: number[] = [];
   for (const message of messages) {
     const messageId = await sendTelegramMessage(

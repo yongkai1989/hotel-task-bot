@@ -91,7 +91,7 @@ unsaved, Izni, Sofea, Sulaiman, and Prem receive one Web Push reminder. If all
 rooms are saved, nothing is sent. It does not poll and does not use Vercel Cron.
 
 Linen difference follow-up:
-A separate 5:30 PM Windows task sends the HK Telegram chat one daily report. It lists
+A separate 6:00 PM Windows task sends the HK Telegram chat one daily report. It lists
 every Block and Level with a linen difference of plus or minus 2 or more, including
 the linen type, Chambermaid use, In Bill quantity, and signed difference. A clear
 report is also sent when no level is flagged. Long reports are split into multiple
@@ -104,7 +104,7 @@ One-time setup on the always-on printer-bridge PC:
    "Hallmark Daily Operations Telegram Report" for 9:00 AM every day.
 4. It creates "Hallmark HK Morning Review" for 8:30 AM every day.
 5. It also creates "Hallmark Chambermaid Save Reminder" for 5:00 PM every day.
-6. It creates "Hallmark Linen Difference Follow-up" for 5:30 PM every day.
+6. It creates "Hallmark Linen Difference Follow-up" for 6:00 PM every day.
 7. If the PC is off at a scheduled time, Windows runs it as soon as possible
    after startup. The server keeps a daily audit so the same reminder is not sent twice.
 

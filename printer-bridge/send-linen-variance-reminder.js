@@ -44,7 +44,7 @@ async function main() {
   }
 
   if (payload.alreadySent) {
-    console.log('The 5:30 PM linen difference follow-up was already sent today.');
+    console.log('The 6:00 PM linen difference follow-up was already sent today.');
   } else {
     console.log(
       `Linen follow-up sent with ${Number(payload.findingCount || 0)} flagged difference(s).`
