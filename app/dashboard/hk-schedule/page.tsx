@@ -158,6 +158,7 @@ export default function HousekeepingSchedulePage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tab, setTab] = useState<'SCHEDULE' | 'REPORT'>('SCHEDULE');
@@ -408,6 +409,21 @@ export default function HousekeepingSchedulePage() {
     await loadData();
   }
 
+  async function downloadSchedulePdf() {
+    if (loading || exportingPdf || !staff.length) return;
+    setExportingPdf(true);
+    setError('');
+    try {
+      const { downloadHkSchedulePdf } = await import('../../../lib/hkSchedulePdf');
+      downloadHkSchedulePdf({ month, staff, entries });
+      flash(`A4 schedule for ${formatMonthRangeDDMMYYYY(month, month)} downloaded.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to create the schedule PDF');
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   if (authLoading) return <PageState title="Checking access..." />;
   if (!profile || !canAccess) {
     return <PageState title="Housekeeping Schedule" message={error || 'You do not have access to this page.'} />;
@@ -421,16 +437,22 @@ export default function HousekeepingSchedulePage() {
           <h1>Schedule</h1>
           <p>Plan monthly shifts, record attendance, and review punctuality from one timetable.</p>
         </div>
-        {canEdit ? (
-          <div className={styles.heroActions}>
+        <div className={styles.heroActions}>
+          <button className={styles.secondaryButton} disabled={loading || exportingPdf || !staff.length}
+            onClick={() => void downloadSchedulePdf()}>
+            {exportingPdf ? 'Preparing PDF...' : 'Download A4 PDF'}
+          </button>
+          {canEdit ? (
+            <>
             <button className={styles.autoFillButton} disabled={busy || !staff.some((person) => person.is_active)}
               onClick={() => void autoFillMonth()}>
               {busy ? 'Filling...' : '⚡ Auto Fill Month'}
             </button>
             <button className={styles.secondaryButton} onClick={() => setShowStaff(true)}>Staff</button>
             <button className={styles.secondaryButton} onClick={() => setShowShifts(true)}>Shift setup</button>
-          </div>
-        ) : <span className={styles.viewOnlyBadge}>View only</span>}
+            </>
+          ) : <span className={styles.viewOnlyBadge}>View only</span>}
+        </div>
       </section>
 
       {error ? <div className={styles.error}>{error}</div> : null}
