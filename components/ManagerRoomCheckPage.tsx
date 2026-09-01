@@ -569,6 +569,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingCheckId, setDeletingCheckId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<CheckStatus | 'ALL'>('OPEN');
   const [checks, setChecks] = useState<RoomCheck[]>([]);
   const [media, setMedia] = useState<CheckMedia[]>([]);
@@ -1963,8 +1964,13 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function deleteCheck(check: RoomCheck) {
     if (!supabase || profile?.role !== 'SUPERUSER') return;
-    if (!window.confirm(`Delete Manager Room Check for room ${check.room_number}?`)) return;
+    if (
+      !window.confirm(
+        `Permanently delete the Manager Room Check for room ${check.room_number}? Its linked dashboard task will also be deleted.`
+      )
+    ) return;
     setErrorMsg('');
+    setDeletingCheckId(check.id);
     try {
       await deleteDashboardReminderForCheck(check);
       const { error } = await supabase.from('manager_room_checks').delete().eq('id', check.id);
@@ -1975,6 +1981,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       await loadChecks();
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to delete room check.');
+    } finally {
+      setDeletingCheckId(null);
     }
   }
 
@@ -2383,10 +2391,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               const done = checkMedia.filter((item) => item.completed_at).length;
               const uploading = checkMedia.filter((item) => item.upload_status === 'uploading').length;
               const progress = total ? Math.round((done / total) * 100) : 0;
+              const canTakePhoto = canManageContent && check.status !== 'DONE';
+              const canDeleteCheck = profile?.role === 'SUPERUSER';
               return (
                 <div
                   key={check.id}
-                  className="mrc-row"
+                  className={`mrc-row ${canTakePhoto || canDeleteCheck ? 'has-actions' : ''}`}
                 >
                   <button
                     className="mrc-row-open"
@@ -2413,20 +2423,34 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                     </span>
                     <span className={`mrc-bar ${uploading ? 'is-uploading' : ''}`}><span style={{ width: `${uploading ? 100 : progress}%` }} /></span>
                   </button>
-                  {canManageContent && check.status !== 'DONE' ? (
-                    <label className="mrc-camera-button" title="Take photo for this room">
-                      <CameraIcon />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) void addCameraPhotoToCheck(check, file);
-                          e.currentTarget.value = '';
-                        }}
-                      />
-                    </label>
+                  {canTakePhoto || canDeleteCheck ? (
+                    <div className="mrc-row-actions">
+                      {canTakePhoto ? (
+                        <label className="mrc-camera-button" title="Take photo for this room">
+                          <CameraIcon />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void addCameraPhotoToCheck(check, file);
+                              e.currentTarget.value = '';
+                            }}
+                          />
+                        </label>
+                      ) : null}
+                      {canDeleteCheck ? (
+                        <button
+                          type="button"
+                          className="mrc-row-delete"
+                          disabled={deletingCheckId === check.id}
+                          onClick={() => void deleteCheck(check)}
+                        >
+                          {deletingCheckId === check.id ? 'Deleting...' : 'Delete'}
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               );
@@ -2763,8 +2787,13 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               </button>
             ) : null}
             {profile?.role === 'SUPERUSER' ? (
-              <button type="button" className="mrc-danger" onClick={() => void deleteCheck(selectedCheck)}>
-                Delete Check
+              <button
+                type="button"
+                className="mrc-danger"
+                disabled={deletingCheckId === selectedCheck.id}
+                onClick={() => void deleteCheck(selectedCheck)}
+              >
+                {deletingCheckId === selectedCheck.id ? 'Deleting...' : 'Delete Check'}
               </button>
             ) : null}
           </div>
@@ -3326,9 +3355,12 @@ function StyleBlock() {
         border-radius: 16px;
         padding: 10px;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 54px;
+        grid-template-columns: minmax(0, 1fr);
         gap: 10px;
         align-items: stretch;
+      }
+      .mrc-row.has-actions {
+        grid-template-columns: minmax(0, 1fr) 88px;
       }
       .mrc-row-open {
         appearance: none;
@@ -3363,6 +3395,30 @@ function StyleBlock() {
       }
       .mrc-camera-button input {
         display: none;
+      }
+      .mrc-row-actions {
+        display: grid;
+        gap: 7px;
+        align-content: stretch;
+      }
+      .mrc-row-delete {
+        min-height: 40px;
+        border: 1px solid #fecaca;
+        background: #fff1f2;
+        color: #dc2626;
+        border-radius: 12px;
+        padding: 0 8px;
+        font-size: 12px;
+        font-weight: 950;
+        cursor: pointer;
+      }
+      .mrc-row-delete:hover:not(:disabled) {
+        background: #ffe4e6;
+        border-color: #fda4af;
+      }
+      .mrc-row-delete:disabled {
+        cursor: wait;
+        opacity: .65;
       }
       .mrc-room {
         color: #2563eb;
@@ -4655,8 +4711,8 @@ function StyleBlock() {
         .mrc-summary {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-        .mrc-row {
-          grid-template-columns: minmax(0, 1fr) 50px;
+        .mrc-row.has-actions {
+          grid-template-columns: minmax(0, 1fr) 78px;
         }
         .mrc-row-open {
           grid-template-columns: 1fr;
