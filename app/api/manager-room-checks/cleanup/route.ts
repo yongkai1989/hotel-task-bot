@@ -7,7 +7,7 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 type DepartmentCode = 'MT' | 'HK';
-const MANAGER_ROOM_CHECK_RETENTION_DAYS = 180;
+const MANAGER_ROOM_CHECK_RETENTION_DAYS = 60;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
