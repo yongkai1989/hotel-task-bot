@@ -18,7 +18,8 @@ const MAX_VISIBLE_ITEMS = 12;
 type ReminderKind =
   | 'CHAMBERMAID_5PM'
   | 'PREVENTIVE_MAINTENANCE_9AM'
-  | 'LINEN_VARIANCE_530PM';
+  | 'LINEN_VARIANCE_530PM'
+  | 'HK_MORNING_REVIEW_830AM';
 
 type LinenVarianceItem = {
   key?: string;
@@ -37,8 +38,72 @@ type LinenAreaFlag = {
 
 type LinenVarianceReport = {
   threshold?: number;
+  month_start?: string;
   current_areas_compared?: number;
   current_flags?: LinenAreaFlag[];
+  monthly_top?: MonthlyFloorFlag[];
+};
+
+type MonthlyFloorFlag = {
+  rank?: number;
+  block_no?: number;
+  floor_no?: number;
+  flagged_days?: number;
+  days_compared?: number;
+  latest_flag_date?: string;
+};
+
+type DailyChecklistRow = {
+  source_type?: string;
+  title?: string;
+  owner_name?: string;
+  owner_email?: string;
+  status?: string;
+  is_required?: boolean;
+};
+
+type SpecialProjectRow = {
+  title?: string;
+  status?: string;
+  progress_percent?: number;
+  rooms_done_on_date?: number;
+  moving_today?: boolean;
+};
+
+type DailyLinenItem = {
+  label?: string;
+  previous_in_bill?: number;
+  returned?: number;
+};
+
+type DailyOperationsSummary = {
+  checklists?: DailyChecklistRow[];
+  special_projects?: SpecialProjectRow[];
+  rooms?: {
+    linen_rooms_expected?: number;
+    linen_rooms_saved?: number;
+    linen_rooms_missing?: string[];
+    open_manager_room_checks?: number;
+    open_manager_rooms?: string[];
+  };
+  linen?: {
+    bill_saved?: boolean;
+    bill_saved_rows?: number;
+    bill_expected_rows?: number;
+    previous_bill_service_date?: string;
+    return_saved?: boolean;
+    return_saved_rows?: number;
+    return_expected_rows?: number;
+    return_service_date?: string;
+    items?: DailyLinenItem[];
+  };
+};
+
+type HkTaskRow = {
+  task_code?: string;
+  room?: string;
+  task_text?: string;
+  created_at?: string;
 };
 
 type SupervisorChecklistPerson = {
@@ -61,17 +126,18 @@ const HOUSEKEEPING_SUPERVISORS: SupervisorChecklistPerson[] = [
   { email: 'hksup3@hotelhallmark.com', name: 'Sulaiman' },
 ];
 
-function singaporeDate() {
+function singaporeDate(offsetDays = 0) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: SINGAPORE_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(new Date());
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-  return `${year}-${month}-${day}`;
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  const shifted = new Date(Date.UTC(year, month - 1, day + offsetDays));
+  return shifted.toISOString().slice(0, 10);
 }
 
 function displayDate(value: string) {
@@ -87,6 +153,9 @@ function requestedKind(request: NextRequest): ReminderKind | null {
   }
   if (kind === 'linen-variance' || kind === 'linen' || kind === 'linen-530pm') {
     return 'LINEN_VARIANCE_530PM';
+  }
+  if (kind === 'hk-morning-review' || kind === 'hk-review' || kind === 'hk-830am') {
+    return 'HK_MORNING_REVIEW_830AM';
   }
   return null;
 }
@@ -119,6 +188,11 @@ async function sendTelegramMessage(chatId: string, text: string, failureLabel: s
 
 function signed(value: number) {
   return value > 0 ? `+${value}` : String(value);
+}
+
+function numeric(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function telegramChunks(lines: string[], continuationTitle: string) {
@@ -220,6 +294,181 @@ async function supervisorChecklistStatus(today: string): Promise<SupervisorCheck
     required,
     submitted,
     pending,
+  };
+}
+
+function checklistReviewLine(label: string, rows: DailyChecklistRow[]) {
+  const required = rows.filter((row) => row.is_required !== false);
+  if (!required.length) return `• ${label}: ➖ Not scheduled`;
+  const submitted = required.filter((row) => String(row.status || '').toUpperCase() === 'SUBMITTED');
+  const pending = required.filter((row) => String(row.status || '').toUpperCase() !== 'SUBMITTED');
+  if (!pending.length) return `• ${label}: ✅ Done (${submitted.length}/${required.length})`;
+  const pendingNames = Array.from(new Set(
+    pending.map((row) => String(row.owner_name || row.title || 'Unassigned').trim()).filter(Boolean)
+  ));
+  return `• ${label}: ❌ ${submitted.length}/${required.length} done — pending ${pendingNames.join(', ')}`;
+}
+
+async function hkMorningReviewReminder(today: string) {
+  const reportDate = singaporeDate(-1);
+  const [yesterdayResult, todayResult, varianceResult, taskResult] = await Promise.all([
+    supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
+    supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: today }),
+    supabaseAdmin.rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate }),
+    supabaseAdmin
+      .from('tasks')
+      .select('task_code, room, task_text, created_at')
+      .eq('status', 'OPEN')
+      .eq('department', 'HK')
+      .order('created_at', { ascending: true }),
+  ]);
+  if (yesterdayResult.error) throw yesterdayResult.error;
+  if (todayResult.error) throw todayResult.error;
+  if (varianceResult.error) throw varianceResult.error;
+  if (taskResult.error) throw taskResult.error;
+
+  const yesterday = (yesterdayResult.data || {}) as DailyOperationsSummary;
+  const todaySummary = (todayResult.data || {}) as DailyOperationsSummary;
+  const variance = (varianceResult.data || {}) as LinenVarianceReport;
+  const checklists = yesterday.checklists || [];
+  const paRows = checklists.filter((row) => row.source_type === 'PA_CHECKLIST');
+  const supervisorRows = checklists.filter((row) => row.source_type === 'SUPERVISOR_CHECKLIST');
+  const premRows = checklists.filter((row) => {
+    const ownerName = String(row.owner_name || '').trim().toLowerCase();
+    const ownerEmail = String(row.owner_email || '').trim().toLowerCase();
+    return row.source_type === 'DAILY_FORM' && (ownerName === 'prem' || ownerEmail === 'manager@hotelhallmark.com');
+  });
+  const projects = yesterday.special_projects || [];
+  const yesterdayRooms = yesterday.rooms || {};
+  const yesterdayLinen = yesterday.linen || {};
+  const returnLinen = todaySummary.linen || {};
+  const returnItems = returnLinen.items || [];
+  const monthlyTop = (variance.monthly_top || []).slice(0, 5);
+  const hkTasks = (taskResult.data || []) as HkTaskRow[];
+  const managerRoomCount = numeric(todaySummary.rooms?.open_manager_room_checks);
+  const managerRooms = todaySummary.rooms?.open_manager_rooms || [];
+  const missingRooms = yesterdayRooms.linen_rooms_missing || [];
+
+  const incompleteChecklistCount = [...paRows, ...supervisorRows, ...premRows].filter(
+    (row) => row.is_required !== false && String(row.status || '').toUpperCase() !== 'SUBMITTED'
+  ).length;
+  const findingCount =
+    incompleteChecklistCount +
+    projects.filter((project) => !project.moving_today).length +
+    hkTasks.length +
+    managerRoomCount +
+    missingRooms.length +
+    (yesterdayLinen.bill_saved ? 0 : 1) +
+    (returnLinen.return_saved ? 0 : 1);
+
+  const lines = [
+    '🌅 8:30 AM HK MORNING REVIEW',
+    `Yesterday: ${displayDate(reportDate)}`,
+    '',
+    '📋 CHECKLISTS',
+    checklistReviewLine('PA Checklist', paRows),
+    checklistReviewLine('HK Supervisor Checklist', supervisorRows),
+    checklistReviewLine("Prem's Checklist", premRows),
+    '',
+    '🧹 HK SPECIAL PROJECTS',
+  ];
+
+  if (!projects.length) {
+    lines.push('• No active special projects.');
+  } else {
+    for (const project of projects) {
+      const movement = project.moving_today
+        ? `+${numeric(project.rooms_done_on_date)} room(s) yesterday`
+        : 'no movement yesterday';
+      lines.push(
+        `• ${project.title || 'Untitled'}: ${numeric(project.progress_percent)}% | ${movement}${project.status === 'OVERDUE' ? ' ⚠️ OVERDUE' : ''}`
+      );
+    }
+  }
+
+  const billDate = String(returnLinen.previous_bill_service_date || reportDate);
+  const returnDate = String(returnLinen.return_service_date || reportDate);
+  lines.push(
+    '',
+    '🧺 IN BILL VS LAUNDRY RETURN',
+    `• In Bill date: ${displayDate(billDate)}`,
+    `• Return record date: ${displayDate(returnDate)}`
+  );
+  for (const item of returnItems) {
+    const inBill = numeric(item.previous_in_bill);
+    const returned = numeric(item.returned);
+    lines.push(
+      `• ${item.label || 'Linen'}: In Bill ${inBill} | Returned ${returned} | Difference ${signed(returned - inBill)}`
+    );
+  }
+  lines.push('Positive = Returned is higher; negative = In Bill is higher.');
+
+  lines.push('', `🚩 TOP 5 FLAGGED FLOORS — ${displayDate(String(variance.month_start || reportDate))} to ${displayDate(reportDate)}`);
+  if (!monthlyTop.length) {
+    lines.push('• No flagged floors for the month.');
+  } else {
+    for (const floor of monthlyTop) {
+      lines.push(
+        `• #${numeric(floor.rank)} Block ${numeric(floor.block_no)} Level ${numeric(floor.floor_no)}: ${numeric(floor.flagged_days)} flagged day(s) out of ${numeric(floor.days_compared)} compared`
+      );
+    }
+  }
+
+  lines.push('', `📝 OPEN HK TASKS — ${hkTasks.length}`);
+  if (!hkTasks.length) {
+    lines.push('• No open HK tasks.');
+  } else {
+    for (const task of hkTasks) {
+      lines.push(
+        `• ${task.task_code || 'Task'} | Room ${task.room || '-'} | ${task.task_text || 'No description'}`
+      );
+    }
+  }
+  lines.push(
+    `• Manager Room Checks: ${managerRoomCount ? `❌ ${managerRoomCount} open` : '✅ none open'}`
+  );
+  if (managerRooms.length) lines.push(`• Rooms: ${managerRooms.join(', ')}`);
+
+  const expectedRooms = numeric(yesterdayRooms.linen_rooms_expected);
+  const savedRooms = numeric(yesterdayRooms.linen_rooms_saved);
+  const billSavedRows = numeric(yesterdayLinen.bill_saved_rows);
+  const billExpectedRows = numeric(yesterdayLinen.bill_expected_rows) || 8;
+  const returnSavedRows = numeric(returnLinen.return_saved_rows);
+  const returnExpectedRows = numeric(returnLinen.return_expected_rows) || 2;
+  lines.push(
+    '',
+    '💾 YESTERDAY SAVE STATUS',
+    `• Pending rooms saved: ${savedRooms}/${expectedRooms}${missingRooms.length ? ' ❌' : ' ✅'}`,
+    `• In Bill saved (${displayDate(reportDate)}): ${billSavedRows}/${billExpectedRows}${yesterdayLinen.bill_saved ? ' ✅' : ' ❌'}`,
+    `• Return saved (bill date ${displayDate(returnDate)}): ${returnSavedRows}/${returnExpectedRows}${returnLinen.return_saved ? ' ✅' : ' ❌'}`
+  );
+  if (missingRooms.length) lines.push(`• Missing rooms: ${missingRooms.join(', ')}`);
+  lines.push('', 'Please follow up on every ❌ item immediately.');
+
+  const messages = telegramChunks(lines, '🌅 8:30 AM HK MORNING REVIEW (CONTINUED)');
+  const telegramMessageIds: number[] = [];
+  for (const message of messages) {
+    const messageId = await sendTelegramMessage(HK_TASK_CHAT_ID, message, 'HK morning review');
+    if (messageId) telegramMessageIds.push(messageId);
+  }
+
+  return {
+    findingCount,
+    delivered: 0,
+    attempted: messages.length,
+    telegramMessageId: telegramMessageIds[0] || null,
+    alwaysSent: true,
+    details: {
+      reportDate,
+      incompleteChecklistCount,
+      projectCount: projects.length,
+      openHkTaskCount: hkTasks.length,
+      openManagerRoomChecks: managerRoomCount,
+      missingRoomCount: missingRooms.length,
+      billSaved: Boolean(yesterdayLinen.bill_saved),
+      returnSaved: Boolean(returnLinen.return_saved),
+      telegramMessageIds,
+    },
   };
 }
 
@@ -478,7 +727,7 @@ export async function GET(request: NextRequest) {
   const reminderType = requestedKind(request);
   if (!reminderType) {
     return NextResponse.json(
-      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, or kind=linen-variance' },
+      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-variance, or kind=hk-morning-review' },
       { status: 400 }
     );
   }
@@ -521,7 +770,9 @@ export async function GET(request: NextRequest) {
       ? await chambermaidReminder(notificationDate)
       : reminderType === 'LINEN_VARIANCE_530PM'
         ? await linenVarianceReminder(notificationDate)
-        : await preventiveMaintenanceReminder(notificationDate);
+        : reminderType === 'HK_MORNING_REVIEW_830AM'
+          ? await hkMorningReviewReminder(notificationDate)
+          : await preventiveMaintenanceReminder(notificationDate);
     const status = result.findingCount > 0 || ('alwaysSent' in result && result.alwaysSent)
       ? 'SENT'
       : 'NOT_NEEDED';

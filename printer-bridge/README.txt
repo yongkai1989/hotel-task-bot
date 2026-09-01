@@ -75,6 +75,15 @@ The same 9:00 AM run now also checks overdue Preventive Maintenance. When anythi
 is overdue, Izzuddin and Yazid receive Web Push and the MT Tasks Telegram chat gets
 the overdue task list.
 
+HK morning review:
+A separate 8:30 AM Windows task sends the HK Telegram chat a review of yesterday.
+It includes PA, scheduled HK Supervisor, and Prem checklist completion; HK Special
+Project progress and yesterday's movement; every linen type's In Bill versus Return
+quantity and signed variance; the current monthly top five flagged Block/Levels;
+all open HK tasks and Manager Room Checks; and room, In Bill, and Return save status.
+Long reports are split safely so no open HK task is omitted. It does not poll and
+does not use Vercel Cron.
+
 Chambermaid save reminder:
 The installer also creates a separate 5:00 PM Windows task. It checks today's
 CHECKOUT and STAYOVER rooms once. If any required Chambermaid entries remain
@@ -93,9 +102,10 @@ One-time setup on the always-on printer-bridge PC:
 2. Right-click install-daily-operations-report-task.ps1 and choose "Run with PowerShell".
 3. The installer creates a Windows Task Scheduler task named
    "Hallmark Daily Operations Telegram Report" for 9:00 AM every day.
-4. It also creates "Hallmark Chambermaid Save Reminder" for 5:00 PM every day.
-5. It creates "Hallmark Linen Difference Follow-up" for 5:30 PM every day.
-6. If the PC is off at a scheduled time, Windows runs it as soon as possible
+4. It creates "Hallmark HK Morning Review" for 8:30 AM every day.
+5. It also creates "Hallmark Chambermaid Save Reminder" for 5:00 PM every day.
+6. It creates "Hallmark Linen Difference Follow-up" for 5:30 PM every day.
+7. If the PC is off at a scheduled time, Windows runs it as soon as possible
    after startup. The server keeps a daily audit so the same reminder is not sent twice.
 
 To test the report once without changing the schedule, double-click
