@@ -7,6 +7,7 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 type DepartmentCode = 'MT' | 'HK';
+const MANAGER_ROOM_CHECK_RETENTION_DAYS = 180;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -48,7 +49,9 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Access denied' }, 403);
     }
 
-    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const cutoff = new Date(
+      Date.now() - MANAGER_ROOM_CHECK_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
 
     const { data: doneChecks, error: oldChecksError } = await supabaseAdmin
       .from('manager_room_checks')
