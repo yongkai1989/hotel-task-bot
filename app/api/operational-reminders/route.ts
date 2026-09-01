@@ -491,7 +491,13 @@ async function linenVarianceReminder(today: string) {
 
   const report = (data || {}) as LinenVarianceReport;
   const threshold = Number(report.threshold || 2);
-  const areaFlags = Array.isArray(report.current_flags) ? report.current_flags : [];
+  const areaFlags = Array.isArray(report.current_flags)
+    ? [...report.current_flags].sort((left, right) => {
+        const blockDifference = Number(left.block_no || 0) - Number(right.block_no || 0);
+        if (blockDifference !== 0) return blockDifference;
+        return Number(left.floor_no || 0) - Number(right.floor_no || 0);
+      })
+    : [];
   const findingCount = areaFlags.reduce(
     (total, area) => total + (Array.isArray(area.flagged_items) ? area.flagged_items.length : 0),
     0
