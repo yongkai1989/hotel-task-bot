@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 import { loadLinenRoomTypeMap } from '../../../lib/linenRoomTypeMapClient';
+import ChambermaidDefectCapture from '../../../components/ChambermaidDefectCapture';
 
 type DashboardUser = {
   user_id?: string;
@@ -947,7 +948,19 @@ export default function ChambermaidEntryPage() {
                 >
                   <div style={styles.roomCardHeader}>
                     <div>
-                      <div style={styles.roomNo}>{room.room_number}</div>
+                      <div style={styles.roomTitleRow}>
+                        <div style={styles.roomNo}>{room.room_number}</div>
+                        <ChambermaidDefectCapture
+                          roomNumber={room.room_number}
+                          serviceDate={serviceDate}
+                          onSubmitted={(mediaCount, warning) => {
+                            setErrorMsg(warning ? `Task created, but Telegram needs attention: ${warning}` : '');
+                            setSuccessMsg(
+                              `Room ${room.room_number} defect sent to Maintenance with ${mediaCount} media item${mediaCount === 1 ? '' : 's'}.`
+                            );
+                          }}
+                        />
+                      </div>
                       <div style={styles.roomType}>{room.room_type}</div>
                     </div>
                     <div
@@ -1270,6 +1283,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#0f172a',
     lineHeight: 1,
+  },
+  roomTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap',
   },
   roomType: {
     fontSize: '13px',
