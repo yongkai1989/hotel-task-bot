@@ -195,7 +195,7 @@ create table if not exists public.cash_excess_withdrawals (
   folio_number text not null check (length(trim(folio_number)) > 0),
   reason_for_excess text not null check (length(trim(reason_for_excess)) > 0),
   error_staff_name text not null check (length(trim(error_staff_name)) > 0),
-  withdrawn_amount numeric(12,2) not null check (withdrawn_amount > 0),
+  withdrawn_amount numeric(12,2) not null check (withdrawn_amount >= 0),
   withdrawn_by_user_id uuid not null,
   withdrawn_by_name text not null,
   withdrawn_by_email text not null,
@@ -207,6 +207,13 @@ alter table public.cash_excess_withdrawals
   alter column cash_entry_id drop not null,
   add column if not exists manual_cash_entry_id uuid null,
   add column if not exists withdrawal_history jsonb not null default '[]'::jsonb;
+
+-- A fully reversed withdrawal has no active withdrawn amount, while its audit
+-- events remain in withdrawal_history. Negative active balances stay forbidden.
+alter table public.cash_excess_withdrawals
+  drop constraint if exists cash_excess_withdrawals_withdrawn_amount_check,
+  add constraint cash_excess_withdrawals_withdrawn_amount_check
+  check (withdrawn_amount >= 0);
 
 update public.cash_excess_withdrawals
 set withdrawal_history = jsonb_build_array(
