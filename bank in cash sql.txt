@@ -861,6 +861,7 @@ begin
   limit 1;
 
   v_event := jsonb_build_object(
+    'event_type', 'WITHDRAWAL',
     'amount', v_withdraw_amount,
     'folio_number', v_folio_number,
     'reason_for_excess', v_reason,
@@ -910,6 +911,123 @@ begin
     )
     returning * into v_withdrawal;
   end if;
+
+  return v_withdrawal;
+end;
+$$;
+
+create or replace function public.reverse_latest_excess_cash_withdrawal(
+  p_cash_entry_id uuid,
+  p_reason text
+)
+returns public.cash_excess_withdrawals
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_entry public.fo_checklist_cash_entries%rowtype;
+  v_manual_entry public.cash_manual_entries%rowtype;
+  v_withdrawal public.cash_excess_withdrawals%rowtype;
+  v_profile public.user_profiles%rowtype;
+  v_history jsonb;
+  v_event jsonb;
+  v_event_type text;
+  v_reason text := trim(coalesce(p_reason, ''));
+  v_index integer;
+  v_reversals_to_skip integer := 0;
+  v_reverse_amount numeric(12,2) := 0;
+begin
+  if not public.is_cash_bank_in_superuser() then
+    raise exception 'Only SUPERUSER can reverse an excess cash withdrawal';
+  end if;
+  if p_cash_entry_id is null then
+    raise exception 'Excess cash transaction is required';
+  end if;
+  if v_reason = '' then
+    raise exception 'Reason for reversal is required';
+  end if;
+
+  select * into v_entry
+  from public.fo_checklist_cash_entries
+  where id = p_cash_entry_id
+  for update;
+
+  if found then
+    if v_entry.excess_bank_in_id is not null then
+      raise exception 'Reverse the linked excess cash bank-in first';
+    end if;
+  else
+    select * into v_manual_entry
+    from public.cash_manual_entries
+    where id = p_cash_entry_id
+    for update;
+
+    if not found then
+      raise exception 'Excess cash transaction not found';
+    end if;
+    if v_manual_entry.excess_bank_in_id is not null then
+      raise exception 'Reverse the linked excess cash bank-in first';
+    end if;
+  end if;
+
+  select * into v_withdrawal
+  from public.cash_excess_withdrawals
+  where cash_entry_id = p_cash_entry_id
+     or manual_cash_entry_id = p_cash_entry_id
+  for update;
+
+  if not found or v_withdrawal.withdrawn_amount <= 0 then
+    raise exception 'There is no active withdrawal to reverse';
+  end if;
+
+  v_history := coalesce(v_withdrawal.withdrawal_history, '[]'::jsonb);
+  v_index := jsonb_array_length(v_history) - 1;
+  while v_index >= 0 loop
+    v_event := v_history -> v_index;
+    v_event_type := upper(coalesce(v_event ->> 'event_type', 'WITHDRAWAL'));
+    if v_event_type = 'REVERSAL' then
+      v_reversals_to_skip := v_reversals_to_skip + 1;
+    elsif v_event_type = 'WITHDRAWAL' then
+      if v_reversals_to_skip > 0 then
+        v_reversals_to_skip := v_reversals_to_skip - 1;
+      else
+        v_reverse_amount := round(coalesce((v_event ->> 'amount')::numeric, 0), 2);
+        exit;
+      end if;
+    end if;
+    v_index := v_index - 1;
+  end loop;
+
+  if v_reverse_amount <= 0 then
+    raise exception 'Unable to identify the latest active withdrawal';
+  end if;
+  if v_reverse_amount > v_withdrawal.withdrawn_amount then
+    raise exception 'Withdrawal audit is inconsistent; no balance was changed';
+  end if;
+
+  select * into v_profile
+  from public.user_profiles
+  where user_id = auth.uid()
+  limit 1;
+
+  update public.cash_excess_withdrawals
+  set withdrawn_amount = round(withdrawn_amount - v_reverse_amount, 2),
+      withdrawn_by_user_id = auth.uid(),
+      withdrawn_by_name = coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+      withdrawn_by_email = coalesce(v_profile.email, ''),
+      withdrawn_at = now(),
+      withdrawal_history = v_history || jsonb_build_array(jsonb_build_object(
+        'event_type', 'REVERSAL',
+        'amount', v_reverse_amount,
+        'reversal_reason', v_reason,
+        'reversed_event_index', v_index,
+        'reversed_by_name', coalesce(v_profile.name, v_profile.email, 'SUPERUSER'),
+        'reversed_by_email', coalesce(v_profile.email, ''),
+        'reversed_at', now()
+      ))
+  where id = v_withdrawal.id
+  returning * into v_withdrawal;
 
   return v_withdrawal;
 end;
@@ -1961,10 +2079,12 @@ revoke all on function public.add_manual_cash_entry(date, text, numeric, numeric
 revoke all on function public.amend_fo_cash_entry(uuid, numeric, text) from public, anon;
 revoke all on function public.withdraw_excess_cash(uuid, numeric, text, text, text) from public, anon;
 revoke all on function public.withdraw_excess_cash(uuid, text, text, text) from public, anon;
+revoke all on function public.reverse_latest_excess_cash_withdrawal(uuid, text) from public, anon;
 grant execute on function public.add_manual_cash_entry(date, text, numeric, numeric) to authenticated;
 grant execute on function public.amend_fo_cash_entry(uuid, numeric, text) to authenticated;
 grant execute on function public.withdraw_excess_cash(uuid, numeric, text, text, text) to authenticated;
 grant execute on function public.withdraw_excess_cash(uuid, text, text, text) to authenticated;
+grant execute on function public.reverse_latest_excess_cash_withdrawal(uuid, text) to authenticated;
 revoke all on function public.create_cash_bank_in(uuid[], uuid[], uuid[], numeric, date, text[]) from public, anon;
 grant execute on function public.create_cash_bank_in(uuid[], uuid[], uuid[], numeric, date, text[]) to authenticated;
 grant execute on function public.reverse_cash_bank_in(uuid, text) to authenticated;

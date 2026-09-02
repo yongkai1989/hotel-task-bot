@@ -81,6 +81,7 @@ type ExcessWithdrawal = {
 };
 
 type ExcessWithdrawalEvent = {
+  event_type?: 'WITHDRAWAL' | 'REVERSAL';
   amount?: number;
   folio_number?: string;
   reason_for_excess?: string;
@@ -88,6 +89,15 @@ type ExcessWithdrawalEvent = {
   withdrawn_by_name?: string;
   withdrawn_by_email?: string;
   withdrawn_at?: string;
+  reversal_reason?: string;
+  reversed_by_name?: string;
+  reversed_by_email?: string;
+  reversed_at?: string;
+};
+
+type WithdrawalReversalTarget = {
+  entry: ExcessLedgerRow;
+  amount: number;
 };
 
 type BankInSource = {
@@ -253,6 +263,25 @@ function normaliseReceiptPaths(value: unknown): string[] {
   }
 }
 
+function latestActiveWithdrawalAmount(events: ExcessWithdrawalEvent[], fallbackAmount: number) {
+  let reversalsToSkip = 0;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    const eventType = String(event.event_type || 'WITHDRAWAL').toUpperCase();
+    if (eventType === 'REVERSAL') {
+      reversalsToSkip += 1;
+      continue;
+    }
+    if (reversalsToSkip > 0) {
+      reversalsToSkip -= 1;
+      continue;
+    }
+    const amount = Number(event.amount || 0);
+    if (amount > 0) return amount;
+  }
+  return Math.max(0, Number(fallbackAmount || 0));
+}
+
 async function compressReceipt(file: File): Promise<Blob> {
   if (!file.type.startsWith('image/')) throw new Error(`${file.name} is not an image.`);
 
@@ -347,6 +376,9 @@ export default function BankInCashPage() {
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawStaffName, setWithdrawStaffName] = useState('');
   const [withdrawingExcess, setWithdrawingExcess] = useState(false);
+  const [withdrawalReversalTarget, setWithdrawalReversalTarget] = useState<WithdrawalReversalTarget | null>(null);
+  const [withdrawalReversalReason, setWithdrawalReversalReason] = useState('');
+  const [reversingWithdrawal, setReversingWithdrawal] = useState(false);
   const [sourcePicker, setSourcePicker] = useState<SourcePicker | null>(null);
 
   const role = normalizeRole(profile?.role || profile?.user_role || profile?.app_role);
@@ -864,6 +896,32 @@ export default function BankInCashPage() {
     setWithdrawingExcess(false);
   };
 
+  const reverseLatestWithdrawal = async () => {
+    if (!withdrawalReversalTarget) return;
+    if (!withdrawalReversalReason.trim()) return setError('Enter the reason for reversing this withdrawal.');
+
+    setReversingWithdrawal(true);
+    setError('');
+    setMessage('');
+    const { error: reversalError } = await supabase.rpc('reverse_latest_excess_cash_withdrawal', {
+      p_cash_entry_id: withdrawalReversalTarget.entry.id,
+      p_reason: withdrawalReversalReason.trim(),
+    });
+
+    if (reversalError) {
+      setError(reversalError.message);
+    } else {
+      const restoredBalance = Number(withdrawalReversalTarget.entry.excess_amount) + withdrawalReversalTarget.amount;
+      setMessage(
+        `${money.format(withdrawalReversalTarget.amount)} withdrawal reversed. ${money.format(restoredBalance)} is available in Excess Cash.`,
+      );
+      setWithdrawalReversalTarget(null);
+      setWithdrawalReversalReason('');
+      await loadData();
+    }
+    setReversingWithdrawal(false);
+  };
+
   const submitBankIn = async () => {
     setError('');
     setMessage('');
@@ -1273,16 +1331,20 @@ export default function BankInCashPage() {
                     }]
                   : [];
               const fullyWithdrawn = !!withdrawal && row.excess_amount <= 0;
+              const activeWithdrawal = Number(row.withdrawn_amount) > 0;
+              const latestReversibleAmount = latestActiveWithdrawalAmount(withdrawalEvents, row.withdrawn_amount);
               const unavailable = !!row.excess_bank_in_id || row.excess_amount <= 0;
               return (
-                <article className={`compact-row excess-row ${row.excess_bank_in_id ? 'complete' : ''} ${fullyWithdrawn ? 'withdrawn' : withdrawal ? 'partly-withdrawn' : ''}`} key={row.id}>
+                <article className={`compact-row excess-row ${row.excess_bank_in_id ? 'complete' : ''} ${fullyWithdrawn ? 'withdrawn' : activeWithdrawal ? 'partly-withdrawn' : withdrawal ? 'withdrawal-reversed' : ''}`} key={row.id}>
                   <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!unavailable && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
                   <div className="excess-entry-copy">
                     <strong>{row.person_name}</strong>
                     <span>{formatDate(row.service_date)} | {row.shift_title}</span>
                     {withdrawalEvents.map((event, index) => (
-                      <span className="withdrawal-detail" key={`${withdrawal?.id || row.id}-${index}`}>
-                        Withdrew {money.format(Number(event.amount || 0))} | Folio {event.folio_number || '-'} | {event.reason_for_excess || '-'} | Error by {event.error_staff_name || '-'}
+                      <span className={`withdrawal-detail ${event.event_type === 'REVERSAL' ? 'reversal' : ''}`} key={`${withdrawal?.id || row.id}-${index}`}>
+                        {event.event_type === 'REVERSAL'
+                          ? `Reversed ${money.format(Number(event.amount || 0))} | ${event.reversal_reason || 'No reason'} | By ${event.reversed_by_name || '-'}`
+                          : `Withdrew ${money.format(Number(event.amount || 0))} | Folio ${event.folio_number || '-'} | ${event.reason_for_excess || '-'} | Error by ${event.error_staff_name || '-'}`}
                       </span>
                     ))}
                   </div>
@@ -1292,8 +1354,21 @@ export default function BankInCashPage() {
                     {withdrawal ? <del>Original {money.format(Number(row.original_excess_amount))}</del> : null}
                   </b>
                   <div className="excess-row-actions">
-                    <em>{row.excess_bank_in_id ? 'Banked' : fullyWithdrawn ? 'Withdrawn' : withdrawal ? 'Partly withdrawn' : 'Open'}</em>
+                    <em>{row.excess_bank_in_id ? 'Banked' : fullyWithdrawn ? 'Withdrawn' : activeWithdrawal ? 'Partly withdrawn' : withdrawal ? 'Open · withdrawal reversed' : 'Open'}</em>
                     {!unavailable ? <button type="button" className="withdraw-button" onClick={() => openExcessWithdrawal(row)}>Withdraw</button> : null}
+                    {isSuperuser && activeWithdrawal && !row.excess_bank_in_id && latestReversibleAmount > 0 ? (
+                      <button
+                        type="button"
+                        className="undo-withdrawal-button"
+                        onClick={() => {
+                          setWithdrawalReversalTarget({ entry: row, amount: latestReversibleAmount });
+                          setWithdrawalReversalReason('');
+                          setError('');
+                        }}
+                      >
+                        Undo Latest Withdrawal
+                      </button>
+                    ) : null}
                     {isSuperuser ? (
                       <button
                         type="button"
@@ -1305,7 +1380,7 @@ export default function BankInCashPage() {
                         Delete
                       </button>
                     ) : null}
-                    {withdrawal ? <small>Total withdrawn {money.format(Number(row.withdrawn_amount))} | Latest: {withdrawal.withdrawn_by_name} · {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
+                    {withdrawal ? <small>Total withdrawn {money.format(Number(row.withdrawn_amount))} | Latest audit: {withdrawal.withdrawn_by_name} · {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
                   </div>
                 </article>
               );
@@ -1572,6 +1647,22 @@ export default function BankInCashPage() {
         </div>
       ) : null}
 
+      {withdrawalReversalTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setWithdrawalReversalTarget(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="reverse-withdrawal-title">
+            <span className="danger-kicker">SUPERUSER CORRECTION</span>
+            <h2 id="reverse-withdrawal-title">Undo latest withdrawal?</h2>
+            <p>The amount will return to Excess Cash. The original withdrawal and this reversal will remain in the audit history.</p>
+            <div className="reverse-amount">{money.format(withdrawalReversalTarget.amount)}</div>
+            <label>Reason for reversal<textarea value={withdrawalReversalReason} onChange={(event) => setWithdrawalReversalReason(event.target.value)} placeholder="Explain why the withdrawal amount was incorrect" autoFocus /></label>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => { setWithdrawalReversalTarget(null); setWithdrawalReversalReason(''); }}>Cancel</button>
+              <button type="button" className="danger-solid" onClick={() => void reverseLatestWithdrawal()} disabled={reversingWithdrawal}>{reversingWithdrawal ? 'Reversing...' : 'Confirm Reversal'}</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {sourcePicker ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSourcePicker(null)}>
           <section className="modal source-picker-modal" role="dialog" aria-modal="true" aria-labelledby="source-picker-title">
@@ -1740,9 +1831,11 @@ function Styles() {
       .excess-row { grid-template-columns: 24px minmax(260px, 1fr) 120px minmax(150px, auto); }
       .excess-row.partly-withdrawn { border-color: #f4d39a; border-left-color: #e99a20; background: #fffaf2; }
       .excess-row.withdrawn { border-color: #d7dce5; border-left-color: #98a2b3; background: #f1f3f6; color: #667085; }
+      .excess-row.withdrawal-reversed { border-color: #b8ddc7; border-left-color: #168a50; background: #f3fbf6; }
       .excess-row.withdrawn > b { color: #7c8491; }
       .excess-entry-copy { min-width: 0; }
       .withdrawal-detail { margin-top: 4px; color: #5e6673 !important; font-weight: 750; }
+      .withdrawal-detail.reversal { color: #167348 !important; }
       .excess-balance { display: grid; justify-items: end; gap: 2px; }
       .excess-balance small { color: #667995; font-size: 9px; font-weight: 850; text-transform: uppercase; }
       .excess-balance del { color: #98a2b3; font-size: 9px; font-weight: 700; }
@@ -1751,6 +1844,8 @@ function Styles() {
       .excess-row-actions small { max-width: 210px; color: #7a8493; font-size: 10px; line-height: 1.3; }
       .withdraw-button { min-height: 32px; border: 1px solid #edb9b5; border-radius: 7px; padding: 6px 10px; color: #b42318; background: #fff5f4; font-size: 11px; font-weight: 900; cursor: pointer; }
       .withdraw-button:hover { border-color: #d92d20; background: #ffebe9; }
+      .undo-withdrawal-button { min-height: 32px; border: 1px solid #e7b765; border-radius: 7px; padding: 6px 10px; color: #8a4b08; background: #fff8e8; font-size: 11px; font-weight: 900; cursor: pointer; }
+      .undo-withdrawal-button:hover { border-color: #c77b12; background: #fff0cc; }
       .history-row { padding: 14px; display: grid; grid-template-columns: minmax(220px, .8fr) minmax(280px, 1.2fr) minmax(220px, 1fr); gap: 16px; align-items: center; }
       .history-row.reversed { opacity: .72; border-left-color: #d92d20; background: #fff7f6; }
       .history-main { display: grid; gap: 3px; }
