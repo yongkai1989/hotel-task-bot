@@ -577,6 +577,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [completingMediaId, setCompletingMediaId] = useState<string | null>(null);
   const [deletingCheckId, setDeletingCheckId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<CheckStatus | 'ALL'>('OPEN');
   const [checks, setChecks] = useState<RoomCheck[]>([]);
@@ -1898,9 +1899,40 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   }
 
   async function completeMedia(item: CheckMedia) {
-    if (!supabase || !profile) return;
+    if (!supabase || !profile || completingMediaId) return;
+    setCompletingMediaId(item.id);
     setErrorMsg('');
     try {
+      const parentCheck = checks.find((check) => check.id === item.check_id) || null;
+      const currentCheckItems = media.filter((mediaItem) => mediaItem.check_id === item.check_id);
+      const completesHousekeepingCheck =
+        department === 'HK' &&
+        parentCheck?.department === 'HK' &&
+        currentCheckItems.length > 0 &&
+        currentCheckItems.every(
+          (mediaItem) => mediaItem.id === item.id || Boolean(mediaItem.completed_at)
+        );
+
+      if (completesHousekeepingCheck && parentCheck) {
+        const maintenanceResult = await refreshLinkedMaintenanceStatuses();
+        if (maintenanceResult.error) {
+          setErrorMsg(
+            'Unable to verify the linked Maintenance status. Please refresh or check with MT before marking Housekeeping done.'
+          );
+          return;
+        }
+
+        const linkedStatus = maintenanceResult.links.find(
+          (link) => link.housekeeping_check_id === parentCheck.id
+        );
+        if (linkedStatus?.status === 'PENDING') {
+          const continueCompletion = window.confirm(
+            `Maintenance has not completed its assignment for Room ${parentCheck.room_number}.\n\nPlease follow up with MT before this room is changed from VD to VC or released for sale.\n\nDo you still want to mark the Housekeeping work as done?`
+          );
+          if (!continueCompletion) return;
+        }
+      }
+
       const now = new Date().toISOString();
       const { error } = await supabase
         .from('manager_room_check_media')
@@ -1927,7 +1959,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const checkItems = nextMedia.filter((mediaItem) => mediaItem.check_id === item.check_id);
       const allCompleted = checkItems.length > 0 && checkItems.every((mediaItem) => mediaItem.completed_at);
       if (allCompleted) {
-        const parentCheck = checks.find((check) => check.id === item.check_id) || null;
         const { error: checkError } = await supabase
           .from('manager_room_checks')
           .update({
@@ -1957,7 +1988,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         );
         if (parentCheck) {
           const synced = await syncDashboardReminderStatus(parentCheck, 'DONE');
-          if (department === 'HK') await refreshLinkedMaintenanceStatuses();
           setSuccessMsg(
             synced
               ? `Room check completed. ${synced} dashboard reminder${synced === 1 ? '' : 's'} marked done.`
@@ -1969,6 +1999,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       }
     } catch (error: any) {
       setErrorMsg(error?.message || 'Failed to complete media item.');
+    } finally {
+      setCompletingMediaId(null);
     }
   }
 
@@ -2772,8 +2804,13 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       Reopen
                     </button>
                   ) : (
-                    <button type="button" className="mrc-primary" onClick={() => void completeMedia(item)}>
-                      Mark Complete
+                    <button
+                      type="button"
+                      className="mrc-primary"
+                      disabled={Boolean(completingMediaId)}
+                      onClick={() => void completeMedia(item)}
+                    >
+                      {completingMediaId === item.id ? 'Checking MT...' : 'Mark Complete'}
                     </button>
                   )}
                   {canManageContent && !isUploading && !uploadFailed ? (

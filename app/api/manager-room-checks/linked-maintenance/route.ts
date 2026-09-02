@@ -94,17 +94,16 @@ export async function GET(req: NextRequest) {
       const candidates = maintenanceByRoom.get(room) || [];
       if (!candidates.length) return [];
 
-      // Any unfinished MT work for the same room is safety-critical, even if it was
-      // created earlier. Completed work is linked only when both department records
-      // were created as part of the same assignment.
-      const unfinished = candidates.find((candidate) => candidate.status !== 'DONE');
       const housekeepingCreatedAt = timestamp(housekeepingCheck.created_at);
       const sameAssignment = candidates.find(
         (candidate) =>
           Math.abs(timestamp(candidate.created_at) - housekeepingCreatedAt) <=
           SAME_ASSIGNMENT_WINDOW_MS
       );
-      const linkedMaintenance = unfinished || sameAssignment;
+      // HK and MT rows created from one Manager Room Check are only seconds apart.
+      // The time window prevents an unrelated older MT job for the same room number
+      // from causing a false warning on a new HK-only assignment.
+      const linkedMaintenance = sameAssignment;
       if (!linkedMaintenance) return [];
 
       return [
