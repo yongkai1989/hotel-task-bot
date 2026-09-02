@@ -947,37 +947,52 @@ export default function ChambermaidEntryPage() {
                   }}
                 >
                   <div style={styles.roomCardHeader}>
-                    <div>
-                      <div style={styles.roomTitleRow}>
-                        <div style={styles.roomNo}>{room.room_number}</div>
-                        <ChambermaidDefectCapture
-                          roomNumber={room.room_number}
-                          serviceDate={serviceDate}
-                          onSubmitted={(mediaCount, warning) => {
-                            setErrorMsg(warning ? `Task created, but Telegram needs attention: ${warning}` : '');
-                            setSuccessMsg(
-                              `Room ${room.room_number} defect sent to Maintenance with ${mediaCount} media item${mediaCount === 1 ? '' : 's'}.`
-                            );
-                          }}
-                        />
+                    <div style={styles.roomTopRow}>
+                      <div style={styles.roomNo}>{room.room_number}</div>
+                      <ChambermaidDefectCapture
+                        roomNumber={room.room_number}
+                        serviceDate={serviceDate}
+                        onSubmitted={(mediaCount, warning) => {
+                          setErrorMsg(warning ? `Task created, but Telegram needs attention: ${warning}` : '');
+                          setSuccessMsg(
+                            `Room ${room.room_number} defect sent to Maintenance with ${mediaCount} media item${mediaCount === 1 ? '' : 's'}.`
+                          );
+                        }}
+                      />
+                      <div
+                        style={{
+                          ...styles.statusPill,
+                          background:
+                            room.supervisor_status === 'CHECKOUT' ? '#dcfce7' : '#dbeafe',
+                          color:
+                            room.supervisor_status === 'CHECKOUT' ? '#166534' : '#1d4ed8',
+                        }}
+                      >
+                        {room.supervisor_status === 'CHECKOUT' ? 'CHECK OUT' : 'STAY OVER'}
                       </div>
-                      <div style={styles.roomType}>{room.room_type}</div>
                     </div>
-                    <div
-                      style={{
-                        ...styles.statusPill,
-                        background:
-                          room.supervisor_status === 'CHECKOUT' ? '#dcfce7' : '#dbeafe',
-                        color:
-                          room.supervisor_status === 'CHECKOUT' ? '#166534' : '#1d4ed8',
-                      }}
-                    >
-                      {room.supervisor_status === 'CHECKOUT' ? 'CHECK OUT' : 'STAY OVER'}
+
+                    <div style={styles.roomInfoRow}>
+                      <div style={styles.roomType}>{room.room_type}</div>
+                      <div
+                        style={{
+                          ...styles.statePill,
+                          ...(uiState === 'SAVED'
+                            ? styles.statePillSaved
+                            : uiState === 'EDITED'
+                            ? styles.statePillEdited
+                            : uiState === 'SAVING'
+                            ? styles.statePillSaving
+                            : styles.statePillDefault),
+                        }}
+                      >
+                        {stateText}
+                      </div>
                     </div>
                   </div>
 
-                  <div style={styles.stateRow}>
-                    {showDnd ? (
+                  {showDnd ? (
+                    <div style={styles.dndRow}>
                       <label style={styles.dndLabel}>
                         <input
                           type="checkbox"
@@ -989,24 +1004,8 @@ export default function ChambermaidEntryPage() {
                         />
                         <span>Mark as DND</span>
                       </label>
-                    ) : (
-                      <div />
-                    )}
-                    <div
-                      style={{
-                        ...styles.statePill,
-                        ...(uiState === 'SAVED'
-                          ? styles.statePillSaved
-                          : uiState === 'EDITED'
-                          ? styles.statePillEdited
-                          : uiState === 'SAVING'
-                          ? styles.statePillSaving
-                          : styles.statePillDefault),
-                      }}
-                    >
-                      {stateText}
                     </div>
-                  </div>
+                  ) : null}
 
                   <div style={styles.linenList}>
                     {LINEN_FIELDS.filter((item) => linenFieldAppliesToRoom(item, room)).map((item) => {
@@ -1272,43 +1271,56 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 10px 24px rgba(180,83,9,0.08)',
   },
   roomCardHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    alignItems: 'flex-start',
-    marginBottom: '12px',
+    display: 'block',
+    marginBottom: '14px',
+  },
+  roomTopRow: {
+    display: 'grid',
+    gridTemplateColumns: '48px minmax(110px, 1fr) 88px',
+    gap: '8px',
+    alignItems: 'center',
+    width: '100%',
   },
   roomNo: {
-    fontSize: '22px',
+    display: 'flex',
+    alignItems: 'center',
+    height: '36px',
+    fontSize: '20px',
     fontWeight: 800,
     color: '#0f172a',
     lineHeight: 1,
   },
-  roomTitleRow: {
+  roomInfoRow: {
     display: 'flex',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: '10px',
-    flexWrap: 'wrap',
+    gap: '8px',
+    marginTop: '8px',
+    minWidth: 0,
   },
   roomType: {
-    fontSize: '13px',
+    minWidth: 0,
+    flex: '1 1 auto',
+    fontSize: '12px',
     color: '#64748b',
-    marginTop: '6px',
     fontWeight: 700,
+    lineHeight: 1.25,
   },
   statusPill: {
     borderRadius: '999px',
-    padding: '8px 12px',
+    height: '36px',
+    padding: '0 8px',
     fontWeight: 800,
-    fontSize: '12px',
+    fontSize: '10px',
     whiteSpace: 'nowrap',
-  },
-  stateRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '10px',
+    display: 'inline-flex',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    justifyContent: 'center',
+    boxSizing: 'border-box',
+  },
+  dndRow: {
+    display: 'flex',
+    alignItems: 'center',
     marginBottom: '14px',
   },
   dndLabel: {
@@ -1321,9 +1333,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
   statePill: {
     borderRadius: '999px',
-    padding: '8px 12px',
+    minHeight: '28px',
+    padding: '5px 9px',
     fontWeight: 700,
-    fontSize: '12px',
+    fontSize: '11px',
+    lineHeight: 1.15,
+    whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxSizing: 'border-box',
+    flexShrink: 0,
   },
   statePillDefault: {
     background: '#f1f5f9',
@@ -1344,36 +1364,39 @@ const styles: Record<string, React.CSSProperties> = {
   linenList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '10px',
+    gap: '8px',
   },
   linenRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '12px',
+    gap: '10px',
     alignItems: 'center',
+    minHeight: '58px',
     border: '1px solid #e2e8f0',
     background: '#f8fafc',
     borderRadius: '14px',
-    padding: '10px 12px',
+    padding: '8px 10px',
+    boxSizing: 'border-box',
   },
   linenLabelWrap: {
     minWidth: 0,
     flex: '1 1 auto',
   },
   linenLabel: {
-    fontSize: '14px',
+    fontSize: '13px',
     fontWeight: 700,
     color: '#0f172a',
+    whiteSpace: 'nowrap',
   },
   defaultHint: {
-    fontSize: '12px',
+    fontSize: '11px',
     color: '#64748b',
-    marginTop: '4px',
+    marginTop: '3px',
   },
   counterWrap: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
+    gap: '6px',
     flexShrink: 0,
   },
   counterBtn: {
@@ -1387,11 +1410,13 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   counterInput: {
-    width: '64px',
+    width: '58px',
+    height: '32px',
     border: '1px solid #cbd5e1',
     borderRadius: '10px',
-    padding: '8px 10px',
+    padding: '0 8px',
     textAlign: 'center',
+    fontSize: '13px',
     fontWeight: 800,
     color: '#0f172a',
     background: '#ffffff',
@@ -1404,14 +1429,16 @@ const styles: Record<string, React.CSSProperties> = {
   cardFooter: {
     display: 'flex',
     justifyContent: 'flex-end',
-    marginTop: '14px',
+    marginTop: '12px',
   },
   saveBtn: {
     border: 'none',
     background: '#0f172a',
     color: '#ffffff',
-    borderRadius: '12px',
-    padding: '10px 14px',
+    borderRadius: '10px',
+    height: '36px',
+    padding: '0 14px',
+    fontSize: '12px',
     fontWeight: 800,
     cursor: 'pointer',
   },

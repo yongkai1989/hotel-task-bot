@@ -21,15 +21,19 @@ const DEFECT_BUTTON_STYLE: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 7,
+  gap: 6,
   border: 0,
-  borderRadius: 11,
+  borderRadius: 10,
   background: '#dc2626',
   color: '#fff',
-  padding: '10px 12px',
-  fontSize: 13,
+  width: '100%',
+  minWidth: 0,
+  height: 36,
+  padding: '0 9px',
+  fontSize: 12,
   fontWeight: 900,
-  boxShadow: '0 6px 14px rgba(220,38,38,.25)',
+  lineHeight: 1,
+  boxShadow: '0 4px 10px rgba(220,38,38,.22)',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
 };
@@ -356,7 +360,10 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
   return (
     <>
       <button type="button" style={DEFECT_BUTTON_STYLE} onClick={() => void openCamera()}>
-        <span aria-hidden="true">📷</span>
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3h5Z" />
+          <circle cx="12" cy="13" r="3.5" />
+        </svg>
         Report Defect
       </button>
 
