@@ -71,6 +71,32 @@ export async function syncLinkedManagerRoomCheckStatus(
   const target = closestByCreatedAt(checks || [], task.created_at);
   if (!target) return { linked: true, updated: 0 };
 
+  if (department === 'HK' && target.status === 'PENDING_CHECK') {
+    if (nextStatus === 'DONE') {
+      throw new Error(
+        `Room ${room} is in Housekeeping Follow Up. Open HK Manager Room Check and use “Check MT & Mark Done” after Maintenance is complete.`
+      );
+    }
+    // Reopening the already-active dashboard reminder must not erase the HK
+    // completion or remove the room from its Follow Up section.
+    return { linked: true, updated: 0 };
+  }
+
+  if (department === 'HK' && nextStatus === 'DONE') {
+    const { data: maintenanceChecks, error: maintenanceError } = await supabaseAdmin
+      .from('manager_room_checks')
+      .select('id, status')
+      .eq('department', 'MT')
+      .eq('room_number', room)
+      .limit(1000);
+    if (maintenanceError) throw maintenanceError;
+    if ((maintenanceChecks || []).some((check) => check.status !== 'DONE')) {
+      throw new Error(
+        `Maintenance is still pending for Room ${room}. Complete the Housekeeping work from HK Manager Room Check so it moves to Follow Up.`
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   if (nextStatus === 'DONE') {
     const { error: mediaError } = await supabaseAdmin
@@ -196,7 +222,9 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
       continue;
     }
     matchedCheckIds.add(check.id);
-    const status: LinkedTaskStatus = check.status === 'DONE' || check.status === 'PENDING_CHECK' ? 'DONE' : 'OPEN';
+    // HK checks waiting on a shared MT room stay active until HK explicitly closes
+    // the Follow Up item after Maintenance is done.
+    const status: LinkedTaskStatus = check.status === 'DONE' ? 'DONE' : 'OPEN';
     const nextTask = {
       ...task,
       status,

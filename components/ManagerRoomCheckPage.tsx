@@ -348,15 +348,16 @@ function compactDateTime(value?: string | null) {
 
 function statusLabel(status: CheckStatus) {
   if (status === 'DONE') return 'Done';
-  if (status === 'PENDING_CHECK') return 'Done';
+  if (status === 'PENDING_CHECK') return 'Follow Up';
   return 'Open';
 }
 
 function isDoneLikeStatus(status: CheckStatus) {
-  return status === 'DONE' || status === 'PENDING_CHECK';
+  return status === 'DONE';
 }
 
 function statusClass(status: CheckStatus) {
+  if (status === 'PENDING_CHECK') return 'follow-up';
   return isDoneLikeStatus(status) ? 'done' : 'open';
 }
 
@@ -625,6 +626,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const canAccess = isAccessAllowed(profile, department);
   const canManageContent = canManageRoomCheckContent(profile);
   const canFinalCheck = canFinalCheckRoomCheck(profile);
+  const canFinalizeHousekeepingFollowUp =
+    canFinalCheck || (department === 'HK' && profile?.role === 'SUPERVISOR');
   const maintenanceByHousekeepingCheckId = useMemo(
     () =>
       new Map(
@@ -645,7 +648,6 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   const visibleChecks = checks.filter((check) => {
     if (statusFilter === 'ALL') return true;
-    if (statusFilter === 'DONE') return isDoneLikeStatus(check.status);
     return check.status === statusFilter;
   });
 
@@ -1904,6 +1906,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     setErrorMsg('');
     try {
       const parentCheck = checks.find((check) => check.id === item.check_id) || null;
+      let linkedMaintenancePending = false;
       const currentCheckItems = media.filter((mediaItem) => mediaItem.check_id === item.check_id);
       const completesHousekeepingCheck =
         department === 'HK' &&
@@ -1926,8 +1929,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           (link) => link.housekeeping_check_id === parentCheck.id
         );
         if (linkedStatus?.status === 'PENDING') {
+          linkedMaintenancePending = true;
           const continueCompletion = window.confirm(
-            `Maintenance has not completed its assignment for Room ${parentCheck.room_number}.\n\nPlease follow up with MT before this room is changed from VD to VC or released for sale.\n\nDo you still want to mark the Housekeeping work as done?`
+            `Maintenance has not completed its assignment for Room ${parentCheck.room_number}.\n\nHousekeeping work can be recorded as completed, but this room will move to Follow Up and must not be changed from VD to VC or released for sale.\n\nContinue and move this room to Follow Up?`
           );
           if (!continueCompletion) return;
         }
@@ -1959,14 +1963,16 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const checkItems = nextMedia.filter((mediaItem) => mediaItem.check_id === item.check_id);
       const allCompleted = checkItems.length > 0 && checkItems.every((mediaItem) => mediaItem.completed_at);
       if (allCompleted) {
+        const nextCheckStatus: CheckStatus =
+          department === 'HK' && linkedMaintenancePending ? 'PENDING_CHECK' : 'DONE';
         const { error: checkError } = await supabase
           .from('manager_room_checks')
           .update({
-            status: 'DONE',
+            status: nextCheckStatus,
             submitted_for_check_at: now,
             submitted_for_check_by_name: profile.name || null,
-            checked_at: now,
-            checked_by_name: profile.name || null,
+            checked_at: nextCheckStatus === 'DONE' ? now : null,
+            checked_by_name: nextCheckStatus === 'DONE' ? profile.name || null : null,
             updated_at: now,
           })
           .eq('id', item.check_id)
@@ -1977,16 +1983,20 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             check.id === item.check_id
               ? {
                   ...check,
-                  status: 'DONE',
+                  status: nextCheckStatus,
                   submitted_for_check_at: now,
                   submitted_for_check_by_name: profile.name || null,
-                  checked_at: now,
-                  checked_by_name: profile.name || null,
+                  checked_at: nextCheckStatus === 'DONE' ? now : null,
+                  checked_by_name: nextCheckStatus === 'DONE' ? profile.name || null : null,
                 }
               : check
           )
         );
-        if (parentCheck) {
+        if (parentCheck && nextCheckStatus === 'PENDING_CHECK') {
+          setSuccessMsg(
+            `Housekeeping work completed. Maintenance is still pending, so Room ${parentCheck.room_number} has moved to Follow Up.`
+          );
+        } else if (parentCheck) {
           const synced = await syncDashboardReminderStatus(parentCheck, 'DONE');
           setSuccessMsg(
             synced
@@ -2001,6 +2011,75 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       setErrorMsg(error?.message || 'Failed to complete media item.');
     } finally {
       setCompletingMediaId(null);
+    }
+  }
+
+  async function finalizeHousekeepingFollowUp(check: RoomCheck) {
+    if (
+      !supabase ||
+      !profile ||
+      saving ||
+      !canFinalizeHousekeepingFollowUp ||
+      department !== 'HK' ||
+      check.department !== 'HK' ||
+      check.status !== 'PENDING_CHECK'
+    ) return;
+
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const maintenanceResult = await refreshLinkedMaintenanceStatuses();
+      if (maintenanceResult.error) {
+        throw new Error(
+          'Unable to verify the linked Maintenance status. Please refresh or check with MT before marking this room done.'
+        );
+      }
+
+      const linkedStatus = maintenanceResult.links.find(
+        (link) => link.housekeeping_check_id === check.id
+      );
+      if (linkedStatus?.status === 'PENDING') {
+        setErrorMsg(
+          `Room ${check.room_number} must remain in Follow Up because Maintenance is still pending.`
+        );
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('manager_room_checks')
+        .update({
+          status: 'DONE',
+          checked_at: now,
+          checked_by_name: profile.name || null,
+          updated_at: now,
+        })
+        .eq('id', check.id)
+        .eq('status', 'PENDING_CHECK');
+      if (error) throw error;
+
+      const synced = await syncDashboardReminderStatus(check, 'DONE');
+      setChecks((current) =>
+        current.map((currentCheck) =>
+          currentCheck.id === check.id
+            ? {
+                ...currentCheck,
+                status: 'DONE',
+                checked_at: now,
+                checked_by_name: profile.name || null,
+              }
+            : currentCheck
+        )
+      );
+      setSuccessMsg(
+        synced
+          ? `Room ${check.room_number} moved from Follow Up to Done. ${synced} dashboard reminder${synced === 1 ? '' : 's'} marked done.`
+          : `Room ${check.room_number} moved from Follow Up to Done.`
+      );
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to finish the Housekeeping follow-up.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -2451,7 +2530,10 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       {uploadProgressMsg ? <div className="mrc-alert mrc-alert-info">{uploadProgressMsg}</div> : null}
 
       <section className="mrc-summary">
-        {(['OPEN', 'DONE'] as CheckStatus[]).map((status) => (
+        {(department === 'HK'
+          ? (['OPEN', 'PENDING_CHECK', 'DONE'] as CheckStatus[])
+          : (['OPEN', 'DONE'] as CheckStatus[])
+        ).map((status) => (
           <button
             key={status}
             className={`mrc-stat ${statusFilter === status ? 'is-active' : ''}`}
@@ -2459,11 +2541,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             onClick={() => setStatusFilter(status)}
           >
             <span>{statusLabel(status)}</span>
-            <strong>
-              {status === 'DONE'
-                ? checks.filter((check) => isDoneLikeStatus(check.status)).length
-                : checks.filter((check) => check.status === status).length}
-            </strong>
+            <strong>{checks.filter((check) => check.status === status).length}</strong>
           </button>
         ))}
         <button
@@ -2671,9 +2749,19 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             >
               <strong>Maintenance is also assigned to Room {selectedCheck.room_number}</strong>
               {selectedMaintenanceStatus.status === 'PENDING' ? (
-                <span>MT status: Pending. Do not change this room from VD to VC or release it for sale until Maintenance is done.</span>
+                <span>
+                  MT status: Pending. Do not change this room from VD to VC or release it for sale until Maintenance is done.
+                  {selectedCheck.status === 'PENDING_CHECK'
+                    ? ' This HK item remains in Follow Up. After MT completes, use “Check MT & Mark Done” below.'
+                    : ''}
+                </span>
               ) : (
-                <span>MT status: Done. Maintenance has completed its Manager Room Check assignment for this room.</span>
+                <span>
+                  MT status: Done. Maintenance has completed its Manager Room Check assignment for this room.
+                  {selectedCheck.status === 'PENDING_CHECK'
+                    ? ' Housekeeping must now use “Check MT & Mark Done” below to close this follow-up.'
+                    : ''}
+                </span>
               )}
             </div>
           ) : null}
@@ -2909,6 +2997,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             {canFinalCheck && selectedCheck.status === 'DONE' ? (
               <button type="button" className="mrc-secondary" onClick={() => void reopenCheck(selectedCheck)}>
                 Reopen
+              </button>
+            ) : null}
+            {canFinalizeHousekeepingFollowUp &&
+            department === 'HK' &&
+            selectedCheck.status === 'PENDING_CHECK' ? (
+              <button
+                type="button"
+                className="mrc-primary"
+                disabled={saving}
+                onClick={() => void finalizeHousekeepingFollowUp(selectedCheck)}
+              >
+                {saving ? 'Checking MT...' : 'Check MT & Mark Done'}
               </button>
             ) : null}
             {profile?.role === 'SUPERUSER' ? (
@@ -3610,6 +3710,11 @@ function StyleBlock() {
       .mrc-status-done {
         background: #ecfdf5;
         color: #047857;
+      }
+      .mrc-status-follow-up {
+        border: 1px solid #fdba74;
+        background: #fff7ed;
+        color: #c2410c;
       }
       .mrc-progress {
         color: #334155;

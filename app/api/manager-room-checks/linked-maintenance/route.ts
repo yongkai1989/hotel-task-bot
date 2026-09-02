@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-const SAME_ASSIGNMENT_WINDOW_MS = 10 * 60 * 1000;
 const LINK_SELECT = 'id, department, room_number, status, created_at, updated_at, checked_at' as const;
 
 type LinkRow = {
@@ -54,29 +53,42 @@ export async function GET(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Housekeeping Manager Room Check access required' }, 403);
     }
 
-    const [housekeepingResult, maintenanceResult] = await Promise.all([
-      supabaseAdmin
-        .from('manager_room_checks')
-        .select(LINK_SELECT)
-        .eq('department', 'HK')
-        .order('created_at', { ascending: false })
-        .limit(120),
-      supabaseAdmin
-        .from('manager_room_checks')
-        .select(LINK_SELECT)
-        .eq('department', 'MT')
-        .order('created_at', { ascending: false })
-        .limit(240),
-    ]);
+    const housekeepingResult = await supabaseAdmin
+      .from('manager_room_checks')
+      .select(LINK_SELECT)
+      .eq('department', 'HK')
+      .order('created_at', { ascending: false })
+      .limit(120);
 
     if (housekeepingResult.error) {
       return jsonNoCache({ ok: false, error: housekeepingResult.error.message }, 500);
     }
+
+    const housekeepingChecks = (housekeepingResult.data || []) as LinkRow[];
+    const housekeepingRoomNumbers = Array.from(
+      new Set(
+        housekeepingChecks
+          .map((check) => String(check.room_number || '').trim())
+          .filter(Boolean)
+      )
+    );
+    if (!housekeepingRoomNumbers.length) {
+      return jsonNoCache({ ok: true, links: [] });
+    }
+
+    // A shared room number is the link. Assignment times are intentionally ignored.
+    const maintenanceResult = await supabaseAdmin
+      .from('manager_room_checks')
+      .select(LINK_SELECT)
+      .eq('department', 'MT')
+      .in('room_number', housekeepingRoomNumbers)
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
     if (maintenanceResult.error) {
       return jsonNoCache({ ok: false, error: maintenanceResult.error.message }, 500);
     }
 
-    const housekeepingChecks = (housekeepingResult.data || []) as LinkRow[];
     const maintenanceChecks = (maintenanceResult.data || []) as LinkRow[];
     const maintenanceByRoom = new Map<string, LinkRow[]>();
 
@@ -94,17 +106,10 @@ export async function GET(req: NextRequest) {
       const candidates = maintenanceByRoom.get(room) || [];
       if (!candidates.length) return [];
 
-      const housekeepingCreatedAt = timestamp(housekeepingCheck.created_at);
-      const sameAssignment = candidates.find(
-        (candidate) =>
-          Math.abs(timestamp(candidate.created_at) - housekeepingCreatedAt) <=
-          SAME_ASSIGNMENT_WINDOW_MS
-      );
-      // HK and MT rows created from one Manager Room Check are only seconds apart.
-      // The time window prevents an unrelated older MT job for the same room number
-      // from causing a false warning on a new HK-only assignment.
-      const linkedMaintenance = sameAssignment;
-      if (!linkedMaintenance) return [];
+      // Any unfinished MT assignment for the room keeps HK in Follow Up. If all MT
+      // assignments are complete, use the most recently created one as the link.
+      const linkedMaintenance =
+        candidates.find((candidate) => candidate.status !== 'DONE') || candidates[0];
 
       return [
         {
