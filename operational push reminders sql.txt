@@ -4,7 +4,7 @@
 create table if not exists public.daily_operational_notification_runs (
   notification_date date not null,
   notification_type text not null check (
-    notification_type in ('CHAMBERMAID_5PM', 'PREVENTIVE_MAINTENANCE_9AM')
+    notification_type in ('CHAMBERMAID_5PM', 'PREVENTIVE_MAINTENANCE_9AM', 'LINEN_VARIANCE_530PM', 'HK_MORNING_REVIEW_830AM', 'MT_DAILY_REVIEW_9AM')
   ),
   status text not null check (
     status in ('SENDING', 'SENT', 'NOT_NEEDED', 'FAILED')
@@ -25,7 +25,20 @@ revoke all on table public.daily_operational_notification_runs from public, anon
 grant all on table public.daily_operational_notification_runs to service_role;
 
 comment on table public.daily_operational_notification_runs is
-  'Idempotency and delivery audit for the 5 PM chambermaid and 9 AM overdue PM reminders.';
+  'Idempotency and delivery audit for daily operational Telegram and Web Push reminders.';
+
+alter table public.daily_operational_notification_runs
+  drop constraint if exists daily_operational_notification_runs_notification_type_check;
+
+alter table public.daily_operational_notification_runs
+  add constraint daily_operational_notification_runs_notification_type_check
+  check (notification_type in (
+    'CHAMBERMAID_5PM',
+    'PREVENTIVE_MAINTENANCE_9AM',
+    'LINEN_VARIANCE_530PM',
+    'HK_MORNING_REVIEW_830AM',
+    'MT_DAILY_REVIEW_9AM'
+  ));
 
 -- Keep the database-side timed-popup recipient trigger aligned with the app.
 -- The additional Maintenance account is matched by its saved profile name so its

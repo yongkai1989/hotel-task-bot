@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { formatDateDDMMYYYY } from '../../../lib/dateDisplay';
+import { runMtDailyReviewOnce } from '../../../lib/mtDailyReview';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -237,7 +238,15 @@ export async function GET(request: NextRequest) {
       .eq('report_date', reportDate)
       .maybeSingle();
     if (existing?.status === 'SENT') {
-      return NextResponse.json({ ok: true, alreadySent: true, reportDate, sentAt: existing.sent_at });
+      try {
+        const mtDailyReview = await runMtDailyReviewOnce(today, force);
+        return NextResponse.json({ ok: true, alreadySent: true, reportDate, sentAt: existing.sent_at, mtDailyReview });
+      } catch (error: any) {
+        return NextResponse.json(
+          { ok: false, reportDate, error: error?.message || 'Maintenance daily review failed' },
+          { status: 500 }
+        );
+      }
     }
   }
 
@@ -251,6 +260,7 @@ export async function GET(request: NextRequest) {
   });
 
   try {
+    const mtDailyReview = await runMtDailyReviewOnce(today, force);
     const [summaryResult, maintenanceResult, tasksResult] = await Promise.all([
       supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
       supabaseAdmin
@@ -296,7 +306,7 @@ export async function GET(request: NextRequest) {
       })
       .eq('report_date', reportDate);
 
-    return NextResponse.json({ ok: true, reportDate, telegramMessageId });
+    return NextResponse.json({ ok: true, reportDate, telegramMessageId, mtDailyReview });
   } catch (error: any) {
     const message = error?.message || 'Daily operations Telegram report failed';
     await supabaseAdmin

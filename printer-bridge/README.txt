@@ -74,6 +74,10 @@ one secure request each morning at 9:00 AM using the existing PRINTER_BRIDGE_KEY
 The same 9:00 AM run now also checks overdue Preventive Maintenance. When anything
 is overdue, Izzuddin and Yazid receive Web Push and the MT Tasks Telegram chat gets
 the overdue task list.
+The same run also always sends the MT Tasks Telegram chat a Maintenance Daily Review.
+It lists open MT tasks, incomplete MT Manager Room Checks, overdue Preventive
+Maintenance, and all other open Preventive Maintenance. It ends with a reminder for
+the night shift to continue other open work whenever no defects are waiting.
 
 HK morning review:
 A separate 8:30 AM Windows task sends the HK Telegram chat a review of yesterday.

@@ -6,20 +6,21 @@ import {
   resolvePushProfiles,
   sendPushNotifications,
 } from '../../../lib/taskPush';
+import { runMtDailyReviewOnce } from '../../../lib/mtDailyReview';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
 const HK_TASK_CHAT_ID = '-1003784764929';
-const MT_TASK_CHAT_ID = '-1003860980789';
 const MAX_VISIBLE_ITEMS = 12;
 
 type ReminderKind =
   | 'CHAMBERMAID_5PM'
   | 'PREVENTIVE_MAINTENANCE_9AM'
   | 'LINEN_VARIANCE_530PM'
-  | 'HK_MORNING_REVIEW_830AM';
+  | 'HK_MORNING_REVIEW_830AM'
+  | 'MT_DAILY_REVIEW_9AM';
 
 type LinenVarianceItem = {
   key?: string;
@@ -164,6 +165,9 @@ function requestedKind(request: NextRequest): ReminderKind | null {
   }
   if (kind === 'hk-morning-review' || kind === 'hk-review' || kind === 'hk-830am') {
     return 'HK_MORNING_REVIEW_830AM';
+  }
+  if (kind === 'mt-daily-review' || kind === 'mt-review' || kind === 'mt-9am') {
+    return 'MT_DAILY_REVIEW_9AM';
   }
   return null;
 }
@@ -687,41 +691,25 @@ async function preventiveMaintenanceReminder(today: string) {
     };
   }
 
-  const itemLines = overdue.slice(0, MAX_VISIBLE_ITEMS).map(
-    (item) => `• ${item.title} — due ${displayDate(item.dueDate)}`
-  );
-  if (overdueCount > itemLines.length) itemLines.push(`• +${overdueCount - itemLines.length} more`);
-
   const profiles = await resolvePushProfiles({ emails: MT_SUPERVISOR_PUSH_EMAILS });
-  const [pushResult, telegramMessageId] = await Promise.all([
-    sendPushNotifications({
-      userIds: profiles.map((profile) => profile.user_id),
-      topic: `pm-${today}`,
-      ttlSeconds: 8 * 60 * 60,
-      payload: {
-        kind: 'REMINDER',
-        title: `${overdueCount} OVERDUE PREVENTIVE MAINTENANCE`,
-        body: overdue.slice(0, 5).map((item) => `${item.title} (${displayDate(item.dueDate)})`).join(' · '),
-        url: '/dashboard/preventive-maintenance',
-      },
-    }),
-    sendTelegramMessage(MT_TASK_CHAT_ID, [
-      '🔧 OVERDUE PREVENTIVE MAINTENANCE REMINDER',
-      `Date: ${displayDate(today)}`,
-      `Overdue: ${overdueCount}`,
-      '',
-      ...itemLines,
-      '',
-      'Please open Preventive Maintenance and follow up.',
-    ].join('\n'), 'Maintenance'),
-  ]);
+  const pushResult = await sendPushNotifications({
+    userIds: profiles.map((profile) => profile.user_id),
+    topic: `pm-${today}`,
+    ttlSeconds: 8 * 60 * 60,
+    payload: {
+      kind: 'REMINDER',
+      title: `${overdueCount} OVERDUE PREVENTIVE MAINTENANCE`,
+      body: overdue.slice(0, 5).map((item) => `${item.title} (${displayDate(item.dueDate)})`).join(' · '),
+      url: '/dashboard/preventive-maintenance',
+    },
+  });
   if (pushResult.warning) throw new Error(pushResult.warning);
 
   return {
     findingCount: overdueCount,
     delivered: pushResult.delivered,
     attempted: pushResult.attempted,
-    telegramMessageId,
+    telegramMessageId: null,
     details: { overdue },
   };
 }
@@ -741,13 +729,23 @@ export async function GET(request: NextRequest) {
   const reminderType = requestedKind(request);
   if (!reminderType) {
     return NextResponse.json(
-      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-variance, or kind=hk-morning-review' },
+      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-variance, kind=hk-morning-review, or kind=mt-daily-review' },
       { status: 400 }
     );
   }
 
   const notificationDate = singaporeDate();
   const force = request.nextUrl.searchParams.get('force') === '1';
+  if (reminderType === 'MT_DAILY_REVIEW_9AM') {
+    try {
+      return NextResponse.json(await runMtDailyReviewOnce(notificationDate, force));
+    } catch (error: any) {
+      return NextResponse.json(
+        { ok: false, notificationDate, reminderType, error: error?.message || 'Maintenance daily review failed' },
+        { status: 500 }
+      );
+    }
+  }
   console.info('[operational-reminders] started', { notificationDate, reminderType, force });
   if (!force) {
     const { data: existing, error: existingError } = await supabaseAdmin
