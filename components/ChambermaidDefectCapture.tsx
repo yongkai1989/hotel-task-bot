@@ -100,6 +100,36 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
     };
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const stream = streamRef.current;
+    const video = videoRef.current;
+    if (!stream || !video) return;
+
+    let active = true;
+    const markReady = () => {
+      if (!active) return;
+      void video.play().catch(() => undefined);
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setCameraReady(true);
+        setError('');
+      }
+    };
+
+    video.addEventListener('loadedmetadata', markReady);
+    video.addEventListener('loadeddata', markReady);
+    video.addEventListener('canplay', markReady);
+    video.srcObject = stream;
+    void video.play().then(markReady).catch(() => undefined);
+
+    return () => {
+      active = false;
+      video.removeEventListener('loadedmetadata', markReady);
+      video.removeEventListener('loadeddata', markReady);
+      video.removeEventListener('canplay', markReady);
+    };
+  }, [open]);
+
   async function openCamera() {
     setError('');
     try {
@@ -113,13 +143,7 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
       });
       streamRef.current = stream;
       setOpen(true);
-      setCameraReady(true);
-      requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          void videoRef.current.play().catch(() => undefined);
-        }
-      });
+      setCameraReady(false);
     } catch (cameraError: any) {
       setOpen(true);
       setCameraReady(false);
@@ -299,7 +323,7 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
 
             <div className="maid-camera-view">
               <video ref={videoRef} muted playsInline autoPlay />
-              {!cameraReady ? <div className="maid-camera-fallback">Camera unavailable<br /><span>Use Camera / Gallery below</span></div> : null}
+              {!cameraReady ? <div className="maid-camera-fallback">{streamRef.current ? 'Starting camera…' : 'Camera unavailable'}<br /><span>{streamRef.current ? 'Please wait a moment' : 'Use Camera / Gallery below'}</span></div> : null}
               {recording ? <div className="maid-recording-badge"><i /> Recording</div> : null}
               <div className="maid-capture-count">{media.length}/{MAX_MEDIA}</div>
             </div>
