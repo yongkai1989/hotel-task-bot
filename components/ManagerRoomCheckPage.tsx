@@ -99,6 +99,14 @@ type ManagerRoomCheckPageProps = {
   department: DepartmentCode;
 };
 
+type LinkedMaintenanceStatus = {
+  housekeeping_check_id: string;
+  maintenance_check_id: string;
+  room_number: string;
+  status: 'PENDING' | 'DONE';
+  updated_at: string | null;
+};
+
 const MAX_MEDIA_PER_CHECK = 30;
 const MAX_VIDEO_DURATION_SECONDS = 10;
 const MAX_VIDEO_INPUT_BYTES = 50 * 1024 * 1024;
@@ -573,6 +581,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [statusFilter, setStatusFilter] = useState<CheckStatus | 'ALL'>('OPEN');
   const [checks, setChecks] = useState<RoomCheck[]>([]);
   const [media, setMedia] = useState<CheckMedia[]>([]);
+  const [linkedMaintenance, setLinkedMaintenance] = useState<LinkedMaintenanceStatus[]>([]);
+  const [maintenanceStatusError, setMaintenanceStatusError] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [uploadProgressMsg, setUploadProgressMsg] = useState('');
@@ -614,7 +624,17 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const canAccess = isAccessAllowed(profile, department);
   const canManageContent = canManageRoomCheckContent(profile);
   const canFinalCheck = canFinalCheckRoomCheck(profile);
+  const maintenanceByHousekeepingCheckId = useMemo(
+    () =>
+      new Map(
+        linkedMaintenance.map((link) => [link.housekeeping_check_id, link] as const)
+      ),
+    [linkedMaintenance]
+  );
   const selectedCheck = checks.find((item) => item.id === selectedCheckId) || null;
+  const selectedMaintenanceStatus = selectedCheck
+    ? maintenanceByHousekeepingCheckId.get(selectedCheck.id) || null
+    : null;
   const selectedMedia = selectedCheck
     ? media
         .filter((item) => item.check_id === selectedCheck.id)
@@ -753,6 +773,41 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     };
   }, [draftMedia, markupIndex, existingMarkupMedia]);
 
+  async function fetchLinkedMaintenanceStatuses() {
+    if (department !== 'HK') {
+      return { links: [] as LinkedMaintenanceStatus[], error: '' };
+    }
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch('/api/manager-room-checks/linked-maintenance', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || 'Maintenance room status is unavailable.');
+      }
+      return {
+        links: (payload.links || []) as LinkedMaintenanceStatus[],
+        error: '',
+      };
+    } catch (error: any) {
+      return {
+        links: [] as LinkedMaintenanceStatus[],
+        error: error?.message || 'Maintenance room status is unavailable.',
+      };
+    }
+  }
+
+  async function refreshLinkedMaintenanceStatuses() {
+    const result = await fetchLinkedMaintenanceStatuses();
+    setLinkedMaintenance(result.links);
+    setMaintenanceStatusError(result.error);
+    return result;
+  }
+
   async function loadChecks() {
     if (!supabase) return;
     setLoading(true);
@@ -763,6 +818,9 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         void cleanupOldDoneChecks();
       }
       await mergeDuplicateActiveRoomChecks();
+
+      // Start this independent safety lookup before loading the HK media rows.
+      const linkedMaintenancePromise = fetchLinkedMaintenanceStatuses();
 
       const { data: checkRows, error: checkError } = await supabase
         .from('manager_room_checks')
@@ -832,8 +890,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         })
       );
 
+      const linkedMaintenanceResult = await linkedMaintenancePromise;
+
       setChecks((checkRows || []) as RoomCheck[]);
       setMedia([...mediaRows, ...durableMediaRows]);
+      setLinkedMaintenance(linkedMaintenanceResult.links);
+      setMaintenanceStatusError(linkedMaintenanceResult.error);
       enqueueDurableIds(
         durableRows
           .filter((row) => row.status === 'PENDING' || row.status === 'UPLOADING')
@@ -1895,6 +1957,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         );
         if (parentCheck) {
           const synced = await syncDashboardReminderStatus(parentCheck, 'DONE');
+          if (department === 'HK') await refreshLinkedMaintenanceStatuses();
           setSuccessMsg(
             synced
               ? `Room check completed. ${synced} dashboard reminder${synced === 1 ? '' : 's'} marked done.`
@@ -2329,6 +2392,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       </section>
 
       {errorMsg ? <div className="mrc-alert mrc-alert-error">{errorMsg}</div> : null}
+      {department === 'HK' && maintenanceStatusError ? (
+        <div className="mrc-alert mrc-alert-error mrc-maintenance-unavailable" role="alert">
+          <strong>Maintenance room status is unavailable.</strong>
+          <span>Do not release a room as VC until the linked Maintenance assignment has been checked manually. Refresh to try again.</span>
+        </div>
+      ) : null}
       {media.some((item) => item.upload_status === 'failed') ? (
         <div className="mrc-alert mrc-alert-error">
           <span>
@@ -2393,6 +2462,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               const progress = total ? Math.round((done / total) * 100) : 0;
               const canTakePhoto = canManageContent && check.status !== 'DONE';
               const canDeleteCheck = profile?.role === 'SUPERUSER';
+              const maintenanceStatus = maintenanceByHousekeepingCheckId.get(check.id) || null;
               return (
                 <div
                   key={check.id}
@@ -2414,6 +2484,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                       ) : (
                         <small>{check.description || 'Notes optional'}</small>
                       )}
+                      {maintenanceStatus ? (
+                        <span className={`mrc-mt-link is-${maintenanceStatus.status.toLowerCase()}`}>
+                          MT also assigned · {maintenanceStatus.status === 'DONE' ? 'Done' : 'Pending'}
+                        </span>
+                      ) : null}
                     </span>
                     <span className={`mrc-status mrc-status-${statusClass(check.status)}`}>
                       {statusLabel(check.status)}
@@ -2557,6 +2632,19 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               </span>
             </div>
           </div>
+          {selectedMaintenanceStatus ? (
+            <div
+              className={`mrc-mt-safety is-${selectedMaintenanceStatus.status.toLowerCase()}`}
+              role={selectedMaintenanceStatus.status === 'PENDING' ? 'alert' : undefined}
+            >
+              <strong>Maintenance is also assigned to Room {selectedCheck.room_number}</strong>
+              {selectedMaintenanceStatus.status === 'PENDING' ? (
+                <span>MT status: Pending. Do not change this room from VD to VC or release it for sale until Maintenance is done.</span>
+              ) : (
+                <span>MT status: Done. Maintenance has completed its Manager Room Check assignment for this room.</span>
+              )}
+            </div>
+          ) : null}
           <div className="mrc-meta-grid">
             <span>Created by <strong>{selectedCheck.created_by_name || '-'}</strong></span>
             <span>Created <strong>{compactDateTime(selectedCheck.created_at)}</strong></span>
@@ -3439,6 +3527,38 @@ function StyleBlock() {
         color: #1d4ed8;
         font-weight: 900;
       }
+      .mrc-mt-link {
+        width: fit-content;
+        max-width: 100%;
+        margin-top: 7px;
+        border: 1px solid;
+        border-radius: 999px;
+        padding: 5px 9px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10px;
+        font-weight: 950;
+        line-height: 1.15;
+      }
+      .mrc-mt-link::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        flex: 0 0 7px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+      .mrc-mt-link.is-pending {
+        border-color: #fda4af;
+        background: #fff1f2;
+        color: #be123c;
+      }
+      .mrc-mt-link.is-done {
+        border-color: #86efac;
+        background: #ecfdf5;
+        color: #047857;
+      }
       .mrc-status {
         border-radius: 999px;
         padding: 7px 10px;
@@ -3517,6 +3637,14 @@ function StyleBlock() {
         background: #fffbeb;
         border: 1px solid #fcd34d;
         color: #92400e;
+      }
+      .mrc-maintenance-unavailable {
+        display: grid;
+        gap: 5px;
+      }
+      .mrc-maintenance-unavailable span {
+        font-size: 12px;
+        line-height: 1.45;
       }
       .mrc-retry-all {
         display: block;
@@ -3642,6 +3770,33 @@ function StyleBlock() {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
+      }
+      .mrc-mt-safety {
+        margin: 12px 0;
+        border: 1px solid;
+        border-radius: 15px;
+        padding: 12px 14px;
+        display: grid;
+        gap: 5px;
+      }
+      .mrc-mt-safety strong {
+        font-size: 14px;
+      }
+      .mrc-mt-safety span {
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.45;
+      }
+      .mrc-mt-safety.is-pending {
+        border-color: #fda4af;
+        background: #fff1f2;
+        color: #9f1239;
+        box-shadow: 0 0 0 4px rgba(244,63,94,.08);
+      }
+      .mrc-mt-safety.is-done {
+        border-color: #86efac;
+        background: #ecfdf5;
+        color: #047857;
       }
       .mrc-form-grid label,
       .mrc-full-label {
