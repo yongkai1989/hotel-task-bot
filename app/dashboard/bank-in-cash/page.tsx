@@ -77,6 +77,17 @@ type ExcessWithdrawal = {
   withdrawn_by_name: string;
   withdrawn_by_email: string;
   withdrawn_at: string;
+  withdrawal_history: ExcessWithdrawalEvent[];
+};
+
+type ExcessWithdrawalEvent = {
+  amount?: number;
+  folio_number?: string;
+  reason_for_excess?: string;
+  error_staff_name?: string;
+  withdrawn_by_name?: string;
+  withdrawn_by_email?: string;
+  withdrawn_at?: string;
 };
 
 type BankInSource = {
@@ -132,6 +143,8 @@ type ExcessLedgerRow = {
   service_date: string;
   person_name: string;
   shift_title: string;
+  original_excess_amount: number;
+  withdrawn_amount: number;
   excess_amount: number;
   excess_bank_in_id: string | null;
   cashEntry?: CashEntry;
@@ -177,7 +190,7 @@ const MANUAL_CASH_SELECT = 'id, service_date, description, amount, bank_in_id, e
 const SMALL_CHANGE_SELECT = 'id, source_bank_in_id, bank_in_date, amount, consumed_by_bank_in_id, created_at' as const;
 const BANK_IN_SELECT = 'id, bank_in_date, source_mode, selected_total, banked_amount, balance_to_small_change, receipt_paths, created_by_name, created_by_email, created_at, reversed_at, reversed_by_name, reversal_reason' as const;
 const AMENDMENT_SELECT = 'id, cash_entry_id, previous_amount, new_amount, reason, amended_by_name, amended_by_email, amended_at' as const;
-const EXCESS_WITHDRAWAL_SELECT = 'id, cash_entry_id, manual_cash_entry_id, folio_number, reason_for_excess, error_staff_name, withdrawn_amount, withdrawn_by_name, withdrawn_by_email, withdrawn_at' as const;
+const EXCESS_WITHDRAWAL_SELECT = 'id, cash_entry_id, manual_cash_entry_id, folio_number, reason_for_excess, error_staff_name, withdrawn_amount, withdrawn_by_name, withdrawn_by_email, withdrawn_at, withdrawal_history' as const;
 const BANK_IN_SOURCE_SELECT = 'id, bank_in_id, source_type, source_id, source_amount' as const;
 const BANK_IN_DELETION_SELECT = 'id, bank_in_id, bank_in_date, bank_in_snapshot, deletion_reason, deleted_by_name, deleted_by_email, deleted_at' as const;
 const CASH_ENTRY_DELETION_SELECT = 'id, source_type, source_id, service_date, entry_snapshot, deletion_reason, deleted_by_name, deleted_by_email, deleted_at, restored_at, restored_by_name, restored_by_email, restoration_reason' as const;
@@ -329,6 +342,7 @@ export default function BankInCashPage() {
   const [amendReason, setAmendReason] = useState('');
   const [amending, setAmending] = useState(false);
   const [withdrawTarget, setWithdrawTarget] = useState<ExcessLedgerRow | null>(null);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawFolioNumber, setWithdrawFolioNumber] = useState('');
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawStaffName, setWithdrawStaffName] = useState('');
@@ -540,7 +554,13 @@ export default function BankInCashPage() {
         service_date: entry.service_date,
         person_name: entry.person_name,
         shift_title: entry.shift_title,
-        excess_amount: Number(entry.excess_amount || 0),
+        original_excess_amount: Number(entry.excess_amount || 0),
+        withdrawn_amount: Number(excessWithdrawalByEntryId.get(entry.id)?.withdrawn_amount || 0),
+        excess_amount: Math.max(
+          0,
+          Number(entry.excess_amount || 0) -
+            Number(excessWithdrawalByEntryId.get(entry.id)?.withdrawn_amount || 0),
+        ),
         excess_bank_in_id: entry.excess_bank_in_id,
         cashEntry: entry,
       })),
@@ -550,16 +570,22 @@ export default function BankInCashPage() {
         service_date: entry.service_date,
         person_name: entry.description,
         shift_title: 'Manually added missed FO declaration',
-        excess_amount: Number(entry.excess_amount || 0),
+        original_excess_amount: Number(entry.excess_amount || 0),
+        withdrawn_amount: Number(excessWithdrawalByEntryId.get(entry.id)?.withdrawn_amount || 0),
+        excess_amount: Math.max(
+          0,
+          Number(entry.excess_amount || 0) -
+            Number(excessWithdrawalByEntryId.get(entry.id)?.withdrawn_amount || 0),
+        ),
         excess_bank_in_id: entry.excess_bank_in_id,
         manualEntry: entry,
       })),
     ]
         .filter((entry) => showAllMonths || entry.service_date.slice(0, 7) === month)
-        .filter((entry) => Number(entry.excess_amount) > 0)
+        .filter((entry) => Number(entry.original_excess_amount) > 0)
         .filter((entry) =>
           bankStatusFilter === 'NOT_BANKED'
-            ? !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id)
+            ? !entry.excess_bank_in_id && entry.excess_amount > 0
             : bankStatusFilter === 'BANKED'
               ? !!entry.excess_bank_in_id
               : true,
@@ -626,10 +652,9 @@ export default function BankInCashPage() {
         (entry) =>
           selectedExcessIds.includes(entry.id) &&
           !entry.excess_bank_in_id &&
-          !excessWithdrawalByEntryId.has(entry.id) &&
           Number(entry.excess_amount) > 0,
       ),
-    [excessRows, excessWithdrawalByEntryId, selectedExcessIds],
+    [excessRows, selectedExcessIds],
   );
 
   const selectedBalanceRows = useMemo(
@@ -671,14 +696,14 @@ export default function BankInCashPage() {
   const totalExcessCash = useMemo(
     () =>
       excessRows
-        .filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id))
+        .filter((entry) => !entry.excess_bank_in_id && entry.excess_amount > 0)
         .reduce((sum, entry) => sum + Number(entry.excess_amount || 0), 0),
-    [excessRows, excessWithdrawalByEntryId],
+    [excessRows],
   );
 
   const availableExcessRows = useMemo(
-    () => excessRows.filter((entry) => !entry.excess_bank_in_id && !excessWithdrawalByEntryId.has(entry.id)),
-    [excessRows, excessWithdrawalByEntryId],
+    () => excessRows.filter((entry) => !entry.excess_bank_in_id && entry.excess_amount > 0),
+    [excessRows],
   );
 
   const availableBalanceRows = useMemo(
@@ -788,6 +813,7 @@ export default function BankInCashPage() {
 
   const openExcessWithdrawal = (entry: ExcessLedgerRow) => {
     setWithdrawTarget(entry);
+    setWithdrawAmount('');
     setWithdrawFolioNumber('');
     setWithdrawReason('');
     setWithdrawStaffName('');
@@ -796,6 +822,15 @@ export default function BankInCashPage() {
 
   const withdrawExcessCash = async () => {
     if (!withdrawTarget) return;
+    const amount = Number(withdrawAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return setError('Withdrawal amount must be more than RM0.00.');
+    }
+    if (amount > Number(withdrawTarget.excess_amount)) {
+      return setError(
+        `Withdrawal amount cannot exceed the available balance of ${money.format(Number(withdrawTarget.excess_amount))}.`,
+      );
+    }
     if (!withdrawFolioNumber.trim()) return setError('Folio number of mistake is required.');
     if (!withdrawReason.trim()) return setError('Enter the reason for the excess cash.');
     if (!withdrawStaffName.trim()) return setError('Enter the name of the staff member who made the error.');
@@ -805,6 +840,7 @@ export default function BankInCashPage() {
     setMessage('');
     const { error: withdrawError } = await supabase.rpc('withdraw_excess_cash', {
       p_cash_entry_id: withdrawTarget.id,
+      p_withdraw_amount: amount,
       p_folio_number: withdrawFolioNumber.trim(),
       p_reason_for_excess: withdrawReason.trim(),
       p_error_staff_name: withdrawStaffName.trim(),
@@ -814,8 +850,12 @@ export default function BankInCashPage() {
       setError(withdrawError.message);
     } else {
       setSelectedExcessIds((current) => current.filter((id) => id !== withdrawTarget.id));
-      setMessage(`${money.format(Number(withdrawTarget.excess_amount))} withdrawn from available Excess Cash.`);
+      const remaining = Math.max(0, Number(withdrawTarget.excess_amount) - amount);
+      setMessage(
+        `${money.format(amount)} withdrawn. ${money.format(remaining)} remains in available Excess Cash.`,
+      );
       setWithdrawTarget(null);
+      setWithdrawAmount('');
       setWithdrawFolioNumber('');
       setWithdrawReason('');
       setWithdrawStaffName('');
@@ -1220,18 +1260,39 @@ export default function BankInCashPage() {
             {!excessRows.length ? <div className="empty-state">No excess cash declarations match the selected filters.</div> : null}
             {excessRows.map((row) => {
               const withdrawal = excessWithdrawalByEntryId.get(row.id);
-              const unavailable = !!row.excess_bank_in_id || !!withdrawal;
+              const withdrawalEvents = withdrawal?.withdrawal_history?.length
+                ? withdrawal.withdrawal_history
+                : withdrawal
+                  ? [{
+                      amount: withdrawal.withdrawn_amount,
+                      folio_number: withdrawal.folio_number,
+                      reason_for_excess: withdrawal.reason_for_excess,
+                      error_staff_name: withdrawal.error_staff_name,
+                      withdrawn_by_name: withdrawal.withdrawn_by_name,
+                      withdrawn_at: withdrawal.withdrawn_at,
+                    }]
+                  : [];
+              const fullyWithdrawn = !!withdrawal && row.excess_amount <= 0;
+              const unavailable = !!row.excess_bank_in_id || row.excess_amount <= 0;
               return (
-                <article className={`compact-row excess-row ${row.excess_bank_in_id ? 'complete' : ''} ${withdrawal ? 'withdrawn' : ''}`} key={row.id}>
-                  <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!withdrawal && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
+                <article className={`compact-row excess-row ${row.excess_bank_in_id ? 'complete' : ''} ${fullyWithdrawn ? 'withdrawn' : withdrawal ? 'partly-withdrawn' : ''}`} key={row.id}>
+                  <input type="checkbox" aria-label={`Select ${row.person_name}`} disabled={unavailable} checked={!unavailable && selectedExcessIds.includes(row.id)} onChange={(event) => toggleIds([row.id], event.target.checked, 'excess')} />
                   <div className="excess-entry-copy">
                     <strong>{row.person_name}</strong>
                     <span>{formatDate(row.service_date)} | {row.shift_title}</span>
-                    {withdrawal ? <span className="withdrawal-detail">Folio {withdrawal.folio_number} | {withdrawal.reason_for_excess} | Error by {withdrawal.error_staff_name}</span> : null}
+                    {withdrawalEvents.map((event, index) => (
+                      <span className="withdrawal-detail" key={`${withdrawal?.id || row.id}-${index}`}>
+                        Withdrew {money.format(Number(event.amount || 0))} | Folio {event.folio_number || '-'} | {event.reason_for_excess || '-'} | Error by {event.error_staff_name || '-'}
+                      </span>
+                    ))}
                   </div>
-                  <b>{money.format(Number(row.excess_amount))}</b>
+                  <b className={withdrawal ? 'excess-balance' : ''}>
+                    {withdrawal ? <small>Balance</small> : null}
+                    {money.format(Number(row.excess_amount))}
+                    {withdrawal ? <del>Original {money.format(Number(row.original_excess_amount))}</del> : null}
+                  </b>
                   <div className="excess-row-actions">
-                    <em>{withdrawal ? 'Withdrawn' : row.excess_bank_in_id ? 'Banked' : 'Open'}</em>
+                    <em>{row.excess_bank_in_id ? 'Banked' : fullyWithdrawn ? 'Withdrawn' : withdrawal ? 'Partly withdrawn' : 'Open'}</em>
                     {!unavailable ? <button type="button" className="withdraw-button" onClick={() => openExcessWithdrawal(row)}>Withdraw</button> : null}
                     {isSuperuser ? (
                       <button
@@ -1244,7 +1305,7 @@ export default function BankInCashPage() {
                         Delete
                       </button>
                     ) : null}
-                    {withdrawal ? <small>{withdrawal.withdrawn_by_name} | {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
+                    {withdrawal ? <small>Total withdrawn {money.format(Number(row.withdrawn_amount))} | Latest: {withdrawal.withdrawn_by_name} · {formatDateTime(withdrawal.withdrawn_at)}</small> : null}
                   </div>
                 </article>
               );
@@ -1493,16 +1554,17 @@ export default function BankInCashPage() {
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setWithdrawTarget(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="withdraw-excess-title">
             <span className="eyebrow">EXCESS CASH RESOLUTION</span>
-            <h2 id="withdraw-excess-title">Withdraw this excess cash?</h2>
-            <p>The transaction will remain in the Excess Cash register as withdrawn and will no longer be included in totals or available for bank-in.</p>
-            <div className="withdrawal-amount">{money.format(Number(withdrawTarget.excess_amount))}</div>
+            <h2 id="withdraw-excess-title">Withdraw from this excess cash?</h2>
+            <p>Enter the amount to withdraw. Any remaining balance will stay open in Excess Cash and remain available for a later withdrawal or bank-in.</p>
+            <div className="withdrawal-amount"><small>Available balance</small>{money.format(Number(withdrawTarget.excess_amount))}</div>
             <div className="withdrawal-form">
+              <label className="full-field">Withdrawal Amount (RM)<input type="number" min="0.01" max={Number(withdrawTarget.excess_amount)} step="0.01" inputMode="decimal" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} placeholder="0.00" autoFocus /></label>
               <label>Folio Number of Mistake<input type="text" value={withdrawFolioNumber} onChange={(event) => setWithdrawFolioNumber(event.target.value)} placeholder="Enter folio number" /></label>
               <label>Staff who made the error<input type="text" value={withdrawStaffName} onChange={(event) => setWithdrawStaffName(event.target.value)} placeholder="Enter staff name" /></label>
               <label className="full-field">Reason for excess cash<textarea value={withdrawReason} onChange={(event) => setWithdrawReason(event.target.value)} placeholder="Explain why the excess occurred and why it is being withdrawn" /></label>
             </div>
             <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={() => setWithdrawTarget(null)}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={() => { setWithdrawTarget(null); setWithdrawAmount(''); }}>Cancel</button>
               <button type="button" className="danger-solid" onClick={() => void withdrawExcessCash()} disabled={withdrawingExcess}>{withdrawingExcess ? 'Recording withdrawal...' : 'Confirm Withdrawal'}</button>
 
             </div>
@@ -1676,10 +1738,14 @@ function Styles() {
       .compact-row > div span { color: #667995; font-size: 12px; }
       .compact-row > b, .compact-row > em { text-align: right; }
       .excess-row { grid-template-columns: 24px minmax(260px, 1fr) 120px minmax(150px, auto); }
+      .excess-row.partly-withdrawn { border-color: #f4d39a; border-left-color: #e99a20; background: #fffaf2; }
       .excess-row.withdrawn { border-color: #d7dce5; border-left-color: #98a2b3; background: #f1f3f6; color: #667085; }
-      .excess-row.withdrawn > b { color: #7c8491; text-decoration: line-through; }
+      .excess-row.withdrawn > b { color: #7c8491; }
       .excess-entry-copy { min-width: 0; }
       .withdrawal-detail { margin-top: 4px; color: #5e6673 !important; font-weight: 750; }
+      .excess-balance { display: grid; justify-items: end; gap: 2px; }
+      .excess-balance small { color: #667995; font-size: 9px; font-weight: 850; text-transform: uppercase; }
+      .excess-balance del { color: #98a2b3; font-size: 9px; font-weight: 700; }
       .excess-row-actions { display: flex !important; align-items: flex-end; justify-content: center; flex-direction: column; gap: 5px !important; text-align: right; }
       .excess-row-actions em { color: #60718f; font-size: 10px; font-style: normal; font-weight: 900; text-transform: uppercase; }
       .excess-row-actions small { max-width: 210px; color: #7a8493; font-size: 10px; line-height: 1.3; }
@@ -1764,6 +1830,7 @@ function Styles() {
       .modal p { color: #60718f; line-height: 1.5; }
       .modal textarea { min-height: 95px; resize: vertical; }
       .withdrawal-amount { margin: 14px 0; padding: 13px; border-radius: 8px; color: #b42318; background: #fff2f1; font-size: 25px; font-weight: 900; text-align: center; }
+      .withdrawal-amount small { display: block; margin-bottom: 3px; color: #80534f; font-size: 10px; text-transform: uppercase; }
       .withdrawal-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
       .withdrawal-form .full-field { grid-column: 1 / -1; }
       .source-picker-modal { width: min(680px, 100%); }

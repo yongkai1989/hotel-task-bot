@@ -205,7 +205,22 @@ create table if not exists public.cash_excess_withdrawals (
 
 alter table public.cash_excess_withdrawals
   alter column cash_entry_id drop not null,
-  add column if not exists manual_cash_entry_id uuid null;
+  add column if not exists manual_cash_entry_id uuid null,
+  add column if not exists withdrawal_history jsonb not null default '[]'::jsonb;
+
+update public.cash_excess_withdrawals
+set withdrawal_history = jsonb_build_array(
+  jsonb_build_object(
+    'amount', withdrawn_amount,
+    'folio_number', folio_number,
+    'reason_for_excess', reason_for_excess,
+    'error_staff_name', error_staff_name,
+    'withdrawn_by_name', withdrawn_by_name,
+    'withdrawn_by_email', withdrawn_by_email,
+    'withdrawn_at', withdrawn_at
+  )
+)
+where withdrawal_history = '[]'::jsonb;
 
 do $$
 begin
@@ -749,10 +764,12 @@ end;
 $$;
 
 drop function if exists public.withdraw_excess_cash(uuid, date, text, text);
+drop function if exists public.withdraw_excess_cash(uuid, text, text, text);
 
 create or replace function public.withdraw_excess_cash(
 
   p_cash_entry_id uuid,
+  p_withdraw_amount numeric,
   p_folio_number text,
   p_reason_for_excess text,
   p_error_staff_name text
@@ -767,8 +784,12 @@ declare
   v_manual_entry public.cash_manual_entries%rowtype;
   v_profile public.user_profiles%rowtype;
   v_withdrawal public.cash_excess_withdrawals%rowtype;
+  v_existing_withdrawal public.cash_excess_withdrawals%rowtype;
   v_is_manual boolean := false;
   v_excess_amount numeric(12,2);
+  v_withdraw_amount numeric(12,2) := round(coalesce(p_withdraw_amount, 0), 2);
+  v_remaining_amount numeric(12,2);
+  v_event jsonb;
   v_folio_number text := trim(coalesce(p_folio_number, ''));
   v_reason text := trim(coalesce(p_reason_for_excess, ''));
   v_staff_name text := trim(coalesce(p_error_staff_name, ''));
@@ -816,12 +837,22 @@ begin
      or (v_is_manual and v_manual_entry.excess_bank_in_id is not null) then
     raise exception 'This excess cash has already been included in a bank-in. Reverse the bank-in first';
   end if;
-  if exists (
-    select 1 from public.cash_excess_withdrawals
+  select * into v_existing_withdrawal
+  from public.cash_excess_withdrawals
     where cash_entry_id = p_cash_entry_id
        or manual_cash_entry_id = p_cash_entry_id
-  ) then
-    raise exception 'This excess cash has already been withdrawn';
+  for update;
+
+  v_remaining_amount := round(
+    v_excess_amount - coalesce(v_existing_withdrawal.withdrawn_amount, 0),
+    2
+  );
+  if v_withdraw_amount <= 0 then
+    raise exception 'Withdrawal amount must be more than zero';
+  end if;
+  if v_withdraw_amount > v_remaining_amount then
+    raise exception 'Withdrawal amount cannot exceed the available excess cash balance of RM%',
+      to_char(v_remaining_amount, 'FM999999990.00');
   end if;
 
   select * into v_profile
@@ -829,30 +860,101 @@ begin
   where user_id = auth.uid()
   limit 1;
 
-  insert into public.cash_excess_withdrawals (
-    cash_entry_id,
-    manual_cash_entry_id,
-    folio_number,
-    reason_for_excess,
-    error_staff_name,
-    withdrawn_amount,
-    withdrawn_by_user_id,
-    withdrawn_by_name,
-    withdrawn_by_email
-  ) values (
-    case when v_is_manual then null else v_entry.id end,
-    case when v_is_manual then v_manual_entry.id else null end,
-    v_folio_number,
-    v_reason,
-    v_staff_name,
-    v_excess_amount,
-    auth.uid(),
-    coalesce(v_profile.name, v_profile.email, 'User'),
-    coalesce(v_profile.email, '')
-  )
-  returning * into v_withdrawal;
+  v_event := jsonb_build_object(
+    'amount', v_withdraw_amount,
+    'folio_number', v_folio_number,
+    'reason_for_excess', v_reason,
+    'error_staff_name', v_staff_name,
+    'withdrawn_by_name', coalesce(v_profile.name, v_profile.email, 'User'),
+    'withdrawn_by_email', coalesce(v_profile.email, ''),
+    'withdrawn_at', now()
+  );
+
+  if v_existing_withdrawal.id is not null then
+    update public.cash_excess_withdrawals
+    set folio_number = v_folio_number,
+        reason_for_excess = v_reason,
+        error_staff_name = v_staff_name,
+        withdrawn_amount = round(withdrawn_amount + v_withdraw_amount, 2),
+        withdrawn_by_user_id = auth.uid(),
+        withdrawn_by_name = coalesce(v_profile.name, v_profile.email, 'User'),
+        withdrawn_by_email = coalesce(v_profile.email, ''),
+        withdrawn_at = now(),
+        withdrawal_history = coalesce(withdrawal_history, '[]'::jsonb)
+          || jsonb_build_array(v_event)
+    where id = v_existing_withdrawal.id
+    returning * into v_withdrawal;
+  else
+    insert into public.cash_excess_withdrawals (
+      cash_entry_id,
+      manual_cash_entry_id,
+      folio_number,
+      reason_for_excess,
+      error_staff_name,
+      withdrawn_amount,
+      withdrawn_by_user_id,
+      withdrawn_by_name,
+      withdrawn_by_email,
+      withdrawal_history
+    ) values (
+      case when v_is_manual then null else v_entry.id end,
+      case when v_is_manual then v_manual_entry.id else null end,
+      v_folio_number,
+      v_reason,
+      v_staff_name,
+      v_withdraw_amount,
+      auth.uid(),
+      coalesce(v_profile.name, v_profile.email, 'User'),
+      coalesce(v_profile.email, ''),
+      jsonb_build_array(v_event)
+    )
+    returning * into v_withdrawal;
+  end if;
 
   return v_withdrawal;
+end;
+$$;
+
+-- Compatibility for older/cached app versions that submit a full withdrawal.
+create or replace function public.withdraw_excess_cash(
+  p_cash_entry_id uuid,
+  p_folio_number text,
+  p_reason_for_excess text,
+  p_error_staff_name text
+)
+returns public.cash_excess_withdrawals
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_remaining_amount numeric(12,2);
+begin
+  select round(e.excess_amount - coalesce(w.withdrawn_amount, 0), 2)
+  into v_remaining_amount
+  from public.fo_checklist_cash_entries e
+  left join public.cash_excess_withdrawals w on w.cash_entry_id = e.id
+  where e.id = p_cash_entry_id;
+
+  if not found then
+    select round(m.excess_amount - coalesce(w.withdrawn_amount, 0), 2)
+    into v_remaining_amount
+    from public.cash_manual_entries m
+    left join public.cash_excess_withdrawals w on w.manual_cash_entry_id = m.id
+    where m.id = p_cash_entry_id;
+  end if;
+
+  if coalesce(v_remaining_amount, 0) <= 0 then
+    raise exception 'This transaction has no excess cash remaining to withdraw';
+  end if;
+
+  return public.withdraw_excess_cash(
+    p_cash_entry_id,
+    v_remaining_amount,
+    p_folio_number,
+    p_reason_for_excess,
+    p_error_staff_name
+  );
 end;
 $$;
 
@@ -938,9 +1040,11 @@ begin
       where e.id = selected.source_id
         and e.excess_amount > 0
         and e.excess_bank_in_id is null
-        and not exists (
-          select 1 from public.cash_excess_withdrawals w where w.cash_entry_id = e.id
-        )
+        and e.excess_amount > coalesce((
+          select w.withdrawn_amount
+          from public.cash_excess_withdrawals w
+          where w.cash_entry_id = e.id
+        ), 0)
     )
     and not exists (
       select 1
@@ -948,9 +1052,11 @@ begin
       where m.id = selected.source_id
         and m.excess_amount > 0
         and m.excess_bank_in_id is null
-        and not exists (
-          select 1 from public.cash_excess_withdrawals w where w.manual_cash_entry_id = m.id
-        )
+        and m.excess_amount > coalesce((
+          select w.withdrawn_amount
+          from public.cash_excess_withdrawals w
+          where w.manual_cash_entry_id = m.id
+        ), 0)
     )
   ) then
     raise exception 'One or more selected excess cash rows are no longer available';
@@ -986,13 +1092,15 @@ begin
     + coalesce((
       select sum(source_amount)
       from (
-        select excess_amount as source_amount
-        from public.fo_checklist_cash_entries
-        where id = any(v_excess_ids)
+        select e.excess_amount - coalesce(w.withdrawn_amount, 0) as source_amount
+        from public.fo_checklist_cash_entries e
+        left join public.cash_excess_withdrawals w on w.cash_entry_id = e.id
+        where e.id = any(v_excess_ids)
         union all
-        select excess_amount as source_amount
-        from public.cash_manual_entries
-        where id = any(v_excess_ids)
+        select m.excess_amount - coalesce(w.withdrawn_amount, 0) as source_amount
+        from public.cash_manual_entries m
+        left join public.cash_excess_withdrawals w on w.manual_cash_entry_id = m.id
+        where m.id = any(v_excess_ids)
       ) excess_sources
     ), 0)
     + coalesce((
@@ -1059,13 +1167,15 @@ begin
     from public.cash_manual_entries
     where id = any(v_daily_ids);
   insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
-    select v_bank.id, 'EXCESS', id, excess_amount
-    from public.fo_checklist_cash_entries
-    where id = any(v_excess_ids);
+    select v_bank.id, 'EXCESS', e.id, e.excess_amount - coalesce(w.withdrawn_amount, 0)
+    from public.fo_checklist_cash_entries e
+    left join public.cash_excess_withdrawals w on w.cash_entry_id = e.id
+    where e.id = any(v_excess_ids);
   insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
-    select v_bank.id, 'EXCESS', id, excess_amount
-    from public.cash_manual_entries
-    where id = any(v_excess_ids);
+    select v_bank.id, 'EXCESS', m.id, m.excess_amount - coalesce(w.withdrawn_amount, 0)
+    from public.cash_manual_entries m
+    left join public.cash_excess_withdrawals w on w.manual_cash_entry_id = m.id
+    where m.id = any(v_excess_ids);
   insert into public.cash_bank_in_sources (bank_in_id, source_type, source_id, source_amount)
     select v_bank.id, 'SMALL_CHANGE', id, amount
     from public.cash_small_change
@@ -1595,7 +1705,8 @@ begin
         withdrawn_by_user_id,
         withdrawn_by_name,
         withdrawn_by_email,
-        withdrawn_at
+        withdrawn_at,
+        withdrawal_history
       ) values (
         v_withdrawal.id,
         v_shift_entry.id,
@@ -1606,7 +1717,8 @@ begin
         v_withdrawal.withdrawn_by_user_id,
         v_withdrawal.withdrawn_by_name,
         v_withdrawal.withdrawn_by_email,
-        v_withdrawal.withdrawn_at
+        v_withdrawal.withdrawn_at,
+        coalesce(v_withdrawal.withdrawal_history, '[]'::jsonb)
       );
     end if;
   elsif v_deletion.source_type = 'MANUAL_CASH' then
@@ -1674,7 +1786,8 @@ begin
         withdrawn_by_user_id,
         withdrawn_by_name,
         withdrawn_by_email,
-        withdrawn_at
+        withdrawn_at,
+        withdrawal_history
       ) values (
         v_withdrawal.id,
         null,
@@ -1686,7 +1799,8 @@ begin
         v_withdrawal.withdrawn_by_user_id,
         v_withdrawal.withdrawn_by_name,
         v_withdrawal.withdrawn_by_email,
-        v_withdrawal.withdrawn_at
+        v_withdrawal.withdrawn_at,
+        coalesce(v_withdrawal.withdrawal_history, '[]'::jsonb)
       );
     end if;
   else
@@ -1737,11 +1851,11 @@ begin
     and (
       e.excess_amount = 0
       or e.excess_bank_in_id is not null
-      or exists (
-        select 1
+      or e.excess_amount <= coalesce((
+        select w.withdrawn_amount
         from public.cash_excess_withdrawals w
         where w.cash_entry_id = e.id
-      )
+      ), 0)
     );
 
   delete from public.cash_manual_entries
@@ -1750,10 +1864,10 @@ begin
     and (
       excess_amount = 0
       or excess_bank_in_id is not null
-      or exists (
-        select 1 from public.cash_excess_withdrawals w
+      or cash_manual_entries.excess_amount <= coalesce((
+        select w.withdrawn_amount from public.cash_excess_withdrawals w
         where w.manual_cash_entry_id = cash_manual_entries.id
-      )
+      ), 0)
     );
 
 
@@ -1845,9 +1959,11 @@ grant select on public.cash_entry_deletions to authenticated;
 grant execute on function public.save_fo_checklist_cash_entries(uuid, jsonb) to authenticated;
 revoke all on function public.add_manual_cash_entry(date, text, numeric, numeric) from public, anon;
 revoke all on function public.amend_fo_cash_entry(uuid, numeric, text) from public, anon;
+revoke all on function public.withdraw_excess_cash(uuid, numeric, text, text, text) from public, anon;
 revoke all on function public.withdraw_excess_cash(uuid, text, text, text) from public, anon;
 grant execute on function public.add_manual_cash_entry(date, text, numeric, numeric) to authenticated;
 grant execute on function public.amend_fo_cash_entry(uuid, numeric, text) to authenticated;
+grant execute on function public.withdraw_excess_cash(uuid, numeric, text, text, text) to authenticated;
 grant execute on function public.withdraw_excess_cash(uuid, text, text, text) to authenticated;
 revoke all on function public.create_cash_bank_in(uuid[], uuid[], uuid[], numeric, date, text[]) from public, anon;
 grant execute on function public.create_cash_bank_in(uuid[], uuid[], uuid[], numeric, date, text[]) to authenticated;
