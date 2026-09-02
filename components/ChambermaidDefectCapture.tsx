@@ -53,17 +53,22 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
   const [open, setOpen] = useState(false);
   const [media, setMedia] = useState<CapturedMedia[]>([]);
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraSession, setCameraSession] = useState(0);
   const [recording, setRecording] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [useNativeVideoCapture, setUseNativeVideoCapture] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fallbackInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const mediaRef = useRef<CapturedMedia[]>([]);
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickerActiveRef = useRef(false);
+  const pickerOpenedAtRef = useRef(0);
 
   function releaseCamera(updateState = true) {
     if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
@@ -92,6 +97,12 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
   useEffect(() => {
     mediaRef.current = media;
   }, [media]);
+
+  useEffect(() => {
+    const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    setUseNativeVideoCapture(isIOS);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -128,6 +139,22 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
       video.removeEventListener('loadeddata', markReady);
       video.removeEventListener('canplay', markReady);
     };
+  }, [open, cameraSession]);
+
+  useEffect(() => {
+    if (!open) return;
+    const resumeAfterPicker = () => {
+      if (document.visibilityState !== 'visible' || !pickerActiveRef.current) return;
+      if (Date.now() - pickerOpenedAtRef.current < 400) return;
+      pickerActiveRef.current = false;
+      setTimeout(() => void openCamera(), 150);
+    };
+    document.addEventListener('visibilitychange', resumeAfterPicker);
+    window.addEventListener('focus', resumeAfterPicker);
+    return () => {
+      document.removeEventListener('visibilitychange', resumeAfterPicker);
+      window.removeEventListener('focus', resumeAfterPicker);
+    };
   }, [open]);
 
   async function openCamera() {
@@ -144,6 +171,7 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
       streamRef.current = stream;
       setOpen(true);
       setCameraReady(false);
+      setCameraSession((current) => current + 1);
     } catch (cameraError: any) {
       setOpen(true);
       setCameraReady(false);
@@ -249,13 +277,32 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
     if (valid.length !== files.length) {
       setError('Some files were skipped. Photos must be 8 MB or smaller and videos 12 MB or smaller.');
     }
-    if (!valid.length) return;
+    if (!valid.length) {
+      if (fallbackInputRef.current) fallbackInputRef.current.value = '';
+      if (nativeVideoInputRef.current) nativeVideoInputRef.current.value = '';
+      return;
+    }
     setMedia((current) => {
       const available = Math.max(0, MAX_MEDIA - current.length);
       return [...current, ...valid.slice(0, available).map(makeMediaItem)];
     });
     if (valid.length === files.length) setError('');
     if (fallbackInputRef.current) fallbackInputRef.current.value = '';
+    if (nativeVideoInputRef.current) nativeVideoInputRef.current.value = '';
+  }
+
+  function resumeCameraAfterPicker() {
+    if (!pickerActiveRef.current) return;
+    pickerActiveRef.current = false;
+    setTimeout(() => void openCamera(), 150);
+  }
+
+  function openDevicePicker(input: HTMLInputElement | null) {
+    if (!input) return;
+    pickerActiveRef.current = true;
+    pickerOpenedAtRef.current = Date.now();
+    releaseCamera();
+    input.click();
   }
 
   function removeMedia(id: string) {
@@ -323,7 +370,7 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
 
             <div className="maid-camera-view">
               <video ref={videoRef} muted playsInline autoPlay />
-              {!cameraReady ? <div className="maid-camera-fallback">{streamRef.current ? 'Starting camera…' : 'Camera unavailable'}<br /><span>{streamRef.current ? 'Please wait a moment' : 'Use Camera / Gallery below'}</span></div> : null}
+              {!cameraReady ? <div className="maid-camera-fallback">{streamRef.current ? 'Starting camera…' : 'Camera unavailable'}<br /><span>{streamRef.current ? 'Please wait a moment' : 'Use Gallery or Record Video below'}</span></div> : null}
               {recording ? <div className="maid-recording-badge"><i /> Recording</div> : null}
               <div className="maid-capture-count">{media.length}/{MAX_MEDIA}</div>
             </div>
@@ -335,10 +382,38 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
               {recording ? (
                 <button type="button" className="maid-stop-action" onClick={stopVideo}>Stop Video</button>
               ) : (
-                <button type="button" className="maid-video-action" onClick={startVideo} disabled={!cameraReady || submitting || media.length >= MAX_MEDIA}>Record Video</button>
+                <button
+                  type="button"
+                  className="maid-video-action"
+                  onClick={() => useNativeVideoCapture ? openDevicePicker(nativeVideoInputRef.current) : startVideo()}
+                  disabled={(!useNativeVideoCapture && !cameraReady) || submitting || media.length >= MAX_MEDIA}
+                >
+                  Record Video
+                </button>
               )}
-              <input ref={fallbackInputRef} type="file" accept="image/*,video/*" capture="environment" multiple hidden onChange={(event) => addFallbackFiles(Array.from(event.target.files || []))} />
-              <button type="button" className="maid-gallery-action" onClick={() => fallbackInputRef.current?.click()} disabled={submitting || media.length >= MAX_MEDIA}>Camera / Gallery</button>
+              <input
+                ref={nativeVideoInputRef}
+                type="file"
+                accept="video/*"
+                capture="environment"
+                hidden
+                onChange={(event) => {
+                  addFallbackFiles(Array.from(event.target.files || []));
+                  resumeCameraAfterPicker();
+                }}
+              />
+              <input
+                ref={fallbackInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                hidden
+                onChange={(event) => {
+                  addFallbackFiles(Array.from(event.target.files || []));
+                  resumeCameraAfterPicker();
+                }}
+              />
+              <button type="button" className="maid-gallery-action" onClick={() => openDevicePicker(fallbackInputRef.current)} disabled={submitting || media.length >= MAX_MEDIA}>Gallery</button>
             </div>
 
             {media.length ? (
