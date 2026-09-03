@@ -12,7 +12,6 @@ type MtTask = {
 
 type ManagerRoomCheck = {
   room_number?: string;
-  title?: string;
   status?: string;
   created_at?: string;
 };
@@ -82,7 +81,7 @@ async function sendMtDailyReview(today: string) {
       .limit(100),
     supabaseAdmin
       .from('manager_room_checks')
-      .select('room_number, title, status, created_at')
+      .select('room_number, status, created_at')
       .eq('department', 'MT')
       .neq('status', 'DONE')
       .order('created_at', { ascending: true })
@@ -122,7 +121,7 @@ async function sendMtDailyReview(today: string) {
   );
   for (const check of managerRoomChecks) {
     const status = String(check.status || 'OPEN').replaceAll('_', ' ');
-    lines.push(`• Room ${check.room_number || '-'} | ${status} | ${check.title || 'Manager Room Check'}`);
+    lines.push(`• Room ${check.room_number || '-'} | ${status}`);
   }
 
   lines.push(
@@ -142,9 +141,6 @@ async function sendMtDailyReview(today: string) {
   }
 
   lines.push(
-    '',
-    '🌙 NIGHT SHIFT PRIORITY',
-    'When no defects are waiting, continue working on open preventive maintenance, Manager Room Checks, and other MT tasks. Do not wait idle for defects.',
     '',
     'Please follow up and update each item as work progresses.'
   );

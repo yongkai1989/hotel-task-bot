@@ -108,6 +108,11 @@ type HkTaskRow = {
   created_at?: string;
 };
 
+type HkManagerRoomCheckRow = {
+  room_number?: string;
+  created_at?: string;
+};
+
 type SupervisorChecklistPerson = {
   email: string;
   name: string;
@@ -323,24 +328,29 @@ function checklistReviewLine(label: string, rows: DailyChecklistRow[]) {
 
 async function hkMorningReviewReminder(today: string) {
   const reportDate = singaporeDate(-1);
-  const [yesterdayResult, todayResult, varianceResult, taskResult] = await Promise.all([
+  const [yesterdayResult, varianceResult, taskResult, managerRoomCheckResult] = await Promise.all([
     supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
-    supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: today }),
     supabaseAdmin.rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate }),
     supabaseAdmin
       .from('tasks')
       .select('task_code, room, task_text, created_at')
       .eq('status', 'OPEN')
       .eq('department', 'HK')
+      .not('task_text', 'ilike', 'Urgent Manager Room Check%')
+      .order('created_at', { ascending: true }),
+    supabaseAdmin
+      .from('manager_room_checks')
+      .select('room_number, created_at')
+      .eq('department', 'HK')
+      .eq('status', 'OPEN')
       .order('created_at', { ascending: true }),
   ]);
   if (yesterdayResult.error) throw yesterdayResult.error;
-  if (todayResult.error) throw todayResult.error;
   if (varianceResult.error) throw varianceResult.error;
   if (taskResult.error) throw taskResult.error;
+  if (managerRoomCheckResult.error) throw managerRoomCheckResult.error;
 
   const yesterday = (yesterdayResult.data || {}) as DailyOperationsSummary;
-  const todaySummary = (todayResult.data || {}) as DailyOperationsSummary;
   const variance = (varianceResult.data || {}) as LinenVarianceReport;
   const checklists = yesterday.checklists || [];
   const paRows = checklists.filter((row) => row.source_type === 'PA_CHECKLIST');
@@ -356,8 +366,11 @@ async function hkMorningReviewReminder(today: string) {
   const reconciliationItems = yesterdayLinen.items || [];
   const monthlyTop = (variance.monthly_top || []).slice(0, 5);
   const hkTasks = (taskResult.data || []) as HkTaskRow[];
-  const managerRoomCount = numeric(todaySummary.rooms?.open_manager_room_checks);
-  const managerRooms = todaySummary.rooms?.open_manager_rooms || [];
+  const managerRoomChecks = (managerRoomCheckResult.data || []) as HkManagerRoomCheckRow[];
+  const managerRoomCount = managerRoomChecks.length;
+  const managerRooms = Array.from(
+    new Set(managerRoomChecks.map((check) => String(check.room_number || '').trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const missingRooms = yesterdayRooms.linen_rooms_missing || [];
 
   const incompleteChecklistCount = [...paRows, ...supervisorRows, ...premRows].filter(
@@ -437,7 +450,8 @@ async function hkMorningReviewReminder(today: string) {
     }
   }
   lines.push(
-    `• Manager Room Checks: ${managerRoomCount ? `❌ ${managerRoomCount} open` : '✅ none open'}`
+    '',
+    `🏨 OPEN MANAGER ROOM CHECKS — ${managerRoomCount ? `❌ ${managerRoomCount} open` : '✅ none open'}`
   );
   if (managerRooms.length) lines.push(`• Rooms: ${managerRooms.join(', ')}`);
 
