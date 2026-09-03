@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { buildTaskInlineKeyboard, buildTaskMessageText } from '../../../lib/telegram';
-import { syncLinkedManagerRoomCheckStatus } from '../../../lib/managerRoomCheckTaskSync';
+import {
+  isManagerRoomCheckTask,
+  syncLinkedManagerRoomCheckStatus,
+} from '../../../lib/managerRoomCheckTaskSync';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 
 export const dynamic = 'force-dynamic';
@@ -77,7 +80,9 @@ async function refreshTelegramTaskCard(taskId: string) {
       chat_id: task.chat_id,
       message_id: task.telegram_task_message_id,
       text: buildTaskMessageText(task as any),
-      reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus),
+      reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus, {
+        managerRoomCheck: isManagerRoomCheckTask(task as any),
+      }),
     });
   } catch {
     // The dashboard status update is already saved; Telegram refresh should not fail it.

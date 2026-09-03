@@ -365,8 +365,19 @@ function departmentLabel(department: DepartmentCode) {
   return department === 'HK' ? 'Housekeeping' : 'Maintenance';
 }
 
-function managerRoomCheckDashboardTaskText(department: DepartmentCode, roomNumber: string) {
+function managerRoomCheckDashboardTaskText(_department: DepartmentCode, _roomNumber: string) {
+  return 'Manager Room Check.';
+}
+
+function legacyManagerRoomCheckDashboardTaskText(department: DepartmentCode, roomNumber: string) {
   return `Urgent Manager Room Check for room ${roomNumber}. Please open ${departmentLabel(department)} Manager Room Check to review.`;
+}
+
+function managerRoomCheckDashboardTaskTexts(department: DepartmentCode, roomNumber: string) {
+  return [
+    managerRoomCheckDashboardTaskText(department, roomNumber),
+    legacyManagerRoomCheckDashboardTaskText(department, roomNumber),
+  ];
 }
 
 function isLikelyFileName(value?: string | null) {
@@ -1148,7 +1159,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           .select('id')
           .eq('room', targetRoomNumber)
           .eq('department', targetDepartment)
-          .eq('task_text', taskText)
+          .in('task_text', managerRoomCheckDashboardTaskTexts(targetDepartment, targetRoomNumber))
           .neq('status', 'DONE')
           .limit(1)
           .maybeSingle();
@@ -1183,13 +1194,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (!supabase) return 0;
     try {
       const token = await getAccessToken();
-      const taskText = managerRoomCheckDashboardTaskText(check.department, check.room_number);
       const query = supabase
         .from('tasks')
         .select('id, status, created_at')
         .eq('room', check.room_number)
         .eq('department', check.department)
-        .eq('task_text', taskText)
+        .in('task_text', managerRoomCheckDashboardTaskTexts(check.department, check.room_number))
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -1233,13 +1243,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function deleteDashboardReminderForCheck(check: RoomCheck) {
     if (!supabase) return;
-    const taskText = managerRoomCheckDashboardTaskText(check.department, check.room_number);
     const { data, error } = await supabase
       .from('tasks')
       .select('id, created_at')
       .eq('room', check.room_number)
       .eq('department', check.department)
-      .eq('task_text', taskText)
+      .in('task_text', managerRoomCheckDashboardTaskTexts(check.department, check.room_number))
       .limit(20);
 
     if (error) throw error;

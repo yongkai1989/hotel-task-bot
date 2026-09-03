@@ -21,17 +21,22 @@ function departmentLabel(department: 'HK' | 'MT') {
   return department === 'HK' ? 'Housekeeping' : 'Maintenance';
 }
 
-export function managerRoomCheckTaskText(department: 'HK' | 'MT', room: string) {
+export function managerRoomCheckTaskText(_department: 'HK' | 'MT', _room: string) {
+  return 'Manager Room Check.';
+}
+
+export function legacyManagerRoomCheckTaskText(department: 'HK' | 'MT', room: string) {
   return `Urgent Manager Room Check for room ${room}. Please open ${departmentLabel(department)} Manager Room Check to review.`;
 }
 
 export function isManagerRoomCheckTask(task: LinkedTask) {
   const department = managerRoomCheckDepartment(task.department);
   const room = String(task.room || '').trim();
-  return Boolean(
-    department &&
-      room &&
-      String(task.task_text || '').trim() === managerRoomCheckTaskText(department, room)
+  if (!department || !room) return false;
+  const taskText = String(task.task_text || '').trim();
+  return (
+    taskText === managerRoomCheckTaskText(department, room) ||
+    taskText === legacyManagerRoomCheckTaskText(department, room)
   );
 }
 

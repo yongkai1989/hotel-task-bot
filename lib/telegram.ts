@@ -40,17 +40,18 @@ export function buildTaskMessageText(task: {
   reopened_at?: string | null;
   last_updated_by_name?: string | null;
 }) {
+  const managerRoomCheck = isManagerRoomCheckTask(task);
   const lines = [
     'TASK',
     `Task ID: ${task.task_code}`,
     `Room: ${task.room}`,
     `Department: ${task.department}`,
-    `Task: ${task.task_text}`,
+    `Task: ${managerRoomCheck ? 'Manager Room Check.' : task.task_text}`,
     `Status: ${labelForStatus(task.status)}`,
     `Created by: ${task.created_by_name || '-'}`,
   ];
 
-  if (task.image_url) {
+  if (task.image_url && !managerRoomCheck) {
     lines.push('Photo attached: Yes');
   }
 
@@ -72,8 +73,25 @@ export function buildTaskMessageText(task: {
   return lines.join('\n');
 }
 
-export function buildTaskInlineKeyboard(taskId: string, status: TaskStatus) {
+export function buildTaskInlineKeyboard(
+  taskId: string,
+  status: TaskStatus,
+  options?: { managerRoomCheck?: boolean }
+) {
   const normalizedStatus = normalizeStatus(status);
+
+  if (options?.managerRoomCheck) {
+    return {
+      inline_keyboard: [
+        [
+          {
+            text: normalizedStatus === 'DONE' ? 'DONE OK' : 'DONE',
+            callback_data: `done:${taskId}`,
+          },
+        ],
+      ],
+    };
+  }
 
   return {
     inline_keyboard: [
@@ -111,10 +129,11 @@ export async function sendTelegramTaskCard(params: {
     last_updated_by_name?: string | null;
   };
 }) {
+  const managerRoomCheck = isManagerRoomCheckTask(params.task);
   const sent = await telegram('sendMessage', {
     chat_id: params.chatId,
     text: buildTaskMessageText(params.task),
-    reply_markup: buildTaskInlineKeyboard(params.task.id, params.task.status),
+    reply_markup: buildTaskInlineKeyboard(params.task.id, params.task.status, { managerRoomCheck }),
   });
 
   return sent?.result?.message_id ?? null;

@@ -276,6 +276,7 @@ export async function GET(request: NextRequest) {
         .select('id, task_code, department, room, task_text, created_at', { count: 'exact' })
         .eq('status', 'OPEN')
         .not('task_text', 'ilike', 'Urgent Manager Room Check%')
+        .neq('task_text', 'Manager Room Check.')
         .order('created_at', { ascending: true })
         .limit(MAX_LIST_ITEMS),
     ]);

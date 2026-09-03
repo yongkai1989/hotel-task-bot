@@ -108,7 +108,11 @@ const PA_CHECKLIST_SUBMITTER_EMAILS = ['pa@hotelhallmark.com'];
 const FNB_CHECKLIST_SUBMITTER_EMAILS = ['fnb@hotelhallmark.com'];
 
 function managerRoomCheckHref(task: Task) {
-  if (!/^Urgent Manager Room Check for room\s+/i.test(String(task.task_text || '').trim())) return null;
+  const taskText = String(task.task_text || '').trim();
+  if (
+    taskText !== 'Manager Room Check.' &&
+    !/^Urgent Manager Room Check for room\s+/i.test(taskText)
+  ) return null;
   const route =
     task.department === 'HK'
       ? '/dashboard/hk-manager-room-check'

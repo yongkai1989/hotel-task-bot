@@ -337,6 +337,7 @@ async function hkMorningReviewReminder(today: string) {
       .eq('status', 'OPEN')
       .eq('department', 'HK')
       .not('task_text', 'ilike', 'Urgent Manager Room Check%')
+      .neq('task_text', 'Manager Room Check.')
       .order('created_at', { ascending: true }),
     supabaseAdmin
       .from('manager_room_checks')

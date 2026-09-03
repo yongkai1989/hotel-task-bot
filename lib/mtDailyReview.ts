@@ -77,6 +77,7 @@ async function sendMtDailyReview(today: string) {
       .eq('department', 'MT')
       .eq('status', 'OPEN')
       .not('task_text', 'ilike', 'Urgent Manager Room Check%')
+      .neq('task_text', 'Manager Room Check.')
       .order('created_at', { ascending: true })
       .limit(100),
     supabaseAdmin

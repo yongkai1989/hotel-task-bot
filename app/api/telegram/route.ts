@@ -2,6 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendTaskPushNotifications } from '../../../lib/taskPush';
 import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
+import {
+  isManagerRoomCheckTask,
+  syncLinkedManagerRoomCheckStatus,
+} from '../../../lib/managerRoomCheckTaskSync';
 
 type Dept = 'HK' | 'MT' | 'FO';
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
@@ -136,17 +140,18 @@ function buildTaskMessageText(task: {
   reopened_at?: string | null;
   last_updated_by_name?: string | null;
 }) {
+  const managerRoomCheck = isManagerRoomCheckTask(task);
   const lines = [
-    '📌 TASK',
+    managerRoomCheck ? 'TASK' : '📌 TASK',
     `Task ID: ${task.task_code}`,
     `Room: ${task.room}`,
     `Department: ${task.department}`,
-    `Task: ${task.task_text}`,
+    `Task: ${managerRoomCheck ? 'Manager Room Check.' : task.task_text}`,
     `Status: ${labelForStatus(task.status)}`,
     `Created by: ${task.created_by_name || '-'}`
   ];
 
-  if (task.image_url) {
+  if (task.image_url && !managerRoomCheck) {
     lines.push('Photo attached: Yes');
   }
 
@@ -168,7 +173,24 @@ function buildTaskMessageText(task: {
   return lines.join('\n');
 }
 
-function buildTaskInlineKeyboard(taskId: string, status: TaskStatus) {
+function buildTaskInlineKeyboard(
+  taskId: string,
+  status: TaskStatus,
+  options?: { managerRoomCheck?: boolean }
+) {
+  if (options?.managerRoomCheck) {
+    return {
+      inline_keyboard: [
+        [
+          {
+            text: status === 'DONE' ? '✅ DONE ✓' : '✅ DONE',
+            callback_data: `done:${taskId}`,
+          },
+        ],
+      ],
+    };
+  }
+
   return {
     inline_keyboard: [
       [
@@ -261,7 +283,9 @@ async function refreshTelegramTaskCard(taskId: string) {
     chat_id: task.chat_id,
     message_id: task.telegram_task_message_id,
     text: buildTaskMessageText(task as any),
-    reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus)
+    reply_markup: buildTaskInlineKeyboard(task.id, task.status as TaskStatus, {
+      managerRoomCheck: isManagerRoomCheckTask(task as any),
+    })
   });
 }
 
@@ -368,6 +392,16 @@ async function updateTaskStatusByTaskId(params: {
   sendConfirmation?: boolean;
 }) {
   const now = new Date().toISOString();
+
+  if (params.command === 'OPEN' || params.command === 'DONE') {
+    const { data: existingTask, error: existingTaskError } = await supabase
+      .from('tasks')
+      .select('id, status, room, department, task_text, created_at')
+      .eq('id', params.taskId)
+      .single();
+    if (existingTaskError || !existingTask) throw existingTaskError || new Error('Task not found');
+    await syncLinkedManagerRoomCheckStatus(existingTask, params.command, params.userName);
+  }
 
   const updateData: any = {
     status: params.command,
