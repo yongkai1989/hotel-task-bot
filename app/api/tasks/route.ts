@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { sendTelegramTaskCard, Dept } from '../../../lib/telegram';
+import { sendTelegramTaskAttachments, sendTelegramTaskCard, Dept } from '../../../lib/telegram';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { reconcileManagerRoomCheckTasks } from '../../../lib/managerRoomCheckTaskSync';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
@@ -900,6 +900,20 @@ export async function POST(req: NextRequest) {
             message_type: 'TASK_CARD',
           });
         }
+
+        await sendTelegramTaskAttachments({
+          chatId: telegramChatId as number,
+          task: {
+            task_code: task.task_code,
+            room: task.room,
+            department: task.department,
+            task_text: task.task_text,
+          },
+          attachments: imageUrls.map((url, index) => ({
+            url,
+            caption: imageCaptions[index] || null,
+          })),
+        });
       } catch (error: any) {
         telegramWarning = error?.message || `Telegram notification failed for ${department}`;
       }

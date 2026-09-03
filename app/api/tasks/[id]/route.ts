@@ -4,6 +4,7 @@ import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 import { deleteLinkedManagerRoomCheck } from '../../../../lib/managerRoomCheckTaskSync';
 import { broadcastTaskChange } from '../../../../lib/taskBroadcastServer';
 import { attachTaskAlertAcknowledgements } from '../../../../lib/taskAlertAcknowledgements';
+import { sendTelegramTaskAttachments } from '../../../../lib/telegram';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -151,7 +152,7 @@ export async function PATCH(
 
     const { data: existingTask, error: fetchError } = await supabaseAdmin
       .from('tasks')
-      .select('id, status, created_by_email')
+      .select('id, status, created_by_email, task_code, room, department, task_text, chat_id')
       .eq('id', taskId)
       .single();
 
@@ -224,9 +225,31 @@ export async function PATCH(
 
     await broadcastTaskChange(taskId, 'UPDATE');
 
+    let telegramWarning = '';
+    if (existingTask.department === 'MT' && existingTask.chat_id) {
+      try {
+        await sendTelegramTaskAttachments({
+          chatId: existingTask.chat_id,
+          task: {
+            task_code: existingTask.task_code,
+            room: existingTask.room,
+            department: 'MT',
+            task_text: existingTask.task_text,
+          },
+          attachments: newImageUrls.map((url, index) => ({
+            url,
+            caption: newImageCaptions[index] || null,
+          })),
+        });
+      } catch (error: any) {
+        telegramWarning = error?.message || 'Task media was saved but could not be sent to MT Telegram';
+      }
+    }
+
     return jsonNoCache({
       ok: true,
       task_images: images || [],
+      warning: telegramWarning || undefined,
     });
   } catch (error: any) {
     return jsonNoCache(

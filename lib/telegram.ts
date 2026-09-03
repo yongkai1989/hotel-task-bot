@@ -1,6 +1,7 @@
 export type TaskStatus = 'OPEN' | 'DONE';
 export type Dept = 'HK' | 'MT' | 'FO';
 import { formatDateTimeDDMMYYYY } from './dateDisplay';
+import { isManagerRoomCheckTask } from './managerRoomCheckTaskSync';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 
@@ -117,4 +118,73 @@ export async function sendTelegramTaskCard(params: {
   });
 
   return sent?.result?.message_id ?? null;
+}
+
+export type TelegramTaskAttachment = {
+  url: string;
+  caption?: string | null;
+};
+
+function telegramMediaMethod(url: string) {
+  let pathname = String(url || '').toLowerCase();
+  try {
+    pathname = new URL(url).pathname.toLowerCase();
+  } catch {
+    // The Bot API will validate the URL. This only chooses its media method.
+  }
+  if (/\.(mp4|m4v)$/.test(pathname)) return { method: 'sendVideo', field: 'video' } as const;
+  if (/\.(mov|webm)$/.test(pathname)) return { method: 'sendDocument', field: 'document' } as const;
+  return { method: 'sendPhoto', field: 'photo' } as const;
+}
+
+/**
+ * Sends normal MT task evidence as visible Telegram media messages. Manager
+ * Room Checks stay text-only because their dedicated page may contain many files.
+ */
+export async function sendTelegramTaskAttachments(params: {
+  chatId: number;
+  task: {
+    task_code: string;
+    room: string;
+    department: Dept;
+    task_text: string;
+  };
+  attachments: TelegramTaskAttachment[];
+}) {
+  const attachments = params.attachments.filter((item) => String(item.url || '').trim());
+  if (
+    params.task.department !== 'MT' ||
+    isManagerRoomCheckTask(params.task) ||
+    !attachments.length
+  ) {
+    return { sent: 0, skipped: true };
+  }
+
+  let sentCount = 0;
+  for (let index = 0; index < attachments.length; index += 1) {
+    const attachment = attachments[index];
+    const media = telegramMediaMethod(attachment.url);
+    const attachmentLabel =
+      attachments.length === 1 ? 'Attachment' : `Attachment ${index + 1}/${attachments.length}`;
+    const caption = [
+      `MT TASK ${params.task.task_code}`,
+      `Room: ${params.task.room}`,
+      attachmentLabel,
+      String(attachment.caption || '').trim(),
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 1024);
+    const result = await telegram(media.method, {
+      chat_id: params.chatId,
+      [media.field]: attachment.url,
+      caption,
+    });
+    if (!result?.ok) {
+      throw new Error(result?.description || `Telegram could not send ${attachmentLabel.toLowerCase()}`);
+    }
+    sentCount += 1;
+  }
+
+  return { sent: sentCount, skipped: false };
 }

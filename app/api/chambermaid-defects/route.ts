@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { sendTelegramTaskCard } from '../../../lib/telegram';
+import { sendTelegramTaskAttachments, sendTelegramTaskCard } from '../../../lib/telegram';
 import { sendTaskPushNotifications } from '../../../lib/taskPush';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 
@@ -202,6 +202,16 @@ export async function POST(req: NextRequest) {
       } else {
         warnings.push('MT Telegram did not confirm delivery');
       }
+      await sendTelegramTaskAttachments({
+        chatId: MT_CHAT_ID,
+        task: {
+          task_code: task.task_code,
+          room: task.room,
+          department: 'MT',
+          task_text: task.task_text,
+        },
+        attachments: uploadedMedia,
+      });
     } catch (telegramError: any) {
       warnings.push(telegramError?.message || 'MT Telegram notification failed');
     }
