@@ -10,7 +10,7 @@ type AlertTask = {
   room: string;
   department: string;
   task_text: string;
-  alert_kind: 'URGENT' | 'CUSTOMER_WAITING';
+  alert_kind: 'URGENT' | 'CUSTOMER_WAITING' | 'CHAMBERMAID_DEFECT';
   due_at?: string | null;
   created_at: string;
 };
@@ -121,11 +121,11 @@ export default function TaskAlertOverlay({ userId }: Props) {
   const current = alerts[0] || null;
 
   useEffect(() => {
-    if (!current) return;
+    if (!current || current.alert_kind === 'CHAMBERMAID_DEFECT') return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [current?.id]);
+  }, [current?.alert_kind, current?.id]);
 
   async function acknowledge() {
     if (!current || !accessToken || busy) return;
@@ -163,16 +163,17 @@ export default function TaskAlertOverlay({ userId }: Props) {
   if (!current) return null;
 
   const isUrgent = current.alert_kind === 'URGENT';
+  const isChambermaidDefect = current.alert_kind === 'CHAMBERMAID_DEFECT';
   const queueCount = alerts.length;
   return (
     <div className="global-task-alert-overlay" role="alertdialog" aria-modal="true" aria-labelledby="global-task-alert-title">
-      <section className="global-task-alert-card">
+      <section className={`global-task-alert-card${isChambermaidDefect ? ' chambermaid-defect' : ''}`}>
         <div className="global-task-alert-icon" aria-hidden="true">!</div>
         <span className="global-task-alert-kicker">
-          {isUrgent ? 'URGENT TASK' : 'CUSTOMER WAITING'}
+          {isUrgent ? 'URGENT TASK' : isChambermaidDefect ? 'HK SUPERVISOR NOTICE' : 'CUSTOMER WAITING'}
         </span>
         <h2 id="global-task-alert-title">
-          {isUrgent ? 'Immediate attention required' : 'A customer is waiting'}
+          {isUrgent ? 'Immediate attention required' : isChambermaidDefect ? 'New chambermaid defect' : 'A customer is waiting'}
         </h2>
         <div className="global-task-alert-meta">
           <b>{current.task_code}</b>
@@ -180,10 +181,12 @@ export default function TaskAlertOverlay({ userId }: Props) {
           <em>{current.department}</em>
         </div>
         <p className="global-task-alert-description">{current.task_text}</p>
-        <div className="global-task-alert-timer">
-          <small>{isUrgent ? '5-minute response target' : '10-minute customer target'}</small>
-          <strong>{timerLabel(current.due_at, now)}</strong>
-        </div>
+        {!isChambermaidDefect ? (
+          <div className="global-task-alert-timer">
+            <small>{isUrgent ? '5-minute response target' : '10-minute customer target'}</small>
+            <strong>{timerLabel(current.due_at, now)}</strong>
+          </div>
+        ) : null}
         {queueCount > 1 ? (
           <p className="global-task-alert-queue">{queueCount} alerts are waiting for your acknowledgement.</p>
         ) : null}
@@ -198,6 +201,10 @@ export default function TaskAlertOverlay({ userId }: Props) {
       <style jsx global>{`
         .global-task-alert-overlay{position:fixed;inset:0;z-index:30000;display:grid;place-items:center;padding:14px;background:rgba(50,3,7,.86);backdrop-filter:blur(7px)}
         .global-task-alert-card{width:min(570px,100%);border:5px solid #ff3434;border-radius:24px;padding:24px;background:#fff7f7;color:#441013;text-align:center;box-shadow:0 0 0 10px rgba(255,45,45,.25),0 30px 90px rgba(0,0,0,.58);animation:globalUrgentPulse 1s ease-in-out infinite}
+        .global-task-alert-card.chambermaid-defect{border-color:#2563eb;background:#f4f8ff;color:#142a52;box-shadow:0 0 0 10px rgba(37,99,235,.2),0 30px 90px rgba(0,0,0,.5);animation:none}
+        .global-task-alert-card.chambermaid-defect .global-task-alert-icon{background:#2563eb;box-shadow:0 0 0 8px #dbeafe}
+        .global-task-alert-card.chambermaid-defect .global-task-alert-kicker{color:#1d4ed8}
+        .global-task-alert-card.chambermaid-defect h2{color:#173f87}
         .global-task-alert-icon{width:74px;height:74px;margin:0 auto 10px;border-radius:999px;background:#c51620;color:#fff;display:grid;place-items:center;font-size:50px;font-weight:950;line-height:1;box-shadow:0 0 0 8px #ffd4d6}
         .global-task-alert-kicker{display:block;color:#bd1520;font-size:12px;font-weight:950;letter-spacing:.18em}
         .global-task-alert-card h2{margin:6px 0 15px;color:#861019;font-size:clamp(26px,6vw,38px);line-height:1.02;letter-spacing:-.035em}

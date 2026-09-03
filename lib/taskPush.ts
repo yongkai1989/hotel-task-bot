@@ -43,10 +43,14 @@ export type TaskPushResult = {
   warning?: string;
 };
 
-export const HK_PUSH_EMAILS = [
+export const HK_SUPERVISOR_PUSH_EMAILS = [
   'hksup1@hotelhallmark.com',
   'hksup2@hotelhallmark.com',
   'hksup3@hotelhallmark.com',
+] as const;
+
+export const HK_PUSH_EMAILS = [
+  ...HK_SUPERVISOR_PUSH_EMAILS,
   'manager@hotelhallmark.com',
 ] as const;
 
@@ -293,6 +297,55 @@ export async function sendTaskPushNotifications(
       delivered: 0,
       removed: 0,
       warning: `Web Push recipients could not be loaded: ${error?.message || 'Unknown error'}`,
+    };
+  }
+}
+
+export async function sendChambermaidDefectSupervisorAlerts(
+  task: TaskForPush,
+  submittedBy: string
+): Promise<TaskPushResult> {
+  try {
+    const profiles = await resolvePushProfiles({ emails: HK_SUPERVISOR_PUSH_EMAILS });
+    const cycle = Math.max(Number(task.alert_cycle || 1), 1);
+    if (profiles.length) {
+      const { error: recipientError } = await supabaseAdmin
+        .from('task_alert_recipients')
+        .upsert(
+          profiles.map((profile) => ({
+            task_id: task.id,
+            alert_cycle: cycle,
+            user_id: profile.user_id,
+            user_name: String(profile.name || profile.email || 'HK Supervisor').trim(),
+            user_email: normalizedEmail(profile.email),
+          })),
+          { onConflict: 'task_id,alert_cycle,user_id', ignoreDuplicates: true }
+        );
+      if (recipientError) throw recipientError;
+    }
+
+    const taskCode = String(task.task_code || 'Task').trim();
+    const room = String(task.room || 'No room').trim();
+    return sendPushNotifications({
+      userIds: profiles.map((profile) => profile.user_id),
+      payload: {
+        title: 'NEW CHAMBERMAID DEFECT',
+        body: `${taskCode} · Room ${room}\nSubmitted by ${String(submittedBy || 'Chambermaid').trim()}`,
+        taskId: task.id,
+        kind: 'TASK',
+        url: '/dashboard/chambermaid-entry',
+        timestamp: Date.now(),
+      },
+      topic: `chambermaid-defect-${task.id}`,
+      ttlSeconds: 60 * 60,
+    });
+  } catch (error: any) {
+    return {
+      configured: Boolean(pushConfiguration()),
+      attempted: 0,
+      delivered: 0,
+      removed: 0,
+      warning: `HK supervisor alerts could not be created: ${error?.message || 'Unknown error'}`,
     };
   }
 }

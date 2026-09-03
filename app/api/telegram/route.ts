@@ -183,8 +183,8 @@ function buildTaskInlineKeyboard(
       inline_keyboard: [
         [
           {
-            text: status === 'DONE' ? '✅ DONE ✓' : '✅ DONE',
-            callback_data: `done:${taskId}`,
+            text: status === 'DONE' ? '♻️ REOPEN' : '✅ DONE',
+            callback_data: `${status === 'DONE' ? 'reopen' : 'done'}:${taskId}`,
           },
         ],
       ],

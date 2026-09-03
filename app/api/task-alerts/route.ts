@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     const tasksStartedAt = Date.now();
     const { data: tasks, error: taskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, task_code, room, department, task_text, status, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, created_at')
+      .select('id, task_code, room, department, task_text, status, source_page, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, created_at')
       .in('id', taskIds)
       .eq('status', 'OPEN');
     stages.tasks_ms = Date.now() - tasksStartedAt;
@@ -61,10 +61,15 @@ export async function GET(req: NextRequest) {
     const alerts = recipients.flatMap((recipient) => {
       const task = taskMap.get(String(recipient.task_id));
       if (!task || Number(task.alert_cycle || 1) !== Number(recipient.alert_cycle || 1)) return [];
-      if (task.urgent !== true && task.customer_waiting !== true) return [];
+      const isChambermaidDefect = task.source_page === 'CHAMBERMAID_ENTRY';
+      if (task.urgent !== true && task.customer_waiting !== true && !isChambermaidDefect) return [];
       return [{
         ...task,
-        alert_kind: task.urgent === true ? 'URGENT' : 'CUSTOMER_WAITING',
+        alert_kind: task.urgent === true
+          ? 'URGENT'
+          : task.customer_waiting === true
+            ? 'CUSTOMER_WAITING'
+            : 'CHAMBERMAID_DEFECT',
         due_at: task.urgent === true ? task.urgent_due_at : task.customer_waiting_due_at,
       }];
     });
@@ -86,12 +91,16 @@ export async function POST(req: NextRequest) {
 
     const { data: task, error: taskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, status, urgent, customer_waiting, alert_cycle')
+      .select('id, status, source_page, urgent, customer_waiting, alert_cycle')
       .eq('id', taskId)
       .maybeSingle();
 
     if (taskError) return jsonNoCache({ ok: false, error: taskError.message }, 500);
-    if (!task || task.status !== 'OPEN' || (task.urgent !== true && task.customer_waiting !== true)) {
+    if (
+      !task ||
+      task.status !== 'OPEN' ||
+      (task.urgent !== true && task.customer_waiting !== true && task.source_page !== 'CHAMBERMAID_ENTRY')
+    ) {
       return jsonNoCache({ ok: false, error: 'This alert is no longer active' }, 409);
     }
 
@@ -120,7 +129,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('task_events').insert({
       task_id: taskId,
       event_type: 'ALERT_ACKNOWLEDGED',
-      event_text: `${task.urgent === true ? 'Urgent' : 'Customer-waiting'} popup acknowledged by ${user.name} (${user.email}) at ${acknowledgedAt}`,
+      event_text: `${task.urgent === true ? 'Urgent' : task.customer_waiting === true ? 'Customer-waiting' : 'Chambermaid defect'} popup acknowledged by ${user.name} (${user.email}) at ${acknowledgedAt}`,
       actor_name: user.name,
     });
 

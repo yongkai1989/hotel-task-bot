@@ -300,6 +300,7 @@ export default function ChambermaidEntryPage() {
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [entryMap, setEntryMap] = useState<Record<string, RoomEntryState>>({});
+  const [defectCountByRoom, setDefectCountByRoom] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const validFloors = FLOORS_BY_BLOCK[selectedBlock] || [];
@@ -443,7 +444,24 @@ export default function ChambermaidEntryPage() {
 
       const roomNumbers = nextRooms.map((room) => room.room_number);
 
-      const [entryRes, mapRes] = await Promise.all([
+      const { data: { session } } = await supabase.auth.getSession();
+      const defectCountPromise = roomNumbers.length > 0 && session?.access_token
+        ? fetch(
+            `/api/chambermaid-defects?service_date=${encodeURIComponent(serviceDate)}&rooms=${encodeURIComponent(roomNumbers.join(','))}`,
+            {
+              cache: 'no-store',
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            }
+          )
+            .then(async (response) => {
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok || payload?.ok === false) throw new Error(payload?.error || 'Unable to load defect counts');
+              return (payload?.counts || {}) as Record<string, number>;
+            })
+            .catch(() => ({} as Record<string, number>))
+        : Promise.resolve({} as Record<string, number>);
+
+      const [entryRes, mapRes, defectCounts] = await Promise.all([
         roomNumbers.length > 0
           ? supabase
               .from('linen_room_entry')
@@ -454,6 +472,7 @@ export default function ChambermaidEntryPage() {
               .in('room_number', roomNumbers)
           : Promise.resolve({ data: [], error: null } as any),
         loadLinenRoomTypeMap(supabase),
+        defectCountPromise,
       ]);
 
       if (entryRes.error) throw entryRes.error;
@@ -502,10 +521,12 @@ export default function ChambermaidEntryPage() {
 
       setRooms(nextRooms);
       setEntryMap(nextEntryMap);
+      setDefectCountByRoom(defectCounts);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load chambermaid rooms');
       setRooms([]);
       setEntryMap({});
+      setDefectCountByRoom({});
     } finally {
       setPageLoading(false);
     }
@@ -948,12 +969,29 @@ export default function ChambermaidEntryPage() {
                 >
                   <div style={styles.roomCardHeader}>
                     <div style={styles.roomTopRow}>
-                      <div style={styles.roomNo}>{room.room_number}</div>
+                      <div style={styles.roomIdentity}>
+                        <div style={styles.roomNo}>{room.room_number}</div>
+                        {(defectCountByRoom[room.room_number] || 0) > 0 ? (
+                          <span
+                            style={styles.defectCountBubble}
+                            title={`${defectCountByRoom[room.room_number]} defect task${defectCountByRoom[room.room_number] === 1 ? '' : 's'} submitted for this room`}
+                            aria-label={`${defectCountByRoom[room.room_number]} defect tasks submitted`}
+                          >
+                            {defectCountByRoom[room.room_number]}
+                          </span>
+                        ) : null}
+                      </div>
                       <ChambermaidDefectCapture
                         roomNumber={room.room_number}
                         serviceDate={serviceDate}
-                        onSubmitted={(mediaCount, warning) => {
-                          setErrorMsg(warning ? `Task created, but Telegram needs attention: ${warning}` : '');
+                        onSubmitted={(mediaCount, warning, roomTaskCount) => {
+                          setDefectCountByRoom((current) => ({
+                            ...current,
+                            [room.room_number]: Number.isFinite(roomTaskCount)
+                              ? Number(roomTaskCount)
+                              : (current[room.room_number] || 0) + 1,
+                          }));
+                          setErrorMsg(warning ? `Task created with a notification warning: ${warning}` : '');
                           setSuccessMsg(
                             `Room ${room.room_number} defect sent to Maintenance with ${mediaCount} media item${mediaCount === 1 ? '' : 's'}.`
                           );
@@ -1276,7 +1314,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   roomTopRow: {
     display: 'grid',
-    gridTemplateColumns: '48px minmax(110px, 1fr) 88px',
+    gridTemplateColumns: 'minmax(62px, auto) minmax(110px, 1fr) 88px',
     gap: '8px',
     alignItems: 'center',
     width: '100%',
@@ -1289,6 +1327,27 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     color: '#0f172a',
     lineHeight: 1,
+  },
+  roomIdentity: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    minWidth: 0,
+  },
+  defectCountBubble: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '21px',
+    height: '21px',
+    padding: '0 6px',
+    borderRadius: '999px',
+    background: '#2563eb',
+    color: '#fff',
+    fontSize: '11px',
+    fontWeight: 900,
+    lineHeight: 1,
+    boxShadow: '0 2px 7px rgba(37,99,235,.25)',
   },
   roomInfoRow: {
     display: 'flex',

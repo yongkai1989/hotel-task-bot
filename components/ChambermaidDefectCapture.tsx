@@ -13,7 +13,7 @@ type CapturedMedia = {
 type Props = {
   roomNumber: string;
   serviceDate: string;
-  onSubmitted?: (mediaCount: number, warning?: string) => void;
+  onSubmitted?: (mediaCount: number, warning?: string, roomTaskCount?: number) => void;
 };
 
 const MAX_MEDIA = 30;
@@ -349,7 +349,14 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
       discardMedia(media);
       setMedia([]);
       setOpen(false);
-      onSubmitted?.(submittedCount, String(payload?.warning || '').trim() || undefined);
+      const roomTaskCount = payload?.room_task_count == null
+        ? undefined
+        : Number(payload.room_task_count);
+      onSubmitted?.(
+        submittedCount,
+        String(payload?.warning || '').trim() || undefined,
+        Number.isFinite(roomTaskCount) ? roomTaskCount : undefined
+      );
     } catch (submitError: any) {
       setError(submitError?.message || 'Unable to submit defect.');
     } finally {

@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { sendTelegramTaskAttachments, sendTelegramTaskCard } from '../../../lib/telegram';
-import { sendTaskPushNotifications } from '../../../lib/taskPush';
+import {
+  sendChambermaidDefectSupervisorAlerts,
+  sendTaskPushNotifications,
+} from '../../../lib/taskPush';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 
 export const dynamic = 'force-dynamic';
@@ -32,6 +35,14 @@ function malaysiaDateString() {
   }).format(new Date());
 }
 
+function serviceDateUtcRange(serviceDate: string) {
+  const start = new Date(`${serviceDate}T00:00:00+08:00`);
+  return {
+    start: start.toISOString(),
+    end: new Date(start.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
 function extensionForMedia(type: string) {
   if (type.includes('png')) return 'png';
   if (type.includes('webp')) return 'webp';
@@ -44,6 +55,49 @@ function extensionForMedia(type: string) {
 async function removeUploadedFiles(paths: string[]) {
   if (!paths.length) return;
   await supabaseAdmin.storage.from('task-images').remove(paths);
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
+    if (!user) return jsonNoCache({ ok: false, error: authError || 'Unauthorized' }, 401);
+    if (!user.can_access_chambermaid_entry) {
+      return jsonNoCache({ ok: false, error: 'Chambermaid Entry access is required' }, 403);
+    }
+
+    const serviceDate = String(req.nextUrl.searchParams.get('service_date') || '').trim();
+    const rooms = Array.from(
+      new Set(
+        String(req.nextUrl.searchParams.get('rooms') || '')
+          .split(',')
+          .map((room) => room.trim())
+          .filter((room) => /^\d{3,5}$/.test(room))
+      )
+    ).slice(0, 100);
+    if (serviceDate !== malaysiaDateString()) {
+      return jsonNoCache({ ok: false, error: 'Defect counts are only available for today' }, 400);
+    }
+    if (!rooms.length) return jsonNoCache({ ok: true, counts: {} });
+
+    const range = serviceDateUtcRange(serviceDate);
+    const { data, error } = await supabaseAdmin
+      .from('tasks')
+      .select('room')
+      .eq('source_page', 'CHAMBERMAID_ENTRY')
+      .gte('created_at', range.start)
+      .lt('created_at', range.end)
+      .in('room', rooms);
+    if (error) return jsonNoCache({ ok: false, error: error.message }, 500);
+
+    const counts = (data || []).reduce<Record<string, number>>((result, row) => {
+      const room = String(row.room || '').trim();
+      if (room) result[room] = (result[room] || 0) + 1;
+      return result;
+    }, {});
+    return jsonNoCache({ ok: true, counts });
+  } catch (error: any) {
+    return jsonNoCache({ ok: false, error: error?.message || 'Unable to load defect counts' }, 500);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -168,8 +222,12 @@ export async function POST(req: NextRequest) {
     if (eventError) throw eventError;
 
     const warnings: string[] = [];
-    const pushResult = await sendTaskPushNotifications(task);
+    const [pushResult, supervisorAlertResult] = await Promise.all([
+      sendTaskPushNotifications(task),
+      sendChambermaidDefectSupervisorAlerts(task, user.name),
+    ]);
     if (pushResult.warning) warnings.push(pushResult.warning);
+    if (supervisorAlertResult.warning) warnings.push(supervisorAlertResult.warning);
     await broadcastTaskChange(task.id, 'INSERT');
 
     try {
@@ -216,10 +274,20 @@ export async function POST(req: NextRequest) {
       warnings.push(telegramError?.message || 'MT Telegram notification failed');
     }
 
+    const range = serviceDateUtcRange(serviceDate);
+    const { count: roomTaskCount } = await supabaseAdmin
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('source_page', 'CHAMBERMAID_ENTRY')
+      .eq('room', room)
+      .gte('created_at', range.start)
+      .lt('created_at', range.end);
+
     return jsonNoCache({
       ok: true,
       task_id: task.id,
       task_code: task.task_code,
+      room_task_count: roomTaskCount,
       warning: warnings.length ? warnings.join(' | ') : undefined,
     });
   } catch (error: any) {

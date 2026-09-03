@@ -85,8 +85,8 @@ export function buildTaskInlineKeyboard(
       inline_keyboard: [
         [
           {
-            text: normalizedStatus === 'DONE' ? 'DONE OK' : 'DONE',
-            callback_data: `done:${taskId}`,
+            text: normalizedStatus === 'DONE' ? 'REOPEN' : 'DONE',
+            callback_data: `${normalizedStatus === 'DONE' ? 'reopen' : 'done'}:${taskId}`,
           },
         ],
       ],
