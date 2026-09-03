@@ -134,6 +134,10 @@ function normalizeBookingId(value: string) {
     .toUpperCase();
 }
 
+function normalizePmsOtaReference(value: string) {
+  return normalizeBookingId(value).replace(/\D/g, '');
+}
+
 function normalizeGuestName(value: string) {
   return String(value || '')
     .replace(/^\uFEFF/, '')
@@ -471,7 +475,10 @@ function findReservationFieldMatches(
 async function readCsvFile(
   file: File,
   targetColumn: string,
-  options: { ignoreZeroCommission?: boolean } = {}
+  options: {
+    ignoreZeroCommission?: boolean;
+    normalizeId?: (value: string) => string;
+  } = {}
 ): Promise<ParsedCsv> {
   const text = await file.text();
   const matrix = parseCsvText(text);
@@ -530,7 +537,7 @@ async function readCsvFile(
     const rowNumber = index + 2;
 
     const raw = String(row[matchedColumn] || '').trim();
-    const normalized = normalizeBookingId(raw);
+    const normalized = (options.normalizeId || normalizeBookingId)(raw);
     if (!normalized) {
       blankRows.push(rowNumber);
       return;
@@ -800,7 +807,10 @@ export default function CommissionCheckerPage({ standalone = false }: { standalo
       const parsed = await readCsvFile(
         file,
         type === 'commission' ? COMMISSION_COLUMN : PMS_COLUMN,
-        { ignoreZeroCommission: type === 'commission' }
+        {
+          ignoreZeroCommission: type === 'commission',
+          normalizeId: type === 'pms' ? normalizePmsOtaReference : normalizeBookingId,
+        }
       );
       if (type === 'commission') setCommissionCsv(parsed);
       else setPmsCsv(parsed);
