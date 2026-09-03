@@ -6,6 +6,11 @@ import {
   isManagerRoomCheckTask,
   syncLinkedManagerRoomCheckStatus,
 } from '../../../lib/managerRoomCheckTaskSync';
+import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 type Dept = 'HK' | 'MT' | 'FO';
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
@@ -36,12 +41,20 @@ const DEPT_ALIASES: Record<Dept, string[]> = {
 };
 
 async function telegram(method: string, body: any) {
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function cleanText(value: string): string {
@@ -392,14 +405,27 @@ async function updateTaskStatusByTaskId(params: {
   sendConfirmation?: boolean;
 }) {
   const now = new Date().toISOString();
+  const { data: existingTask, error: existingTaskError } = await supabase
+    .from('tasks')
+    .select('id, status, room, department, task_text, created_at')
+    .eq('id', params.taskId)
+    .single();
+  if (existingTaskError || !existingTask) throw existingTaskError || new Error('Task not found');
+
+  // Telegram may deliver a callback more than once, or a user may tap twice
+  // before the card redraws. Keep repeated requests harmless while still
+  // nudging every connected dashboard to reload the saved state.
+  if (existingTask.status === params.command) {
+    await broadcastTaskChange(existingTask.id, 'UPDATE');
+    try {
+      await refreshTelegramTaskCard(existingTask.id);
+    } catch (refreshError: any) {
+      console.warn('Telegram task card refresh failed:', refreshError?.message || refreshError);
+    }
+    return existingTask;
+  }
 
   if (params.command === 'OPEN' || params.command === 'DONE') {
-    const { data: existingTask, error: existingTaskError } = await supabase
-      .from('tasks')
-      .select('id, status, room, department, task_text, created_at')
-      .eq('id', params.taskId)
-      .single();
-    if (existingTaskError || !existingTask) throw existingTaskError || new Error('Task not found');
     await syncLinkedManagerRoomCheckStatus(existingTask, params.command, params.userName);
   }
 
@@ -453,7 +479,16 @@ async function updateTaskStatusByTaskId(params: {
     actor_name: params.userName
   });
 
-  await refreshTelegramTaskCard(task.id);
+  // Both entry points use the same task row. Broadcast after the database
+  // commit so open dashboards immediately reflect Telegram status changes.
+  await broadcastTaskChange(task.id, 'UPDATE');
+  try {
+    await refreshTelegramTaskCard(task.id);
+  } catch (refreshError: any) {
+    // The task status is already saved. A Telegram card redraw must never
+    // turn a successful status change into a failed callback.
+    console.warn('Telegram task card refresh failed:', refreshError?.message || refreshError);
+  }
 
   if (params.sendConfirmation !== false) {
     await telegram('sendMessage', {
@@ -607,58 +642,81 @@ async function handleCallbackQuery(update: any, updateId: number) {
   }
 
   if (action === 'doing') {
-    await updateTaskStatusByTaskId({
-      taskId,
-      chatId,
-      userId,
-      userName,
-      updateId,
-      command: 'IN_PROGRESS',
-      sendConfirmation: false
-    });
-
+    // Acknowledge first so Telegram stops showing the loading spinner while
+    // the database update and message redraw finish in the background request.
     await telegram('answerCallbackQuery', {
       callback_query_id: callback.id,
-      text: `Marked DOING by ${userName}`
+      text: 'Updating task…'
     });
+
+    try {
+      await updateTaskStatusByTaskId({
+        taskId,
+        chatId,
+        userId,
+        userName,
+        updateId,
+        command: 'IN_PROGRESS',
+        sendConfirmation: false
+      });
+    } catch (error: any) {
+      await telegram('sendMessage', {
+        chat_id: chatId,
+        text: `Unable to update this task: ${error?.message || 'Unknown error'}`
+      });
+    }
 
     return true;
   }
 
   if (action === 'done') {
-    await updateTaskStatusByTaskId({
-      taskId,
-      chatId,
-      userId,
-      userName,
-      updateId,
-      command: 'DONE',
-      sendConfirmation: false
-    });
-
     await telegram('answerCallbackQuery', {
       callback_query_id: callback.id,
-      text: `Marked DONE by ${userName}`
+      text: 'Updating task…'
     });
+
+    try {
+      await updateTaskStatusByTaskId({
+        taskId,
+        chatId,
+        userId,
+        userName,
+        updateId,
+        command: 'DONE',
+        sendConfirmation: false
+      });
+    } catch (error: any) {
+      await telegram('sendMessage', {
+        chat_id: chatId,
+        text: `Unable to mark this task done: ${error?.message || 'Unknown error'}`
+      });
+    }
 
     return true;
   }
 
   if (action === 'reopen') {
-    await updateTaskStatusByTaskId({
-      taskId,
-      chatId,
-      userId,
-      userName,
-      updateId,
-      command: 'OPEN',
-      sendConfirmation: false
-    });
-
     await telegram('answerCallbackQuery', {
       callback_query_id: callback.id,
-      text: `Reopened by ${userName}`
+      text: 'Updating task…'
     });
+
+    try {
+      await updateTaskStatusByTaskId({
+        taskId,
+        chatId,
+        userId,
+        userName,
+        updateId,
+        command: 'OPEN',
+        sendConfirmation: false
+      });
+    } catch (error: any) {
+      await telegram('sendMessage', {
+        chat_id: chatId,
+        text: `Unable to reopen this task: ${error?.message || 'Unknown error'}`
+      });
+    }
 
     return true;
   }
@@ -686,6 +744,8 @@ async function handleCallbackQuery(update: any, updateId: number) {
 }
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
+  const requestId = req.headers.get('x-vercel-id') || crypto.randomUUID();
   try {
     const secretPath = req.nextUrl.searchParams.get('path');
     if (secretPath !== SECRET_PATH) {
@@ -694,10 +754,21 @@ export async function POST(req: NextRequest) {
 
     const update = await req.json();
     const updateId = Number(update?.update_id);
-    console.log(JSON.stringify(update, null, 2));
+    console.log(JSON.stringify({
+      level: 'info',
+      msg: 'telegram_update_started',
+      route: '/api/telegram',
+      requestId,
+      updateId,
+      kind: update?.callback_query ? 'callback' : update?.message ? 'message' : 'other',
+    }));
 
     const callbackHandled = await handleCallbackQuery(update, updateId);
     if (callbackHandled) {
+      console.log(JSON.stringify({
+        level: 'info', msg: 'telegram_callback_completed', route: '/api/telegram',
+        requestId, updateId, ms: Date.now() - startedAt,
+      }));
       return NextResponse.json({ ok: true });
     }
 
@@ -938,7 +1009,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error(error);
+    console.error(JSON.stringify({
+      level: 'error', msg: 'telegram_update_failed', route: '/api/telegram',
+      requestId, error: error?.message || 'Unknown error', ms: Date.now() - startedAt,
+    }));
     return NextResponse.json(
       { ok: false, error: error?.message || 'Unknown error' },
       { status: 500 }
