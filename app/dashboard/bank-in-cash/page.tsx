@@ -370,6 +370,10 @@ export default function BankInCashPage() {
   const [amendAmount, setAmendAmount] = useState('');
   const [amendReason, setAmendReason] = useState('');
   const [amending, setAmending] = useState(false);
+  const [excessAmendTarget, setExcessAmendTarget] = useState<ExcessLedgerRow | null>(null);
+  const [excessAmendAmount, setExcessAmendAmount] = useState('');
+  const [excessAmendReason, setExcessAmendReason] = useState('');
+  const [amendingExcess, setAmendingExcess] = useState(false);
   const [withdrawTarget, setWithdrawTarget] = useState<ExcessLedgerRow | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawFolioNumber, setWithdrawFolioNumber] = useState('');
@@ -896,6 +900,52 @@ export default function BankInCashPage() {
     setWithdrawingExcess(false);
   };
 
+  const openExcessAmendment = (entry: ExcessLedgerRow) => {
+    setExcessAmendTarget(entry);
+    setExcessAmendAmount(Number(entry.original_excess_amount).toFixed(2));
+    setExcessAmendReason('');
+    setError('');
+  };
+
+  const amendExcessCash = async () => {
+    if (!excessAmendTarget) return;
+    const amount = Number(excessAmendAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return setError('New excess cash amount cannot be negative.');
+    }
+    if (amount < Number(excessAmendTarget.withdrawn_amount)) {
+      return setError(
+        `New amount cannot be lower than the ${money.format(Number(excessAmendTarget.withdrawn_amount))} already withdrawn.`,
+      );
+    }
+    if (!excessAmendReason.trim()) return setError('Enter a reason for the amendment.');
+
+    setAmendingExcess(true);
+    setError('');
+    setMessage('');
+    const { error: amendError } = await supabase.rpc('amend_excess_cash_entry', {
+      p_source_type: excessAmendTarget.sourceType,
+      p_source_id: excessAmendTarget.id,
+      p_new_amount: amount,
+      p_reason: excessAmendReason.trim(),
+    });
+
+    if (amendError) {
+      setError(amendError.message);
+    } else {
+      const available = Math.max(0, amount - Number(excessAmendTarget.withdrawn_amount));
+      setSelectedExcessIds((current) => current.filter((id) => id !== excessAmendTarget.id));
+      setMessage(
+        `${excessAmendTarget.person_name}'s Excess Cash was amended from ${money.format(Number(excessAmendTarget.original_excess_amount))} to ${money.format(amount)}. Available balance: ${money.format(available)}.`,
+      );
+      setExcessAmendTarget(null);
+      setExcessAmendAmount('');
+      setExcessAmendReason('');
+      await loadData();
+    }
+    setAmendingExcess(false);
+  };
+
   const reverseLatestWithdrawal = async () => {
     if (!withdrawalReversalTarget) return;
     if (!withdrawalReversalReason.trim()) return setError('Enter the reason for reversing this withdrawal.');
@@ -1355,6 +1405,17 @@ export default function BankInCashPage() {
                   </b>
                   <div className="excess-row-actions">
                     <em>{row.excess_bank_in_id ? 'Banked' : fullyWithdrawn ? 'Withdrawn' : activeWithdrawal ? 'Partly withdrawn' : withdrawal ? 'Open · withdrawal reversed' : 'Open'}</em>
+                    {isSuperuser ? (
+                      <button
+                        type="button"
+                        className="amend-excess-button"
+                        disabled={!!row.excess_bank_in_id}
+                        title={row.excess_bank_in_id ? 'Reverse the linked bank-in before amending this entry' : 'Amend this excess cash transaction'}
+                        onClick={() => openExcessAmendment(row)}
+                      >
+                        Amend
+                      </button>
+                    ) : null}
                     {!unavailable ? <button type="button" className="withdraw-button" onClick={() => openExcessWithdrawal(row)}>Withdraw</button> : null}
                     {isSuperuser && activeWithdrawal && !row.excess_bank_in_id && latestReversibleAmount > 0 ? (
                       <button
@@ -1742,6 +1803,29 @@ export default function BankInCashPage() {
         </div>
       ) : null}
 
+      {excessAmendTarget ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setExcessAmendTarget(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="excess-amend-title">
+            <span className="eyebrow">SUPERUSER · AUDITED CORRECTION</span>
+            <h2 id="excess-amend-title">Amend Excess Cash transaction</h2>
+            <p>{formatDate(excessAmendTarget.service_date)} | {excessAmendTarget.shift_title} | {excessAmendTarget.person_name}</p>
+            <div className="amend-comparison">
+              <span>Previous total<strong>{money.format(Number(excessAmendTarget.original_excess_amount))}</strong></span>
+              <span>New total<strong>{money.format(Number(excessAmendAmount || 0))}</strong></span>
+            </div>
+            {Number(excessAmendTarget.withdrawn_amount) > 0 ? (
+              <p className="withdrawn-safeguard">
+                Already withdrawn: <strong>{money.format(Number(excessAmendTarget.withdrawn_amount))}</strong>. The new total cannot be lower than this amount.
+              </p>
+            ) : null}
+            <label>New total Excess Cash (RM)<input inputMode="decimal" type="number" min={Number(excessAmendTarget.withdrawn_amount)} step="0.01" value={excessAmendAmount} onChange={(event) => setExcessAmendAmount(event.target.value)} /></label>
+            <label>Reason for amendment<textarea value={excessAmendReason} onChange={(event) => setExcessAmendReason(event.target.value)} placeholder="Explain why the Excess Cash declaration is incorrect" /></label>
+            <p className="accounting-note">The original transaction is corrected while all withdrawal records remain unchanged. A permanent amendment audit is saved.</p>
+            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setExcessAmendTarget(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void amendExcessCash()} disabled={amendingExcess}>{amendingExcess ? 'Saving audit...' : 'Save Amendment'}</button></div>
+          </section>
+        </div>
+      ) : null}
+
       <Styles />
     </main>
   );
@@ -1844,6 +1928,8 @@ function Styles() {
       .excess-row-actions small { max-width: 210px; color: #7a8493; font-size: 10px; line-height: 1.3; }
       .withdraw-button { min-height: 32px; border: 1px solid #edb9b5; border-radius: 7px; padding: 6px 10px; color: #b42318; background: #fff5f4; font-size: 11px; font-weight: 900; cursor: pointer; }
       .withdraw-button:hover { border-color: #d92d20; background: #ffebe9; }
+      .amend-excess-button { min-height: 32px; border: 1px solid #b8cdf4; border-radius: 7px; padding: 6px 10px; color: #175be8; background: #edf4ff; font-size: 11px; font-weight: 900; cursor: pointer; }
+      .amend-excess-button:hover:not(:disabled) { border-color: #75a0ed; background: #dfeaff; }
       .undo-withdrawal-button { min-height: 32px; border: 1px solid #e7b765; border-radius: 7px; padding: 6px 10px; color: #8a4b08; background: #fff8e8; font-size: 11px; font-weight: 900; cursor: pointer; }
       .undo-withdrawal-button:hover { border-color: #c77b12; background: #fff0cc; }
       .history-row { padding: 14px; display: grid; grid-template-columns: minmax(220px, .8fr) minmax(280px, 1.2fr) minmax(220px, 1fr); gap: 16px; align-items: center; }
@@ -1871,6 +1957,7 @@ function Styles() {
       .breakdown-row > b { color: #172944; font-size: 13px; white-space: nowrap; }
       .breakdown-empty { margin: 0; padding: 14px; color: #687b98; font-size: 12px; }
       .amendment-history { display: grid; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #dbe5f2; }
+      .withdrawn-safeguard { margin: 0; padding: 10px 12px; border: 1px solid #f2d08b; border-radius: 8px; color: #805106; background: #fff9e9; font-size: 12px; }
       .amendment-row { display: grid; grid-template-columns: minmax(190px, 1fr) 110px 110px minmax(230px, 1.3fr); gap: 14px; align-items: center; padding: 12px 14px; border: 1px solid #dbe5f2; border-left: 4px solid #7c5ce7; border-radius: 8px; background: #fbfaff; }
       .amendment-row > div { display: grid; gap: 2px; }
       .amendment-row span { color: #667995; font-size: 12px; }
