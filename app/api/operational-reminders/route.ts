@@ -183,7 +183,12 @@ function clipped(values: string[], limit = MAX_VISIBLE_ITEMS) {
   return `${visible.join(', ')}${remaining > 0 ? ` (+${remaining} more)` : ''}`;
 }
 
-async function sendTelegramMessage(chatId: string, text: string, failureLabel: string) {
+async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+  failureLabel: string,
+  options: { parseMode?: 'HTML' } = {}
+) {
   const botToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!botToken) throw new Error('Missing TELEGRAM_BOT_TOKEN');
 
@@ -194,6 +199,7 @@ async function sendTelegramMessage(chatId: string, text: string, failureLabel: s
       chat_id: chatId,
       text: text.slice(0, 4090),
       disable_web_page_preview: true,
+      ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
     }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -210,6 +216,13 @@ function signed(value: number) {
 function numeric(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function telegramHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function telegramChunks(lines: string[], continuationTitle: string) {
@@ -314,16 +327,21 @@ async function supervisorChecklistStatus(today: string): Promise<SupervisorCheck
   };
 }
 
-function checklistReviewLine(label: string, rows: DailyChecklistRow[]) {
+function checklistReviewLines(label: string, rows: DailyChecklistRow[]) {
   const required = rows.filter((row) => row.is_required !== false);
-  if (!required.length) return `• ${label}: ➖ Not scheduled`;
+  if (!required.length) return [`➖ <b>${telegramHtml(label)}</b>`, 'Not scheduled'];
   const submitted = required.filter((row) => String(row.status || '').toUpperCase() === 'SUBMITTED');
   const pending = required.filter((row) => String(row.status || '').toUpperCase() !== 'SUBMITTED');
-  if (!pending.length) return `• ${label}: ✅ Done (${submitted.length}/${required.length})`;
+  if (!pending.length) {
+    return [`✅ <b>${telegramHtml(label)} — ${submitted.length}/${required.length} completed</b>`];
+  }
   const pendingNames = Array.from(new Set(
     pending.map((row) => String(row.owner_name || row.title || 'Unassigned').trim()).filter(Boolean)
   ));
-  return `• ${label}: ❌ ${submitted.length}/${required.length} done — pending ${pendingNames.join(', ')}`;
+  return [
+    `❌ <b>${telegramHtml(label)} — ${submitted.length}/${required.length} completed</b>`,
+    `Pending: ${telegramHtml(pendingNames.join(', '))}`,
+  ];
 }
 
 async function hkMorningReviewReminder(today: string) {
@@ -386,75 +404,98 @@ async function hkMorningReviewReminder(today: string) {
     (yesterdayLinen.bill_saved ? 0 : 1) +
     (yesterdayLinen.return_saved ? 0 : 1);
 
-  const lines = [
-    '🌅 8:30 AM HK MORNING REVIEW',
-    `Yesterday: ${displayDate(reportDate)}`,
+  const operationsLines = [
+    '🌅 <b>8:30 AM HK MORNING REVIEW</b>',
     '',
-    '📋 CHECKLISTS',
-    checklistReviewLine('PA Checklist', paRows),
-    checklistReviewLine('HK Supervisor Checklist', supervisorRows),
-    checklistReviewLine("Prem's Checklist", premRows),
+    `<b>Review date:</b> ${displayDate(reportDate)}`,
     '',
-    '🧹 HK SPECIAL PROJECTS',
+    '📋 <b>CHECKLISTS</b>',
+    '',
+    ...checklistReviewLines('PA Checklist', paRows),
+    '',
+    ...checklistReviewLines('HK Supervisor Checklist', supervisorRows),
+    '',
+    ...checklistReviewLines("Prem's Checklist", premRows),
+    '',
+    '🧹 <b>HK SPECIAL PROJECTS</b>',
   ];
 
   if (!projects.length) {
-    lines.push('• No active special projects.');
+    operationsLines.push('', 'No active special projects.');
   } else {
     for (const project of projects) {
       const movement = project.moving_today
         ? `+${numeric(project.rooms_done_on_date)} room(s) yesterday`
         : 'no movement yesterday';
-      lines.push(
-        `• ${project.title || 'Untitled'}: ${numeric(project.progress_percent)}% | ${movement}${project.status === 'OVERDUE' ? ' ⚠️ OVERDUE' : ''}`
+      operationsLines.push(
+        '',
+        `<b>${telegramHtml(project.title || 'Untitled')}</b>`,
+        `Progress: <b>${numeric(project.progress_percent)}%</b>`,
+        `Yesterday: ${telegramHtml(movement)}`,
+        `Status: ${project.status === 'OVERDUE' ? '⚠️ <b>OVERDUE</b>' : telegramHtml(project.status || 'OPEN')}`
       );
     }
   }
 
+  operationsLines.push('', `📝 <b>OPEN HK TASKS — ${hkTasks.length}</b>`);
+  if (!hkTasks.length) {
+    operationsLines.push('', '✅ No open HK tasks.');
+  } else {
+    for (const task of hkTasks) {
+      operationsLines.push(
+        '',
+        `<b>${telegramHtml(task.task_code || 'Task')}</b>`,
+        `Room/Area: ${telegramHtml(task.room || '-')}`,
+        `Task: ${telegramHtml(task.task_text || 'No description')}`
+      );
+    }
+  }
+  operationsLines.push(
+    '',
+    `🏨 <b>OPEN MANAGER ROOM CHECKS — ${managerRoomCount}</b>`,
+    '',
+    managerRoomCount ? `❌ Rooms: ${telegramHtml(managerRooms.join(', '))}` : '✅ None open'
+  );
+
   const billDate = String(yesterdayLinen.previous_bill_service_date || singaporeDate(-2));
   const returnRecordDate = reportDate;
-  lines.push(
+  const linenLines = [
+    '🧺 <b>LINEN RECONCILIATION</b>',
     '',
-    "🧺 YESTERDAY'S RETURN VS PREVIOUS DAY'S IN BILL",
-    `• In Bill date: ${displayDate(billDate)}`,
-    `• Return date: ${displayDate(returnRecordDate)}`
-  );
+    `<b>IN BILL DATE:</b> ${displayDate(billDate)}`,
+    `<b>RETURN DATE:</b> ${displayDate(returnRecordDate)}`,
+  ];
   for (const item of reconciliationItems) {
     const totalUse = numeric(item.previous_total_use);
     const inBill = numeric(item.previous_in_bill);
     const returned = numeric(item.returned);
-    lines.push(
-      `• ${item.label || 'Linen'}: Total Use ${totalUse} | In Bill ${inBill} | Return ${returned} | Difference ${signed(returned - inBill)}`
+    const difference = returned - inBill;
+    const indicator = difference > 0 ? '🔵' : difference < 0 ? '🔴' : '⚪';
+    linenLines.push(
+      '',
+      `<b>${telegramHtml(item.label || 'Linen')}</b>`,
+      `Total Use ${totalUse} · In Bill ${inBill} · Return ${returned}`,
+      `<b>Difference: ${indicator} ${signed(difference)}</b>`
     );
   }
-  lines.push('Positive = Returned is higher; negative = In Bill is higher.');
+  linenLines.push('', '🔵 Positive = Returned is higher', '🔴 Negative = In Bill is higher');
 
-  lines.push('', `🚩 TOP 5 FLAGGED FLOORS — ${displayDate(String(variance.month_start || reportDate))} to ${displayDate(reportDate)}`);
+  const followUpLines = [
+    '🚩 <b>TOP 5 FLAGGED FLOORS</b>',
+    '',
+    `<b>Review period:</b> ${displayDate(String(variance.month_start || reportDate))}–${displayDate(reportDate)}`,
+  ];
   if (!monthlyTop.length) {
-    lines.push('• No flagged floors for the month.');
+    followUpLines.push('', '✅ No flagged floors for the month.');
   } else {
     for (const floor of monthlyTop) {
-      lines.push(
-        `• #${numeric(floor.rank)} Block ${numeric(floor.block_no)} Level ${numeric(floor.floor_no)}: ${numeric(floor.flagged_days)} flagged day(s) out of ${numeric(floor.days_compared)} compared`
+      followUpLines.push(
+        '',
+        `<b>${numeric(floor.rank)}. Block ${numeric(floor.block_no)} · Level ${numeric(floor.floor_no)}</b>`,
+        `Flagged on ${numeric(floor.flagged_days)} of ${numeric(floor.days_compared)} compared days`
       );
     }
   }
-
-  lines.push('', `📝 OPEN HK TASKS — ${hkTasks.length}`);
-  if (!hkTasks.length) {
-    lines.push('• No open HK tasks.');
-  } else {
-    for (const task of hkTasks) {
-      lines.push(
-        `• ${task.task_code || 'Task'} | Room ${task.room || '-'} | ${task.task_text || 'No description'}`
-      );
-    }
-  }
-  lines.push(
-    '',
-    `🏨 OPEN MANAGER ROOM CHECKS — ${managerRoomCount ? `❌ ${managerRoomCount} open` : '✅ none open'}`
-  );
-  if (managerRooms.length) lines.push(`• Rooms: ${managerRooms.join(', ')}`);
 
   const expectedRooms = numeric(yesterdayRooms.linen_rooms_expected);
   const savedRooms = numeric(yesterdayRooms.linen_rooms_saved);
@@ -462,20 +503,30 @@ async function hkMorningReviewReminder(today: string) {
   const billExpectedRows = numeric(yesterdayLinen.bill_expected_rows) || 8;
   const returnSavedRows = numeric(yesterdayLinen.return_saved_rows);
   const returnExpectedRows = numeric(yesterdayLinen.return_expected_rows) || 2;
-  lines.push(
+  followUpLines.push(
     '',
-    '💾 YESTERDAY SAVE STATUS',
-    `• Pending rooms saved: ${savedRooms}/${expectedRooms}${missingRooms.length ? ' ❌' : ' ✅'}`,
-    `• In Bill saved (${displayDate(reportDate)}): ${billSavedRows}/${billExpectedRows}${yesterdayLinen.bill_saved ? ' ✅' : ' ❌'}`,
-    `• Return saved (${displayDate(returnRecordDate)} for bill ${displayDate(billDate)}): ${returnSavedRows}/${returnExpectedRows}${yesterdayLinen.return_saved ? ' ✅' : ' ❌'}`
+    '💾 <b>YESTERDAY’S SAVE STATUS</b>',
+    '',
+    `${missingRooms.length ? '❌' : '✅'} Pending rooms saved: <b>${savedRooms}/${expectedRooms}</b>`,
+    `${yesterdayLinen.bill_saved ? '✅' : '❌'} In Bill saved for ${displayDate(reportDate)}: <b>${billSavedRows}/${billExpectedRows}</b>`,
+    `${yesterdayLinen.return_saved ? '✅' : '❌'} Return saved for bill dated ${displayDate(billDate)}: <b>${returnSavedRows}/${returnExpectedRows}</b>`
   );
-  if (missingRooms.length) lines.push(`• Missing rooms: ${missingRooms.join(', ')}`);
-  lines.push('', 'Please follow up on every ❌ item immediately.');
+  if (missingRooms.length) followUpLines.push(`Missing rooms: ${telegramHtml(missingRooms.join(', '))}`);
+  followUpLines.push('', '<b>Please follow up on every ❌ item immediately.</b>');
 
-  const messages = telegramChunks(lines, '🌅 8:30 AM HK MORNING REVIEW (CONTINUED)');
+  const messages = [
+    ...telegramChunks(operationsLines, '🌅 <b>HK MORNING REVIEW — CONTINUED</b>'),
+    ...telegramChunks(linenLines, '🧺 <b>LINEN RECONCILIATION — CONTINUED</b>'),
+    ...telegramChunks(followUpLines, '🚩 <b>HK FOLLOW-UP — CONTINUED</b>'),
+  ];
   const telegramMessageIds: number[] = [];
   for (const message of messages) {
-    const messageId = await sendTelegramMessage(HK_TASK_CHAT_ID, message, 'HK morning review');
+    const messageId = await sendTelegramMessage(
+      HK_TASK_CHAT_ID,
+      message,
+      'HK morning review',
+      { parseMode: 'HTML' }
+    );
     if (messageId) telegramMessageIds.push(messageId);
   }
 
