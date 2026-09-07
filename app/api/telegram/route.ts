@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { sendTaskPushNotifications } from '../../../lib/taskPush';
 import { formatDateTimeDDMMYYYY } from '../../../lib/dateDisplay';
 import {
   isManagerRoomCheckTask,
@@ -15,11 +14,6 @@ export const fetchCache = 'force-no-store';
 type Dept = 'HK' | 'MT' | 'FO';
 type TaskStatus = 'OPEN' | 'IN_PROGRESS' | 'DONE';
 
-type ParsedInput =
-  | { ok: false }
-  | { ok: true; room: string; dept: ''; task: string }
-  | { ok: true; room: string; dept: Dept; task: string };
-
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -33,12 +27,6 @@ const SECRET_PATH = process.env.TELEGRAM_SECRET_PATH!;
 // Known live group IDs
 const MT_CHAT_ID = -1003860980789;
 const HK_CHAT_ID = -1003784764929;
-
-const DEPT_ALIASES: Record<Dept, string[]> = {
-  HK: ['hk', 'hsk', 'housekeeping'],
-  MT: ['mt', 'maintenance'],
-  FO: ['fo', 'front office', 'frontoffice', 'front-office']
-};
 
 async function telegram(method: string, body: any) {
   const controller = new AbortController();
@@ -55,58 +43,6 @@ async function telegram(method: string, body: any) {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function cleanText(value: string): string {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function normalizeDept(value: string): '' | Dept {
-  const v = cleanText(value);
-
-  for (const [dept, aliases] of Object.entries(DEPT_ALIASES) as [Dept, string[]][]) {
-    if (aliases.includes(v)) return dept;
-  }
-
-  return '';
-}
-
-function isDeptOnly(text: string): boolean {
-  return normalizeDept(text) !== '';
-}
-
-function isValidRoom(room: string): boolean {
-  return /^\d{3,5}$/.test(String(room || '').trim());
-}
-
-function parseInput(text: string): ParsedInput {
-  const cleaned = cleanText(text);
-  const firstSpace = cleaned.indexOf(' ');
-
-  if (firstSpace === -1) return { ok: false };
-
-  const room = cleaned.slice(0, firstSpace).trim();
-  const remainder = cleaned.slice(firstSpace + 1).trim();
-
-  if (!isValidRoom(room) || !remainder) return { ok: false };
-
-  const aliasEntries = (Object.entries(DEPT_ALIASES) as [Dept, string[]][])
-    .flatMap(([dept, aliases]) => aliases.map((alias) => ({ dept, alias })))
-    .sort((a, b) => b.alias.length - a.alias.length);
-
-  for (const entry of aliasEntries) {
-    if (remainder === entry.alias) {
-      return { ok: false };
-    }
-
-    if (remainder.startsWith(entry.alias + ' ')) {
-      const task = remainder.slice(entry.alias.length).trim();
-      if (!task) return { ok: false };
-      return { ok: true, room, dept: entry.dept, task };
-    }
-  }
-
-  return { ok: true, room, dept: '', task: remainder };
 }
 
 function labelForStatus(status: TaskStatus) {
@@ -300,99 +236,6 @@ async function refreshTelegramTaskCard(taskId: string) {
       managerRoomCheck: isManagerRoomCheckTask(task as any),
     })
   });
-}
-
-async function createTask(params: {
-  chatId: number;
-  userId: number | null;
-  userName: string;
-  room: string;
-  department: Dept;
-  taskText: string;
-  updateId: number;
-  imageUrl?: string | null;
-  imageCaption?: string | null;
-  telegramFileId?: string | null;
-  telegramMessageId?: number | null;
-}) {
-  const { data: task, error } = await supabase
-    .from('tasks')
-    .insert({
-      room: params.room,
-      department: params.department,
-      task_text: params.taskText,
-      status: 'OPEN',
-      reopened_at: null,
-      source_update_id: params.updateId,
-      created_by_user_id: params.userId,
-      created_by_name: params.userName,
-      created_by_telegram_user_id: params.userId,
-      chat_id: params.chatId,
-      image_url: params.imageUrl || null
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await supabase.from('task_events').insert({
-    task_id: task.id,
-    event_type: 'CREATED',
-    event_text: params.taskText,
-    telegram_update_id: params.updateId,
-    actor_user_id: params.userId,
-    actor_name: params.userName
-  });
-
-  if (params.imageUrl) {
-    await addTaskImage({
-      taskId: task.id,
-      imageUrl: params.imageUrl,
-      caption: params.imageCaption || null,
-      telegramFileId: params.telegramFileId || null,
-      telegramMessageId: params.telegramMessageId || null,
-      userId: params.userId,
-      userName: params.userName
-    });
-  }
-
-  const sent = await telegram('sendMessage', {
-    chat_id: params.chatId,
-    text: buildTaskMessageText({
-      task_code: task.task_code,
-      room: task.room,
-      department: task.department,
-      task_text: task.task_text,
-      created_by_name: params.userName,
-      image_url: params.imageUrl || null,
-      status: 'OPEN',
-      reopened_at: null
-    }),
-    reply_markup: buildTaskInlineKeyboard(task.id, 'OPEN')
-  });
-
-  const telegramMessageId = sent?.result?.message_id ?? null;
-
-  if (telegramMessageId) {
-    await supabase
-      .from('tasks')
-      .update({ telegram_task_message_id: telegramMessageId })
-      .eq('id', task.id);
-
-    await supabase.from('telegram_messages').insert({
-      telegram_message_id: telegramMessageId,
-      chat_id: params.chatId,
-      task_id: task.id,
-      message_type: 'TASK_CARD'
-    });
-  }
-
-  if (task.department === 'HK' || task.department === 'MT') {
-    const pushResult = await sendTaskPushNotifications(task);
-    if (pushResult.warning) console.warn(pushResult.warning);
-  }
-
-  return task;
 }
 
 async function updateTaskStatusByTaskId(params: {
@@ -792,6 +635,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ignored: 'OTHER_CHAT' });
     }
 
+    const lower = textOrCaption.toLowerCase().replace(/\s+/g, ' ');
+    const isStatusCommand = lower === '/doing' || lower === '/done' || lower === '/reopen';
+    const isTaskPhotoReply =
+      Array.isArray(msg.photo) &&
+      msg.photo.length > 0 &&
+      Boolean(msg.reply_to_message?.message_id);
+
+    // Normal group conversation is not bot input. Task creation is app-only;
+    // Telegram remains available for task-card actions and direct photo replies.
+    if (!isStatusCommand && !isTaskPhotoReply) {
+      return NextResponse.json({ ok: true, ignored: 'NORMAL_CHAT' });
+    }
+
     const { error: insertUpdateError } = await supabase
       .from('telegram_updates')
       .insert({
@@ -811,9 +667,7 @@ export async function POST(req: NextRequest) {
       throw insertUpdateError;
     }
 
-    const lower = cleanText(textOrCaption);
-
-    if (lower === '/doing' || lower === '/done' || lower === '/reopen') {
+    if (isStatusCommand) {
       await updateTaskStatus({
         chatId,
         userId,
@@ -848,150 +702,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (imageUrl && msg.reply_to_message?.message_id) {
-      const parsedCaption = textOrCaption ? parseInput(textOrCaption) : { ok: false as const };
-
-      if (!(parsedCaption.ok && parsedCaption.dept)) {
-        await attachPhotoToExistingTask({
-          chatId,
-          userId,
-          userName,
-          updateId,
-          replyToMessageId: msg.reply_to_message?.message_id ?? null,
-          imageUrl,
-          caption: textOrCaption || null,
-          telegramFileId,
-          telegramMessageId: messageId
-        });
-
-        await supabase
-          .from('telegram_updates')
-          .update({ processed: true, processed_at: new Date().toISOString() })
-          .eq('update_id', updateId);
-
-        return NextResponse.json({ ok: true });
-      }
-    }
-
-    const parsed = parseInput(textOrCaption);
-
-    if (parsed.ok && parsed.dept) {
-      await createTask({
+      await attachPhotoToExistingTask({
         chatId,
         userId,
         userName,
-        room: parsed.room,
-        department: parsed.dept,
-        taskText: parsed.task,
         updateId,
+        replyToMessageId: msg.reply_to_message?.message_id ?? null,
         imageUrl,
-        imageCaption: textOrCaption || null,
+        caption: textOrCaption || null,
         telegramFileId,
         telegramMessageId: messageId
-      });
-
-      await supabase
-        .from('pending_inputs')
-        .delete()
-        .eq('chat_id', chatId)
-        .eq('user_id', userId);
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (isDeptOnly(textOrCaption)) {
-      const { data: pending } = await supabase
-        .from('pending_inputs')
-        .select('*')
-        .eq('chat_id', chatId)
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (pending) {
-        const pendingDept = normalizeDept(textOrCaption);
-
-        await createTask({
-          chatId,
-          userId,
-          userName,
-          room: pending.room,
-          department: pendingDept as Dept,
-          taskText: pending.task_text,
-          updateId,
-          imageUrl,
-          imageCaption: textOrCaption || null,
-          telegramFileId,
-          telegramMessageId: messageId
-        });
-
-        await supabase
-          .from('pending_inputs')
-          .delete()
-          .eq('chat_id', chatId)
-          .eq('user_id', userId);
-      } else {
-        await telegram('sendMessage', {
-          chat_id: chatId,
-          text:
-            'No pending task found.\n\n' +
-            'Send full format like:\n' +
-            '1234 hk extra towel'
-        });
-      }
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (parsed.ok && !parsed.dept) {
-      await supabase
-        .from('pending_inputs')
-        .upsert(
-          {
-            chat_id: chatId,
-            user_id: userId!,
-            room: parsed.room,
-            task_text: parsed.task
-          },
-          { onConflict: 'chat_id,user_id' }
-        );
-
-      await telegram('sendMessage', {
-        chat_id: chatId,
-        text:
-          `Which department for room ${parsed.room}?\n` +
-          `Reply with:\n` +
-          `HK / HSK / HOUSEKEEPING\n` +
-          `MT / MAINTENANCE\n` +
-          `FO / FRONT OFFICE`
-      });
-
-      await supabase
-        .from('telegram_updates')
-        .update({ processed: true, processed_at: new Date().toISOString() })
-        .eq('update_id', updateId);
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (imageUrl) {
-      await telegram('sendMessage', {
-        chat_id: chatId,
-        text:
-          'Photo received, but I could not match it to a task.\n\n' +
-          'Either:\n' +
-          '1. send photo with caption like:\n' +
-          '1234 hk extra towel\n\n' +
-          'or\n\n' +
-          '2. reply directly to the task card with the photo.'
       });
 
       await supabase
