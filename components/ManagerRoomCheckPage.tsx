@@ -52,6 +52,8 @@ type CheckMedia = {
   created_at: string | null;
   upload_status?: 'uploading' | 'failed';
   upload_error?: string | null;
+  upload_file_name?: string | null;
+  upload_file_size?: number | null;
 };
 
 type DraftMedia = {
@@ -617,6 +619,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const [commentEditingId, setCommentEditingId] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSavingId, setCommentSavingId] = useState<string | null>(null);
+  const [cancellingUploadId, setCancellingUploadId] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -655,6 +658,10 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         .filter((item) => item.check_id === selectedCheck.id)
         .sort((a, b) => a.position - b.position)
     : [];
+  const failedUploads = useMemo(
+    () => media.filter((item) => item.upload_status === 'failed'),
+    [media]
+  );
   const quickAddCheck = addingToCheckId ? checks.find((item) => item.id === addingToCheckId) || null : null;
 
   const visibleChecks = checks.filter((check) => {
@@ -900,6 +907,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
             upload_error:
               row.error_message ||
               (!hasLocalFile ? 'The original file is saved on the device that created this upload.' : null),
+            upload_file_name: row.file_name,
+            upload_file_size: row.file_size,
           };
         })
       );
@@ -1430,6 +1439,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           created_at: new Date().toISOString(),
           upload_status: 'uploading',
           upload_error: null,
+          upload_file_name: item.file.name,
+          upload_file_size: item.file.size,
         };
         setMedia((current) => [optimisticRow, ...current]);
         enqueueDurableIds([id]);
@@ -1585,6 +1596,73 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     );
     setSuccessMsg(`${retryIds.length} failed upload${retryIds.length === 1 ? '' : 's'} queued again.`);
     enqueueDurableIds(retryIds);
+  }
+
+  async function openFailedUpload(item: CheckMedia) {
+    if (!item.id.startsWith('uploading-')) return;
+    if (item.media_url) {
+      setFullMedia(item);
+      return;
+    }
+
+    const id = item.id.slice('uploading-'.length);
+    try {
+      const stored = await readStoredUpload(id);
+      if (!stored?.file) {
+        throw new Error('This preview is only available on the phone that selected the file.');
+      }
+      const previewUrl = URL.createObjectURL(stored.file);
+      uploadPreviewUrlsRef.current.set(id, previewUrl);
+      const previewItem = { ...item, media_url: previewUrl };
+      setMedia((current) => current.map((entry) => (entry.id === item.id ? previewItem : entry)));
+      setFullMedia(previewItem);
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Unable to open the failed file preview.');
+    }
+  }
+
+  async function cancelFailedUpload(item: CheckMedia) {
+    if (!supabase || !item.id.startsWith('uploading-')) return;
+    const id = item.id.slice('uploading-'.length);
+    const room = checks.find((check) => check.id === item.check_id)?.room_number || 'this room';
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        `Cancel this failed upload for Room ${room}? The saved retry copy will be removed from this phone so you can select it again.`
+      )
+    ) {
+      return;
+    }
+
+    setCancellingUploadId(item.id);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const { error } = await supabase
+        .from('manager_room_check_uploads')
+        .delete()
+        .eq('id', id)
+        .eq('status', 'FAILED');
+      if (error) throw error;
+
+      uploadQueueRef.current = uploadQueueRef.current.filter((job) => job.id !== id);
+      queuedUploadIdsRef.current.delete(id);
+      await deleteStoredUpload(id).catch(() => undefined);
+      if (item.media_path) {
+        await supabase.storage.from('task-images').remove([item.media_path]).catch(() => undefined);
+      }
+      const previewUrl = uploadPreviewUrlsRef.current.get(id);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      uploadPreviewUrlsRef.current.delete(id);
+      setMedia((current) => current.filter((entry) => entry.id !== item.id));
+      setOrphanedUploads((current) => current.filter((entry) => entry.id !== id));
+      setFullMedia((current) => (current?.id === item.id ? null : current));
+      setSuccessMsg(`Failed upload for Room ${room} cancelled. You can select the file again.`);
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Unable to cancel the failed upload.');
+    } finally {
+      setCancellingUploadId(null);
+    }
   }
 
   function beginMediaComment(item: CheckMedia) {
@@ -2518,12 +2596,45 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           <span>Do not release a room as VC until the linked Maintenance assignment has been checked manually. Refresh to try again.</span>
         </div>
       ) : null}
-      {media.some((item) => item.upload_status === 'failed') ? (
-        <div className="mrc-alert mrc-alert-error">
-          <span>
-            {media.filter((item) => item.upload_status === 'failed').length} saved media upload
-            {media.filter((item) => item.upload_status === 'failed').length === 1 ? '' : 's'} can be retried from this phone.
-          </span>
+      {failedUploads.length ? (
+        <div className="mrc-alert mrc-alert-error mrc-failed-uploads" role="alert">
+          <strong>
+            {failedUploads.length} saved media upload{failedUploads.length === 1 ? '' : 's'} failed
+          </strong>
+          <span>Review the failed file below. You can retry it or cancel it and select the file again.</span>
+          <div className="mrc-failed-upload-list">
+            {failedUploads.map((item) => {
+              const room = checks.find((check) => check.id === item.check_id)?.room_number || 'Unknown';
+              return (
+                <div key={item.id} className="mrc-failed-upload-item">
+                  <div>
+                    <strong>Room {room} · {item.media_type === 'video' ? 'Video' : 'Image'} {item.position}</strong>
+                    <span>
+                      {item.upload_file_name || 'Saved media'}
+                      {item.upload_file_size ? ` · ${formatMegabytes(item.upload_file_size)}` : ''}
+                    </span>
+                    {item.upload_error ? <small>{item.upload_error.trim()}</small> : null}
+                  </div>
+                  <div className="mrc-failed-upload-actions">
+                    <button type="button" className="mrc-secondary" onClick={() => void openFailedUpload(item)}>
+                      View Failed {item.media_type === 'video' ? 'Video' : 'Image'}
+                    </button>
+                    <button type="button" className="mrc-secondary" onClick={() => void retryDurableUpload(item)}>
+                      Retry Upload
+                    </button>
+                    <button
+                      type="button"
+                      className="mrc-danger"
+                      disabled={cancellingUploadId === item.id}
+                      onClick={() => void cancelFailedUpload(item)}
+                    >
+                      {cancellingUploadId === item.id ? 'Cancelling...' : 'Cancel Upload'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <button type="button" className="mrc-retry-all" onClick={() => void retryAllFailedUploads()}>
             Retry All Failed Uploads
           </button>
@@ -3037,7 +3148,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
       {fullMedia ? (
         <Modal
-          title={`Issue ${fullMedia.position}`}
+          title={`${fullMedia.upload_status === 'failed' ? 'Failed upload · ' : ''}Issue ${fullMedia.position}`}
           onClose={() => setFullMedia(null)}
           wide
           mediaViewer
@@ -3797,6 +3908,55 @@ function StyleBlock() {
         font-size: 12px;
         line-height: 1.45;
       }
+      .mrc-failed-uploads {
+        display: grid;
+        gap: 8px;
+      }
+      .mrc-failed-uploads > span {
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .mrc-failed-upload-list {
+        display: grid;
+        gap: 9px;
+        margin-top: 2px;
+      }
+      .mrc-failed-upload-item {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid #fecdd3;
+        border-radius: 13px;
+        background: #fff;
+      }
+      .mrc-failed-upload-item > div:first-child {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+      }
+      .mrc-failed-upload-item span,
+      .mrc-failed-upload-item small {
+        overflow-wrap: anywhere;
+      }
+      .mrc-failed-upload-item span {
+        color: #475569;
+        font-size: 12px;
+      }
+      .mrc-failed-upload-item small {
+        color: #be123c;
+        font-size: 11px;
+        line-height: 1.35;
+      }
+      .mrc-failed-upload-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 7px;
+      }
+      .mrc-failed-upload-actions button {
+        min-height: 42px;
+        padding: 8px 10px;
+        font-size: 12px;
+      }
       .mrc-retry-all {
         display: block;
         width: 100%;
@@ -3808,6 +3968,11 @@ function StyleBlock() {
         color: #9f1239;
         font-weight: 950;
         cursor: pointer;
+      }
+      @media (max-width: 620px) {
+        .mrc-failed-upload-actions {
+          grid-template-columns: 1fr;
+        }
       }
       .mrc-modal-backdrop {
         position: fixed;
