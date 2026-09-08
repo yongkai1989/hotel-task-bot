@@ -3564,7 +3564,7 @@ function Modal({
   mediaViewer?: boolean;
 }) {
   return (
-    <div className="mrc-modal-backdrop">
+    <div className={`mrc-modal-backdrop ${markup ? 'is-markup-backdrop' : ''}`}>
       <div className={`mrc-modal ${wide ? 'is-wide' : ''} ${markup ? 'is-markup-modal' : ''} ${mediaViewer ? 'is-media-viewer' : ''}`}>
         <div className="mrc-modal-head">
           <h2>{title}</h2>
@@ -4011,6 +4011,9 @@ function StyleBlock() {
         align-items: center;
         justify-content: center;
         padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px));
+      }
+      .mrc-modal-backdrop.is-markup-backdrop {
+        z-index: 210;
       }
       .mrc-modal {
         box-sizing: border-box;
