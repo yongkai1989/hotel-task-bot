@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
+import { getDashboardIdentityFromRequest, getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 import { logRouteTiming } from '../../../lib/routeTiming';
 
@@ -29,15 +29,15 @@ export async function GET(req: NextRequest) {
   };
   try {
     const authStartedAt = Date.now();
-    const { user, error: authError } = await getDashboardUserFromRequest(req);
+    const { user_id: userId, error: authError } = await getDashboardIdentityFromRequest(req);
     stages.auth_ms = Date.now() - authStartedAt;
-    if (!user) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
+    if (!userId) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
 
     const recipientsStartedAt = Date.now();
     const { data: recipients, error: recipientError } = await supabaseAdmin
       .from('task_alert_recipients')
       .select('task_id, alert_cycle, created_at')
-      .eq('user_id', user.user_id)
+      .eq('user_id', userId)
       .is('acknowledged_at', null)
       .order('created_at', { ascending: true })
       .limit(30);

@@ -3,6 +3,7 @@
 const PROFILE_CACHE_KEY = 'dashboard-session-profile';
 const PROFILE_CACHE_TS_KEY = 'dashboard-session-profile-ts';
 const PROFILE_CACHE_TTL_MS = 30 * 60 * 1000;
+const PROFILE_REQUEST_TIMEOUT_MS = 8_000;
 
 const inFlightProfiles = new Map<string, Promise<unknown>>();
 
@@ -33,17 +34,26 @@ export async function loadDashboardSessionProfile<T extends object>(
   }
 
   const subject = tokenSubject(accessToken);
-  if (!options.force) {
-    const cachedRaw = window.sessionStorage.getItem(PROFILE_CACHE_KEY);
-    const cachedAt = Number(window.sessionStorage.getItem(PROFILE_CACHE_TS_KEY) || '0');
-    if (cachedRaw && cachedAt > 0 && Date.now() - cachedAt < PROFILE_CACHE_TTL_MS) {
-      try {
-        const cached = JSON.parse(cachedRaw) as T;
-        const cachedUserId = (cached as { user_id?: string }).user_id;
-        if (!subject || !cachedUserId || String(cachedUserId) === subject) return cached;
-      } catch {
-        clearDashboardSessionProfileCache();
+  let matchingCachedProfile: T | null = null;
+  let matchingCachedAt = 0;
+  const cachedRaw = window.sessionStorage.getItem(PROFILE_CACHE_KEY);
+  const cachedAt = Number(window.sessionStorage.getItem(PROFILE_CACHE_TS_KEY) || '0');
+  if (cachedRaw && cachedAt > 0) {
+    try {
+      const cached = JSON.parse(cachedRaw) as T;
+      const cachedUserId = (cached as { user_id?: string }).user_id;
+      if (!subject || !cachedUserId || String(cachedUserId) === subject) {
+        matchingCachedProfile = cached;
+        matchingCachedAt = cachedAt;
       }
+    } catch {
+      clearDashboardSessionProfileCache();
+    }
+  }
+
+  if (!options.force) {
+    if (matchingCachedProfile && Date.now() - matchingCachedAt < PROFILE_CACHE_TTL_MS) {
+      return matchingCachedProfile;
     }
   }
 
@@ -51,16 +61,21 @@ export async function loadDashboardSessionProfile<T extends object>(
   const existing = inFlightProfiles.get(requestKey);
   if (existing) return existing as Promise<T>;
 
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), PROFILE_REQUEST_TIMEOUT_MS);
   const request = fetch('/api/session-profile', {
     method: 'GET',
     headers: { Authorization: `Bearer ${accessToken}` },
     credentials: 'include',
     cache: 'no-store',
+    signal: controller.signal,
   })
     .then(async (response) => {
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ok || !payload?.user) {
-        throw new Error(payload?.error || `Request failed (${response.status})`);
+        const error = new Error(payload?.error || `Request failed (${response.status})`);
+        Object.assign(error, { status: response.status });
+        throw error;
       }
       const profile = payload.user as T;
       const profileUserId = (profile as { user_id?: string }).user_id;
@@ -72,10 +87,16 @@ export async function loadDashboardSessionProfile<T extends object>(
       return profile;
     })
     .catch((error) => {
-      clearDashboardSessionProfileCache();
+      const status = Number((error as { status?: number })?.status || 0);
+      if (status === 401 || status === 403) {
+        clearDashboardSessionProfileCache();
+        throw error;
+      }
+      if (matchingCachedProfile) return matchingCachedProfile;
       throw error;
     })
     .finally(() => {
+      window.clearTimeout(timeout);
       inFlightProfiles.delete(requestKey);
     });
 

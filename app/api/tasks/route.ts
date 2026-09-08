@@ -634,13 +634,22 @@ export async function GET(req: NextRequest) {
       return jsonNoCache({ ok: false, error: tasksError.message }, 500);
     }
 
-    const reconcileStartedAt = Date.now();
-    const reconciledTasks = await reconcileManagerRoomCheckTasks(tasks || []);
-    stages.reconcile_ms = Date.now() - reconcileStartedAt;
-
-    const acknowledgementsStartedAt = Date.now();
-    const tasksWithAcknowledgements = await attachTaskAlertAcknowledgements(reconciledTasks);
-    stages.acknowledgements_ms = Date.now() - acknowledgementsStartedAt;
+    const enrichmentStartedAt = Date.now();
+    const [reconciledTasks, tasksWithAcknowledgementsBeforeReconcile] = await Promise.all([
+      reconcileManagerRoomCheckTasks(tasks || []),
+      attachTaskAlertAcknowledgements(tasks || []),
+    ]);
+    stages.enrichment_parallel_ms = Date.now() - enrichmentStartedAt;
+    const acknowledgementsByTaskId = new Map(
+      tasksWithAcknowledgementsBeforeReconcile.map((task: any) => [
+        String(task.id),
+        Array.isArray(task.acknowledgements) ? task.acknowledgements : [],
+      ])
+    );
+    const tasksWithAcknowledgements = reconciledTasks.map((task: any) => ({
+      ...task,
+      acknowledgements: acknowledgementsByTaskId.get(String(task.id)) || [],
+    }));
 
     const finalTasks = tasksWithAcknowledgements.map((task: any) => ({
       ...task,

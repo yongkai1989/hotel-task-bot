@@ -164,6 +164,26 @@ export function getRequestAccessToken(req: NextRequest) {
   return '';
 }
 
+export async function getDashboardIdentityFromRequest(
+  req: NextRequest
+): Promise<{ user_id: string | null; error: string | null }> {
+  try {
+    const token = getRequestAccessToken(req);
+    if (!token) return { user_id: null, error: 'Missing Supabase session' };
+
+    const authClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    const { data, error } = await authClient.auth.getClaims(token);
+    const userId = String(data?.claims?.sub || '').trim();
+    if (error || !userId) return { user_id: null, error: 'Invalid session' };
+    return { user_id: userId, error: null };
+  } catch (error: any) {
+    return { user_id: null, error: error?.message || 'Auth error' };
+  }
+}
+
 function savedBoolean(value: unknown) {
   return value === true || value === 'true' || value === 1 || value === '1';
 }
