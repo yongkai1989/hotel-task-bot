@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import { loadDashboardSessionProfile } from '../lib/dashboardSessionProfileClient';
@@ -3306,6 +3307,15 @@ function MediaPicker({
     setActiveIndex((current) => Math.min(current, draftMedia.length - 1));
   }, [draftMedia.length]);
 
+  useEffect(() => {
+    if (!reviewOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [reviewOpen]);
+
   const handlePick = (files: FileList | null) => {
     if (files) void addFiles(files);
     setChoiceOpen?.(false);
@@ -3384,7 +3394,7 @@ function MediaPicker({
             <span>Review {draftMedia.length} media item{draftMedia.length === 1 ? '' : 's'}</span>
             <small>Full-screen preview, markup and assignment</small>
           </button>
-          {reviewOpen ? (
+          {reviewOpen && typeof document !== 'undefined' ? createPortal(
         <div className="mrc-reviewer is-fullscreen" role="dialog" aria-modal="true" aria-label="Review selected media">
           <div className="mrc-review-topbar">
             <button type="button" onClick={() => setReviewOpen(false)}>Done</button>
@@ -3529,7 +3539,8 @@ function MediaPicker({
               />
             </label>
           </div>
-        </div>
+        </div>,
+        document.body
           ) : null}
         </>
       ) : null}
@@ -4286,8 +4297,11 @@ function StyleBlock() {
         position: fixed;
         inset: 0;
         z-index: 190;
-        width: 100vw;
+        box-sizing: border-box;
+        width: auto;
+        max-width: none;
         height: 100dvh;
+        max-height: none;
         margin: 0;
         border: 0;
         border-radius: 0;
@@ -4301,7 +4315,7 @@ function StyleBlock() {
         position: relative;
         z-index: 8;
         min-height: calc(48px + env(safe-area-inset-top, 0px));
-        padding: calc(5px + env(safe-area-inset-top, 0px)) 10px 5px;
+        padding: calc(5px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 5px calc(10px + env(safe-area-inset-left, 0px));
         display: grid;
         grid-template-columns: auto minmax(0, 1fr) auto;
         align-items: center;
@@ -4529,7 +4543,7 @@ function StyleBlock() {
         flex: 0 0 auto;
         display: grid;
         gap: 7px;
-        padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+        padding: 8px calc(10px + env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px));
         background: #fff;
         box-shadow: 0 -8px 24px rgba(2,6,23,.3);
       }
