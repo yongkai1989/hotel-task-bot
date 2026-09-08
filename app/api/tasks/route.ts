@@ -18,7 +18,7 @@ const CUSTOMER_WAITING_REMINDER_BUDGET_MS = 1200;
 const CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS = 30_000;
 const TELEGRAM_SEND_TIMEOUT_MS = 5000;
 const MAX_MEDIA = 30;
-const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 let customerWaitingReminderCheck: Promise<void> | null = null;
 let lastCustomerWaitingReminderCheckAt = 0;
@@ -333,7 +333,7 @@ async function uploadTaskMediaFiles(files: File[]) {
     }
 
     if (isVideo && file.size > MAX_VIDEO_BYTES) {
-      throw new Error('Each video must be 80MB or smaller');
+      throw new Error('Each video must be 50MB or smaller');
     }
 
     if (isImage && file.size > MAX_IMAGE_BYTES) {

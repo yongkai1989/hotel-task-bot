@@ -450,10 +450,19 @@ async function validateVideoFile(file: File) {
   }
 }
 
+function ensureVideoOutputFits(file: File) {
+  if (file.size > MAX_VIDEO_OUTPUT_BYTES) {
+    throw new Error(
+      `${file.name} could not be compressed below ${formatMegabytes(MAX_VIDEO_OUTPUT_BYTES)} on this phone. Please record a shorter or lower-quality video.`
+    );
+  }
+  return file;
+}
+
 async function compressVideoFile(file: File) {
   await validateVideoFile(file);
   if (typeof MediaRecorder === 'undefined') {
-    return file;
+    return ensureVideoOutputFits(file);
   }
 
   const sourceUrl = URL.createObjectURL(file);
@@ -472,25 +481,34 @@ async function compressVideoFile(file: File) {
       video.onerror = () => reject(new Error('Unable to prepare video for compression.'));
     });
 
-    const maxSide = 960;
+    const maxSide = 720;
     const scale = Math.min(1, maxSide / Math.max(video.videoWidth || 1, video.videoHeight || 1));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(2, Math.round((video.videoWidth || 2) * scale));
     canvas.height = Math.max(2, Math.round((video.videoHeight || 2) * scale));
     const context = canvas.getContext('2d');
     const sourceCapture = (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream;
-    if (!context || typeof canvas.captureStream !== 'function' || typeof sourceCapture !== 'function') {
-      return file;
+    if (!context || typeof canvas.captureStream !== 'function') {
+      return ensureVideoOutputFits(file);
     }
 
     const preferredTypes = ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
     const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || '';
-    const stream = canvas.captureStream(24);
-    const sourceStream = sourceCapture.call(video);
-    sourceStream.getAudioTracks().forEach((track) => stream.addTrack(track));
+    const stream = canvas.captureStream(20);
+    let sourceStream: MediaStream | null = null;
+    if (typeof sourceCapture === 'function') {
+      try {
+        sourceStream = sourceCapture.call(video);
+      } catch {
+        // Some iPhones can compress canvas video but cannot expose the source
+        // audio stream. The defect video remains useful without audio.
+      }
+    }
+    sourceStream?.getAudioTracks().forEach((track) => stream.addTrack(track));
     const recorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      videoBitsPerSecond: 1_000_000,
+      videoBitsPerSecond: 650_000,
+      audioBitsPerSecond: 64_000,
     });
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (event) => {
@@ -519,16 +537,13 @@ async function compressVideoFile(file: File) {
     });
 
     stream.getTracks().forEach((track) => track.stop());
-    sourceStream.getTracks().forEach((track) => track.stop());
+    sourceStream?.getTracks().forEach((track) => track.stop());
     if (!compressed.size) throw new Error('Video compression produced an empty file.');
-    if (compressed.size > MAX_VIDEO_OUTPUT_BYTES) {
-      throw new Error(`Compressed video is still too large (${formatMegabytes(compressed.size)}).`);
-    }
     const extension = compressed.type.includes('mp4') ? 'mp4' : 'webm';
-    return new File([compressed], file.name.replace(/\.[^.]+$/, `.${extension}`), {
+    return ensureVideoOutputFits(new File([compressed], file.name.replace(/\.[^.]+$/, `.${extension}`), {
       type: normalizedMediaContentType(compressed.type || `video/${extension}`, 'video'),
       lastModified: Date.now(),
-    });
+    }));
   } finally {
     video.pause();
     video.removeAttribute('src');
@@ -1536,6 +1551,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     stored = {
       ...stored,
       file: withNormalizedFileType(stored.file, item.media_type),
+      prepared: item.media_type === 'video' ? false : stored.prepared,
       uploadUrl: null,
     };
     await writeStoredUpload(stored);
@@ -1575,6 +1591,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       stored = {
         ...stored,
         file: withNormalizedFileType(stored.file, failed.media_type as MediaType),
+        prepared: failed.media_type === 'video' ? false : stored.prepared,
         uploadUrl: null,
       };
       await writeStoredUpload(stored);

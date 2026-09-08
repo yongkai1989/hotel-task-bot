@@ -7,7 +7,7 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 const MAX_MEDIA = 30;
-const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 function jsonNoCache(body: any, status = 200) {
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (isVideo && file.size > MAX_VIDEO_BYTES) {
-          return jsonNoCache({ ok: false, error: 'Each video must be 80MB or smaller' }, 400);
+          return jsonNoCache({ ok: false, error: 'Each video must be 50MB or smaller' }, 400);
         }
 
         if (isImage && file.size > MAX_IMAGE_BYTES) {
