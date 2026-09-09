@@ -180,7 +180,9 @@ function fnbStatusLabel(status: string) {
   return statusLabel(status);
 }
 
-const CUSTOM_ALARM_SRC = '/sounds/fnb-order-alert.mp3';
+const NEW_ORDER_ALARM_SRC = '/sounds/order-new-alert.wav';
+const WAITING_ORDER_ALARM_SRC = '/sounds/order-still-waiting-alert.wav';
+const ORDER_REMINDER_INTERVAL_MS = 15_000;
 
 export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode }) {
   const isGuestShop = mode === 'GUEST_SHOP';
@@ -321,7 +323,7 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
   }, [access, activeTab, nextAcceptanceDeadline]);
 
   useEffect(() => {
-    if (!alarmEnabled || pendingCount <= 0) {
+    if (!alarmEnabled || !promptOrder) {
       if (alarmRef.current) clearInterval(alarmRef.current);
       alarmRef.current = null;
       return;
@@ -329,10 +331,10 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
 
     if (alarmRef.current) return;
 
-    async function playAlarmOnce() {
+    async function playAlarmOnce(source: string) {
       try {
-        const audio = new Audio(CUSTOM_ALARM_SRC);
-        audio.volume = 0.85;
+        const audio = new Audio(source);
+        audio.volume = 1;
         await audio.play();
         return;
       } catch {
@@ -358,14 +360,28 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
       }
     }
 
-    playAlarmOnce();
-    alarmRef.current = setInterval(playAlarmOnce, 4500);
+    const requestedAt = promptOrder.kitchen_requested_at || promptOrder.paid_at || promptOrder.created_at;
+    const requestedMs = requestedAt ? Date.parse(requestedAt) : Number.NaN;
+    const alreadyWaiting = Number.isFinite(requestedMs)
+      && Date.now() - requestedMs >= ORDER_REMINDER_INTERVAL_MS;
+
+    void playAlarmOnce(alreadyWaiting ? WAITING_ORDER_ALARM_SRC : NEW_ORDER_ALARM_SRC);
+    alarmRef.current = setInterval(
+      () => void playAlarmOnce(WAITING_ORDER_ALARM_SRC),
+      ORDER_REMINDER_INTERVAL_MS
+    );
 
     return () => {
       if (alarmRef.current) clearInterval(alarmRef.current);
       alarmRef.current = null;
     };
-  }, [alarmEnabled, pendingCount]);
+  }, [
+    alarmEnabled,
+    promptOrder?.id,
+    promptOrder?.kitchen_requested_at,
+    promptOrder?.paid_at,
+    promptOrder?.created_at,
+  ]);
 
   async function getToken() {
     const {
