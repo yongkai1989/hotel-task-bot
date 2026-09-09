@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import { subscribeToTaskBroadcast } from '../lib/taskRealtimeClient';
 
@@ -55,16 +55,29 @@ export default function TaskAlertOverlay({ userId }: Props) {
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const alertsRef = useRef<AlertTask[]>([]);
+  const alertRequestRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    alertsRef.current = alerts;
+  }, [alerts]);
 
   const loadAlerts = useCallback(async (token: string) => {
     if (!token || !userId) return;
-    const response = await fetchTaskAlerts('/api/task-alerts', {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: { Authorization: `Bearer ${token}` },
+    if (alertRequestRef.current) return alertRequestRef.current;
+    const request = (async () => {
+      const response = await fetchTaskAlerts('/api/task-alerts', {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = await responseJson(response);
+      setAlerts(Array.isArray(payload?.alerts) ? payload.alerts : []);
+    })().finally(() => {
+      if (alertRequestRef.current === request) alertRequestRef.current = null;
     });
-    const payload = await responseJson(response);
-    setAlerts(Array.isArray(payload?.alerts) ? payload.alerts : []);
+    alertRequestRef.current = request;
+    return request;
   }, [userId]);
 
   useEffect(() => {
@@ -86,14 +99,17 @@ export default function TaskAlertOverlay({ userId }: Props) {
     if (!accessToken || !userId) return;
     let refreshTimer: number | null = null;
 
-    const refreshAlerts = () => {
+    const refreshAlerts = (payload: { id: string; alertUserIds?: string[] }) => {
+      const alreadyVisible = alertsRef.current.some((alert) => alert.id === payload.id);
+      const addressedToUser = payload.alertUserIds?.includes(userId) === true;
+      if (!alreadyVisible && !addressedToUser) return;
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         refreshTimer = null;
         void loadAlerts(accessToken).catch((nextError: any) => {
           setError(nextError?.message || 'Unable to refresh urgent task alerts.');
         });
-      }, 180);
+      }, 700 + Math.floor(Math.random() * 300));
     };
 
     const clearRefreshTimer = () => {

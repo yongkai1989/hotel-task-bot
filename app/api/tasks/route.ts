@@ -866,16 +866,20 @@ export async function POST(req: NextRequest) {
       }
 
       let telegramWarning = '';
+      let alertUserIds: string[] = [];
 
       if (task.department === 'HK' || task.department === 'MT') {
         const pushResult = await sendTaskPushNotifications(task);
+        alertUserIds = pushResult.recipientUserIds || [];
         if (pushResult.warning) warnings.push(pushResult.warning);
       }
 
       // Deliver the in-app event immediately after Web Push recipients have
       // been prepared. Telegram is an independent external service and must
       // never delay a tablet alert.
-      await broadcastTaskChange(task.id, 'INSERT');
+      await broadcastTaskChange(task.id, 'INSERT', {
+        alertUserIds,
+      });
 
       try {
         const telegramMessageId = await sendTelegramTaskCard({

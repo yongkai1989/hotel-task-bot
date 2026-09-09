@@ -228,7 +228,12 @@ export async function POST(req: NextRequest) {
     ]);
     if (pushResult.warning) warnings.push(pushResult.warning);
     if (supervisorAlertResult.warning) warnings.push(supervisorAlertResult.warning);
-    await broadcastTaskChange(task.id, 'INSERT');
+    await broadcastTaskChange(task.id, 'INSERT', {
+      alertUserIds: Array.from(new Set([
+        ...(pushResult.recipientUserIds || []),
+        ...(supervisorAlertResult.recipientUserIds || []),
+      ])),
+    });
 
     try {
       const telegramMessageId = await sendTelegramTaskCard({

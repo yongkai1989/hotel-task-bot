@@ -4,7 +4,11 @@ import {
   type TaskBroadcastEventType,
 } from './taskRealtime';
 
-export async function broadcastTaskChange(id: unknown, eventType: TaskBroadcastEventType) {
+export async function broadcastTaskChange(
+  id: unknown,
+  eventType: TaskBroadcastEventType,
+  options: { alertUserIds?: unknown[] } = {}
+) {
   const taskId = String(id || '').trim();
   const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
   const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
@@ -24,6 +28,13 @@ export async function broadcastTaskChange(id: unknown, eventType: TaskBroadcastE
           id: taskId,
           eventType,
           changedAt: new Date().toISOString(),
+          ...(Array.isArray(options.alertUserIds)
+            ? {
+                alertUserIds: Array.from(new Set(
+                  options.alertUserIds.map((value) => String(value || '').trim()).filter(Boolean)
+                )),
+              }
+            : {}),
         }),
         cache: 'no-store',
       }

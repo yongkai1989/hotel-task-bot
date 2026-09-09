@@ -41,6 +41,7 @@ export type TaskPushResult = {
   delivered: number;
   removed: number;
   warning?: string;
+  recipientUserIds?: string[];
 };
 
 export const HK_SUPERVISOR_PUSH_EMAILS = [
@@ -284,12 +285,13 @@ export async function sendTaskPushNotifications(
   try {
     const profiles = await resolveDepartmentPushProfiles(department);
     const userIds = await ensureTimedTaskRecipients(task, profiles);
-    return sendPushNotifications({
+    const result = await sendPushNotifications({
       userIds,
       payload: taskPayload(task),
       topic: `task-${task.id}`,
       ttlSeconds: 10 * 60,
     });
+    return { ...result, recipientUserIds: userIds };
   } catch (error: any) {
     return {
       configured: Boolean(pushConfiguration()),
@@ -326,8 +328,9 @@ export async function sendChambermaidDefectSupervisorAlerts(
 
     const taskCode = String(task.task_code || 'Task').trim();
     const room = String(task.room || 'No room').trim();
-    return sendPushNotifications({
-      userIds: profiles.map((profile) => profile.user_id),
+    const userIds = profiles.map((profile) => profile.user_id);
+    const result = await sendPushNotifications({
+      userIds,
       payload: {
         title: 'NEW CHAMBERMAID DEFECT',
         body: `${taskCode} · Room ${room}\nSubmitted by ${String(submittedBy || 'Chambermaid').trim()}`,
@@ -339,6 +342,7 @@ export async function sendChambermaidDefectSupervisorAlerts(
       topic: `chambermaid-defect-${task.id}`,
       ttlSeconds: 60 * 60,
     });
+    return { ...result, recipientUserIds: userIds };
   } catch (error: any) {
     return {
       configured: Boolean(pushConfiguration()),

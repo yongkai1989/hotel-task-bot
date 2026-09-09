@@ -1,5 +1,4 @@
 import { supabaseAdmin } from './supabaseAdmin';
-import { broadcastTaskChange } from './taskBroadcastServer';
 
 type LinkedTask = {
   id?: string;
@@ -208,7 +207,6 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
     const key = linkedKey(check.department, check.room_number);
     checksByKey.set(key, [...(checksByKey.get(key) || []), check]);
   }
-  const orphanTaskIds: string[] = [];
   const reconciled: T[] = [];
   const matchedCheckIds = new Set<string>();
   for (const task of tasks) {
@@ -223,7 +221,8 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
     );
     const check = closestByCreatedAt(candidates, task.created_at);
     if (!check) {
-      if (task.id) orphanTaskIds.push(task.id);
+      // An orphan is omitted from the response, but a GET request must never
+      // delete data. Explicit delete/retention flows own destructive cleanup.
       continue;
     }
     matchedCheckIds.add(check.id);
@@ -237,32 +236,6 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
       done_by_name: status === 'DONE' ? check.checked_by_name || 'Manager Room Check' : null,
     } as T;
     reconciled.push(nextTask);
-    if (task.id && task.status !== status) {
-      const { error: updateError } = await supabaseAdmin
-        .from('tasks')
-        .update({
-          status,
-          done_at: status === 'DONE' ? check.checked_at || check.updated_at : null,
-          done_by_name: status === 'DONE' ? check.checked_by_name || 'Manager Room Check' : null,
-          updated_at: new Date().toISOString(),
-          last_updated_by_name: 'Manager Room Check',
-        })
-        .eq('id', task.id);
-      if (updateError) throw updateError;
-      await broadcastTaskChange(task.id, 'UPDATE');
-    }
-  }
-
-  if (orphanTaskIds.length) {
-    const [imageDeleteResult, eventDeleteResult] = await Promise.all([
-      supabaseAdmin.from('task_images').delete().in('task_id', orphanTaskIds),
-      supabaseAdmin.from('task_events').delete().in('task_id', orphanTaskIds),
-    ]);
-    if (imageDeleteResult.error) throw imageDeleteResult.error;
-    if (eventDeleteResult.error) throw eventDeleteResult.error;
-    const { error: orphanDeleteError } = await supabaseAdmin.from('tasks').delete().in('id', orphanTaskIds);
-    if (orphanDeleteError) throw orphanDeleteError;
-    await Promise.all(orphanTaskIds.map((taskId) => broadcastTaskChange(taskId, 'DELETE')));
   }
   return reconciled;
 }

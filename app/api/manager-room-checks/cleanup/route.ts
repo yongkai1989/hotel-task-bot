@@ -7,7 +7,9 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 type DepartmentCode = 'MT' | 'HK';
+const MANAGER_ROOM_CHECK_MEDIA_RETENTION_DAYS = 15;
 const MANAGER_ROOM_CHECK_RETENTION_DAYS = 60;
+const CLEANUP_BATCH_SIZE = 100;
 
 function jsonNoCache(body: any, status = 200) {
   return NextResponse.json(body, {
@@ -49,65 +51,92 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'Access denied' }, 403);
     }
 
-    const cutoff = new Date(
+    const mediaCutoff = new Date(
+      Date.now() - MANAGER_ROOM_CHECK_MEDIA_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const checkCutoff = new Date(
       Date.now() - MANAGER_ROOM_CHECK_RETENTION_DAYS * 24 * 60 * 60 * 1000
     ).toISOString();
 
-    const { data: doneChecks, error: oldChecksError } = await supabaseAdmin
+    // checked_at is deliberately required. updated_at is not proof that a room
+    // check was completed and must never be used to qualify media for removal.
+    const { data: mediaEligibleChecks, error: mediaEligibleError } = await supabaseAdmin
       .from('manager_room_checks')
-      .select('id, checked_at, updated_at')
+      .select('id, checked_at')
       .eq('department', department)
       .eq('status', 'DONE')
-      .limit(100);
+      .not('checked_at', 'is', null)
+      .lt('checked_at', mediaCutoff)
+      .order('checked_at', { ascending: true })
+      .limit(CLEANUP_BATCH_SIZE);
 
-    if (oldChecksError) {
-      return jsonNoCache({ ok: false, error: oldChecksError.message }, 500);
+    if (mediaEligibleError) {
+      return jsonNoCache({ ok: false, error: mediaEligibleError.message }, 500);
     }
 
-    const cutoffMs = Date.parse(cutoff);
-    const checkIds = (doneChecks || [])
-      .filter((check) => {
-        const referenceDate = check.checked_at || check.updated_at;
-        const referenceMs = referenceDate ? Date.parse(referenceDate) : 0;
-        return Number.isFinite(referenceMs) && referenceMs < cutoffMs;
-      })
-      .map((check) => check.id)
-      .filter(Boolean);
+    const mediaEligibleIds = (mediaEligibleChecks || []).map((check) => check.id).filter(Boolean);
+    let removedMedia = 0;
 
-    if (!checkIds.length) {
-      return jsonNoCache({ ok: true, deleted: 0 });
+    if (mediaEligibleIds.length) {
+      const [mediaResult, uploadResult] = await Promise.all([
+        supabaseAdmin
+          .from('manager_room_check_media')
+          .select('media_path')
+          .in('check_id', mediaEligibleIds),
+        supabaseAdmin
+          .from('manager_room_check_uploads')
+          .select('storage_path')
+          .in('check_id', mediaEligibleIds),
+      ]);
+
+      if (mediaResult.error) return jsonNoCache({ ok: false, error: mediaResult.error.message }, 500);
+      if (uploadResult.error) return jsonNoCache({ ok: false, error: uploadResult.error.message }, 500);
+
+      const mediaPaths = Array.from(new Set([
+        ...(mediaResult.data || []).map((row) => String(row.media_path || '').trim()),
+        ...(uploadResult.data || []).map((row) => String(row.storage_path || '').trim()),
+      ].filter(Boolean)));
+
+      if (mediaPaths.length) {
+        const { error: storageError } = await supabaseAdmin.storage.from('task-images').remove(mediaPaths);
+        if (storageError) return jsonNoCache({ ok: false, error: storageError.message }, 500);
+      }
+
+      const [mediaDelete, uploadDelete] = await Promise.all([
+        supabaseAdmin.from('manager_room_check_media').delete().in('check_id', mediaEligibleIds),
+        supabaseAdmin.from('manager_room_check_uploads').delete().in('check_id', mediaEligibleIds),
+      ]);
+      if (mediaDelete.error) return jsonNoCache({ ok: false, error: mediaDelete.error.message }, 500);
+      if (uploadDelete.error) return jsonNoCache({ ok: false, error: uploadDelete.error.message }, 500);
+      removedMedia = mediaPaths.length;
     }
 
-    const { data: mediaRows, error: mediaError } = await supabaseAdmin
-      .from('manager_room_check_media')
-      .select('media_path')
-      .in('check_id', checkIds);
-
-    if (mediaError) {
-      return jsonNoCache({ ok: false, error: mediaError.message }, 500);
-    }
-
-    const mediaPaths = (mediaRows || [])
-      .map((row) => String(row.media_path || '').trim())
-      .filter(Boolean);
-
-    if (mediaPaths.length) {
-      await supabaseAdmin.storage.from('task-images').remove(mediaPaths);
-    }
-
-    const { error: deleteError } = await supabaseAdmin
+    const { data: expiredChecks, error: expiredChecksError } = await supabaseAdmin
       .from('manager_room_checks')
-      .delete()
-      .in('id', checkIds);
-
-    if (deleteError) {
-      return jsonNoCache({ ok: false, error: deleteError.message }, 500);
+      .select('id')
+      .eq('department', department)
+      .eq('status', 'DONE')
+      .not('checked_at', 'is', null)
+      .lt('checked_at', checkCutoff)
+      .order('checked_at', { ascending: true })
+      .limit(CLEANUP_BATCH_SIZE);
+    if (expiredChecksError) {
+      return jsonNoCache({ ok: false, error: expiredChecksError.message }, 500);
+    }
+    const expiredCheckIds = (expiredChecks || []).map((check) => check.id).filter(Boolean);
+    if (expiredCheckIds.length) {
+      const { error: deleteError } = await supabaseAdmin
+        .from('manager_room_checks')
+        .delete()
+        .in('id', expiredCheckIds);
+      if (deleteError) return jsonNoCache({ ok: false, error: deleteError.message }, 500);
     }
 
     return jsonNoCache({
       ok: true,
-      deleted: checkIds.length,
-      removedMedia: mediaPaths.length,
+      deleted: expiredCheckIds.length,
+      mediaEligibleChecks: mediaEligibleIds.length,
+      removedMedia,
     });
   } catch (error: any) {
     return jsonNoCache(

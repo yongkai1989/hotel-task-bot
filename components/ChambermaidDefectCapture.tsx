@@ -203,14 +203,14 @@ export default function ChambermaidDefectCapture({ roomNumber, serviceDate, onSu
     }
 
     const canvas = document.createElement('canvas');
-    const scale = Math.min(1, 1920 / Math.max(width, height));
+    const scale = Math.min(1, 1440 / Math.max(width, height));
     canvas.width = Math.round(width * scale);
     canvas.height = Math.round(height * scale);
     const context = canvas.getContext('2d');
     if (!context) return;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
     if (!blob) {
       setError('Unable to capture photo. Please try again.');
       return;

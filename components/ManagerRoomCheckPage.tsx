@@ -84,6 +84,7 @@ type DurableUploadRow = {
   status: 'PENDING' | 'UPLOADING' | 'READY' | 'FAILED';
   error_message: string | null;
   created_at: string | null;
+  updated_at: string;
 };
 
 type StoredUploadFile = {
@@ -114,15 +115,16 @@ const MAX_MEDIA_PER_CHECK = 30;
 const MAX_VIDEO_DURATION_SECONDS = 10;
 const MAX_VIDEO_INPUT_BYTES = 50 * 1024 * 1024;
 const MAX_VIDEO_OUTPUT_BYTES = 15 * 1024 * 1024;
-const MAX_CONCURRENT_UPLOAD_JOBS = 3;
+const MAX_CONCURRENT_UPLOAD_JOBS = 2;
 const RESUMABLE_CHUNK_BYTES = 6 * 1024 * 1024;
 const UPLOAD_DB_NAME = 'hotelhallmark-manager-room-check-uploads';
 const UPLOAD_DB_STORE = 'files';
 const MANAGER_ROOM_CHECK_CLEANUP_KEY = 'manager-room-check-cleanup-at';
 const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
+const MANAGER_ROOM_CHECK_MEDIA_RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
 const ROOM_CHECK_SELECT = 'id, department, room_number, title, description, status, created_by_user_id, created_by_name, created_by_email, submitted_for_check_at, submitted_for_check_by_name, checked_at, checked_by_name, created_at, updated_at' as const;
 const CHECK_MEDIA_SELECT = 'id, check_id, media_url, media_path, media_type, caption, position, completed_at, completed_by_name, completed_by_email, created_at' as const;
-const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, created_at' as const;
+const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, created_at, updated_at' as const;
 
 function formatMegabytes(bytes: number) {
   return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
@@ -554,7 +556,7 @@ async function compressVideoFile(file: File) {
   }
 }
 
-async function compressImageFile(file: File, maxSide = 1920, quality = 0.88) {
+async function compressImageFile(file: File, maxSide = 1440, quality = 0.8) {
   const img = await fileToImage(file);
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
   const width = Math.max(1, Math.round(img.width * scale));
@@ -570,7 +572,7 @@ async function compressImageFile(file: File, maxSide = 1920, quality = 0.88) {
     canvas.toBlob(resolve, 'image/jpeg', quality)
   );
 
-  if (!blob) return file;
+  if (!blob || blob.size >= file.size) return file;
   return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
     type: 'image/jpeg',
     lastModified: Date.now(),
@@ -598,6 +600,12 @@ function mediaCount(media: CheckMedia[], checkId: string) {
 
 function completedCount(media: CheckMedia[], checkId: string) {
   return media.filter((item) => item.check_id === checkId && item.completed_at).length;
+}
+
+function canRemoveCompletedCheckMedia(check: RoomCheck | null | undefined) {
+  if (check?.status !== 'DONE' || !check.checked_at) return false;
+  const checkedAt = Date.parse(check.checked_at);
+  return Number.isFinite(checkedAt) && checkedAt <= Date.now() - MANAGER_ROOM_CHECK_MEDIA_RETENTION_MS;
 }
 
 export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPageProps) {
@@ -1208,6 +1216,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
+        // Another supervisor may have created the same reminder between our
+        // initial check and insert. The database uniqueness guard wins; treat
+        // the now-existing active reminder as success.
+        if (supabase) {
+          const { data: concurrentTask } = await supabase
+            .from('tasks')
+            .select('id')
+            .eq('room', targetRoomNumber)
+            .eq('department', targetDepartment)
+            .in('task_text', managerRoomCheckDashboardTaskTexts(targetDepartment, targetRoomNumber))
+            .neq('status', 'DONE')
+            .limit(1)
+            .maybeSingle();
+          if (concurrentTask?.id) return;
+        }
         setErrorMsg(json?.error || `Urgent dashboard task was not created for ${label}.`);
       }
     } catch (error: any) {
@@ -1332,7 +1355,18 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       ])
       .select(ROOM_CHECK_SELECT)
       .single();
-    if (checkError) throw checkError;
+    if (checkError) {
+      if (checkError.code === '23505') {
+        const concurrentCheck = await findActiveRoomCheck(targetDepartment, targetRoomNumber);
+        if (concurrentCheck) {
+          if (createDashboardReminder) {
+            await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
+          }
+          return concurrentCheck;
+        }
+      }
+      throw checkError;
+    }
 
     if (createDashboardReminder) {
       await createUrgentDashboardTask(targetDepartment, targetRoomNumber);
@@ -1474,6 +1508,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (error) throw error;
     const row = data as DurableUploadRow;
     if (row.status === 'READY') {
+      await supabase.from('manager_room_check_uploads').delete().eq('id', id);
       await deleteStoredUpload(id).catch(() => undefined);
       return;
     }
@@ -1491,10 +1526,17 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       await writeStoredUpload(stored);
     }
 
-    await supabase
+    // Compare-and-set prevents two open tablets/tabs from uploading the same
+    // queued file at the same time. A stale UPLOADING job remains recoverable
+    // from the device that owns its IndexedDB copy.
+    const { data: claimedRows, error: claimError } = await supabase
       .from('manager_room_check_uploads')
       .update({ status: 'UPLOADING', error_message: null, updated_at: new Date().toISOString() })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('updated_at', row.updated_at)
+      .select('id');
+    if (claimError) throw claimError;
+    if (!claimedRows?.length) return;
 
     await uploadFileResumably({
       file: stored.file,
@@ -1525,9 +1567,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       .from('manager_room_check_media')
       .upsert(readyMedia, { onConflict: 'id' });
     if (mediaError) throw mediaError;
+    // The upload row is a retry queue, not permanent media metadata. The final
+    // media row above is authoritative, so remove the queue row after success.
     const { error: readyError } = await supabase
       .from('manager_room_check_uploads')
-      .update({ status: 'READY', error_message: null, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .delete()
       .eq('id', id);
     if (readyError) throw readyError;
     await supabase
@@ -2243,6 +2287,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function deleteCheck(check: RoomCheck) {
     if (!supabase || profile?.role !== 'SUPERUSER') return;
+    const hasMedia = media.some((item) => item.check_id === check.id);
+    if (hasMedia && !canRemoveCompletedCheckMedia(check)) {
+      setErrorMsg('This check contains files. It can be deleted only after it has been Done for more than 15 days.');
+      return;
+    }
     if (
       !window.confirm(
         `Permanently delete the Manager Room Check for room ${check.room_number}? Its linked dashboard task will also be deleted.`
@@ -2267,6 +2316,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   async function deleteMedia(item: CheckMedia) {
     if (!supabase || !canManageContent) return;
+    const parentCheck = checks.find((check) => check.id === item.check_id);
+    if (!canRemoveCompletedCheckMedia(parentCheck)) {
+      setErrorMsg('Files can be removed only after this room check has been Done for more than 15 days.');
+      return;
+    }
     if (!window.confirm('Remove this media item?')) return;
     setErrorMsg('');
     try {
@@ -2277,7 +2331,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         .update({ status: 'OPEN', updated_at: new Date().toISOString() })
         .eq('id', item.check_id)
         .neq('status', 'DONE');
-      await deleteCheckIfEmpty(item.check_id);
+      // Retain the completed check record for the full 60-day audit window,
+      // even after its 15-day-old media is removed.
       await renumberCheckMedia(item.check_id);
       await loadChecks();
     } catch (error: any) {
@@ -3065,9 +3120,11 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
                           }}
                         />
                       </label>
-                      <button type="button" className="mrc-danger" onClick={() => void deleteMedia(item)}>
-                        Remove
-                      </button>
+                      {canRemoveCompletedCheckMedia(selectedCheck) ? (
+                        <button type="button" className="mrc-danger" onClick={() => void deleteMedia(item)}>
+                          Remove
+                        </button>
+                      ) : null}
                     </>
                   ) : null}
                 </div>
