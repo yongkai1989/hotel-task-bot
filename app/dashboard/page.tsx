@@ -972,6 +972,107 @@ export default function DashboardPage() {
     [isMobile, isTablet]
   );
 
+  const imageViewerResponsive = useMemo(
+    () => ({
+      overlay: {
+        ...styles.modalOverlay,
+        padding: isMobile ? 0 : isTablet ? 10 : 20,
+        background: 'rgba(2, 6, 23, 0.92)',
+      } as React.CSSProperties,
+      inner: {
+        ...styles.modalInner,
+        width: '100%',
+        maxWidth: isMobile ? 'none' : 1240,
+        height: isMobile ? '100dvh' : 'calc(100dvh - 40px)',
+        maxHeight: '100dvh',
+        borderRadius: isMobile ? 0 : 20,
+        padding: isMobile
+          ? 'calc(54px + env(safe-area-inset-top, 0px)) 8px calc(12px + env(safe-area-inset-bottom, 0px))'
+          : 24,
+        display: 'block',
+      } as React.CSSProperties,
+      close: {
+        ...styles.modalCloseBtn,
+        right: isMobile ? 'calc(10px + env(safe-area-inset-right, 0px))' : 14,
+        top: isMobile ? 'calc(10px + env(safe-area-inset-top, 0px))' : 14,
+        width: isMobile ? 44 : 42,
+        height: isMobile ? 44 : 42,
+        fontSize: 24,
+        background: 'rgba(15, 23, 42, 0.78)',
+        border: '1px solid rgba(255,255,255,0.28)',
+      } as React.CSSProperties,
+      imageWrap: {
+        ...styles.modalImageWrap,
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+      } as React.CSSProperties,
+      image: {
+        ...styles.modalImage,
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        maxHeight: isMobile
+          ? 'calc(100dvh - 120px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))'
+          : 'calc(100dvh - 125px)',
+        borderRadius: isMobile ? 8 : 16,
+        objectFit: 'contain',
+      } as React.CSSProperties,
+      navLeft: {
+        ...styles.modalNavLeft,
+        position: 'absolute',
+        left: isMobile ? 'calc(8px + env(safe-area-inset-left, 0px))' : 16,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        zIndex: 3,
+        width: isMobile ? 46 : 48,
+        height: isMobile ? 46 : 48,
+        fontSize: 30,
+        background: 'rgba(15, 23, 42, 0.72)',
+        border: '1px solid rgba(255,255,255,0.28)',
+      } as React.CSSProperties,
+      navRight: {
+        ...styles.modalNavRight,
+        position: 'absolute',
+        right: isMobile ? 'calc(8px + env(safe-area-inset-right, 0px))' : 16,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        zIndex: 3,
+        width: isMobile ? 46 : 48,
+        height: isMobile ? 46 : 48,
+        fontSize: 30,
+        background: 'rgba(15, 23, 42, 0.72)',
+        border: '1px solid rgba(255,255,255,0.28)',
+      } as React.CSSProperties,
+      footer: {
+        ...styles.modalFooter,
+        flexShrink: 0,
+        minHeight: 34,
+        padding: '0 6px',
+      } as React.CSSProperties,
+    }),
+    [isMobile, isTablet]
+  );
+
+  useEffect(() => {
+    if (!imageModalOpen || typeof document === 'undefined') return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeImageModal();
+      if (event.key === 'ArrowLeft') showPrevImage();
+      if (event.key === 'ArrowRight') showNextImage();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [imageModalOpen, selectedTaskImages.length]);
+
   useEffect(() => {
     if (!markupTarget) return;
 
@@ -3497,10 +3598,10 @@ async function handleDeleteTask(task: Task) {
           )}
         </section>
       {imageModalOpen && selectedTaskImages.length > 0 ? (
-        <div style={styles.modalOverlay} onClick={closeImageModal}>
-          <div style={styles.modalInner} onClick={(e) => e.stopPropagation()}>
+        <div style={imageViewerResponsive.overlay} onClick={closeImageModal}>
+          <div style={imageViewerResponsive.inner} onClick={(e) => e.stopPropagation()}>
             <button
-              style={styles.modalCloseBtn}
+              style={imageViewerResponsive.close}
               onClick={closeImageModal}
               aria-label="Close image viewer"
             >
@@ -3509,7 +3610,7 @@ async function handleDeleteTask(task: Task) {
 
             {selectedTaskImages.length > 1 ? (
               <button
-                style={styles.modalNavLeft}
+                style={imageViewerResponsive.navLeft}
                 onClick={showPrevImage}
                 aria-label="Previous image"
               >
@@ -3517,24 +3618,24 @@ async function handleDeleteTask(task: Task) {
               </button>
             ) : null}
 
-            <div style={styles.modalImageWrap}>
+            <div style={imageViewerResponsive.imageWrap}>
               {isVideoUrl(selectedTaskImages[selectedImageIndex].image_url) ? (
                 <video
                   src={selectedTaskImages[selectedImageIndex].image_url}
                   controls
                   playsInline
-                  style={styles.modalImage}
+                  style={imageViewerResponsive.image}
                 />
               ) : (
                 <img
                   src={selectedTaskImages[selectedImageIndex].image_url}
                   alt={`Task media ${selectedImageIndex + 1}`}
                   decoding="async"
-                  style={styles.modalImage}
+                  style={imageViewerResponsive.image}
                 />
               )}
 
-              <div style={styles.modalFooter}>
+              <div style={imageViewerResponsive.footer}>
                 <div style={styles.modalCounter}>
                   {selectedImageIndex + 1} / {selectedTaskImages.length}
                 </div>
@@ -3549,7 +3650,7 @@ async function handleDeleteTask(task: Task) {
 
             {selectedTaskImages.length > 1 ? (
               <button
-                style={styles.modalNavRight}
+                style={imageViewerResponsive.navRight}
                 onClick={showNextImage}
                 aria-label="Next image"
               >
