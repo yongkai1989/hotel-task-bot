@@ -246,7 +246,9 @@ export default function DailyOperationsSummaryPage() {
   const requiredChecklistRows = checklistRows.filter((row) => row.status !== 'NOT_REQUIRED');
   const missingRows = requiredChecklistRows.filter((row) => row.status !== 'SUBMITTED');
   const submittedRows = requiredChecklistRows.filter((row) => row.status === 'SUBMITTED');
-  const projects = summary?.special_projects || [];
+  // The operations summary is an exception view, so completed projects stay in
+  // the project history but no longer occupy space or affect summary totals.
+  const projects = (summary?.special_projects || []).filter((project) => project.status !== 'DONE');
   const stalledProjects = projects.filter((project) => project.status !== 'DONE' && !project.moving_today);
   const projectExceptions = projects.filter((project) => project.status === 'OVERDUE' || !project.moving_today);
   const missingRooms = summary?.rooms?.linen_rooms_missing || [];
