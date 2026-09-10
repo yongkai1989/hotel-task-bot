@@ -12,6 +12,7 @@ type AlertTask = {
   task_text: string;
   alert_kind: 'URGENT' | 'CUSTOMER_WAITING' | 'CHAMBERMAID_DEFECT';
   due_at?: string | null;
+  escalation_count?: number;
   created_at: string;
 };
 
@@ -134,6 +135,16 @@ export default function TaskAlertOverlay({ userId }: Props) {
     };
   }, [accessToken, loadAlerts, userId]);
 
+  useEffect(() => {
+    if (!accessToken || !userId) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void loadAlerts(accessToken).catch(() => {});
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [accessToken, loadAlerts, userId]);
+
   const current = alerts[0] || null;
 
   useEffect(() => {
@@ -203,6 +214,11 @@ export default function TaskAlertOverlay({ userId }: Props) {
             <strong>{timerLabel(current.due_at, now)}</strong>
           </div>
         ) : null}
+        {!isChambermaidDefect && Number(current.escalation_count || 0) > 0 ? (
+          <p className="global-task-alert-escalation">
+            Follow-up {current.escalation_count} sent — still waiting for one team member to acknowledge.
+          </p>
+        ) : null}
         {queueCount > 1 ? (
           <p className="global-task-alert-queue">{queueCount} alerts are waiting for your acknowledgement.</p>
         ) : null}
@@ -211,7 +227,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
           {busy ? 'Recording...' : 'Acknowledge'}
         </button>
         <p className="global-task-alert-note">
-          Your name and acknowledgement time will be recorded on this task.
+          Your name and acknowledgement time will be recorded. This clears the alert for the whole team; it does not mark the work Done.
         </p>
       </section>
       <style jsx global>{`
@@ -231,6 +247,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
         .global-task-alert-timer small{text-transform:uppercase;font-size:9px;font-weight:900;letter-spacing:.12em;opacity:.86}
         .global-task-alert-timer strong{font-variant-numeric:tabular-nums;font-size:clamp(27px,8vw,44px);line-height:1;font-weight:950;letter-spacing:.02em}
         .global-task-alert-queue{margin:10px 0 0;color:#9d1820;font-size:11px;font-weight:900}
+        .global-task-alert-escalation{margin:10px 0 0;border-radius:10px;padding:9px;background:#ffe0a8;color:#6b3c00;font-size:11px;font-weight:900}
         .global-task-alert-error{margin-top:11px;border-radius:9px;padding:9px 11px;background:#7d1017;color:#fff;font-size:11px;font-weight:850}
         .global-task-alert-card>button{width:100%;min-height:58px;margin-top:15px;border:0;border-radius:13px;background:#132f57;color:#fff;font-size:17px;font-weight:950;cursor:pointer;box-shadow:0 9px 22px rgba(19,47,87,.25)}
         .global-task-alert-card>button:disabled{opacity:.65;cursor:wait}

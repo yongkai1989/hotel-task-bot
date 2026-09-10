@@ -3,11 +3,12 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardIdentityFromRequest, getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 import { logRouteTiming } from '../../../lib/routeTiming';
+import { processDueTaskEscalations } from '../../../lib/taskEscalation';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
-export const maxDuration = 15;
+export const maxDuration = 30;
 
 function jsonNoCache(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -33,6 +34,10 @@ export async function GET(req: NextRequest) {
     stages.auth_ms = Date.now() - authStartedAt;
     if (!userId) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
 
+    const escalationStartedAt = Date.now();
+    await processDueTaskEscalations();
+    stages.escalation_ms = Date.now() - escalationStartedAt;
+
     const recipientsStartedAt = Date.now();
     const { data: recipients, error: recipientError } = await supabaseAdmin
       .from('task_alert_recipients')
@@ -50,7 +55,7 @@ export async function GET(req: NextRequest) {
     const tasksStartedAt = Date.now();
     const { data: tasks, error: taskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, task_code, room, department, task_text, status, source_page, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, created_at')
+      .select('id, task_code, room, department, task_text, status, source_page, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, alert_acknowledged_at, alert_escalation_count, created_at')
       .in('id', taskIds)
       .eq('status', 'OPEN');
     stages.tasks_ms = Date.now() - tasksStartedAt;
@@ -60,7 +65,11 @@ export async function GET(req: NextRequest) {
     const taskMap = new Map((tasks || []).map((task) => [String(task.id), task]));
     const alerts = recipients.flatMap((recipient) => {
       const task = taskMap.get(String(recipient.task_id));
-      if (!task || Number(task.alert_cycle || 1) !== Number(recipient.alert_cycle || 1)) return [];
+      if (
+        !task ||
+        task.alert_acknowledged_at ||
+        Number(task.alert_cycle || 1) !== Number(recipient.alert_cycle || 1)
+      ) return [];
       const isChambermaidDefect = task.source_page === 'CHAMBERMAID_ENTRY';
       if (task.urgent !== true && task.customer_waiting !== true && !isChambermaidDefect) return [];
       return [{
@@ -71,6 +80,7 @@ export async function GET(req: NextRequest) {
             ? 'CUSTOMER_WAITING'
             : 'CHAMBERMAID_DEFECT',
         due_at: task.urgent === true ? task.urgent_due_at : task.customer_waiting_due_at,
+        escalation_count: Number(task.alert_escalation_count || 0),
       }];
     });
 
@@ -91,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     const { data: task, error: taskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, status, source_page, urgent, customer_waiting, alert_cycle')
+      .select('id, status, source_page, urgent, customer_waiting, alert_cycle, alert_acknowledged_at')
       .eq('id', taskId)
       .maybeSingle();
 
@@ -105,7 +115,27 @@ export async function POST(req: NextRequest) {
     }
 
     const acknowledgedAt = new Date().toISOString();
-    const { data: acknowledgement, error: acknowledgementError } = await supabaseAdmin
+    const { data: claimedTask, error: claimError } = await supabaseAdmin
+      .from('tasks')
+      .update({
+        alert_acknowledged_at: acknowledgedAt,
+        alert_acknowledged_by_name: user.name,
+        alert_acknowledged_by_email: user.email,
+        updated_at: acknowledgedAt,
+      })
+      .eq('id', taskId)
+      .eq('alert_cycle', Number(task.alert_cycle || 1))
+      .eq('status', 'OPEN')
+      .is('alert_acknowledged_at', null)
+      .select('id')
+      .maybeSingle();
+
+    if (claimError) return jsonNoCache({ ok: false, error: claimError.message }, 500);
+    if (!claimedTask) {
+      return jsonNoCache({ ok: false, error: 'This alert was already acknowledged' }, 409);
+    }
+
+    const { data: acknowledgementRows, error: acknowledgementError } = await supabaseAdmin
       .from('task_alert_recipients')
       .update({
         acknowledged_at: acknowledgedAt,
@@ -114,17 +144,19 @@ export async function POST(req: NextRequest) {
       })
       .eq('task_id', taskId)
       .eq('alert_cycle', Number(task.alert_cycle || 1))
-      .eq('user_id', user.user_id)
       .is('acknowledged_at', null)
-      .select('task_id, user_name, user_email, acknowledged_at, alert_cycle')
-      .maybeSingle();
+      .select('task_id, user_name, user_email, acknowledged_at, alert_cycle');
 
     if (acknowledgementError) {
       return jsonNoCache({ ok: false, error: acknowledgementError.message }, 500);
     }
-    if (!acknowledgement) {
-      return jsonNoCache({ ok: false, error: 'This alert was already acknowledged or was not assigned to you' }, 409);
-    }
+    const acknowledgement = {
+      task_id: taskId,
+      acknowledged_at: acknowledgedAt,
+      acknowledged_name: user.name,
+      alert_cycle: Number(task.alert_cycle || 1),
+      recipients_cleared: acknowledgementRows?.length || 0,
+    };
 
     await supabaseAdmin.from('task_events').insert({
       task_id: taskId,

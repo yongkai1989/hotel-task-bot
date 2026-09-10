@@ -303,6 +303,51 @@ export async function sendTaskPushNotifications(
   }
 }
 
+export async function sendTaskEscalationPush(task: TaskForPush & {
+  escalation_number?: number | null;
+}): Promise<TaskPushResult> {
+  const department = normalizedDepartment(task.department);
+  if (!department) {
+    return { configured: Boolean(pushConfiguration()), attempted: 0, delivered: 0, removed: 0 };
+  }
+
+  try {
+    const [departmentProfiles, managerProfiles] = await Promise.all([
+      resolveDepartmentPushProfiles(department),
+      resolvePushProfiles({ emails: ['manager@hotelhallmark.com'] }),
+    ]);
+    const profiles = Array.from(new Map(
+      [...departmentProfiles, ...managerProfiles].map((profile) => [profile.user_id, profile])
+    ).values());
+    const userIds = profiles.map((profile) => profile.user_id);
+    const taskCode = String(task.task_code || 'Task').trim();
+    const room = String(task.room || 'No room/area').trim();
+    const escalationNumber = Math.max(1, Number(task.escalation_number || 1));
+    const result = await sendPushNotifications({
+      userIds,
+      payload: {
+        title: `FOLLOW UP ${escalationNumber} · UNACKNOWLEDGED ${department} TASK`,
+        body: `${taskCode} · ${room}\n${String(task.task_text || 'Immediate attention required').trim()}`,
+        taskId: task.id,
+        kind: 'REMINDER',
+        url: `/dashboard?task=${encodeURIComponent(task.id)}`,
+        timestamp: Date.now(),
+      },
+      topic: `task-escalation-${task.id}-${task.alert_cycle || 1}-${escalationNumber}`,
+      ttlSeconds: 10 * 60,
+    });
+    return { ...result, recipientUserIds: userIds };
+  } catch (error: any) {
+    return {
+      configured: Boolean(pushConfiguration()),
+      attempted: 0,
+      delivered: 0,
+      removed: 0,
+      warning: `Escalation recipients could not be loaded: ${error?.message || 'Unknown error'}`,
+    };
+  }
+}
+
 export async function sendChambermaidDefectSupervisorAlerts(
   task: TaskForPush,
   submittedBy: string

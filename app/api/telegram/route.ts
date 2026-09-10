@@ -250,7 +250,7 @@ async function updateTaskStatusByTaskId(params: {
   const now = new Date().toISOString();
   const { data: existingTask, error: existingTaskError } = await supabase
     .from('tasks')
-    .select('id, status, room, department, task_text, created_at')
+    .select('id, status, room, department, task_text, created_at, customer_waiting, urgent, alert_cycle')
     .eq('id', params.taskId)
     .single();
   if (existingTaskError || !existingTask) throw existingTaskError || new Error('Task not found');
@@ -297,6 +297,21 @@ async function updateTaskStatusByTaskId(params: {
     updateData.done_by_name = null;
     updateData.done_by_telegram_user_id = null;
     updateData.reopened_at = now;
+    if (existingTask.customer_waiting === true) {
+      updateData.customer_waiting_due_at = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      updateData.customer_waiting_reminder_sent_at = null;
+    }
+    if (existingTask.urgent === true) {
+      updateData.urgent_due_at = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    }
+    if (existingTask.customer_waiting === true || existingTask.urgent === true) {
+      updateData.alert_cycle = Number(existingTask.alert_cycle || 1) + 1;
+      updateData.alert_acknowledged_at = null;
+      updateData.alert_acknowledged_by_name = null;
+      updateData.alert_acknowledged_by_email = null;
+      updateData.alert_escalation_count = 0;
+      updateData.alert_last_escalated_at = null;
+    }
     eventType = 'REOPENED';
     confirmationText = `Task REOPENED by ${params.userName}`;
   }

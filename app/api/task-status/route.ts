@@ -164,6 +164,11 @@ export async function POST(req: NextRequest) {
       }
       if (existingTask.customer_waiting === true || existingTask.urgent === true) {
         updateData.alert_cycle = Number(existingTask.alert_cycle || 1) + 1;
+        updateData.alert_acknowledged_at = null;
+        updateData.alert_acknowledged_by_name = null;
+        updateData.alert_acknowledged_by_email = null;
+        updateData.alert_escalation_count = 0;
+        updateData.alert_last_escalated_at = null;
       }
       eventType = 'REOPENED';
     }

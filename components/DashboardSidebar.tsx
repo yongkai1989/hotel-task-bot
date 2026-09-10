@@ -1735,6 +1735,17 @@ export default function DashboardSidebar({
 
               {effectiveRole === 'SUPERUSER' ? (
                 <Link
+                  href="/dashboard/system-usage"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="alert" sub>System Usage</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {effectiveRole === 'SUPERUSER' ? (
+                <Link
                   href="/dashboard/commission-checker-access"
                   prefetch={false}
                   onClick={closeSidebar}
