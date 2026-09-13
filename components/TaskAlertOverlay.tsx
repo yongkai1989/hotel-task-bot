@@ -13,6 +13,7 @@ type AlertTask = {
   alert_kind: 'URGENT' | 'CUSTOMER_WAITING' | 'CHAMBERMAID_DEFECT';
   due_at?: string | null;
   escalation_count?: number;
+  alert_cycle?: number;
   created_at: string;
 };
 
@@ -59,6 +60,9 @@ export default function TaskAlertOverlay({ userId }: Props) {
   const alertsRef = useRef<AlertTask[]>([]);
   const alertRequestRef = useRef<Promise<void> | null>(null);
 
+  const dismissedKey = useCallback((alert: AlertTask) =>
+    `dismissed-task-alert:${alert.id}:${Number(alert.alert_cycle || 1)}`, []);
+
   useEffect(() => {
     alertsRef.current = alerts;
   }, [alerts]);
@@ -73,13 +77,17 @@ export default function TaskAlertOverlay({ userId }: Props) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const payload = await responseJson(response);
-      setAlerts(Array.isArray(payload?.alerts) ? payload.alerts : []);
+      const received = Array.isArray(payload?.alerts) ? payload.alerts as AlertTask[] : [];
+      setAlerts(received.filter((alert) => {
+        if (alert.alert_kind === 'CHAMBERMAID_DEFECT') return true;
+        return window.sessionStorage.getItem(dismissedKey(alert)) !== '1';
+      }));
     })().finally(() => {
       if (alertRequestRef.current === request) alertRequestRef.current = null;
     });
     alertRequestRef.current = request;
     return request;
-  }, [userId]);
+  }, [dismissedKey, userId]);
 
   useEffect(() => {
     let mounted = true;
@@ -141,7 +149,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
       if (document.visibilityState === 'visible') {
         void loadAlerts(accessToken).catch(() => {});
       }
-    }, 60_000);
+    }, 30_000);
     return () => window.clearInterval(timer);
   }, [accessToken, loadAlerts, userId]);
 
@@ -187,6 +195,14 @@ export default function TaskAlertOverlay({ userId }: Props) {
     }
   }
 
+  function closeCurrent() {
+    if (!current || current.alert_kind === 'CHAMBERMAID_DEFECT') return;
+    window.sessionStorage.setItem(dismissedKey(current), '1');
+    setAlerts((existing) => existing.filter((alert) =>
+      alert.id !== current.id || Number(alert.alert_cycle || 1) !== Number(current.alert_cycle || 1)
+    ));
+  }
+
   if (!current) return null;
 
   const isUrgent = current.alert_kind === 'URGENT';
@@ -195,6 +211,14 @@ export default function TaskAlertOverlay({ userId }: Props) {
   return (
     <div className="global-task-alert-overlay" role="alertdialog" aria-modal="true" aria-labelledby="global-task-alert-title">
       <section className={`global-task-alert-card${isChambermaidDefect ? ' chambermaid-defect' : ''}`}>
+        {!isChambermaidDefect ? (
+          <button
+            type="button"
+            className="global-task-alert-close-x"
+            onClick={closeCurrent}
+            aria-label="Close this alert without acknowledging"
+          >×</button>
+        ) : null}
         <div className="global-task-alert-icon" aria-hidden="true">!</div>
         <span className="global-task-alert-kicker">
           {isUrgent ? 'URGENT TASK' : isChambermaidDefect ? 'HK SUPERVISOR NOTICE' : 'CUSTOMER WAITING'}
@@ -208,6 +232,12 @@ export default function TaskAlertOverlay({ userId }: Props) {
           <em>{current.department}</em>
         </div>
         <p className="global-task-alert-description">{current.task_text}</p>
+        {!isChambermaidDefect ? (
+          <p className="global-task-alert-malay">
+            Tekan <b>Acknowledge</b> hanya jika aras ini di bawah tanggungjawab anda. Jika bukan,
+            tekan <b>Close</b> supaya petugas yang bertanggungjawab boleh mengesahkannya.
+          </p>
+        ) : null}
         {!isChambermaidDefect ? (
           <div className="global-task-alert-timer">
             <small>{isUrgent ? '5-minute response target' : '10-minute customer target'}</small>
@@ -223,16 +253,22 @@ export default function TaskAlertOverlay({ userId }: Props) {
           <p className="global-task-alert-queue">{queueCount} alerts are waiting for your acknowledgement.</p>
         ) : null}
         {error ? <div className="global-task-alert-error">{error}</div> : null}
-        <button type="button" onClick={() => void acknowledge()} disabled={busy}>
-          {busy ? 'Recording...' : 'Acknowledge'}
-        </button>
+        <div className="global-task-alert-actions">
+          <button type="button" className="acknowledge" onClick={() => void acknowledge()} disabled={busy}>
+            {busy ? 'Recording...' : 'Acknowledge'}
+          </button>
+          {!isChambermaidDefect ? (
+            <button type="button" className="close" onClick={closeCurrent} disabled={busy}>Close</button>
+          ) : null}
+        </div>
         <p className="global-task-alert-note">
           Your name and acknowledgement time will be recorded. This clears the alert for the whole team; it does not mark the work Done.
         </p>
       </section>
       <style jsx global>{`
         .global-task-alert-overlay{position:fixed;inset:0;z-index:30000;display:grid;place-items:center;padding:14px;background:rgba(50,3,7,.86);backdrop-filter:blur(7px)}
-        .global-task-alert-card{width:min(570px,100%);border:5px solid #ff3434;border-radius:24px;padding:24px;background:#fff7f7;color:#441013;text-align:center;box-shadow:0 0 0 10px rgba(255,45,45,.25),0 30px 90px rgba(0,0,0,.58);animation:globalUrgentPulse 1s ease-in-out infinite}
+        .global-task-alert-card{position:relative;width:min(570px,100%);border:5px solid #ff3434;border-radius:24px;padding:24px;background:#fff7f7;color:#441013;text-align:center;box-shadow:0 0 0 10px rgba(255,45,45,.25),0 30px 90px rgba(0,0,0,.58);animation:globalUrgentPulse 1s ease-in-out infinite}
+        .global-task-alert-close-x{position:absolute;top:12px;right:12px;width:42px;height:42px;border:1px solid #e9b9bc;border-radius:999px;background:#fff;color:#75151b;font-size:29px;font-weight:700;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(70,5,10,.16)}
         .global-task-alert-card.chambermaid-defect{border-color:#2563eb;background:#f4f8ff;color:#142a52;box-shadow:0 0 0 10px rgba(37,99,235,.2),0 30px 90px rgba(0,0,0,.5);animation:none}
         .global-task-alert-card.chambermaid-defect .global-task-alert-icon{background:#2563eb;box-shadow:0 0 0 8px #dbeafe}
         .global-task-alert-card.chambermaid-defect .global-task-alert-kicker{color:#1d4ed8}
@@ -243,17 +279,22 @@ export default function TaskAlertOverlay({ userId }: Props) {
         .global-task-alert-meta{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:7px}
         .global-task-alert-meta b,.global-task-alert-meta span,.global-task-alert-meta em{border-radius:999px;padding:6px 10px;background:#f6dfe0;color:#65161b;font-size:11px;font-style:normal;font-weight:900}
         .global-task-alert-description{margin:16px auto;max-width:480px;color:#2e1113;font-size:17px;font-weight:850;line-height:1.45;white-space:pre-wrap}
+        .global-task-alert-malay{margin:0 auto 13px;max-width:500px;border:2px solid #efb03b;border-radius:12px;padding:11px 13px;background:#fff3ce;color:#593600;font-size:13px;font-weight:750;line-height:1.45}
         .global-task-alert-timer{border-radius:14px;padding:11px 14px;background:linear-gradient(135deg,#c91e27,#981019);color:#fff;display:grid;gap:2px}
         .global-task-alert-timer small{text-transform:uppercase;font-size:9px;font-weight:900;letter-spacing:.12em;opacity:.86}
         .global-task-alert-timer strong{font-variant-numeric:tabular-nums;font-size:clamp(27px,8vw,44px);line-height:1;font-weight:950;letter-spacing:.02em}
         .global-task-alert-queue{margin:10px 0 0;color:#9d1820;font-size:11px;font-weight:900}
         .global-task-alert-escalation{margin:10px 0 0;border-radius:10px;padding:9px;background:#ffe0a8;color:#6b3c00;font-size:11px;font-weight:900}
         .global-task-alert-error{margin-top:11px;border-radius:9px;padding:9px 11px;background:#7d1017;color:#fff;font-size:11px;font-weight:850}
-        .global-task-alert-card>button{width:100%;min-height:58px;margin-top:15px;border:0;border-radius:13px;background:#132f57;color:#fff;font-size:17px;font-weight:950;cursor:pointer;box-shadow:0 9px 22px rgba(19,47,87,.25)}
-        .global-task-alert-card>button:disabled{opacity:.65;cursor:wait}
+        .global-task-alert-actions{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:15px}
+        .global-task-alert-actions:has(.acknowledge:only-child){grid-template-columns:1fr}
+        .global-task-alert-actions button{min-height:58px;border:0;border-radius:13px;font-size:17px;font-weight:950;cursor:pointer}
+        .global-task-alert-actions .acknowledge{background:#132f57;color:#fff;box-shadow:0 9px 22px rgba(19,47,87,.25)}
+        .global-task-alert-actions .close{border:2px solid #c9a2a5;background:#fff;color:#6f1d22}
+        .global-task-alert-actions button:disabled{opacity:.65;cursor:wait}
         .global-task-alert-note{margin:9px 0 0;color:#87585c;font-size:10px;font-weight:750}
         @keyframes globalUrgentPulse{0%,100%{border-color:#ff3434;box-shadow:0 0 0 8px rgba(255,45,45,.22),0 30px 90px rgba(0,0,0,.58)}50%{border-color:#920812;box-shadow:0 0 0 16px rgba(255,45,45,.38),0 30px 95px rgba(0,0,0,.68)}}
-        @media(max-width:620px){.global-task-alert-overlay{padding:9px}.global-task-alert-card{padding:20px 14px;border-width:4px}.global-task-alert-description{font-size:15px}.global-task-alert-card>button{min-height:55px}}
+        @media(max-width:620px){.global-task-alert-overlay{padding:9px}.global-task-alert-card{padding:20px 14px;border-width:4px}.global-task-alert-description{font-size:15px}.global-task-alert-actions button{min-height:55px}.global-task-alert-close-x{top:9px;right:9px}}
         @media(prefers-reduced-motion:reduce){.global-task-alert-card{animation:none}}
       `}</style>
     </div>

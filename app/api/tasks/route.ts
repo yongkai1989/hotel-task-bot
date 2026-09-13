@@ -14,14 +14,9 @@ export const fetchCache = 'force-no-store';
 export const maxDuration = 30;
 
 const GET_TASK_LIMIT = 300;
-const CUSTOMER_WAITING_REMINDER_BUDGET_MS = 1200;
-const CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS = 30_000;
-const TELEGRAM_SEND_TIMEOUT_MS = 5000;
 const MAX_MEDIA = 30;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-let customerWaitingReminderCheck: Promise<void> | null = null;
-let lastCustomerWaitingReminderCheckAt = 0;
 
 // Department-specific Telegram group chat IDs
 const MT_CHAT_ID = -1003860980789;
@@ -422,10 +417,6 @@ function jsonNoCache(body: any, status = 200) {
   });
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function resolveTelegramChatId(department: Dept): number | null {
   if (department === 'MT') return MT_CHAT_ID;
   if (department === 'HK') return HK_CHAT_ID;
@@ -441,153 +432,11 @@ function resolveTelegramChatId(department: Dept): number | null {
   return fallbackChatId;
 }
 
-async function sendTelegramText(chatId: number, text: string) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    throw new Error('Missing TELEGRAM_BOT_TOKEN');
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TELEGRAM_SEND_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-      }),
-      signal: controller.signal,
-    });
-
-    const json = await res.json();
-    if (!res.ok || !json?.ok) {
-      throw new Error(json?.description || 'Telegram reminder failed');
-    }
-
-    return json?.result?.message_id ?? null;
-  } catch (error: any) {
-    if (error?.name === 'AbortError') {
-      throw new Error('Telegram reminder timed out');
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function sendCustomerWaitingRemindersWithBudget() {
-  if (Date.now() - lastCustomerWaitingReminderCheckAt < CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS) {
-    return;
-  }
-
-  if (!customerWaitingReminderCheck) {
-    lastCustomerWaitingReminderCheckAt = Date.now();
-    customerWaitingReminderCheck = (async () => {
-      const { data: shouldRun, error } = await supabaseAdmin.rpc(
-        'claim_customer_waiting_reminder_check',
-        { p_interval_seconds: CUSTOMER_WAITING_REMINDER_CHECK_INTERVAL_MS / 1000 }
-      );
-
-      if (error || !shouldRun) return;
-      await sendCustomerWaitingReminders();
-    })().finally(() => {
-      customerWaitingReminderCheck = null;
-    });
-  }
-
-  await Promise.race([
-    customerWaitingReminderCheck,
-    delay(CUSTOMER_WAITING_REMINDER_BUDGET_MS),
-  ]);
-}
-
-async function sendCustomerWaitingReminders() {
-  try {
-    const nowIso = new Date().toISOString();
-
-    const { data: dueTasks, error } = await supabaseAdmin
-      .from('tasks')
-      .select(
-        `
-        id,
-        task_code,
-        room,
-        department,
-        task_text,
-        chat_id,
-        created_at,
-        customer_waiting_due_at
-      `
-      )
-      .eq('customer_waiting', true)
-      .eq('status', 'OPEN')
-      .is('customer_waiting_reminder_sent_at', null)
-      .lte('customer_waiting_due_at', nowIso)
-      .limit(10);
-
-    if (error || !dueTasks?.length) return;
-
-    for (const task of dueTasks) {
-      const chatId = Number(task.chat_id || resolveTelegramChatId(task.department as Dept));
-      if (!chatId || Number.isNaN(chatId)) continue;
-
-      const now = new Date().toISOString();
-      const { data: claimed, error: claimError } = await supabaseAdmin
-        .from('tasks')
-        .update({ customer_waiting_reminder_sent_at: now })
-        .eq('id', task.id)
-        .eq('customer_waiting', true)
-        .eq('status', 'OPEN')
-        .is('customer_waiting_reminder_sent_at', null)
-        .select('id')
-        .maybeSingle();
-
-      if (claimError || !claimed) continue;
-
-      try {
-        const messageId = await sendTelegramText(
-          chatId,
-          [
-            `Customer / location: ${task.room}`,
-            `Task ID: ${task.task_code || task.id}`,
-            `Task: ${task.task_text}`,
-            'Kindly proceed to attend soon.',
-            'This is an automatically generated reminder.',
-          ].join('\n')
-        );
-
-        await supabaseAdmin.from('task_events').insert({
-          task_id: task.id,
-          event_type: 'CUSTOMER_WAITING_REMINDER',
-          event_text: `Automatic customer waiting reminder sent${messageId ? ` (${messageId})` : ''}`,
-          actor_name: 'System',
-        });
-      } catch (telegramError: any) {
-        await supabaseAdmin.from('task_events').insert({
-          task_id: task.id,
-          event_type: 'CUSTOMER_WAITING_REMINDER_FAILED',
-          event_text: telegramError?.message || 'Automatic customer waiting reminder failed',
-          actor_name: 'System',
-        });
-      }
-    }
-  } catch {
-    // Reminder checks should never block the task list.
-  }
-}
-
 export async function GET(req: NextRequest) {
   const startedAt = Date.now();
   const stages: Record<string, number> = {};
   const requestId = req.headers.get('x-vercel-id');
   try {
-    // This maintenance check is independent of the task list read. Starting it
-    // here lets its short time budget overlap the database work below instead
-    // of adding up to 1.2 seconds to every dashboard refresh.
-    const reminderPromise = sendCustomerWaitingRemindersWithBudget();
-
     const taskReadStartedAt = Date.now();
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
@@ -658,10 +507,6 @@ export async function GET(req: NextRequest) {
         .sort((a: any, b: any) => Date.parse(String(a.created_at || '')) - Date.parse(String(b.created_at || '')))
         .map(({ created_at: _createdAt, ...image }: any) => image),
     }));
-
-    const reminderStartedAt = Date.now();
-    await reminderPromise;
-    stages.reminder_wait_ms = Date.now() - reminderStartedAt;
 
     logRouteTiming({ route: '/api/tasks', method: 'GET', startedAt, status: 200, requestId, stages });
     return jsonNoCache({ ok: true, tasks: finalTasks });
@@ -897,6 +742,8 @@ export async function POST(req: NextRequest) {
             done_at: task.done_at,
             reopened_at: null,
             last_updated_by_name: task.last_updated_by_name,
+            urgent: task.urgent,
+            customer_waiting: task.customer_waiting,
           },
         });
 

@@ -88,10 +88,12 @@ function buildTaskMessageText(task: {
   done_at?: string | null;
   reopened_at?: string | null;
   last_updated_by_name?: string | null;
+  urgent?: boolean | null;
+  customer_waiting?: boolean | null;
 }) {
   const managerRoomCheck = isManagerRoomCheckTask(task);
   const lines = [
-    managerRoomCheck ? 'TASK' : '📌 TASK',
+    task.urgent === true ? '🚨 URGENT TASK' : task.customer_waiting === true ? '⏳ CUSTOMER WAITING' : managerRoomCheck ? 'TASK' : '📌 TASK',
     `Task ID: ${task.task_code}`,
     `Room: ${task.room}`,
     `Department: ${task.department}`,
@@ -99,6 +101,14 @@ function buildTaskMessageText(task: {
     `Status: ${labelForStatus(task.status)}`,
     `Created by: ${task.created_by_name || '-'}`
   ];
+
+  if (task.urgent === true || task.customer_waiting === true) {
+    lines.push(
+      '',
+      'PENTING: Tekan ACKNOWLEDGE dalam aplikasi hanya jika aras ini di bawah tanggungjawab anda.',
+      'Jika bukan, tekan CLOSE supaya petugas yang bertanggungjawab boleh mengesahkannya.'
+    );
+  }
 
   if (task.image_url && !managerRoomCheck) {
     lines.push('Photo attached: Yes');
@@ -220,6 +230,8 @@ async function refreshTelegramTaskCard(taskId: string) {
       done_at,
       reopened_at,
       last_updated_by_name,
+      urgent,
+      customer_waiting,
       telegram_task_message_id,
       chat_id
     `)

@@ -40,7 +40,10 @@ async function sendTelegramEscalation(task: EscalationTask) {
           `Department: ${task.department}`,
           `Task: ${task.task_text}`,
           '',
-          'Please acknowledge in the app immediately. Mark Done only after the work is completed.',
+          'PENTING: Tekan ACKNOWLEDGE dalam aplikasi hanya jika aras ini di bawah tanggungjawab anda.',
+          'Jika bukan, tekan CLOSE supaya petugas yang bertanggungjawab boleh mengesahkannya.',
+          '',
+          'Mark Done only after the work is completed.',
         ].join('\n'),
       }),
       signal: controller.signal,
@@ -54,7 +57,7 @@ async function sendTelegramEscalation(task: EscalationTask) {
 
 async function runEscalations() {
   const { data, error } = await supabaseAdmin.rpc('claim_due_task_alert_escalations', {
-    p_limit: 5,
+    p_limit: 20,
   });
   if (error) throw error;
 
@@ -72,7 +75,7 @@ async function runEscalations() {
       event_type: 'ALERT_ESCALATED',
       event_text: failures.length
         ? `Unacknowledged alert follow-up ${task.escalation_number} sent with warning: ${failures[0]}`
-        : `Unacknowledged alert follow-up ${task.escalation_number} sent to ${task.department} supervisors and Telegram`,
+        : `Unacknowledged alert follow-up ${task.escalation_number} sent to the assigned ${task.department} team and Telegram`,
       actor_name: 'System',
     });
     await broadcastTaskChange(task.id, 'UPDATE');

@@ -114,6 +114,21 @@ export async function POST(req: NextRequest) {
       return jsonNoCache({ ok: false, error: 'This alert is no longer active' }, 409);
     }
 
+    const currentCycle = Number(task.alert_cycle || 1);
+    const { data: recipient, error: recipientError } = await supabaseAdmin
+      .from('task_alert_recipients')
+      .select('task_id')
+      .eq('task_id', taskId)
+      .eq('alert_cycle', currentCycle)
+      .eq('user_id', user.user_id)
+      .is('acknowledged_at', null)
+      .maybeSingle();
+
+    if (recipientError) return jsonNoCache({ ok: false, error: recipientError.message }, 500);
+    if (!recipient) {
+      return jsonNoCache({ ok: false, error: 'This alert is not assigned to your department' }, 403);
+    }
+
     const acknowledgedAt = new Date().toISOString();
     const { data: claimedTask, error: claimError } = await supabaseAdmin
       .from('tasks')
@@ -124,7 +139,7 @@ export async function POST(req: NextRequest) {
         updated_at: acknowledgedAt,
       })
       .eq('id', taskId)
-      .eq('alert_cycle', Number(task.alert_cycle || 1))
+      .eq('alert_cycle', currentCycle)
       .eq('status', 'OPEN')
       .is('alert_acknowledged_at', null)
       .select('id')
@@ -143,7 +158,7 @@ export async function POST(req: NextRequest) {
         acknowledged_email: user.email,
       })
       .eq('task_id', taskId)
-      .eq('alert_cycle', Number(task.alert_cycle || 1))
+      .eq('alert_cycle', currentCycle)
       .is('acknowledged_at', null)
       .select('task_id, user_name, user_email, acknowledged_at, alert_cycle');
 
@@ -154,7 +169,7 @@ export async function POST(req: NextRequest) {
       task_id: taskId,
       acknowledged_at: acknowledgedAt,
       acknowledged_name: user.name,
-      alert_cycle: Number(task.alert_cycle || 1),
+      alert_cycle: currentCycle,
       recipients_cleared: acknowledgementRows?.length || 0,
     };
 

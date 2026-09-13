@@ -67,6 +67,8 @@ async function refreshTelegramTaskCard(taskId: string) {
         done_at,
         reopened_at,
         last_updated_by_name,
+        urgent,
+        customer_waiting,
         telegram_task_message_id,
         chat_id
       `

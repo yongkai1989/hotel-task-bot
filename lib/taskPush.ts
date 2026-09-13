@@ -18,6 +18,8 @@ type PushProfile = {
   user_id: string;
   name?: string | null;
   email?: string | null;
+  role?: string | null;
+  can_access_chambermaid_entry?: boolean | null;
 };
 
 type StoredSubscription = {
@@ -90,7 +92,7 @@ async function loadPushProfiles() {
 
   const { data, error } = await supabaseAdmin
     .from('user_profiles')
-    .select('user_id, name, email')
+    .select('user_id, name, email, role, can_access_chambermaid_entry')
     .not('user_id', 'is', null);
 
   if (error) throw error;
@@ -123,6 +125,22 @@ export async function resolveDepartmentPushProfiles(departmentValue: unknown) {
       emails: MT_SUPERVISOR_PUSH_EMAILS,
       names: ['Maintenance'],
     });
+  }
+  return [] as PushProfile[];
+}
+
+export async function resolveDepartmentAlertProfiles(departmentValue: unknown) {
+  const department = normalizedDepartment(departmentValue);
+  const profiles = await loadPushProfiles();
+  if (department === 'HK') {
+    return profiles.filter((profile) => {
+      const role = String(profile.role || '').trim().toUpperCase();
+      return (role === 'HK' || role === 'SUPERVISOR')
+        && profile.can_access_chambermaid_entry === true;
+    });
+  }
+  if (department === 'MT') {
+    return profiles.filter((profile) => String(profile.role || '').trim().toUpperCase() === 'MT');
   }
   return [] as PushProfile[];
 }
@@ -283,7 +301,9 @@ export async function sendTaskPushNotifications(
   }
 
   try {
-    const profiles = await resolveDepartmentPushProfiles(department);
+    const profiles = task.urgent === true || task.customer_waiting === true
+      ? await resolveDepartmentAlertProfiles(department)
+      : await resolveDepartmentPushProfiles(department);
     const userIds = await ensureTimedTaskRecipients(task, profiles);
     const result = await sendPushNotifications({
       userIds,
@@ -312,13 +332,7 @@ export async function sendTaskEscalationPush(task: TaskForPush & {
   }
 
   try {
-    const [departmentProfiles, managerProfiles] = await Promise.all([
-      resolveDepartmentPushProfiles(department),
-      resolvePushProfiles({ emails: ['manager@hotelhallmark.com'] }),
-    ]);
-    const profiles = Array.from(new Map(
-      [...departmentProfiles, ...managerProfiles].map((profile) => [profile.user_id, profile])
-    ).values());
+    const profiles = await resolveDepartmentAlertProfiles(department);
     const userIds = profiles.map((profile) => profile.user_id);
     const taskCode = String(task.task_code || 'Task').trim();
     const room = String(task.room || 'No room/area').trim();
