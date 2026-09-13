@@ -20,6 +20,8 @@ type PushProfile = {
   email?: string | null;
   role?: string | null;
   can_access_chambermaid_entry?: boolean | null;
+  can_access_fo_quick_actions?: boolean | null;
+  can_update_task_status?: boolean | null;
 };
 
 type StoredSubscription = {
@@ -92,7 +94,7 @@ async function loadPushProfiles() {
 
   const { data, error } = await supabaseAdmin
     .from('user_profiles')
-    .select('user_id, name, email, role, can_access_chambermaid_entry')
+    .select('user_id, name, email, role, can_access_chambermaid_entry, can_access_fo_quick_actions, can_update_task_status')
     .not('user_id', 'is', null);
 
   if (error) throw error;
@@ -143,6 +145,19 @@ export async function resolveDepartmentAlertProfiles(departmentValue: unknown) {
     return profiles.filter((profile) => String(profile.role || '').trim().toUpperCase() === 'MT');
   }
   return [] as PushProfile[];
+}
+
+export async function resolveFoFollowUpProfiles() {
+  const profiles = await loadPushProfiles();
+  return profiles.filter((profile) =>
+    String(profile.role || '').trim().toUpperCase() === 'FO'
+    && profile.can_access_fo_quick_actions === true
+  );
+}
+
+export async function resolveDepartmentCompletionProfiles(departmentValue: unknown) {
+  const profiles = await resolveDepartmentAlertProfiles(departmentValue);
+  return profiles.filter((profile) => profile.can_update_task_status === true);
 }
 
 function taskPayload(task: TaskForPush): PushPayload {
@@ -358,6 +373,74 @@ export async function sendTaskEscalationPush(task: TaskForPush & {
       delivered: 0,
       removed: 0,
       warning: `Escalation recipients could not be loaded: ${error?.message || 'Unknown error'}`,
+    };
+  }
+}
+
+export async function sendTaskCompletionFollowUpPush(
+  task: TaskForPush
+): Promise<TaskPushResult> {
+  const department = normalizedDepartment(task.department);
+  if (!department) {
+    return { configured: Boolean(pushConfiguration()), attempted: 0, delivered: 0, removed: 0 };
+  }
+
+  try {
+    const [departmentProfiles, foProfiles] = await Promise.all([
+      resolveDepartmentCompletionProfiles(department),
+      resolveFoFollowUpProfiles(),
+    ]);
+    const taskCode = String(task.task_code || 'Task').trim();
+    const room = String(task.room || 'No room/area').trim();
+    const description = String(task.task_text || 'Attention required').trim();
+    const [departmentResult, foResult] = await Promise.all([
+      sendPushNotifications({
+        userIds: departmentProfiles.map((profile) => profile.user_id),
+        payload: {
+          title: 'IS THIS TASK DONE?',
+          body: `${taskCode} · ${room}\n${description}\nIf completed, mark it Done now.`,
+          taskId: task.id,
+          kind: 'REMINDER',
+          url: `/dashboard?task=${encodeURIComponent(task.id)}`,
+          timestamp: Date.now(),
+        },
+        topic: `task-completion-${task.id}-${task.alert_cycle || 1}`,
+        ttlSeconds: 10 * 60,
+      }),
+      sendPushNotifications({
+        userIds: foProfiles.map((profile) => profile.user_id),
+        payload: {
+          title: 'FO FOLLOW-UP REQUIRED',
+          body: `${taskCode} · ${room}\nStill Open. Please follow up with ${department}.`,
+          taskId: task.id,
+          kind: 'REMINDER',
+          url: '/dashboard/fo-quick-actions',
+          timestamp: Date.now(),
+        },
+        topic: `fo-task-followup-${task.id}-${task.alert_cycle || 1}`,
+        ttlSeconds: 10 * 60,
+      }),
+    ]);
+    const recipientUserIds = Array.from(new Set([
+      ...departmentProfiles.map((profile) => profile.user_id),
+      ...foProfiles.map((profile) => profile.user_id),
+    ]));
+    const warnings = [departmentResult.warning, foResult.warning].filter(Boolean);
+    return {
+      configured: departmentResult.configured || foResult.configured,
+      attempted: departmentResult.attempted + foResult.attempted,
+      delivered: departmentResult.delivered + foResult.delivered,
+      removed: departmentResult.removed + foResult.removed,
+      warning: warnings.length ? warnings.join(' ') : undefined,
+      recipientUserIds,
+    };
+  } catch (error: any) {
+    return {
+      configured: Boolean(pushConfiguration()),
+      attempted: 0,
+      delivered: 0,
+      removed: 0,
+      warning: `Completion follow-up recipients could not be loaded: ${error?.message || 'Unknown error'}`,
     };
   }
 }

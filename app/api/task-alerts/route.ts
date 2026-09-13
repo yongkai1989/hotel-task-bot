@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { getDashboardIdentityFromRequest, getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
+import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 import { logRouteTiming } from '../../../lib/routeTiming';
 import { processDueTaskEscalations } from '../../../lib/taskEscalation';
@@ -30,40 +30,68 @@ export async function GET(req: NextRequest) {
   };
   try {
     const authStartedAt = Date.now();
-    const { user_id: userId, error: authError } = await getDashboardIdentityFromRequest(req);
+    const { user, error: authError } = await getDashboardUserFromRequest(req);
     stages.auth_ms = Date.now() - authStartedAt;
-    if (!userId) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
+    if (!user) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
+    const userId = user.user_id;
 
     const escalationStartedAt = Date.now();
     await processDueTaskEscalations();
     stages.escalation_ms = Date.now() - escalationStartedAt;
 
     const recipientsStartedAt = Date.now();
-    const { data: recipients, error: recipientError } = await supabaseAdmin
-      .from('task_alert_recipients')
-      .select('task_id, alert_cycle, created_at')
-      .eq('user_id', userId)
-      .is('acknowledged_at', null)
-      .order('created_at', { ascending: true })
+    const isFoFollowUpUser = user.role === 'FO' && user.can_access_fo_quick_actions === true;
+    let completionQuery = supabaseAdmin
+      .from('tasks')
+      .select('id, task_code, room, department, task_text, status, customer_waiting, urgent, alert_cycle, alert_acknowledged_at, completion_follow_up_due_at, completion_follow_up_sent_at, created_at')
+      .eq('status', 'OPEN')
+      .not('alert_acknowledged_at', 'is', null)
+      .not('completion_follow_up_sent_at', 'is', null)
+      .or('urgent.eq.true,customer_waiting.eq.true')
+      .order('completion_follow_up_due_at', { ascending: true })
       .limit(30);
+    if (!isFoFollowUpUser) {
+      if (
+        (user.role === 'HK' || user.role === 'SUPERVISOR')
+        && user.can_access_chambermaid_entry === true
+        && user.can_update_task_status === true
+      ) completionQuery = completionQuery.eq('department', 'HK');
+      else if (user.role === 'MT' && user.can_update_task_status === true) {
+        completionQuery = completionQuery.eq('department', 'MT');
+      } else completionQuery = completionQuery.eq('department', '__NONE__');
+    }
+    const [recipientResult, completionResult] = await Promise.all([
+      supabaseAdmin
+        .from('task_alert_recipients')
+        .select('task_id, alert_cycle, created_at')
+        .eq('user_id', userId)
+        .is('acknowledged_at', null)
+        .order('created_at', { ascending: true })
+        .limit(30),
+      completionQuery,
+    ]);
+    const { data: recipients, error: recipientError } = recipientResult;
+    const { data: completionTasks, error: completionError } = completionResult;
     stages.recipients_ms = Date.now() - recipientsStartedAt;
 
     if (recipientError) return respond({ ok: false, error: recipientError.message }, 500);
-    if (!recipients?.length) return respond({ ok: true, alerts: [] });
+    if (completionError) return respond({ ok: false, error: completionError.message }, 500);
 
-    const taskIds = Array.from(new Set(recipients.map((row) => String(row.task_id))));
+    const taskIds = Array.from(new Set((recipients || []).map((row) => String(row.task_id))));
     const tasksStartedAt = Date.now();
-    const { data: tasks, error: taskError } = await supabaseAdmin
-      .from('tasks')
-      .select('id, task_code, room, department, task_text, status, source_page, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, alert_acknowledged_at, alert_escalation_count, created_at')
-      .in('id', taskIds)
-      .eq('status', 'OPEN');
+    const { data: tasks, error: taskError } = taskIds.length
+      ? await supabaseAdmin
+          .from('tasks')
+          .select('id, task_code, room, department, task_text, status, source_page, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, alert_acknowledged_at, alert_escalation_count, created_at')
+          .in('id', taskIds)
+          .eq('status', 'OPEN')
+      : { data: [], error: null };
     stages.tasks_ms = Date.now() - tasksStartedAt;
 
     if (taskError) return respond({ ok: false, error: taskError.message }, 500);
 
     const taskMap = new Map((tasks || []).map((task) => [String(task.id), task]));
-    const alerts = recipients.flatMap((recipient) => {
+    const acknowledgementAlerts = (recipients || []).flatMap((recipient) => {
       const task = taskMap.get(String(recipient.task_id));
       if (
         !task ||
@@ -83,6 +111,24 @@ export async function GET(req: NextRequest) {
         escalation_count: Number(task.alert_escalation_count || 0),
       }];
     });
+
+    const completionAlerts = (completionTasks || []).flatMap((task) => {
+      const department = String(task.department || '').trim().toUpperCase();
+      const isDepartmentUser =
+        (department === 'HK'
+          && (user.role === 'HK' || user.role === 'SUPERVISOR')
+          && user.can_access_chambermaid_entry === true
+          && user.can_update_task_status === true)
+        || (department === 'MT' && user.role === 'MT' && user.can_update_task_status === true);
+      if (!isDepartmentUser && !isFoFollowUpUser) return [];
+      return [{
+        ...task,
+        alert_kind: isFoFollowUpUser ? 'FOLLOW_UP_FO' : 'FOLLOW_UP_DEPARTMENT',
+        due_at: task.completion_follow_up_due_at,
+      }];
+    });
+    const alerts = [...acknowledgementAlerts, ...completionAlerts]
+      .sort((a, b) => Date.parse(String(a.created_at || '')) - Date.parse(String(b.created_at || '')));
 
     return respond({ ok: true, alerts });
   } catch (error: any) {
@@ -130,12 +176,19 @@ export async function POST(req: NextRequest) {
     }
 
     const acknowledgedAt = new Date().toISOString();
+    const completionFollowUpDueAt = task.urgent === true
+      ? new Date(Date.now() + 5 * 60 * 1000).toISOString()
+      : task.customer_waiting === true
+        ? new Date(Date.now() + 10 * 60 * 1000).toISOString()
+        : null;
     const { data: claimedTask, error: claimError } = await supabaseAdmin
       .from('tasks')
       .update({
         alert_acknowledged_at: acknowledgedAt,
         alert_acknowledged_by_name: user.name,
         alert_acknowledged_by_email: user.email,
+        completion_follow_up_due_at: completionFollowUpDueAt,
+        completion_follow_up_sent_at: null,
         updated_at: acknowledgedAt,
       })
       .eq('id', taskId)

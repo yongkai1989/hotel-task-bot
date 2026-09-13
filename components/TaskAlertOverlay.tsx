@@ -10,7 +10,9 @@ type AlertTask = {
   room: string;
   department: string;
   task_text: string;
-  alert_kind: 'URGENT' | 'CUSTOMER_WAITING' | 'CHAMBERMAID_DEFECT';
+  alert_kind: 'URGENT' | 'CUSTOMER_WAITING' | 'CHAMBERMAID_DEFECT' | 'FOLLOW_UP_DEPARTMENT' | 'FOLLOW_UP_FO';
+  urgent?: boolean | null;
+  customer_waiting?: boolean | null;
   due_at?: string | null;
   escalation_count?: number;
   alert_cycle?: number;
@@ -39,29 +41,17 @@ async function fetchTaskAlerts(input: RequestInfo | URL, init?: RequestInit) {
   }
 }
 
-function timerLabel(dueAt: string | null | undefined, now: number) {
-  const parsed = Date.parse(String(dueAt || ''));
-  if (!Number.isFinite(parsed)) return 'ATTEND NOW';
-  const remaining = parsed - now;
-  if (remaining <= 0) return 'TARGET TIME PASSED';
-  const totalSeconds = Math.ceil(remaining / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
 export default function TaskAlertOverlay({ userId }: Props) {
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const [alerts, setAlerts] = useState<AlertTask[]>([]);
   const [accessToken, setAccessToken] = useState('');
-  const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const alertsRef = useRef<AlertTask[]>([]);
   const alertRequestRef = useRef<Promise<void> | null>(null);
 
   const dismissedKey = useCallback((alert: AlertTask) =>
-    `dismissed-task-alert:${alert.id}:${Number(alert.alert_cycle || 1)}`, []);
+    `dismissed-task-alert:${alert.id}:${Number(alert.alert_cycle || 1)}:${alert.alert_kind}`, []);
 
   useEffect(() => {
     alertsRef.current = alerts;
@@ -155,13 +145,6 @@ export default function TaskAlertOverlay({ userId }: Props) {
 
   const current = alerts[0] || null;
 
-  useEffect(() => {
-    if (!current || current.alert_kind === 'CHAMBERMAID_DEFECT') return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [current?.alert_kind, current?.id]);
-
   async function acknowledge() {
     if (!current || !accessToken || busy) return;
     setBusy(true);
@@ -195,6 +178,32 @@ export default function TaskAlertOverlay({ userId }: Props) {
     }
   }
 
+  async function markDone() {
+    if (!current || !accessToken || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetchTaskAlerts('/api/task-status', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ taskId: current.id, status: 'DONE' }),
+      });
+      await responseJson(response);
+      const registration = await navigator.serviceWorker?.getRegistration('/push-service-worker.js');
+      registration?.active?.postMessage({ type: 'CLEAR_TASK_NOTIFICATION', taskId: current.id });
+      setAlerts((existing) => existing.filter((alert) => alert.id !== current.id));
+    } catch (nextError: any) {
+      setError(nextError?.message || 'Unable to mark this task Done.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function closeCurrent() {
     if (!current || current.alert_kind === 'CHAMBERMAID_DEFECT') return;
     window.sessionStorage.setItem(dismissedKey(current), '1');
@@ -207,10 +216,14 @@ export default function TaskAlertOverlay({ userId }: Props) {
 
   const isUrgent = current.alert_kind === 'URGENT';
   const isChambermaidDefect = current.alert_kind === 'CHAMBERMAID_DEFECT';
+  const isDepartmentFollowUp = current.alert_kind === 'FOLLOW_UP_DEPARTMENT';
+  const isFoFollowUp = current.alert_kind === 'FOLLOW_UP_FO';
+  const isCompletionFollowUp = isDepartmentFollowUp || isFoFollowUp;
+  const priorityLabel = current.urgent === true ? 'URGENT TASK' : 'CUSTOMER WAITING';
   const queueCount = alerts.length;
   return (
     <div className="global-task-alert-overlay" role="alertdialog" aria-modal="true" aria-labelledby="global-task-alert-title">
-      <section className={`global-task-alert-card${isChambermaidDefect ? ' chambermaid-defect' : ''}`}>
+      <section className={`global-task-alert-card${isChambermaidDefect ? ' chambermaid-defect' : ''}${isCompletionFollowUp ? ' completion-follow-up' : ''}`}>
         {!isChambermaidDefect ? (
           <button
             type="button"
@@ -221,10 +234,10 @@ export default function TaskAlertOverlay({ userId }: Props) {
         ) : null}
         <div className="global-task-alert-icon" aria-hidden="true">!</div>
         <span className="global-task-alert-kicker">
-          {isUrgent ? 'URGENT TASK' : isChambermaidDefect ? 'HK SUPERVISOR NOTICE' : 'CUSTOMER WAITING'}
+          {isDepartmentFollowUp ? `${priorityLabel} · COMPLETION CHECK` : isFoFollowUp ? `${priorityLabel} · FO FOLLOW-UP` : isUrgent ? 'URGENT TASK' : isChambermaidDefect ? 'HK SUPERVISOR NOTICE' : 'CUSTOMER WAITING'}
         </span>
         <h2 id="global-task-alert-title">
-          {isUrgent ? 'Immediate attention required' : isChambermaidDefect ? 'New chambermaid defect' : 'A customer is waiting'}
+          {isDepartmentFollowUp ? 'Is this task done?' : isFoFollowUp ? 'Please follow up now' : isUrgent ? 'Immediate attention required' : isChambermaidDefect ? 'New chambermaid defect' : 'A customer is waiting'}
         </h2>
         <div className="global-task-alert-meta">
           <b>{current.task_code}</b>
@@ -232,37 +245,63 @@ export default function TaskAlertOverlay({ userId }: Props) {
           <em>{current.department}</em>
         </div>
         <p className="global-task-alert-description">{current.task_text}</p>
-        {!isChambermaidDefect ? (
+        {!isChambermaidDefect && !isCompletionFollowUp ? (
           <p className="global-task-alert-malay">
             Tekan <b>Acknowledge</b> hanya jika aras ini di bawah tanggungjawab anda. Jika bukan,
             tekan <b>Close</b> supaya petugas yang bertanggungjawab boleh mengesahkannya.
           </p>
         ) : null}
-        {!isChambermaidDefect ? (
+        {isDepartmentFollowUp ? (
+          <p className="global-task-alert-malay">
+            Tugasan ini telah diakui tetapi masih <b>Open</b> selepas {current.urgent === true ? '5 minit' : '10 minit'}.
+            Adakah sudah selesai? Jika sudah, tekan <b>Mark as Done</b> sekarang.
+          </p>
+        ) : null}
+        {isFoFollowUp ? (
+          <p className="global-task-alert-malay">
+            Tugasan ini telah diakui tetapi masih <b>Open</b>. Sila follow up dengan <b>{current.department}</b>
+            sehingga tugasan selesai.
+          </p>
+        ) : null}
+        {!isChambermaidDefect && !isCompletionFollowUp ? (
           <div className="global-task-alert-timer">
-            <small>{isUrgent ? '5-minute response target' : '10-minute customer target'}</small>
-            <strong>{timerLabel(current.due_at, now)}</strong>
+            <small>Completion check starts after acknowledgement</small>
+            <strong>{isUrgent ? '5 MINUTES' : '10 MINUTES'}</strong>
           </div>
         ) : null}
-        {!isChambermaidDefect && Number(current.escalation_count || 0) > 0 ? (
+        {!isChambermaidDefect && !isCompletionFollowUp && Number(current.escalation_count || 0) > 0 ? (
           <p className="global-task-alert-escalation">
             Follow-up {current.escalation_count} sent — still waiting for one team member to acknowledge.
           </p>
         ) : null}
         {queueCount > 1 ? (
-          <p className="global-task-alert-queue">{queueCount} alerts are waiting for your acknowledgement.</p>
+          <p className="global-task-alert-queue">{queueCount} task alerts are waiting.</p>
         ) : null}
         {error ? <div className="global-task-alert-error">{error}</div> : null}
         <div className="global-task-alert-actions">
-          <button type="button" className="acknowledge" onClick={() => void acknowledge()} disabled={busy}>
-            {busy ? 'Recording...' : 'Acknowledge'}
-          </button>
+          {isDepartmentFollowUp ? (
+            <button type="button" className="acknowledge" onClick={() => void markDone()} disabled={busy}>
+              {busy ? 'Saving...' : 'Mark as Done'}
+            </button>
+          ) : isFoFollowUp ? (
+            <button type="button" className="acknowledge" onClick={() => window.location.assign('/dashboard/fo-quick-actions')} disabled={busy}>
+              Open Quick Actions
+            </button>
+          ) : (
+            <button type="button" className="acknowledge" onClick={() => void acknowledge()} disabled={busy}>
+              {busy ? 'Recording...' : 'Acknowledge'}
+            </button>
+          )}
           {!isChambermaidDefect ? (
             <button type="button" className="close" onClick={closeCurrent} disabled={busy}>Close</button>
           ) : null}
         </div>
         <p className="global-task-alert-note">
-          Your name and acknowledgement time will be recorded. This clears the alert for the whole team; it does not mark the work Done.
+          {isDepartmentFollowUp
+            ? 'Mark as Done only after the work is fully completed.'
+            : isFoFollowUp
+              ? 'Follow up with the assigned department; FO should not close their task for them.'
+              : 'Your name and acknowledgement time will be recorded. This clears the alert for the whole team; it does not mark the work Done.'}
         </p>
       </section>
       <style jsx global>{`
@@ -273,6 +312,10 @@ export default function TaskAlertOverlay({ userId }: Props) {
         .global-task-alert-card.chambermaid-defect .global-task-alert-icon{background:#2563eb;box-shadow:0 0 0 8px #dbeafe}
         .global-task-alert-card.chambermaid-defect .global-task-alert-kicker{color:#1d4ed8}
         .global-task-alert-card.chambermaid-defect h2{color:#173f87}
+        .global-task-alert-card.completion-follow-up{border-color:#f59e0b;background:#fffaf0;box-shadow:0 0 0 10px rgba(245,158,11,.22),0 30px 90px rgba(0,0,0,.55);animation:none}
+        .global-task-alert-card.completion-follow-up .global-task-alert-icon{background:#d97706;box-shadow:0 0 0 8px #fef3c7}
+        .global-task-alert-card.completion-follow-up .global-task-alert-kicker{color:#b45309}
+        .global-task-alert-card.completion-follow-up h2{color:#78350f}
         .global-task-alert-icon{width:74px;height:74px;margin:0 auto 10px;border-radius:999px;background:#c51620;color:#fff;display:grid;place-items:center;font-size:50px;font-weight:950;line-height:1;box-shadow:0 0 0 8px #ffd4d6}
         .global-task-alert-kicker{display:block;color:#bd1520;font-size:12px;font-weight:950;letter-spacing:.18em}
         .global-task-alert-card h2{margin:6px 0 15px;color:#861019;font-size:clamp(26px,6vw,38px);line-height:1.02;letter-spacing:-.035em}
