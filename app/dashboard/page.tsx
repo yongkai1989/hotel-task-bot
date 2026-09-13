@@ -3544,9 +3544,23 @@ async function handleDeleteTask(task: Task) {
                                 ) : null}
                               </>
                             ) : (
-                              <div style={styles.pastTaskNote}>
-                                Archived record based on completion date
-                              </div>
+                              <>
+                                {canUpdateTaskStatus(task) ? (
+                                  <div style={styles.buttonRow}>
+                                    <button
+                                      type="button"
+                                      style={styles.reopenTaskBtn}
+                                      disabled={busyTaskId === task.id}
+                                      onClick={() => void setTaskStatus(task.id, 'OPEN')}
+                                    >
+                                      {busyTaskId === task.id ? 'Reopening…' : 'Reopen Task'}
+                                    </button>
+                                  </div>
+                                ) : null}
+                                <div style={styles.pastTaskNote}>
+                                  Archived record based on completion date
+                                </div>
+                              </>
                             )}
                           </div>
 
@@ -5681,6 +5695,18 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #15803d',
     background: '#15803d',
     color: '#ffffff',
+    borderRadius: 10,
+    padding: '10px 12px',
+    fontWeight: 900,
+    fontSize: 11,
+    cursor: 'pointer',
+    flex: 1,
+    minWidth: 150,
+  },
+  reopenTaskBtn: {
+    border: '1px solid #1d4ed8',
+    background: '#eff6ff',
+    color: '#1d4ed8',
     borderRadius: 10,
     padding: '10px 12px',
     fontWeight: 900,
