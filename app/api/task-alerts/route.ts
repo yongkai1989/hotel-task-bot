@@ -143,11 +143,12 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const taskId = String(body.taskId || '').trim();
+    const action = String(body.action || 'ACKNOWLEDGE').trim().toUpperCase();
     if (!taskId) return jsonNoCache({ ok: false, error: 'Task is required' }, 400);
 
     const { data: task, error: taskError } = await supabaseAdmin
       .from('tasks')
-      .select('id, status, source_page, urgent, customer_waiting, alert_cycle, alert_acknowledged_at')
+      .select('id, status, department, source_page, urgent, customer_waiting, alert_cycle, alert_acknowledged_at, completion_follow_up_sent_at')
       .eq('id', taskId)
       .maybeSingle();
 
@@ -158,6 +159,59 @@ export async function POST(req: NextRequest) {
       (task.urgent !== true && task.customer_waiting !== true && task.source_page !== 'CHAMBERMAID_ENTRY')
     ) {
       return jsonNoCache({ ok: false, error: 'This alert is no longer active' }, 409);
+    }
+
+    if (action === 'DOING_NOW') {
+      const department = String(task.department || '').trim().toUpperCase();
+      const canHandleDepartmentFollowUp =
+        (department === 'HK'
+          && (user.role === 'HK' || user.role === 'SUPERVISOR')
+          && user.can_access_chambermaid_entry === true
+          && user.can_update_task_status === true)
+        || (department === 'MT' && user.role === 'MT' && user.can_update_task_status === true);
+      if (!canHandleDepartmentFollowUp) {
+        return jsonNoCache({ ok: false, error: 'This completion check is not assigned to your department' }, 403);
+      }
+      if (!task.alert_acknowledged_at || !task.completion_follow_up_sent_at) {
+        return jsonNoCache({ ok: false, error: 'This completion check is no longer active' }, 409);
+      }
+
+      const nextDueAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+      const updatedAt = new Date().toISOString();
+      const { data: updatedTask, error: updateError } = await supabaseAdmin
+        .from('tasks')
+        .update({
+          completion_follow_up_repeat: true,
+          completion_follow_up_due_at: nextDueAt,
+          completion_follow_up_sent_at: null,
+          updated_at: updatedAt,
+        })
+        .eq('id', taskId)
+        .eq('alert_cycle', Number(task.alert_cycle || 1))
+        .eq('status', 'OPEN')
+        .not('alert_acknowledged_at', 'is', null)
+        .not('completion_follow_up_sent_at', 'is', null)
+        .select('id')
+        .maybeSingle();
+
+      if (updateError) return jsonNoCache({ ok: false, error: updateError.message }, 500);
+      if (!updatedTask) {
+        return jsonNoCache({ ok: false, error: 'This completion check was already handled' }, 409);
+      }
+
+      await supabaseAdmin.from('task_events').insert({
+        task_id: taskId,
+        event_type: 'COMPLETION_DOING_NOW',
+        event_text: `${user.name} selected Doing Now; the next completion check is scheduled in 5 minutes and will repeat until Done.`,
+        actor_name: user.name,
+      });
+
+      await broadcastTaskChange(taskId, 'UPDATE');
+      return jsonNoCache({ ok: true, nextDueAt });
+    }
+
+    if (action !== 'ACKNOWLEDGE') {
+      return jsonNoCache({ ok: false, error: 'Unsupported task alert action' }, 400);
     }
 
     const currentCycle = Number(task.alert_cycle || 1);
@@ -189,6 +243,7 @@ export async function POST(req: NextRequest) {
         alert_acknowledged_by_email: user.email,
         completion_follow_up_due_at: completionFollowUpDueAt,
         completion_follow_up_sent_at: null,
+        completion_follow_up_repeat: false,
         updated_at: acknowledgedAt,
       })
       .eq('id', taskId)

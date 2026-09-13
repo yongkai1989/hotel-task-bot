@@ -16,6 +16,7 @@ type AlertTask = {
   due_at?: string | null;
   escalation_count?: number;
   alert_cycle?: number;
+  completion_follow_up_sent_at?: string | null;
   created_at: string;
 };
 
@@ -50,8 +51,12 @@ export default function TaskAlertOverlay({ userId }: Props) {
   const alertsRef = useRef<AlertTask[]>([]);
   const alertRequestRef = useRef<Promise<void> | null>(null);
 
-  const dismissedKey = useCallback((alert: AlertTask) =>
-    `dismissed-task-alert:${alert.id}:${Number(alert.alert_cycle || 1)}:${alert.alert_kind}`, []);
+  const dismissedKey = useCallback((alert: AlertTask) => {
+    const followUpOccurrence = alert.alert_kind.startsWith('FOLLOW_UP_')
+      ? String(alert.completion_follow_up_sent_at || '')
+      : '';
+    return `dismissed-task-alert:${alert.id}:${Number(alert.alert_cycle || 1)}:${alert.alert_kind}:${followUpOccurrence}`;
+  }, []);
 
   useEffect(() => {
     alertsRef.current = alerts;
@@ -204,12 +209,44 @@ export default function TaskAlertOverlay({ userId }: Props) {
     }
   }
 
+  async function doingNow() {
+    if (!current || !accessToken || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetchTaskAlerts('/api/task-alerts', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ taskId: current.id, action: 'DOING_NOW' }),
+      });
+      await responseJson(response);
+      setAlerts((existing) => existing.filter((alert) => alert.id !== current.id));
+    } catch (nextError: any) {
+      const message = nextError?.message || 'Unable to schedule the next completion check.';
+      setError(message);
+      if (/no longer active|already handled/i.test(message)) void loadAlerts(accessToken);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function closeCurrent() {
     if (!current || current.alert_kind === 'CHAMBERMAID_DEFECT') return;
     window.sessionStorage.setItem(dismissedKey(current), '1');
     setAlerts((existing) => existing.filter((alert) =>
       alert.id !== current.id || Number(alert.alert_cycle || 1) !== Number(current.alert_cycle || 1)
     ));
+  }
+
+  function openQuickActions() {
+    if (!current) return;
+    window.sessionStorage.setItem(dismissedKey(current), '1');
+    window.location.assign('/dashboard/fo-quick-actions');
   }
 
   if (!current) return null;
@@ -224,7 +261,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
   return (
     <div className="global-task-alert-overlay" role="alertdialog" aria-modal="true" aria-labelledby="global-task-alert-title">
       <section className={`global-task-alert-card${isChambermaidDefect ? ' chambermaid-defect' : ''}${isCompletionFollowUp ? ' completion-follow-up' : ''}`}>
-        {!isChambermaidDefect ? (
+        {!isChambermaidDefect && !isDepartmentFollowUp ? (
           <button
             type="button"
             className="global-task-alert-close-x"
@@ -254,7 +291,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
         {isDepartmentFollowUp ? (
           <p className="global-task-alert-malay">
             Tugasan ini telah diakui tetapi masih <b>Open</b> selepas {current.urgent === true ? '5 minit' : '10 minit'}.
-            Adakah sudah selesai? Jika sudah, tekan <b>Mark as Done</b> sekarang.
+            Adakah sudah selesai? Jika sudah, tekan <b>Mark as Done</b>. Jika sedang dibuat, tekan <b>Doing Now</b>.
           </p>
         ) : null}
         {isFoFollowUp ? (
@@ -278,13 +315,18 @@ export default function TaskAlertOverlay({ userId }: Props) {
           <p className="global-task-alert-queue">{queueCount} task alerts are waiting.</p>
         ) : null}
         {error ? <div className="global-task-alert-error">{error}</div> : null}
-        <div className="global-task-alert-actions">
+        <div className={`global-task-alert-actions${isDepartmentFollowUp ? ' department-follow-up' : ''}`}>
           {isDepartmentFollowUp ? (
-            <button type="button" className="acknowledge" onClick={() => void markDone()} disabled={busy}>
-              {busy ? 'Saving...' : 'Mark as Done'}
-            </button>
+            <>
+              <button type="button" className="acknowledge" onClick={() => void markDone()} disabled={busy}>
+                {busy ? 'Saving...' : 'Mark as Done'}
+              </button>
+              <button type="button" className="doing-now" onClick={() => void doingNow()} disabled={busy}>
+                {busy ? 'Saving...' : 'Doing Now'}
+              </button>
+            </>
           ) : isFoFollowUp ? (
-            <button type="button" className="acknowledge" onClick={() => window.location.assign('/dashboard/fo-quick-actions')} disabled={busy}>
+            <button type="button" className="acknowledge" onClick={openQuickActions} disabled={busy}>
               Open Quick Actions
             </button>
           ) : (
@@ -292,13 +334,13 @@ export default function TaskAlertOverlay({ userId }: Props) {
               {busy ? 'Recording...' : 'Acknowledge'}
             </button>
           )}
-          {!isChambermaidDefect ? (
+          {!isChambermaidDefect && !isDepartmentFollowUp ? (
             <button type="button" className="close" onClick={closeCurrent} disabled={busy}>Close</button>
           ) : null}
         </div>
         <p className="global-task-alert-note">
           {isDepartmentFollowUp
-            ? 'Mark as Done only after the work is fully completed.'
+            ? 'Doing Now closes this reminder and asks again in 5 minutes. It repeats every 5 minutes until the task is marked Done.'
             : isFoFollowUp
               ? 'Follow up with the assigned department; FO should not close their task for them.'
               : 'Your name and acknowledgement time will be recorded. This clears the alert for the whole team; it does not mark the work Done.'}
@@ -330,10 +372,12 @@ export default function TaskAlertOverlay({ userId }: Props) {
         .global-task-alert-escalation{margin:10px 0 0;border-radius:10px;padding:9px;background:#ffe0a8;color:#6b3c00;font-size:11px;font-weight:900}
         .global-task-alert-error{margin-top:11px;border-radius:9px;padding:9px 11px;background:#7d1017;color:#fff;font-size:11px;font-weight:850}
         .global-task-alert-actions{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:15px}
+        .global-task-alert-actions.department-follow-up{grid-template-columns:1fr 1fr}
         .global-task-alert-actions:has(.acknowledge:only-child){grid-template-columns:1fr}
         .global-task-alert-actions button{min-height:58px;border:0;border-radius:13px;font-size:17px;font-weight:950;cursor:pointer}
         .global-task-alert-actions .acknowledge{background:#132f57;color:#fff;box-shadow:0 9px 22px rgba(19,47,87,.25)}
         .global-task-alert-actions .close{border:2px solid #c9a2a5;background:#fff;color:#6f1d22}
+        .global-task-alert-actions .doing-now{border:2px solid #d97706;background:#fff7e6;color:#7c3f00}
         .global-task-alert-actions button:disabled{opacity:.65;cursor:wait}
         .global-task-alert-note{margin:9px 0 0;color:#87585c;font-size:10px;font-weight:750}
         @keyframes globalUrgentPulse{0%,100%{border-color:#ff3434;box-shadow:0 0 0 8px rgba(255,45,45,.22),0 30px 90px rgba(0,0,0,.58)}50%{border-color:#920812;box-shadow:0 0 0 16px rgba(255,45,45,.38),0 30px 95px rgba(0,0,0,.68)}}
