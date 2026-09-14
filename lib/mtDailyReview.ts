@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './supabaseAdmin';
+import { supabaseAdminFresh as supabaseAdmin } from './supabaseAdmin';
 
 const MT_TASK_CHAT_ID = '-1003860980789';
 const NOTIFICATION_TYPE = 'MT_DAILY_REVIEW_9AM';
@@ -7,6 +7,7 @@ type MtTask = {
   task_code?: string;
   room?: string;
   task_text?: string;
+  status?: string;
   created_at?: string;
 };
 
@@ -73,7 +74,7 @@ async function sendMtDailyReview(today: string) {
   const [taskResult, managerRoomCheckResult, pmResult] = await Promise.all([
     supabaseAdmin
       .from('tasks')
-      .select('task_code, room, task_text, created_at')
+      .select('task_code, room, task_text, status, created_at')
       .eq('department', 'MT')
       .eq('status', 'OPEN')
       .not('task_text', 'ilike', 'Urgent Manager Room Check%')
@@ -160,7 +161,15 @@ async function sendMtDailyReview(today: string) {
     telegramMessageId: telegramMessageIds[0] || null,
     details: {
       openTaskCount: tasks.length,
+      openTasks: tasks.map((task) => ({
+        taskCode: String(task.task_code || ''),
+        status: String(task.status || 'OPEN'),
+      })),
       managerRoomCheckCount: managerRoomChecks.length,
+      managerRoomChecks: managerRoomChecks.map((check) => ({
+        room: String(check.room_number || ''),
+        status: String(check.status || 'OPEN'),
+      })),
       overduePmCount: overduePm.length,
       otherOpenPmCount: otherOpenPm.length,
       telegramMessageIds,

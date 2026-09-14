@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { supabaseAdminFresh as supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { formatDateDDMMYYYY } from '../../../lib/dateDisplay';
 import { runMtDailyReviewOnce } from '../../../lib/mtDailyReview';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
 
 const DEFAULT_CHAT_ID = '-1003946542037';
@@ -302,7 +304,21 @@ export async function GET(request: NextRequest) {
         status: 'SENT',
         sent_at: new Date().toISOString(),
         telegram_message_id: telegramMessageId,
-        report_payload: summary,
+        report_payload: {
+          ...summary,
+          telegram_audit: {
+            open_tasks: (tasksResult.data || []).map((task: any) => ({
+              task_code: String(task.task_code || ''),
+              department: String(task.department || ''),
+              status: 'OPEN',
+            })),
+            overdue_maintenance: (maintenanceResult.data || []).map((run: any) => ({
+              id: String(run.id || ''),
+              status: String(run.status || ''),
+              due_date: String(run.due_date || ''),
+            })),
+          },
+        },
         error_text: null,
       })
       .eq('report_date', reportDate);

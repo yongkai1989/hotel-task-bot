@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '../../../lib/supabaseAdmin';
+import { supabaseAdminFresh as supabaseAdmin } from '../../../lib/supabaseAdmin';
 import {
   HK_PUSH_EMAILS,
   MT_SUPERVISOR_PUSH_EMAILS,
@@ -9,6 +9,8 @@ import {
 import { runMtDailyReviewOnce } from '../../../lib/mtDailyReview';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 export const runtime = 'nodejs';
 
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
@@ -105,11 +107,13 @@ type HkTaskRow = {
   task_code?: string;
   room?: string;
   task_text?: string;
+  status?: string;
   created_at?: string;
 };
 
 type HkManagerRoomCheckRow = {
   room_number?: string;
+  status?: string;
   created_at?: string;
 };
 
@@ -351,7 +355,7 @@ async function hkMorningReviewReminder(today: string) {
     supabaseAdmin.rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate }),
     supabaseAdmin
       .from('tasks')
-      .select('task_code, room, task_text, created_at')
+      .select('task_code, room, task_text, status, created_at')
       .eq('status', 'OPEN')
       .eq('department', 'HK')
       .not('task_text', 'ilike', 'Urgent Manager Room Check%')
@@ -359,9 +363,9 @@ async function hkMorningReviewReminder(today: string) {
       .order('created_at', { ascending: true }),
     supabaseAdmin
       .from('manager_room_checks')
-      .select('room_number, created_at')
+      .select('room_number, status, created_at')
       .eq('department', 'HK')
-      .eq('status', 'OPEN')
+      .neq('status', 'DONE')
       .order('created_at', { ascending: true }),
   ]);
   if (yesterdayResult.error) throw yesterdayResult.error;
@@ -541,7 +545,15 @@ async function hkMorningReviewReminder(today: string) {
       incompleteChecklistCount,
       projectCount: projects.length,
       openHkTaskCount: hkTasks.length,
+      openHkTasks: hkTasks.map((task) => ({
+        taskCode: String(task.task_code || ''),
+        status: String(task.status || 'OPEN'),
+      })),
       openManagerRoomChecks: managerRoomCount,
+      managerRoomChecks: managerRoomChecks.map((check) => ({
+        room: String(check.room_number || ''),
+        status: String(check.status || 'OPEN'),
+      })),
       missingRoomCount: missingRooms.length,
       billSaved: Boolean(yesterdayLinen.bill_saved),
       returnSaved: Boolean(yesterdayLinen.return_saved),
