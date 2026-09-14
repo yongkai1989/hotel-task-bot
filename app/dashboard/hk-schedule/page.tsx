@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createBrowserSupabaseClient } from '../../../lib/supabaseBrowser';
 import { formatDateDDMMYYYY, formatMonthRangeDDMMYYYY } from '../../../lib/dateDisplay';
+import HkDutyAssignmentTab from '../../../components/HkDutyAssignmentTab';
 import styles from './schedule.module.css';
 
 type Profile = {
@@ -161,7 +162,7 @@ export default function HousekeepingSchedulePage() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [tab, setTab] = useState<'SCHEDULE' | 'REPORT'>('SCHEDULE');
+  const [tab, setTab] = useState<'SCHEDULE' | 'DUTY' | 'REPORT'>('SCHEDULE');
   const [month, setMonth] = useState(monthKey());
   const [monthHalf, setMonthHalf] = useState<'FULL' | 'FIRST' | 'SECOND'>('FULL');
   const [reportRange, setReportRange] = useState<'MONTH' | 'SIX_MONTHS'>('MONTH');
@@ -183,6 +184,8 @@ export default function HousekeepingSchedulePage() {
     profile.role.toUpperCase() === 'SUPERUSER' || profile.can_access_hk_schedule
   );
   const canEdit = !!profile && canAccess && !profile.hk_schedule_view_only;
+  const canEditDuty = !!profile && canAccess &&
+    ['SUPERUSER', 'MANAGER', 'SUPERVISOR'].includes(profile.role.toUpperCase());
 
   useEffect(() => {
     let active = true;
@@ -463,11 +466,14 @@ export default function HousekeepingSchedulePage() {
           <button className={tab === 'SCHEDULE' ? styles.activeTab : ''} onClick={() => setTab('SCHEDULE')}>
             Schedule
           </button>
+          <button className={tab === 'DUTY' ? styles.activeTab : ''} onClick={() => setTab('DUTY')}>
+            Duty Assignment
+          </button>
           <button className={tab === 'REPORT' ? styles.activeTab : ''} onClick={() => setTab('REPORT')}>
             Report
           </button>
         </div>
-        <div className={styles.dateControls}>
+        {tab !== 'DUTY' ? <div className={styles.dateControls}>
           {tab === 'SCHEDULE' ? (
             <div className={styles.halfButtons}>
               <button aria-pressed={monthHalf === 'FIRST'}
@@ -488,7 +494,7 @@ export default function HousekeepingSchedulePage() {
               onChange={(event) => setMonth(event.target.value || monthKey())} />
             <button aria-label="Next month" onClick={() => setMonth(addMonths(month, 1))}>›</button>
           </div>
-        </div>
+        </div> : null}
       </section>
 
       {tab === 'SCHEDULE' ? (
@@ -585,6 +591,8 @@ export default function HousekeepingSchedulePage() {
             )}
           </section>
         </>
+      ) : tab === 'DUTY' ? (
+        <HkDutyAssignmentTab canEdit={canEditDuty} />
       ) : (
         <section className={styles.reportArea}>
           <div className={styles.reportControls}>
