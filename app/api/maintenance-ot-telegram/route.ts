@@ -1,4 +1,9 @@
 import { NextResponse } from 'next/server';
+import { formatDateDDMMYYYY } from '../../../lib/dateDisplay';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const CHAT_ID = -1003860980789;
@@ -26,7 +31,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, hours, reason } = await req.json();
+    const { name, hours, reason, dates, timeRanges } = await req.json();
 
     // Only trigger if > 3 hours
     if (!hours || Number(hours) <= 3) {
@@ -40,9 +45,18 @@ export async function POST(req: Request) {
       );
     }
 
+    const otDates = Array.isArray(dates)
+      ? dates.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const otTimeRanges = Array.isArray(timeRanges)
+      ? timeRanges.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+
     const text = [
       'MAINTENANCE OT REVIEW',
       `Staff: ${name}`,
+      `OT Date${otDates.length === 1 ? '' : 's'}: ${otDates.length ? otDates.map((date) => formatDateDDMMYYYY(date)).join(', ') : 'Not provided'}`,
+      `OT Time: ${otTimeRanges.length ? otTimeRanges.join(' | ') : 'Not provided'}`,
       `Hours: ${hours}`,
       `Reason: ${reason}`,
     ].join('\n');

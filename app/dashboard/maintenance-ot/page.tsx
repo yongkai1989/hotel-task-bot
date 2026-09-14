@@ -446,12 +446,24 @@ export default function MaintenanceOtPage() {
     }
   }
 
-  async function sendTelegramIfNeeded(name: string, hours: number, submitReason: string) {
+  async function sendTelegramIfNeeded(
+    name: string,
+    hours: number,
+    submitReason: string,
+    dates: string[],
+    slots: TimeSlot[]
+  ) {
     if (hours <= 3) return;
     const res = await fetch('/api/maintenance-ot-telegram', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, hours, reason: submitReason }),
+      body: JSON.stringify({
+        name,
+        hours,
+        reason: submitReason,
+        dates,
+        timeRanges: slots.map(serializeSlot),
+      }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Failed to send Telegram alert');
@@ -545,7 +557,7 @@ export default function MaintenanceOtPage() {
       }
     }
 
-    await sendTelegramIfNeeded(trimmedStaff, hours, trimmedReason);
+    await sendTelegramIfNeeded(trimmedStaff, hours, trimmedReason, uniqueDates, slots);
     setSuccessMsg(successText);
     setEditingId(null);
     setTimeSlots([{ start: '', end: '' }]);
