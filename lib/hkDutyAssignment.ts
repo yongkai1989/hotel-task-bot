@@ -183,9 +183,13 @@ export function generateSuggestedDutyPlan(args: {
     const available = (rows: Array<DutyStaff | undefined>) => rows.find((person) => person && !usedIds.has(person.id));
 
     for (const bin of bins) {
-      const primaryFloor = bin.floors[0];
-      const usualPrimary = primaryFloor
-        ? findByFirstName(maids, USUAL_MAID_BY_FLOOR[primaryFloor])
+      // When two floors are combined, keep the usual maid from the lighter
+      // floor and let that person assist the busier floor.
+      const usualFloor = [...bin.floors].sort(
+        (a, b) => workloadTotal(workloadMap.get(a)) - workloadTotal(workloadMap.get(b))
+      )[0];
+      const usualPrimary = usualFloor
+        ? findByFirstName(maids, USUAL_MAID_BY_FLOOR[usualFloor])
         : undefined;
       const relief = RELIEF_PRIORITY.map((name) => findByFirstName(maids, name));
       const otherUsual = bin.floors.map((floorKey) => findByFirstName(maids, USUAL_MAID_BY_FLOOR[floorKey]));
@@ -208,11 +212,7 @@ export function generateSuggestedDutyPlan(args: {
   return {
     maidAssignments: assignments,
     supervisorAssignments: assignSupervisors(supervisors),
-    linenControllerStaffIds: nagaraj
-      ? [nagaraj.id]
-      : linenControllers[0]
-        ? [linenControllers[0].id]
-        : [],
+    linenControllerStaffIds: nagaraj ? [nagaraj.id] : [],
   };
 }
 

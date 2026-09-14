@@ -12,6 +12,7 @@ import {
   type SupervisorDutyAssignment,
 } from '../lib/hkDutyAssignment';
 import styles from '../app/dashboard/hk-schedule/duty-assignment.module.css';
+import extras from '../app/dashboard/hk-schedule/duty-assignment-extras.module.css';
 
 type ScheduleStaff = DutyStaff & {
   staff_role: 'SUPERVISOR' | 'MAID' | 'LINEN_CONTROLLER' | 'PA';
@@ -31,6 +32,8 @@ type SavedDutyRow = {
   supervisor_assignments: SupervisorDutyAssignment[];
   linen_controller_staff_ids: string[];
   special_duties: SpecialDuty[];
+  part_time_maids?: DutyStaff[];
+  special_priority_presets?: string[];
   version: number;
   updated_by_name: string;
   updated_at: string;
@@ -46,7 +49,7 @@ const EMPTY_WORKLOADS: FloorWorkload[] = DUTY_FLOORS.map((floor) => ({
   stayover: 0,
 }));
 
-const SPECIAL_PRESETS = [
+const DEFAULT_SPECIAL_PRESETS = [
   'Room Fixtures',
   'Bathroom Deep Clean',
   'Guest Amenities',
@@ -107,6 +110,23 @@ function safeSpecialDuties(value: unknown): SpecialDuty[] {
   });
 }
 
+function safePartTimeMaids(value: unknown): DutyStaff[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row: any, index) => {
+    const staffName = typeof row?.staff_name === 'string' ? row.staff_name.trim() : '';
+    if (!staffName) return [];
+    return [{
+      id: typeof row.id === 'string' && row.id ? row.id : `part-time-saved-${index}`,
+      staff_name: staffName,
+    }];
+  });
+}
+
+function safePriorityPresets(value: unknown) {
+  if (!Array.isArray(value)) return [...DEFAULT_SPECIAL_PRESETS];
+  return [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))];
+}
+
 export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const supabase = useMemo(() => {
     try {
@@ -123,11 +143,15 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const [availableMaids, setAvailableMaids] = useState<ScheduleStaff[]>([]);
   const [availableSupervisors, setAvailableSupervisors] = useState<ScheduleStaff[]>([]);
   const [availableLinenControllers, setAvailableLinenControllers] = useState<ScheduleStaff[]>([]);
+  const [partTimeMaids, setPartTimeMaids] = useState<DutyStaff[]>([]);
+  const [partTimeName, setPartTimeName] = useState('');
   const [workloads, setWorkloads] = useState<FloorWorkload[]>(EMPTY_WORKLOADS);
   const [maidAssignments, setMaidAssignments] = useState<MaidDutyAssignment[]>([]);
   const [supervisorAssignments, setSupervisorAssignments] = useState<SupervisorDutyAssignment[]>([]);
   const [linenControllerStaffIds, setLinenControllerStaffIds] = useState<string[]>([]);
   const [specialDuties, setSpecialDuties] = useState<SpecialDuty[]>([]);
+  const [specialPriorityPresets, setSpecialPriorityPresets] = useState<string[]>(DEFAULT_SPECIAL_PRESETS);
+  const [newPriorityPreset, setNewPriorityPreset] = useState('');
   const [version, setVersion] = useState(0);
   const [lastSaved, setLastSaved] = useState<{ name: string; at: string } | null>(null);
 
@@ -139,15 +163,16 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     () => new Set(workloads.filter((row) => row.checkout + row.stayover > 0).map((row) => row.floorKey)),
     [workloads]
   );
+  const allMaids = useMemo(() => [...availableMaids, ...partTimeMaids], [availableMaids, partTimeMaids]);
 
   const applyDefault = useCallback((data?: {
-    maids?: ScheduleStaff[];
+    maids?: DutyStaff[];
     supervisors?: ScheduleStaff[];
     linenControllers?: ScheduleStaff[];
     floorWorkloads?: FloorWorkload[];
   }) => {
     const plan = generateSuggestedDutyPlan({
-      maids: data?.maids || availableMaids,
+      maids: data?.maids || allMaids,
       supervisors: data?.supervisors || availableSupervisors,
       linenControllers: data?.linenControllers || availableLinenControllers,
       workloads: data?.floorWorkloads || workloads,
@@ -157,7 +182,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     setLinenControllerStaffIds(plan.linenControllerStaffIds);
     setSuccess('Default assignment loaded. Review the suggestions before saving.');
     setError('');
-  }, [availableLinenControllers, availableMaids, availableSupervisors, workloads]);
+  }, [allMaids, availableLinenControllers, availableSupervisors, workloads]);
 
   const loadData = useCallback(async () => {
     if (!supabase) {
@@ -169,18 +194,20 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     setError('');
     setSuccess('');
     try {
-      const [staffResult, entryResult, roomResult, statusResult, savedResult] = await Promise.all([
+      const [staffResult, entryResult, roomResult, statusResult, savedResult, presetResult] = await Promise.all([
         supabase.from('hk_schedule_staff').select('id,staff_name,staff_role,is_active').eq('is_active', true).order('sort_order').order('staff_name'),
         supabase.from('hk_schedule_entries').select('staff_id,status').eq('schedule_date', serviceDate),
         supabase.from('room_master').select('room_number,block_no,floor_no').eq('is_active', true),
         supabase.from('linen_room_status').select('room_number,status').eq('service_date', serviceDate),
         supabase.from('hk_daily_duty_assignments').select('*').eq('service_date', serviceDate).maybeSingle(),
+        supabase.from('hk_daily_duty_assignments').select('special_priority_presets').order('updated_at', { ascending: false }).limit(1).maybeSingle(),
       ]);
       if (staffResult.error) throw staffResult.error;
       if (entryResult.error) throw entryResult.error;
       if (roomResult.error) throw roomResult.error;
       if (statusResult.error) throw statusResult.error;
       if (savedResult.error) throw savedResult.error;
+      if (presetResult.error) throw presetResult.error;
 
       const staffRows = (staffResult.data || []) as ScheduleStaff[];
       const workingIds = new Set(
@@ -192,6 +219,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       const maids = working.filter((person) => person.staff_role === 'MAID');
       const supervisors = working.filter((person) => person.staff_role === 'SUPERVISOR');
       const linenControllers = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER');
+      const linenControllerChoices = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER' || person.staff_role === 'MAID');
 
       const roomFloor = new Map<string, DutyFloorKey>();
       for (const room of roomResult.data || []) {
@@ -210,16 +238,18 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
 
       setAvailableMaids(maids);
       setAvailableSupervisors(supervisors);
-      setAvailableLinenControllers(linenControllers);
+      setAvailableLinenControllers(linenControllerChoices);
       setWorkloads(nextWorkloads);
 
       const saved = savedResult.data as SavedDutyRow | null;
       if (saved) {
-        const maidIds = new Set(maids.map((person) => person.id));
+        const savedPartTimers = safePartTimeMaids(saved.part_time_maids);
+        const allMaidRows = [...maids, ...savedPartTimers];
+        const maidIds = new Set(allMaidRows.map((person) => person.id));
         const supervisorIds = new Set(supervisors.map((person) => person.id));
-        const linenIds = new Set(linenControllers.map((person) => person.id));
+        const linenIds = new Set(linenControllerChoices.map((person) => person.id));
         const activeFloors = new Set(nextWorkloads.filter((row) => row.checkout + row.stayover > 0).map((row) => row.floorKey));
-        const suggested = generateSuggestedDutyPlan({ maids, supervisors, linenControllers, workloads: nextWorkloads });
+        const suggested = generateSuggestedDutyPlan({ maids: allMaidRows, supervisors, linenControllers, workloads: nextWorkloads });
         const savedSupervisors = safeSupervisorAssignments(saved.supervisor_assignments)
           .filter((assignment) => supervisorIds.has(assignment.staffId));
         const supervisorByFloor = new Map(savedSupervisors.map((assignment) => [assignment.floorKey, assignment]));
@@ -230,7 +260,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
           .filter((assignment) => maidIds.has(assignment.staffId))
           .map((assignment) => ({
             ...assignment,
-            staffName: maids.find((person) => person.id === assignment.staffId)?.staff_name || assignment.staffName,
+            staffName: allMaidRows.find((person) => person.id === assignment.staffId)?.staff_name || assignment.staffName,
             floors: assignment.floors.filter((floor) => activeFloors.has(floor)),
           }))
           .filter((assignment) => assignment.floors.length > 0);
@@ -252,6 +282,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
           }
         }
         setMaidAssignments(nextMaids);
+        setPartTimeMaids(savedPartTimers);
         setSupervisorAssignments([...supervisorByFloor.values()]);
         setLinenControllerStaffIds(
           Array.isArray(saved.linen_controller_staff_ids)
@@ -259,14 +290,17 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
             : []
         );
         setSpecialDuties(safeSpecialDuties(saved.special_duties));
+        setSpecialPriorityPresets(safePriorityPresets(saved.special_priority_presets));
         setVersion(Number(saved.version || 0));
         setLastSaved({ name: saved.updated_by_name, at: saved.updated_at });
       } else {
         const suggested = generateSuggestedDutyPlan({ maids, supervisors, linenControllers, workloads: nextWorkloads });
         setMaidAssignments(suggested.maidAssignments);
+        setPartTimeMaids([]);
         setSupervisorAssignments(suggested.supervisorAssignments);
         setLinenControllerStaffIds(suggested.linenControllerStaffIds);
         setSpecialDuties([]);
+        setSpecialPriorityPresets(safePriorityPresets(presetResult.data?.special_priority_presets));
         setVersion(0);
         setLastSaved(null);
       }
@@ -290,8 +324,8 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     [maidAssignments]
   );
   const specialDutyPool = useMemo(
-    () => availableMaids.filter((person) => !assignmentByMaid.get(person.id)?.floors.length),
-    [assignmentByMaid, availableMaids]
+    () => allMaids.filter((person) => !assignmentByMaid.get(person.id)?.floors.length),
+    [allMaids, assignmentByMaid]
   );
   const totalWorkload = useMemo(
     () => workloads.reduce((sum, row) => sum + row.checkout + row.stayover, 0),
@@ -300,7 +334,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const totalCheckout = useMemo(() => workloads.reduce((sum, row) => sum + row.checkout, 0), [workloads]);
   const totalStayover = useMemo(() => workloads.reduce((sum, row) => sum + row.stayover, 0), [workloads]);
 
-  function toggleMaidFloor(person: ScheduleStaff, floorKey: DutyFloorKey) {
+  function toggleMaidFloor(person: DutyStaff, floorKey: DutyFloorKey) {
     if (!canEdit || !activeFloorKeys.has(floorKey)) return;
     setMaidAssignments((current) => {
       const existing = current.find((row) => row.staffId === person.id);
@@ -315,6 +349,44 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         .map((row) => row.staffId === person.id ? { ...row, floors } : row)
         .filter((row) => row.floors.length > 0);
     });
+  }
+
+  function addPartTimer() {
+    if (!canEdit) return;
+    const name = partTimeName.trim();
+    if (!name) return;
+    if (allMaids.some((person) => person.staff_name.toLowerCase() === name.toLowerCase())) {
+      setError(`${name} is already available for assignment.`);
+      return;
+    }
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? `part-time-${crypto.randomUUID()}`
+      : `part-time-${Date.now()}`;
+    setPartTimeMaids((current) => [...current, { id, staff_name: name }]);
+    setPartTimeName('');
+    setError('');
+  }
+
+  function removePartTimer(staffId: string) {
+    setPartTimeMaids((current) => current.filter((person) => person.id !== staffId));
+    setMaidAssignments((current) => current.filter((assignment) => assignment.staffId !== staffId));
+  }
+
+  function toggleLinenController(staffId: string) {
+    if (!canEdit) return;
+    setLinenControllerStaffIds((current) => current.includes(staffId)
+      ? current.filter((id) => id !== staffId)
+      : [...current, staffId]);
+  }
+
+  function addPriorityPreset() {
+    if (!canEdit) return;
+    const preset = newPriorityPreset.trim();
+    if (!preset) return;
+    setSpecialPriorityPresets((current) => current.some((item) => item.toLowerCase() === preset.toLowerCase())
+      ? current
+      : [...current, preset]);
+    setNewPriorityPreset('');
   }
 
   function changeSupervisor(floorKey: DutyFloorKey, staffId: string) {
@@ -404,6 +476,8 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         p_supervisor_assignments: supervisorAssignments,
         p_linen_controller_staff_ids: linenControllerStaffIds,
         p_special_duties: specialDuties,
+        p_part_time_maids: partTimeMaids,
+        p_special_priority_presets: specialPriorityPresets,
         p_expected_version: version,
       });
       if (saveError) throw saveError;
@@ -447,7 +521,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       {success ? <div className={styles.successBanner}>{success}</div> : null}
 
       <div className={styles.metrics}>
-        <Metric label="Available maids" value={availableMaids.length} />
+        <Metric label="Available maids" value={allMaids.length} />
         <Metric label="Cleaning rooms" value={totalWorkload} />
         <Metric label="Assigned maids" value={maidAssignments.length} />
         <Metric label="Floors covered" value={`${assignedFloorKeys.size}/${activeFloorKeys.size}`} warning={assignedFloorKeys.size < activeFloorKeys.size} />
@@ -460,9 +534,13 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
               <div><span>1</span><h3>Maid Duty Assignment</h3></div>
               <small>Target: approximately 16 rooms per maid · maximum 2 floors</small>
             </header>
-            {!availableMaids.length ? <p className={styles.empty}>No maids are scheduled as WORK for this date.</p> : (
+            {canEdit ? <div className={extras.partTimerBar}>
+              <div><strong>Part-time maids</strong><span>Add today’s temporary staff, then assign their floors below.</span></div>
+              <div><input aria-label="Part-timer name" value={partTimeName} placeholder="Enter part-timer name" onChange={(event) => setPartTimeName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addPartTimer(); }} /><button type="button" onClick={addPartTimer}>+ Add</button></div>
+            </div> : null}
+            {!allMaids.length ? <p className={styles.empty}>No maids are available for this date.</p> : (
               <div className={styles.maidList}>
-                {availableMaids.map((person) => {
+                {allMaids.map((person) => {
                   const assignment = assignmentByMaid.get(person.id);
                   const selectedFloors = assignment?.floors || [];
                   const personWorkload = selectedFloors.reduce((sum, floor) => {
@@ -470,9 +548,9 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
                     return sum + Number(row?.checkout || 0) + Number(row?.stayover || 0);
                   }, 0);
                   return (
-                    <article key={person.id} className={`${styles.maidCard} ${selectedFloors.length ? '' : styles.specialPoolCard}`}>
+                    <article key={person.id} className={`${styles.maidCard} ${extras.maidCardExtended} ${selectedFloors.length ? '' : styles.specialPoolCard}`}>
                       <div className={styles.maidSummary}>
-                        <div><strong>{person.staff_name}</strong>{selectedFloors.length > 1 ? <em>{selectedFloors.length} floors</em> : null}</div>
+                        <div><strong>{person.staff_name}</strong>{partTimeMaids.some((row) => row.id === person.id) ? <em>Part-time</em> : null}{selectedFloors.length > 1 ? <em>{selectedFloors.length} floors</em> : null}</div>
                         <b>{selectedFloors.length ? selectedFloors.join(' + ') : 'Special duty pool'}</b>
                         <small>{selectedFloors.length ? `${personWorkload} room${personWorkload === 1 ? '' : 's'}` : 'No floor cleaning assigned'}</small>
                       </div>
@@ -490,6 +568,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
                           );
                         })}
                       </div>
+                      {canEdit && partTimeMaids.some((row) => row.id === person.id) ? <button type="button" className={extras.removePartTimer} aria-label={`Remove part-timer ${person.staff_name}`} onClick={() => removePartTimer(person.id)}>Remove</button> : null}
                     </article>
                   );
                 })}
@@ -520,16 +599,21 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
 
           <section className={styles.card}>
             <header className={styles.cardHeader}><div><span>3</span><h3>Support Duty</h3></div><small>P.A. staff are not included</small></header>
-            <label className={styles.linenControl}><span>Linen Controller</span><select disabled={!canEdit}
-              value={linenControllerStaffIds[0] || ''} onChange={(event) => setLinenControllerStaffIds(event.target.value ? [event.target.value] : [])}>
-              <option value="">Unassigned</option>
-              {availableLinenControllers.map((person) => <option key={person.id} value={person.id}>{person.staff_name}</option>)}
-            </select></label>
+            <div className={styles.linenControl}><span>Linen Controller(s)</span><div className={extras.linenChoices}>
+              {availableLinenControllers.map((person) => {
+                const selected = linenControllerStaffIds.includes(person.id);
+                return <button type="button" key={person.id} disabled={!canEdit} aria-pressed={selected} className={selected ? extras.linenSelected : ''} onClick={() => toggleLinenController(person.id)}>{person.staff_name}</button>;
+              })}
+              {!availableLinenControllers.length ? <small>No eligible staff are working today.</small> : null}
+            </div></div>
           </section>
 
           <section className={styles.card}>
             <header className={styles.cardHeader}><div><span>4</span><h3>Special Cleaning Priorities <i>Optional</i></h3></div><button type="button" disabled={!canEdit} onClick={() => addSpecialDuty()}>+ Add Priority</button></header>
-            {canEdit ? <div className={styles.quickAdd}><span>Quick add</span>{SPECIAL_PRESETS.map((preset) => <button type="button" key={preset} onClick={() => addSpecialDuty(preset)}>{preset}</button>)}</div> : null}
+            {canEdit ? <div className={extras.quickAddEditor}>
+              <div className={styles.quickAdd}><span>Quick add</span>{specialPriorityPresets.map((preset) => <div className={extras.quickPreset} key={preset}><button type="button" onClick={() => addSpecialDuty(preset)}>{preset}</button><button type="button" aria-label={`Remove quick item ${preset}`} onClick={() => setSpecialPriorityPresets((current) => current.filter((item) => item !== preset))}>×</button></div>)}</div>
+              <div className={extras.addQuickItem}><input aria-label="New quick-add item" value={newPriorityPreset} placeholder="New quick-add item" onChange={(event) => setNewPriorityPreset(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addPriorityPreset(); }} /><button type="button" onClick={addPriorityPreset}>+ Add Quick Item</button></div>
+            </div> : null}
             {!specialDuties.length ? <p className={styles.empty}>No special priorities added. Unassigned maids remain available for the supervisor to allocate.</p> : (
               <div className={styles.specialList}>{specialDuties.map((duty) => (
                 <div key={duty.id} className={styles.specialRow}>
