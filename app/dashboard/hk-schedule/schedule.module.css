@@ -367,3 +367,49 @@
   color:#b45309!important;
   font-weight:900;
 }
+
+/* Keep the three schedule views and header actions orderly on phones. */
+@media(max-width:760px){
+  .fitMode .hero{
+    display:grid;
+    grid-template-columns:1fr;
+    align-items:stretch;
+    gap:6px;
+    padding:7px 8px;
+  }
+  .fitMode .hero>div:first-child{display:flex;align-items:center;min-width:0}
+  .fitMode .heroActions{
+    display:grid;
+    width:100%;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:4px;
+  }
+  .fitMode .heroActions .autoFillButton{grid-column:auto}
+  .fitMode .heroActions button{
+    width:100%;
+    min-width:0;
+    min-height:36px;
+    padding:2px 4px;
+    font-size:11px;
+    line-height:1.15;
+    white-space:normal;
+  }
+  .fitMode .toolbar{grid-template-columns:minmax(0,1fr) 136px}
+  .fitMode .tabs{
+    grid-column:1/-1;
+    grid-row:1;
+    width:100%;
+    box-sizing:border-box;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+  .fitMode .tabs button{
+    min-width:0;
+    min-height:40px;
+    padding:3px 5px;
+    font-size:11px;
+    line-height:1.15;
+    white-space:normal;
+  }
+  .fitMode .halfButtons{grid-column:1;grid-row:2}
+  .fitMode .monthControl{grid-column:2;grid-row:2;width:136px}
+}

@@ -3,3 +3,10 @@
 @media(max-width:1050px){.workspace{grid-template-columns:1fr}.briefingCard{position:static}.floorPicker{grid-template-columns:repeat(4,minmax(65px,1fr))}.briefingCard pre{max-height:520px}}
 
 @media(max-width:760px){.pageArea{margin-top:8px}.dutyHeader{align-items:stretch;flex-direction:column;padding:15px}.dutyHeader h2{font-size:23px}.headerActions{display:grid;grid-template-columns:1fr}.headerActions input,.defaultButton{width:100%;min-height:46px}.metrics{grid-template-columns:1fr 1fr}.metric{padding:10px}.metric strong{font-size:18px}.card{padding:11px}.cardHeader{align-items:flex-start;flex-direction:column}.cardHeader>div{width:100%}.cardHeader small{padding-left:33px}.maidCard{grid-template-columns:1fr}.maidSummary{grid-template-columns:1fr auto;align-items:center}.maidSummary>div{grid-column:1}.maidSummary>b{grid-column:2;grid-row:1}.maidSummary>small{grid-column:1/-1}.floorPicker{grid-template-columns:repeat(4,1fr)}.floorPicker button{min-height:52px}.supervisorGrid{grid-template-columns:1fr}.linenControl{grid-template-columns:1fr}.specialRow{grid-template-columns:1fr}.specialRow>button{width:100%}.briefingCard header{align-items:stretch;flex-direction:column}.briefingCard header button{width:100%;min-height:46px}.briefingCard pre{max-height:none;font-size:11px}.actionBar{align-items:stretch;flex-direction:column}.actionBar>div{display:grid;grid-template-columns:1fr}.actionBar button{width:100%;min-height:46px}.specialPool{flex-direction:column}.quickAdd button{min-height:38px}}
+
+@media(max-width:760px){
+  .pageArea,.dutyHeader,.headerActions,.headerActions label{width:100%;min-width:0;box-sizing:border-box}
+  .dutyHeader{overflow:hidden}
+  .headerActions input,.defaultButton{max-width:100%;min-width:0;box-sizing:border-box}
+  .workspace,.editorColumn,.card,.briefingCard,.actionBar{min-width:0;box-sizing:border-box}
+}
