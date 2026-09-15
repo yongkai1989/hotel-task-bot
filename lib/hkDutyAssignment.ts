@@ -40,6 +40,11 @@ export type SuggestedDutyPlan = {
   linenControllerStaffIds: string[];
 };
 
+export const PREM_BACKUP_RELEASER: DutyStaff = {
+  id: 'duty-backup-releaser-prem',
+  staff_name: 'Prem',
+};
+
 const USUAL_MAID_BY_FLOOR: Record<DutyFloorKey, string> = {
   B1F1: 'fikri',
   B1F2: 'syahrul',
@@ -70,6 +75,12 @@ function findByFirstName(staff: DutyStaff[], name: string) {
     const actual = firstName(person.staff_name);
     return actual === name || (name === 'lila' && actual === 'nurlila');
   });
+}
+
+export function withPremBackupReleaser(supervisors: DutyStaff[]) {
+  if (supervisors.length !== 1) return supervisors;
+  if (findByFirstName(supervisors, 'prem')) return supervisors;
+  return [...supervisors, PREM_BACKUP_RELEASER];
 }
 
 function workloadTotal(workload: FloorWorkload | undefined) {

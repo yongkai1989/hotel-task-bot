@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import {
   DUTY_FLOORS,
   generateSuggestedDutyPlan,
+  withPremBackupReleaser,
   type DutyFloorKey,
   type DutyStaff,
   type FloorWorkload,
@@ -141,7 +142,8 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [availableMaids, setAvailableMaids] = useState<ScheduleStaff[]>([]);
-  const [availableSupervisors, setAvailableSupervisors] = useState<ScheduleStaff[]>([]);
+  const [availableFloorSupervisors, setAvailableFloorSupervisors] = useState<ScheduleStaff[]>([]);
+  const [availableSupervisors, setAvailableSupervisors] = useState<DutyStaff[]>([]);
   const [availableLinenControllers, setAvailableLinenControllers] = useState<ScheduleStaff[]>([]);
   const [partTimeMaids, setPartTimeMaids] = useState<DutyStaff[]>([]);
   const [partTimeName, setPartTimeName] = useState('');
@@ -164,10 +166,14 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     [workloads]
   );
   const allMaids = useMemo(() => [...availableMaids, ...partTimeMaids], [availableMaids, partTimeMaids]);
+  const allFloorAssignees = useMemo(
+    () => [...availableMaids, ...availableFloorSupervisors, ...partTimeMaids],
+    [availableFloorSupervisors, availableMaids, partTimeMaids]
+  );
 
   const applyDefault = useCallback((data?: {
     maids?: DutyStaff[];
-    supervisors?: ScheduleStaff[];
+    supervisors?: DutyStaff[];
     linenControllers?: ScheduleStaff[];
     floorWorkloads?: FloorWorkload[];
   }) => {
@@ -218,6 +224,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       const working = staffRows.filter((person) => workingIds.has(person.id));
       const maids = working.filter((person) => person.staff_role === 'MAID');
       const supervisors = working.filter((person) => person.staff_role === 'SUPERVISOR');
+      const releaseSupervisors = withPremBackupReleaser(supervisors);
       const linenControllers = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER');
       const linenControllerChoices = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER' || person.staff_role === 'MAID');
 
@@ -237,19 +244,21 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       }
 
       setAvailableMaids(maids);
-      setAvailableSupervisors(supervisors);
+      setAvailableFloorSupervisors(supervisors);
+      setAvailableSupervisors(releaseSupervisors);
       setAvailableLinenControllers(linenControllerChoices);
       setWorkloads(nextWorkloads);
 
       const saved = savedResult.data as SavedDutyRow | null;
       if (saved) {
         const savedPartTimers = safePartTimeMaids(saved.part_time_maids);
-        const allMaidRows = [...maids, ...savedPartTimers];
-        const maidIds = new Set(allMaidRows.map((person) => person.id));
-        const supervisorIds = new Set(supervisors.map((person) => person.id));
+        const autoMaidRows = [...maids, ...savedPartTimers];
+        const floorAssigneeRows = [...autoMaidRows, ...supervisors];
+        const maidIds = new Set(floorAssigneeRows.map((person) => person.id));
+        const supervisorIds = new Set(releaseSupervisors.map((person) => person.id));
         const linenIds = new Set(linenControllerChoices.map((person) => person.id));
         const activeFloors = new Set(nextWorkloads.filter((row) => row.checkout + row.stayover > 0).map((row) => row.floorKey));
-        const suggested = generateSuggestedDutyPlan({ maids: allMaidRows, supervisors, linenControllers, workloads: nextWorkloads });
+        const suggested = generateSuggestedDutyPlan({ maids: autoMaidRows, supervisors: releaseSupervisors, linenControllers, workloads: nextWorkloads });
         const savedSupervisors = safeSupervisorAssignments(saved.supervisor_assignments)
           .filter((assignment) => supervisorIds.has(assignment.staffId));
         const supervisorByFloor = new Map(savedSupervisors.map((assignment) => [assignment.floorKey, assignment]));
@@ -260,7 +269,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
           .filter((assignment) => maidIds.has(assignment.staffId))
           .map((assignment) => ({
             ...assignment,
-            staffName: allMaidRows.find((person) => person.id === assignment.staffId)?.staff_name || assignment.staffName,
+            staffName: floorAssigneeRows.find((person) => person.id === assignment.staffId)?.staff_name || assignment.staffName,
             floors: assignment.floors.filter((floor) => activeFloors.has(floor)),
           }))
           .filter((assignment) => assignment.floors.length > 0);
@@ -293,7 +302,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         setVersion(Number(saved.version || 0));
         setLastSaved({ name: saved.updated_by_name, at: saved.updated_at });
       } else {
-        const suggested = generateSuggestedDutyPlan({ maids, supervisors, linenControllers, workloads: nextWorkloads });
+        const suggested = generateSuggestedDutyPlan({ maids, supervisors: releaseSupervisors, linenControllers, workloads: nextWorkloads });
         setMaidAssignments(suggested.maidAssignments);
         setPartTimeMaids([]);
         setSupervisorAssignments(suggested.supervisorAssignments);
@@ -352,7 +361,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     if (!canEdit) return;
     const name = partTimeName.trim();
     if (!name) return;
-    if (allMaids.some((person) => person.staff_name.toLowerCase() === name.toLowerCase())) {
+    if (allFloorAssignees.some((person) => person.staff_name.toLowerCase() === name.toLowerCase())) {
       setError(`${name} is already available for assignment.`);
       return;
     }
@@ -518,9 +527,9 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       {success ? <div className={styles.successBanner}>{success}</div> : null}
 
       <div className={styles.metrics}>
-        <Metric label="Available maids" value={allMaids.length} />
+        <Metric label="Available floor staff" value={allFloorAssignees.length} />
         <Metric label="Cleaning rooms" value={totalWorkload} />
-        <Metric label="Assigned maids" value={maidAssignments.length} />
+        <Metric label="Assigned floor staff" value={maidAssignments.length} />
         <Metric label="Floors covered" value={`${assignedFloorKeys.size}/${activeFloorKeys.size}`} warning={assignedFloorKeys.size < activeFloorKeys.size} />
       </div>
 
@@ -528,16 +537,16 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         <div className={styles.editorColumn}>
           <section className={styles.card}>
             <header className={styles.cardHeader}>
-              <div><span>1</span><h3>Maid Duty Assignment</h3></div>
+              <div><span>1</span><h3>Floor Cleaning Assignment</h3></div>
               <small>Target: approximately 16 rooms per maid · assign as many floors as needed</small>
             </header>
             {canEdit ? <div className={extras.partTimerBar}>
               <div><strong>Part-time maids</strong><span>Add today’s temporary staff, then assign their floors below.</span></div>
               <div><input aria-label="Part-timer name" value={partTimeName} placeholder="Enter part-timer name" onChange={(event) => setPartTimeName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addPartTimer(); }} /><button type="button" onClick={addPartTimer}>+ Add</button></div>
             </div> : null}
-            {!allMaids.length ? <p className={styles.empty}>No maids are available for this date.</p> : (
+            {!allFloorAssignees.length ? <p className={styles.empty}>No floor staff are available for this date.</p> : (
               <div className={styles.maidList}>
-                {allMaids.map((person) => {
+                {allFloorAssignees.map((person) => {
                   const assignment = assignmentByMaid.get(person.id);
                   const selectedFloors = assignment?.floors || [];
                   const personWorkload = selectedFloors.reduce((sum, floor) => {
@@ -547,7 +556,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
                   return (
                     <article key={person.id} className={`${styles.maidCard} ${extras.maidCardExtended} ${selectedFloors.length ? '' : styles.specialPoolCard}`}>
                       <div className={styles.maidSummary}>
-                        <div><strong>{person.staff_name}</strong>{partTimeMaids.some((row) => row.id === person.id) ? <em>Part-time</em> : null}{selectedFloors.length > 1 ? <em>{selectedFloors.length} floors</em> : null}</div>
+                        <div><strong>{person.staff_name}</strong>{availableFloorSupervisors.some((row) => row.id === person.id) ? <em>Supervisor</em> : null}{partTimeMaids.some((row) => row.id === person.id) ? <em>Part-time</em> : null}{selectedFloors.length > 1 ? <em>{selectedFloors.length} floors</em> : null}</div>
                         <b>{selectedFloors.length ? selectedFloors.join(' + ') : 'Special duty pool'}</b>
                         <small>{selectedFloors.length ? `${personWorkload} room${personWorkload === 1 ? '' : 's'}` : 'No floor cleaning assigned'}</small>
                       </div>
