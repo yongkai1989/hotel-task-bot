@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import {
   DUTY_FLOORS,
   generateSuggestedDutyPlan,
+  PREM_BACKUP_RELEASER,
   withPremBackupReleaser,
   type DutyFloorKey,
   type DutyStaff,
@@ -177,9 +178,12 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     linenControllers?: ScheduleStaff[];
     floorWorkloads?: FloorWorkload[];
   }) => {
+    const automaticReleaseSupervisors = withPremBackupReleaser(
+      data?.supervisors || availableFloorSupervisors
+    );
     const plan = generateSuggestedDutyPlan({
       maids: data?.maids || allMaids,
-      supervisors: data?.supervisors || availableSupervisors,
+      supervisors: automaticReleaseSupervisors,
       linenControllers: data?.linenControllers || availableLinenControllers,
       workloads: data?.floorWorkloads || workloads,
     });
@@ -188,7 +192,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     setLinenControllerStaffIds(plan.linenControllerStaffIds);
     setSuccess('Default assignment loaded. Review the suggestions before saving.');
     setError('');
-  }, [allMaids, availableLinenControllers, availableSupervisors, workloads]);
+  }, [allMaids, availableFloorSupervisors, availableLinenControllers, workloads]);
 
   const loadData = useCallback(async () => {
     if (!supabase) {
@@ -224,7 +228,10 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       const working = staffRows.filter((person) => workingIds.has(person.id));
       const maids = working.filter((person) => person.staff_role === 'MAID');
       const supervisors = working.filter((person) => person.staff_role === 'SUPERVISOR');
-      const releaseSupervisors = withPremBackupReleaser(supervisors);
+      const automaticReleaseSupervisors = withPremBackupReleaser(supervisors);
+      const releaseSupervisorChoices = supervisors.some(
+        (person) => person.staff_name.trim().toLowerCase() === 'prem'
+      ) ? supervisors : [...supervisors, PREM_BACKUP_RELEASER];
       const linenControllers = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER');
       const linenControllerChoices = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER' || person.staff_role === 'MAID');
 
@@ -245,7 +252,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
 
       setAvailableMaids(maids);
       setAvailableFloorSupervisors(supervisors);
-      setAvailableSupervisors(releaseSupervisors);
+      setAvailableSupervisors(releaseSupervisorChoices);
       setAvailableLinenControllers(linenControllerChoices);
       setWorkloads(nextWorkloads);
 
@@ -255,10 +262,10 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         const autoMaidRows = [...maids, ...savedPartTimers];
         const floorAssigneeRows = [...autoMaidRows, ...supervisors];
         const maidIds = new Set(floorAssigneeRows.map((person) => person.id));
-        const supervisorIds = new Set(releaseSupervisors.map((person) => person.id));
+        const supervisorIds = new Set(releaseSupervisorChoices.map((person) => person.id));
         const linenIds = new Set(linenControllerChoices.map((person) => person.id));
         const activeFloors = new Set(nextWorkloads.filter((row) => row.checkout + row.stayover > 0).map((row) => row.floorKey));
-        const suggested = generateSuggestedDutyPlan({ maids: autoMaidRows, supervisors: releaseSupervisors, linenControllers, workloads: nextWorkloads });
+        const suggested = generateSuggestedDutyPlan({ maids: autoMaidRows, supervisors: automaticReleaseSupervisors, linenControllers, workloads: nextWorkloads });
         const savedSupervisors = safeSupervisorAssignments(saved.supervisor_assignments)
           .filter((assignment) => supervisorIds.has(assignment.staffId));
         const supervisorByFloor = new Map(savedSupervisors.map((assignment) => [assignment.floorKey, assignment]));
@@ -302,7 +309,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         setVersion(Number(saved.version || 0));
         setLastSaved({ name: saved.updated_by_name, at: saved.updated_at });
       } else {
-        const suggested = generateSuggestedDutyPlan({ maids, supervisors: releaseSupervisors, linenControllers, workloads: nextWorkloads });
+        const suggested = generateSuggestedDutyPlan({ maids, supervisors: automaticReleaseSupervisors, linenControllers, workloads: nextWorkloads });
         setMaidAssignments(suggested.maidAssignments);
         setPartTimeMaids([]);
         setSupervisorAssignments(suggested.supervisorAssignments);
