@@ -187,6 +187,10 @@ export default function HkSpecialProjectPage() {
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [roomSearch, setRoomSearch] = useState('');
+  const [editingRoomCard, setEditingRoomCard] = useState<TaskCardData | null>(null);
+  const [editSelectedRoomNumbers, setEditSelectedRoomNumbers] = useState<string[]>([]);
+  const [editRoomSearch, setEditRoomSearch] = useState('');
+  const [savingRoomList, setSavingRoomList] = useState(false);
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
   const [busyDeleteTaskId, setBusyDeleteTaskId] = useState<string | null>(null);
@@ -447,6 +451,27 @@ export default function HkSpecialProjectPage() {
     }
     return [...groups.values()];
   }, [allRooms, newRoomSearch]);
+
+  const editSelectedRoomSet = useMemo(
+    () => new Set(editSelectedRoomNumbers),
+    [editSelectedRoomNumbers]
+  );
+
+  const editRoomGroups = useMemo(() => {
+    const keyword = editRoomSearch.trim().toLowerCase();
+    const groups = new Map<string, { label: string; rooms: RoomRow[] }>();
+    for (const room of allRooms) {
+      if (keyword && !room.room_number.toLowerCase().includes(keyword)) continue;
+      const key = `${room.block_no}-${room.floor_no}`;
+      const group = groups.get(key) || {
+        label: `Block ${room.block_no} · Level ${room.floor_no}`,
+        rooms: [],
+      };
+      group.rooms.push(room);
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }, [allRooms, editRoomSearch]);
 
   function openCreateModal() {
     if (!canCreate) return;
@@ -805,6 +830,79 @@ export default function HkSpecialProjectPage() {
     setRoomSearch('');
   }
 
+  function openEditRoomChecklist(card: TaskCardData) {
+    if (!canManageHkSpecialProjectTasks(profile) || card.run.status === 'DONE') return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    setEditingRoomCard(card);
+    setEditSelectedRoomNumbers(card.rooms.map((room) => room.room_number));
+    setEditRoomSearch('');
+  }
+
+  function closeEditRoomChecklist() {
+    if (savingRoomList) return;
+    setEditingRoomCard(null);
+    setEditSelectedRoomNumbers([]);
+    setEditRoomSearch('');
+  }
+
+  function toggleEditChecklistRoom(roomNumber: string) {
+    setEditSelectedRoomNumbers((current) =>
+      current.includes(roomNumber)
+        ? current.filter((value) => value !== roomNumber)
+        : [...current, roomNumber]
+    );
+  }
+
+  function selectEditRoomGroup(roomNumbers: string[]) {
+    setEditSelectedRoomNumbers((current) => {
+      const next = new Set(current);
+      const allSelected = roomNumbers.every((roomNumber) => next.has(roomNumber));
+      for (const roomNumber of roomNumbers) {
+        if (allSelected) next.delete(roomNumber);
+        else next.add(roomNumber);
+      }
+      return [...next];
+    });
+  }
+
+  async function handleSaveRoomChecklist() {
+    if (!editingRoomCard || savingRoomList) return;
+    if (editSelectedRoomNumbers.length === 0) {
+      setErrorMsg('Choose at least one room for the checklist.');
+      return;
+    }
+
+    const supabase = getSupabaseSafe();
+    if (!supabase) {
+      setErrorMsg('Supabase is not configured.');
+      return;
+    }
+
+    try {
+      setSavingRoomList(true);
+      setErrorMsg('');
+      setSuccessMsg('');
+      const { error } = await supabase.rpc('update_hk_special_project_room_checklist', {
+        p_task_id: editingRoomCard.task.id,
+        p_run_id: editingRoomCard.run.id,
+        p_room_numbers: editSelectedRoomNumbers,
+      });
+      if (error) throw error;
+
+      const roomCount = editSelectedRoomNumbers.length;
+      setEditingRoomCard(null);
+      setEditSelectedRoomNumbers([]);
+      setEditRoomSearch('');
+      setSuccessMsg(`Room checklist updated to ${roomCount} room${roomCount === 1 ? '' : 's'}.`);
+      await loadAllData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to update the room checklist.');
+    } finally {
+      setSavingRoomList(false);
+    }
+  }
+
   function renderTaskCard(card: TaskCardData, section: 'OPEN' | 'OVERDUE' | 'DONE') {
     const doneDisabled =
       busyRunId === card.run.id ||
@@ -879,6 +977,16 @@ export default function HkSpecialProjectPage() {
               style={styles.secondaryActionBtn}
             >
               View Rooms
+            </button>
+          ) : null}
+
+          {section !== 'DONE' && card.task.has_room_checklist && canManageHkSpecialProjectTasks(profile) ? (
+            <button
+              type="button"
+              onClick={() => openEditRoomChecklist(card)}
+              style={styles.editRoomsBtn}
+            >
+              Edit Rooms
             </button>
           ) : null}
 
@@ -1162,7 +1270,7 @@ export default function HkSpecialProjectPage() {
             {newChecklistMode === 'CUSTOM' ? (
               <div style={styles.customRoomPicker}>
                 <div style={styles.roomPickerTop}>
-                  <div>
+                  <div style={styles.roomPickerHeading}>
                     <strong>Choose rooms to check</strong>
                     <span>{newSelectedRoomNumbers.length} selected</span>
                   </div>
@@ -1247,6 +1355,119 @@ export default function HkSpecialProjectPage() {
                 disabled={creatingTask}
               >
                 {creatingTask ? 'Creating...' : 'Create Task'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingRoomCard ? (
+        <div style={styles.modalOverlay} onClick={closeEditRoomChecklist}>
+          <div style={styles.roomModalCard} onClick={(event) => event.stopPropagation()}>
+            <div style={styles.modalTop}>
+              <div>
+                <div style={styles.modalTitle}>Edit Room Checklist</div>
+                <div style={styles.modalSubTitle}>{editingRoomCard.task.title}</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditRoomChecklist}
+                style={styles.closeBtn}
+                disabled={savingRoomList}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.editRoomNotice}>
+              Added rooms start as pending. Removing a room also removes its existing tick history from this project.
+            </div>
+
+            <div style={styles.roomPickerTop}>
+              <div style={styles.roomPickerHeading}>
+                <strong>Choose rooms to check</strong>
+                <span>{editSelectedRoomNumbers.length} selected</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditSelectedRoomNumbers([])}
+                disabled={savingRoomList || editSelectedRoomNumbers.length === 0}
+                style={styles.clearRoomsBtn}
+              >
+                Clear all
+              </button>
+            </div>
+
+            <input
+              value={editRoomSearch}
+              onChange={(event) => setEditRoomSearch(event.target.value)}
+              style={styles.input}
+              placeholder="Search room number"
+              inputMode="numeric"
+              disabled={savingRoomList}
+            />
+
+            <div style={styles.customRoomGroups}>
+              {editRoomGroups.map((group) => {
+                const roomNumbers = group.rooms.map((room) => room.room_number);
+                const allSelected = roomNumbers.every((roomNumber) => editSelectedRoomSet.has(roomNumber));
+                return (
+                  <section key={group.label} style={styles.customRoomGroup}>
+                    <div style={styles.customRoomGroupHeader}>
+                      <strong>{group.label}</strong>
+                      <button
+                        type="button"
+                        onClick={() => selectEditRoomGroup(roomNumbers)}
+                        disabled={savingRoomList}
+                        style={styles.selectLevelBtn}
+                      >
+                        {allSelected ? 'Clear level' : 'Select level'}
+                      </button>
+                    </div>
+                    <div style={styles.customRoomGrid}>
+                      {group.rooms.map((room) => {
+                        const selected = editSelectedRoomSet.has(room.room_number);
+                        return (
+                          <button
+                            key={room.room_number}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => toggleEditChecklistRoom(room.room_number)}
+                            disabled={savingRoomList}
+                            style={{
+                              ...styles.customRoomBtn,
+                              ...(selected ? styles.customRoomBtnActive : {}),
+                            }}
+                          >
+                            {selected ? '✓ ' : ''}{room.room_number}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+              {editRoomGroups.length === 0 ? (
+                <div style={styles.roomPickerEmpty}>No matching active rooms.</div>
+              ) : null}
+            </div>
+
+            <div style={{ ...styles.modalActions, marginTop: '16px' }}>
+              <button
+                type="button"
+                onClick={closeEditRoomChecklist}
+                style={styles.secondaryBtn}
+                disabled={savingRoomList}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveRoomChecklist()}
+                style={styles.primaryBtn}
+                disabled={savingRoomList || editSelectedRoomNumbers.length === 0}
+              >
+                {savingRoomList ? 'Saving...' : `Save ${editSelectedRoomNumbers.length} Rooms`}
               </button>
             </div>
           </div>
@@ -1488,6 +1709,15 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #cbd5e1',
     background: '#ffffff',
     color: '#0f172a',
+    borderRadius: '12px',
+    padding: '10px 14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  editRoomsBtn: {
+    border: '1px solid #2563eb',
+    background: '#eff6ff',
+    color: '#1d4ed8',
     borderRadius: '12px',
     padding: '10px 14px',
     fontWeight: 700,
@@ -1759,6 +1989,23 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     gap: '12px',
     marginBottom: '10px',
+  },
+  roomPickerHeading: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px',
+    color: '#0f172a',
+  },
+  editRoomNotice: {
+    border: '1px solid #fde68a',
+    background: '#fffbeb',
+    color: '#92400e',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    marginBottom: '14px',
+    fontSize: '13px',
+    fontWeight: 600,
+    lineHeight: 1.45,
   },
   clearRoomsBtn: {
     border: '1px solid #cbd5e1',
