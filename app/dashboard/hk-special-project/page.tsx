@@ -43,12 +43,15 @@ type HkTask = {
   repeat_every_days: number | null;
   due_in_days: number;
   has_room_checklist: boolean;
+  room_checklist_room_numbers: string[] | null;
   is_active: boolean;
   created_by_user_id: string | null;
   created_by_name: string | null;
   created_at: string;
   updated_at: string;
 };
+
+type NewChecklistMode = 'NONE' | 'FULL' | 'CUSTOM';
 
 type HkTaskRun = {
   id: string;
@@ -178,7 +181,9 @@ export default function HkSpecialProjectPage() {
   const [newRepeatMode, setNewRepeatMode] = useState<'NONE' | 'REPEAT'>('NONE');
   const [newRepeatEveryDaysInput, setNewRepeatEveryDaysInput] = useState('30');
   const [newDueDate, setNewDueDate] = useState(getTodayLocalDateString());
-  const [newHasRoomChecklist, setNewHasRoomChecklist] = useState(false);
+  const [newChecklistMode, setNewChecklistMode] = useState<NewChecklistMode>('NONE');
+  const [newSelectedRoomNumbers, setNewSelectedRoomNumbers] = useState<string[]>([]);
+  const [newRoomSearch, setNewRoomSearch] = useState('');
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [roomSearch, setRoomSearch] = useState('');
@@ -422,6 +427,27 @@ export default function HkSpecialProjectPage() {
     return selectedRun.rooms.filter((room) => room.room_number.includes(keyword));
   }, [selectedRun, roomSearch]);
 
+  const newSelectedRoomSet = useMemo(
+    () => new Set(newSelectedRoomNumbers),
+    [newSelectedRoomNumbers]
+  );
+
+  const newRoomGroups = useMemo(() => {
+    const keyword = newRoomSearch.trim().toLowerCase();
+    const groups = new Map<string, { label: string; rooms: RoomRow[] }>();
+    for (const room of allRooms) {
+      if (keyword && !room.room_number.toLowerCase().includes(keyword)) continue;
+      const key = `${room.block_no}-${room.floor_no}`;
+      const group = groups.get(key) || {
+        label: `Block ${room.block_no} · Level ${room.floor_no}`,
+        rooms: [],
+      };
+      group.rooms.push(room);
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }, [allRooms, newRoomSearch]);
+
   function openCreateModal() {
     if (!canCreate) return;
     setErrorMsg('');
@@ -431,13 +457,35 @@ export default function HkSpecialProjectPage() {
     setNewRepeatMode('NONE');
     setNewRepeatEveryDaysInput('30');
     setNewDueDate(getTodayLocalDateString());
-    setNewHasRoomChecklist(false);
+    setNewChecklistMode('NONE');
+    setNewSelectedRoomNumbers([]);
+    setNewRoomSearch('');
     setShowCreateModal(true);
   }
 
   function closeCreateModal() {
     if (creatingTask) return;
     setShowCreateModal(false);
+  }
+
+  function toggleNewChecklistRoom(roomNumber: string) {
+    setNewSelectedRoomNumbers((current) =>
+      current.includes(roomNumber)
+        ? current.filter((value) => value !== roomNumber)
+        : [...current, roomNumber]
+    );
+  }
+
+  function selectNewRoomGroup(roomNumbers: string[]) {
+    setNewSelectedRoomNumbers((current) => {
+      const next = new Set(current);
+      const allSelected = roomNumbers.every((roomNumber) => next.has(roomNumber));
+      for (const roomNumber of roomNumbers) {
+        if (allSelected) next.delete(roomNumber);
+        else next.add(roomNumber);
+      }
+      return [...next];
+    });
   }
 
   async function handleCreateTask() {
@@ -480,6 +528,11 @@ export default function HkSpecialProjectPage() {
       return;
     }
 
+    if (newChecklistMode === 'CUSTOM' && newSelectedRoomNumbers.length === 0) {
+      setErrorMsg('Choose at least one room for the custom checklist.');
+      return;
+    }
+
     const today = getTodayLocalDateString();
     if (dueDate < today) {
       setErrorMsg('Due date cannot be earlier than today.');
@@ -506,7 +559,9 @@ export default function HkSpecialProjectPage() {
             description: newDescription.trim() || null,
             repeat_every_days: repeatEveryDays,
             due_in_days: dueInDays,
-            has_room_checklist: newHasRoomChecklist,
+            has_room_checklist: newChecklistMode !== 'NONE',
+            room_checklist_room_numbers:
+              newChecklistMode === 'CUSTOM' ? newSelectedRoomNumbers : null,
             is_active: true,
             created_by_user_id: profile.user_id,
             created_by_name: profile.name || profile.email,
@@ -532,8 +587,12 @@ export default function HkSpecialProjectPage() {
 
       if (runError) throw runError;
 
-      if (newHasRoomChecklist) {
-        const roomRows = allRooms.map((room) => ({
+      if (newChecklistMode !== 'NONE') {
+        const selectedRoomSet = new Set(newSelectedRoomNumbers);
+        const checklistRooms = newChecklistMode === 'CUSTOM'
+          ? allRooms.filter((room) => selectedRoomSet.has(room.room_number))
+          : allRooms;
+        const roomRows = checklistRooms.map((room) => ({
           hk_special_project_task_run_id: insertedRun.id,
           room_number: room.room_number,
           is_done: false,
@@ -551,7 +610,9 @@ export default function HkSpecialProjectPage() {
       setNewTitle('');
       setNewDescription('');
       setNewDueDate(getTodayLocalDateString());
-      setNewHasRoomChecklist(false);
+      setNewChecklistMode('NONE');
+      setNewSelectedRoomNumbers([]);
+      setNewRoomSearch('');
       setShowCreateModal(false);
       setSuccessMsg('HK Special Project task created successfully.');
 
@@ -1072,15 +1133,102 @@ export default function HkSpecialProjectPage() {
               />
             </div>
 
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={newHasRoomChecklist}
-                onChange={(e) => setNewHasRoomChecklist(e.target.checked)}
-                disabled={creatingTask}
-              />
-              <span>Attach full room checklist ({allRooms.length} active rooms)</span>
-            </label>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Room Checklist</label>
+              <div style={styles.checklistModeGrid}>
+                {([
+                  ['NONE', 'No checklist', 'Task only'],
+                  ['FULL', 'All rooms', `${allRooms.length} active rooms`],
+                  ['CUSTOM', 'Choose rooms', 'Select only required rooms'],
+                ] as const).map(([mode, title, detail]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={newChecklistMode === mode}
+                    onClick={() => setNewChecklistMode(mode)}
+                    disabled={creatingTask}
+                    style={{
+                      ...styles.checklistModeBtn,
+                      ...(newChecklistMode === mode ? styles.checklistModeBtnActive : {}),
+                    }}
+                  >
+                    <strong>{title}</strong>
+                    <span>{detail}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {newChecklistMode === 'CUSTOM' ? (
+              <div style={styles.customRoomPicker}>
+                <div style={styles.roomPickerTop}>
+                  <div>
+                    <strong>Choose rooms to check</strong>
+                    <span>{newSelectedRoomNumbers.length} selected</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNewSelectedRoomNumbers([])}
+                    disabled={creatingTask || newSelectedRoomNumbers.length === 0}
+                    style={styles.clearRoomsBtn}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <input
+                  value={newRoomSearch}
+                  onChange={(event) => setNewRoomSearch(event.target.value)}
+                  style={styles.input}
+                  placeholder="Search room number"
+                  inputMode="numeric"
+                  disabled={creatingTask}
+                />
+                <div style={styles.customRoomGroups}>
+                  {newRoomGroups.map((group) => {
+                    const roomNumbers = group.rooms.map((room) => room.room_number);
+                    const allSelected = roomNumbers.every((roomNumber) => newSelectedRoomSet.has(roomNumber));
+                    return (
+                      <section key={group.label} style={styles.customRoomGroup}>
+                        <div style={styles.customRoomGroupHeader}>
+                          <strong>{group.label}</strong>
+                          <button
+                            type="button"
+                            onClick={() => selectNewRoomGroup(roomNumbers)}
+                            disabled={creatingTask}
+                            style={styles.selectLevelBtn}
+                          >
+                            {allSelected ? 'Clear level' : 'Select level'}
+                          </button>
+                        </div>
+                        <div style={styles.customRoomGrid}>
+                          {group.rooms.map((room) => {
+                            const selected = newSelectedRoomSet.has(room.room_number);
+                            return (
+                              <button
+                                key={room.room_number}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => toggleNewChecklistRoom(room.room_number)}
+                                disabled={creatingTask}
+                                style={{
+                                  ...styles.customRoomBtn,
+                                  ...(selected ? styles.customRoomBtnActive : {}),
+                                }}
+                              >
+                                {selected ? '✓ ' : ''}{room.room_number}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    );
+                  })}
+                  {newRoomGroups.length === 0 ? (
+                    <div style={styles.roomPickerEmpty}>No matching active rooms.</div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             <div style={styles.modalActions}>
               <button
@@ -1476,6 +1624,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     userSelect: 'text',
     maxWidth: '640px',
+    maxHeight: '90vh',
+    overflowY: 'auto',
     background: '#fff',
     borderRadius: '22px',
     padding: '20px',
@@ -1569,6 +1719,109 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '6px',
     marginBottom: '16px',
     color: '#334155',
+    fontWeight: 600,
+  },
+  checklistModeGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '8px',
+  },
+  checklistModeBtn: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '4px',
+    minHeight: '68px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '12px',
+    background: '#fff',
+    color: '#334155',
+    padding: '11px 12px',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  checklistModeBtnActive: {
+    border: '2px solid #2563eb',
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    padding: '10px 11px',
+  },
+  customRoomPicker: {
+    border: '1px solid #bfdbfe',
+    background: '#f8fbff',
+    borderRadius: '16px',
+    padding: '14px',
+    marginBottom: '16px',
+  },
+  roomPickerTop: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+    marginBottom: '10px',
+  },
+  clearRoomsBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#475569',
+    borderRadius: '9px',
+    padding: '8px 10px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  customRoomGroups: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    marginTop: '12px',
+  },
+  customRoomGroup: {
+    border: '1px solid #dbeafe',
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '10px',
+  },
+  customRoomGroupHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px',
+    marginBottom: '8px',
+    color: '#334155',
+    fontSize: '13px',
+  },
+  selectLevelBtn: {
+    border: 0,
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    borderRadius: '8px',
+    padding: '7px 9px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  customRoomGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))',
+    gap: '7px',
+  },
+  customRoomBtn: {
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#334155',
+    borderRadius: '9px',
+    padding: '9px 6px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  customRoomBtnActive: {
+    border: '1px solid #2563eb',
+    background: '#2563eb',
+    color: '#fff',
+  },
+  roomPickerEmpty: {
+    padding: '14px',
+    textAlign: 'center',
+    color: '#64748b',
     fontWeight: 600,
   },
   modalActions: {
