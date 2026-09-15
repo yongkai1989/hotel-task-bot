@@ -188,6 +188,9 @@ export default function HkSpecialProjectPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [roomSearch, setRoomSearch] = useState('');
   const [editingRoomCard, setEditingRoomCard] = useState<TaskCardData | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
   const [editSelectedRoomNumbers, setEditSelectedRoomNumbers] = useState<string[]>([]);
   const [editRoomSearch, setEditRoomSearch] = useState('');
   const [savingRoomList, setSavingRoomList] = useState(false);
@@ -835,6 +838,9 @@ export default function HkSpecialProjectPage() {
     setErrorMsg('');
     setSuccessMsg('');
     setEditingRoomCard(card);
+    setEditTitle(card.task.title);
+    setEditStartDate(card.run.run_start_date);
+    setEditDueDate(card.run.due_date);
     setEditSelectedRoomNumbers(card.rooms.map((room) => room.room_number));
     setEditRoomSearch('');
   }
@@ -842,6 +848,9 @@ export default function HkSpecialProjectPage() {
   function closeEditRoomChecklist() {
     if (savingRoomList) return;
     setEditingRoomCard(null);
+    setEditTitle('');
+    setEditStartDate('');
+    setEditDueDate('');
     setEditSelectedRoomNumbers([]);
     setEditRoomSearch('');
   }
@@ -868,6 +877,19 @@ export default function HkSpecialProjectPage() {
 
   async function handleSaveRoomChecklist() {
     if (!editingRoomCard || savingRoomList) return;
+    const title = editTitle.trim();
+    if (!title) {
+      setErrorMsg('Please enter a project name.');
+      return;
+    }
+    if (!editStartDate || !editDueDate) {
+      setErrorMsg('Please select both the start date and due date.');
+      return;
+    }
+    if (editDueDate < editStartDate) {
+      setErrorMsg('Due date cannot be earlier than the start date.');
+      return;
+    }
     if (editSelectedRoomNumbers.length === 0) {
       setErrorMsg('Choose at least one room for the checklist.');
       return;
@@ -883,21 +905,27 @@ export default function HkSpecialProjectPage() {
       setSavingRoomList(true);
       setErrorMsg('');
       setSuccessMsg('');
-      const { error } = await supabase.rpc('update_hk_special_project_room_checklist', {
+      const { error } = await supabase.rpc('update_hk_special_project_task', {
         p_task_id: editingRoomCard.task.id,
         p_run_id: editingRoomCard.run.id,
+        p_title: title,
+        p_start_date: editStartDate,
+        p_due_date: editDueDate,
         p_room_numbers: editSelectedRoomNumbers,
       });
       if (error) throw error;
 
       const roomCount = editSelectedRoomNumbers.length;
       setEditingRoomCard(null);
+      setEditTitle('');
+      setEditStartDate('');
+      setEditDueDate('');
       setEditSelectedRoomNumbers([]);
       setEditRoomSearch('');
-      setSuccessMsg(`Room checklist updated to ${roomCount} room${roomCount === 1 ? '' : 's'}.`);
+      setSuccessMsg(`Project updated successfully with ${roomCount} room${roomCount === 1 ? '' : 's'}.`);
       await loadAllData();
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to update the room checklist.');
+      setErrorMsg(err?.message || 'Failed to update the project.');
     } finally {
       setSavingRoomList(false);
     }
@@ -986,7 +1014,7 @@ export default function HkSpecialProjectPage() {
               onClick={() => openEditRoomChecklist(card)}
               style={styles.editRoomsBtn}
             >
-              Edit Rooms
+              Edit Project
             </button>
           ) : null}
 
@@ -1366,8 +1394,8 @@ export default function HkSpecialProjectPage() {
           <div style={styles.roomModalCard} onClick={(event) => event.stopPropagation()}>
             <div style={styles.modalTop}>
               <div>
-                <div style={styles.modalTitle}>Edit Room Checklist</div>
-                <div style={styles.modalSubTitle}>{editingRoomCard.task.title}</div>
+                <div style={styles.modalTitle}>Edit Special Project</div>
+                <div style={styles.modalSubTitle}>Update the project details and room checklist.</div>
               </div>
               <button
                 type="button"
@@ -1377,6 +1405,41 @@ export default function HkSpecialProjectPage() {
               >
                 ×
               </button>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Project Name</label>
+              <input
+                value={editTitle}
+                onChange={(event) => setEditTitle(event.target.value)}
+                style={styles.input}
+                placeholder="Project name"
+                disabled={savingRoomList}
+              />
+            </div>
+
+            <div style={styles.editDateGrid}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Start Date</label>
+                <input
+                  type="date"
+                  value={editStartDate}
+                  onChange={(event) => setEditStartDate(event.target.value)}
+                  style={styles.input}
+                  disabled={savingRoomList}
+                />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Due Date</label>
+                <input
+                  type="date"
+                  value={editDueDate}
+                  min={editStartDate || undefined}
+                  onChange={(event) => setEditDueDate(event.target.value)}
+                  style={styles.input}
+                  disabled={savingRoomList}
+                />
+              </div>
             </div>
 
             <div style={styles.editRoomNotice}>
@@ -1465,9 +1528,16 @@ export default function HkSpecialProjectPage() {
                 type="button"
                 onClick={() => void handleSaveRoomChecklist()}
                 style={styles.primaryBtn}
-                disabled={savingRoomList || editSelectedRoomNumbers.length === 0}
+                disabled={
+                  savingRoomList ||
+                  !editTitle.trim() ||
+                  !editStartDate ||
+                  !editDueDate ||
+                  editDueDate < editStartDate ||
+                  editSelectedRoomNumbers.length === 0
+                }
               >
-                {savingRoomList ? 'Saving...' : `Save ${editSelectedRoomNumbers.length} Rooms`}
+                {savingRoomList ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -1912,6 +1982,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '12px',
     flexWrap: 'wrap',
     alignItems: 'flex-start',
+  },
+  editDateGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '12px',
   },
   label: {
     fontSize: '14px',
