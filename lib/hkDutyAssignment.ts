@@ -144,7 +144,7 @@ export function generateSuggestedDutyPlan(args: {
     const blockRooms = blockFloors.reduce((sum, floorKey) => sum + workloadTotal(workloadMap.get(floorKey)), 0);
     desiredByBlock.set(
       block,
-      blockRooms ? Math.max(Math.ceil(blockRooms / 16), Math.ceil(blockFloors.length / 2)) : 0
+      blockRooms ? Math.ceil(blockRooms / 16) : 0
     );
   }
   while ([...desiredByBlock.values()].reduce((sum, value) => sum + value, 0) > maids.length) {
@@ -167,7 +167,6 @@ export function generateSuggestedDutyPlan(args: {
     );
     for (const floorKey of blockFloors) {
       const target = bins
-        .filter((bin) => bin.floors.length < 2)
         .sort((a, b) => a.load - b.load)[0];
       if (!target) continue;
       target.floors.push(floorKey);
@@ -183,8 +182,8 @@ export function generateSuggestedDutyPlan(args: {
     const available = (rows: Array<DutyStaff | undefined>) => rows.find((person) => person && !usedIds.has(person.id));
 
     for (const bin of bins) {
-      // When two floors are combined, keep the usual maid from the lighter
-      // floor and let that person assist the busier floor.
+      // When floors are combined, keep the usual maid from the lightest floor
+      // and let that person assist the busier floors.
       const usualFloor = [...bin.floors].sort(
         (a, b) => workloadTotal(workloadMap.get(a)) - workloadTotal(workloadMap.get(b))
       )[0];

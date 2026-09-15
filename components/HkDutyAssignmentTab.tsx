@@ -84,7 +84,7 @@ function safeMaidAssignments(value: unknown): MaidDutyAssignment[] {
     return [{
       staffId: row.staffId,
       staffName: row.staffName,
-      floors: Array.isArray(row.floors) ? row.floors.filter(isFloorKey).slice(0, 2) : [],
+      floors: Array.isArray(row.floors) ? row.floors.filter(isFloorKey) : [],
     }];
   });
 }
@@ -271,12 +271,11 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
           const existing = nextMaids.find((assignment) => assignment.staffId === suggestion.staffId);
           if (existing) {
             for (const floor of missingFloors) {
-              if (existing.floors.length >= 2) break;
               existing.floors.push(floor);
               covered.add(floor);
             }
           } else {
-            const floors = missingFloors.slice(0, 2);
+            const floors = missingFloors;
             nextMaids.push({ ...suggestion, floors });
             floors.forEach((floor) => covered.add(floor));
           }
@@ -342,9 +341,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       const selected = existing.floors.includes(floorKey);
       const floors = selected
         ? existing.floors.filter((floor) => floor !== floorKey)
-        : existing.floors.length < 2
-          ? [...existing.floors, floorKey]
-          : existing.floors;
+        : [...existing.floors, floorKey];
       return current
         .map((row) => row.staffId === person.id ? { ...row, floors } : row)
         .filter((row) => row.floors.length > 0);
@@ -532,7 +529,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
           <section className={styles.card}>
             <header className={styles.cardHeader}>
               <div><span>1</span><h3>Maid Duty Assignment</h3></div>
-              <small>Target: approximately 16 rooms per maid · maximum 2 floors</small>
+              <small>Target: approximately 16 rooms per maid · assign as many floors as needed</small>
             </header>
             {canEdit ? <div className={extras.partTimerBar}>
               <div><strong>Part-time maids</strong><span>Add today’s temporary staff, then assign their floors below.</span></div>
@@ -560,7 +557,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
                           const active = activeFloorKeys.has(floor.key);
                           const selected = selectedFloors.includes(floor.key);
                           return (
-                            <button key={floor.key} type="button" disabled={!canEdit || !active || (!selected && selectedFloors.length >= 2)}
+                            <button key={floor.key} type="button" disabled={!canEdit || !active}
                               aria-pressed={selected} className={selected ? styles.floorSelected : ''} onClick={() => toggleMaidFloor(person, floor.key)}
                               title={active ? `${row?.checkout || 0} checkout, ${row?.stayover || 0} stayover` : 'No checkout or stayover rooms'}>
                               <strong>{floor.key}</strong><small>{active ? `${row?.checkout || 0} CO · ${row?.stayover || 0} SO` : 'No rooms'}</small>
