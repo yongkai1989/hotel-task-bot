@@ -75,6 +75,13 @@ function formatDutyDate(value: string) {
   }).format(date);
 }
 
+function formatReadableList(values: Array<string | number>) {
+  const labels = values.map(String);
+  if (labels.length <= 1) return labels[0] || '';
+  if (labels.length === 2) return `${labels[0]} & ${labels[1]}`;
+  return `${labels.slice(0, -1).join(', ')} & ${labels[labels.length - 1]}`;
+}
+
 function isFloorKey(value: unknown): value is DutyFloorKey {
   return DUTY_FLOORS.some((floor) => floor.key === value);
 }
@@ -426,45 +433,68 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
 
   const reportText = useMemo(() => {
     const lines = [
-      'HOUSEKEEPING DAILY DUTY BRIEFING',
+      '*HOUSEKEEPING DAILY DUTY BRIEFING*',
       formatDutyDate(serviceDate),
-      `Workload: ${totalCheckout} Checkouts · ${totalStayover} Stayovers · ${activeFloorKeys.size} Active Floors`,
       '',
-      'SUPERVISOR RELEASE CONTROL',
+      '*DAILY WORKLOAD*',
+      `• Checkouts: *${totalCheckout}*`,
+      `• Stayovers: *${totalStayover}*`,
+      `• Active floors: *${activeFloorKeys.size}*`,
+      '',
+      '*SUPERVISOR RELEASE CONTROL*',
     ];
-    for (const block of [1, 2]) {
-      const rows = DUTY_FLOORS.filter((floor) => floor.block === block).map((floor) => {
-        const assignment = supervisorAssignments.find((row) => row.floorKey === floor.key);
-        return `L${floor.floor} ${assignment?.staffName || 'Unassigned'}`;
-      });
-      lines.push(`Block ${block} — ${rows.join(' · ')}`);
+
+    const releaseBySupervisor = new Map<string, { name: string; blocks: Map<number, number[]> }>();
+    for (const floor of DUTY_FLOORS) {
+      const assignment = supervisorAssignments.find((row) => row.floorKey === floor.key);
+      const staffId = assignment?.staffId || 'unassigned';
+      const group = releaseBySupervisor.get(staffId) || {
+        name: assignment?.staffName || 'Unassigned',
+        blocks: new Map<number, number[]>(),
+      };
+      group.blocks.set(floor.block, [...(group.blocks.get(floor.block) || []), floor.floor]);
+      releaseBySupervisor.set(staffId, group);
     }
-    lines.push('', 'FLOOR OPERATIONS');
+    for (const group of releaseBySupervisor.values()) {
+      lines.push(`• *${group.name}*`);
+      for (const [block, floors] of group.blocks) {
+        lines.push(`  Block ${block} — Level${floors.length === 1 ? '' : 's'} ${formatReadableList(floors)}`);
+      }
+    }
+
+    lines.push('', '*FLOOR OPERATIONS*');
     for (const block of [1, 2]) {
-      lines.push(`BLOCK ${block}`);
-      for (const floor of DUTY_FLOORS.filter((row) => row.block === block)) {
+      const activeBlockFloors = DUTY_FLOORS.filter((floor) => {
         const workload = workloadMap.get(floor.key);
-        if (!workload || workload.checkout + workload.stayover === 0) continue;
+        return floor.block === block && Boolean(workload && workload.checkout + workload.stayover > 0);
+      });
+      if (!activeBlockFloors.length) continue;
+      lines.push(`_Block ${block}_`);
+      for (const floor of activeBlockFloors) {
+        const workload = workloadMap.get(floor.key);
+        if (!workload) continue;
         const names = maidAssignments.filter((row) => row.floors.includes(floor.key)).map((row) => row.staffName);
-        const parts = [`${workload.checkout} C/O`];
-        if (workload.stayover) parts.push(`${workload.stayover} Stayover${workload.stayover === 1 ? '' : 's'}`);
-        lines.push(`• L${floor.floor} · ${names.join(' & ') || 'Unassigned'} — ${parts.join(' · ')}`);
+        const parts = [`${workload.checkout} C/O`, `${workload.stayover} Stayover${workload.stayover === 1 ? '' : 's'}`];
+        lines.push(`• Level ${floor.floor} — *${names.join(' & ') || 'Unassigned'}*`);
+        lines.push(`  ${parts.join(' · ')}`);
       }
     }
     const linenNames = availableLinenControllers
       .filter((person) => linenControllerStaffIds.includes(person.id))
       .map((person) => person.staff_name);
-    lines.push('', 'SUPPORT DUTY', `Linen Control — ${linenNames.join(' & ') || 'Unassigned'}`);
+    lines.push('', '*SUPPORT DUTY*', `• Linen Control — *${linenNames.join(' & ') || 'Unassigned'}*`);
+    if (specialDutyPool.length) {
+      lines.push(`• Available for Special Duty — *${specialDutyPool.map((row) => row.staff_name).join(', ')}*`);
+    }
     if (specialDuties.some((row) => row.focus.trim())) {
-      lines.push('', 'SPECIAL CLEANING PRIORITIES');
+      lines.push('', '*SPECIAL CLEANING PRIORITIES*');
       for (const duty of specialDuties.filter((row) => row.focus.trim())) {
-        lines.push(`• ${duty.focus}${duty.assignedTo.trim() ? ` — ${duty.assignedTo.trim()}` : ''}${duty.scope.trim() ? ` | ${duty.scope.trim()}` : ''}`);
+        lines.push(`• *${duty.focus.trim()}*`);
+        if (duty.assignedTo.trim()) lines.push(`  Assigned to: ${duty.assignedTo.trim()}`);
+        if (duty.scope.trim()) lines.push(`  Area/Rooms: ${duty.scope.trim()}`);
       }
     }
-    if (specialDutyPool.length) {
-      lines.push('', `AVAILABLE FOR SPECIAL DUTY — ${specialDutyPool.map((row) => row.staff_name).join(', ')}`);
-    }
-    lines.push('', 'C/O = Checkout');
+    lines.push('', '_C/O = Checkout_');
     return lines.join('\n');
   }, [activeFloorKeys.size, availableLinenControllers, linenControllerStaffIds, maidAssignments, serviceDate, specialDuties, specialDutyPool, supervisorAssignments, totalCheckout, totalStayover, workloadMap]);
 
