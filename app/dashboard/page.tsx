@@ -91,6 +91,7 @@ type DashboardInsights = {
 
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
+const DASHBOARD_TASKS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
 const MANUAL_TASK_REFRESH_MIN_MS = 45000;
 const INSIGHTS_REFRESH_MIN_MS = 600000;
@@ -1121,7 +1122,6 @@ export default function DashboardPage() {
   }, [createPhotos, editNewPhotos, isMobile, markupTarget]);
 
   const lastTasksFingerprintRef = useRef('');
-  const hasHydratedFromCacheRef = useRef(false);
   const lastTasksRequestAtRef = useRef(0);
   const tasksRequestInFlightRef = useRef<Promise<boolean> | null>(null);
   const lastInsightsRequestAtRef = useRef(0);
@@ -1145,29 +1145,88 @@ export default function DashboardPage() {
     if (typeof window === 'undefined') return;
 
     try {
-      lastTasksFingerprintRef.current = buildTasksFingerprint(taskList);
-      sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+      const fingerprint = buildTasksFingerprint(taskList);
+      lastTasksFingerprintRef.current = fingerprint;
+      if (!profileKey) return;
+
+      sessionStorage.setItem(
+        DASHBOARD_TASKS_CACHE_KEY,
+        JSON.stringify({
+          profileKey,
+          tasks: taskList,
+          fingerprint,
+          savedAt: Date.now(),
+        })
+      );
     } catch {
       // ignore cache write failure
     }
   }
 
-  function readTasksFromCache(): Task[] | null {
-    return null;
+  function readTasksFromCache(expectedProfileKey = profileKey): Task[] | null {
+    if (typeof window === 'undefined' || !expectedProfileKey) return null;
+
+    try {
+      const raw = sessionStorage.getItem(DASHBOARD_TASKS_CACHE_KEY);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw);
+      const savedAt = Number(parsed?.savedAt || 0);
+      if (
+        parsed?.profileKey !== expectedProfileKey ||
+        !Array.isArray(parsed?.tasks) ||
+        savedAt <= 0 ||
+        Date.now() - savedAt > DASHBOARD_TASKS_CACHE_TTL_MS
+      ) {
+        sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+        return null;
+      }
+
+      lastTasksFingerprintRef.current =
+        parsed.fingerprint || buildTasksFingerprint(parsed.tasks);
+      return parsed.tasks as Task[];
+    } catch {
+      sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+      return null;
+    }
   }
 
-  function saveInsightsToCache(_nextInsights: DashboardInsights) {
+  function saveInsightsToCache(nextInsights: DashboardInsights) {
     if (typeof window === 'undefined') return;
 
     try {
-      sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      if (!profileKey) return;
+      sessionStorage.setItem(
+        DASHBOARD_INSIGHTS_CACHE_KEY,
+        JSON.stringify({ profileKey, insights: nextInsights, savedAt: Date.now() })
+      );
     } catch {
       // ignore cache write failure
     }
   }
 
-  function readInsightsFromCache(_maxAgeMs = INSIGHTS_REFRESH_MIN_MS): DashboardInsights | null {
-    return null;
+  function readInsightsFromCache(maxAgeMs = INSIGHTS_REFRESH_MIN_MS): DashboardInsights | null {
+    if (typeof window === 'undefined' || !profileKey) return null;
+
+    try {
+      const raw = sessionStorage.getItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const savedAt = Number(parsed?.savedAt || 0);
+      if (
+        parsed?.profileKey !== profileKey ||
+        !parsed?.insights ||
+        savedAt <= 0 ||
+        Date.now() - savedAt > maxAgeMs
+      ) {
+        sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+        return null;
+      }
+      return parsed.insights as DashboardInsights;
+    } catch {
+      sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      return null;
+    }
   }
 
   useEffect(() => {
@@ -1349,18 +1408,6 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (hasHydratedFromCacheRef.current) return;
-
-    const cachedTasks = readTasksFromCache();
-    if (cachedTasks && cachedTasks.length > 0) {
-      setTasks(cachedTasks);
-      setLoading(false);
-    }
-
-    hasHydratedFromCacheRef.current = true;
-  }, []);
-
-  useEffect(() => {
     if (!profileKey) {
       lastLoadedProfileKeyRef.current = '';
       setTasks([]);
@@ -1374,18 +1421,21 @@ export default function DashboardPage() {
     }
 
     lastLoadedProfileKeyRef.current = profileKey;
-    void loadDashboardInsights();
 
-    const cachedTasks = readTasksFromCache();
+    const cachedTasks = readTasksFromCache(profileKey);
 
     if (cachedTasks && cachedTasks.length > 0) {
       setTasks((prev) => (prev.length > 0 ? prev : cachedTasks));
-      void loadTasks(false, { silent: true, onlyIfChanged: true });
       setLoading(false);
+      void loadTasks(false, { silent: true, onlyIfChanged: true }).finally(() => {
+        void loadDashboardInsights();
+      });
       return;
     }
 
-    void loadTasks(tasks.length === 0, { force: tasks.length === 0 });
+    void loadTasks(tasks.length === 0, { force: tasks.length === 0 }).finally(() => {
+      void loadDashboardInsights();
+    });
   }, [profileKey]);
 
   useEffect(() => {
@@ -2833,8 +2883,7 @@ async function handleDeleteTask(task: Task) {
 
   const taskMainRowStyle: React.CSSProperties = styles.taskMainRow;
   const showInitialDashboardLoader =
-    (authLoading && !profile) ||
-    (!!profile && sidebarView === 'DASHBOARD' && loading && tasks.length === 0);
+    authLoading && !profile;
 
   return (
     <main style={styles.page}>
@@ -3099,8 +3148,8 @@ async function handleDeleteTask(task: Task) {
                         gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                       }}
                     >
-                      <OverviewMetricCard href="/dashboard?status=open" title="Open Tasks" value={summary.open} note="Needs attention" tone="open" icon="clipboard" />
-                      <OverviewMetricCard href="/dashboard?status=done" title="Done Today" value={summary.doneToday} note="Completed today" tone="done" icon="check" />
+                      <OverviewMetricCard href="/dashboard?status=open" title="Open Tasks" value={loading && tasks.length === 0 ? '—' : summary.open} note={loading && tasks.length === 0 ? 'Loading tasks' : 'Needs attention'} tone="open" icon="clipboard" />
+                      <OverviewMetricCard href="/dashboard?status=done" title="Done Today" value={loading && tasks.length === 0 ? '—' : summary.doneToday} note={loading && tasks.length === 0 ? 'Loading tasks' : 'Completed today'} tone="done" icon="check" />
                       <OverviewMetricCard
                         href="/dashboard/fo-checklist"
                         title="FO Checklist"
