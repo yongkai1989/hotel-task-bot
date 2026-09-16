@@ -469,23 +469,24 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     }
 
     lines.push('*FLOOR OPERATIONS*', '');
+    let renderedFloorBlock = false;
     for (const block of [1, 2]) {
       const activeBlockFloors = DUTY_FLOORS.filter((floor) => {
         const workload = workloadMap.get(floor.key);
         return floor.block === block && Boolean(workload && workload.checkout + workload.stayover > 0);
       });
       if (!activeBlockFloors.length) continue;
-      lines.push(`_Block ${block}_`, '');
+      if (renderedFloorBlock) addReportGap(lines);
+      lines.push(`*Block ${block}*`);
       for (const floor of activeBlockFloors) {
         const workload = workloadMap.get(floor.key);
         if (!workload) continue;
         const names = maidAssignments.filter((row) => row.floors.includes(floor.key)).map((row) => row.staffName);
-        const parts = [`${workload.checkout} C/O`, `${workload.stayover} Stayover${workload.stayover === 1 ? '' : 's'}`];
-        lines.push(`• Level ${floor.floor} — *${names.join(' & ') || 'Unassigned'}*`);
-        lines.push(`  ${parts.join(' · ')}`);
-        addReportGap(lines);
+        lines.push(`• L${floor.floor} — *${names.join(' & ') || 'Unassigned'}* | ${workload.checkout} C/O · ${workload.stayover} Stayover${workload.stayover === 1 ? '' : 's'}`);
       }
+      renderedFloorBlock = true;
     }
+    addReportGap(lines);
     const linenNames = availableLinenControllers
       .filter((person) => linenControllerStaffIds.includes(person.id))
       .map((person) => person.staff_name);
