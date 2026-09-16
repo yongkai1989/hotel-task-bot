@@ -82,6 +82,10 @@ function formatReadableList(values: Array<string | number>) {
   return `${labels.slice(0, -1).join(', ')} & ${labels[labels.length - 1]}`;
 }
 
+function addReportGap(lines: string[]) {
+  if (lines[lines.length - 1] !== '') lines.push('');
+}
+
 function isFloorKey(value: unknown): value is DutyFloorKey {
   return DUTY_FLOORS.some((floor) => floor.key === value);
 }
@@ -442,6 +446,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       `• Active floors: *${activeFloorKeys.size}*`,
       '',
       '*SUPERVISOR RELEASE CONTROL*',
+      '',
     ];
 
     const releaseBySupervisor = new Map<string, { name: string; blocks: Map<number, number[]> }>();
@@ -460,16 +465,17 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       for (const [block, floors] of group.blocks) {
         lines.push(`  Block ${block} — Level${floors.length === 1 ? '' : 's'} ${formatReadableList(floors)}`);
       }
+      addReportGap(lines);
     }
 
-    lines.push('', '*FLOOR OPERATIONS*');
+    lines.push('*FLOOR OPERATIONS*', '');
     for (const block of [1, 2]) {
       const activeBlockFloors = DUTY_FLOORS.filter((floor) => {
         const workload = workloadMap.get(floor.key);
         return floor.block === block && Boolean(workload && workload.checkout + workload.stayover > 0);
       });
       if (!activeBlockFloors.length) continue;
-      lines.push(`_Block ${block}_`);
+      lines.push(`_Block ${block}_`, '');
       for (const floor of activeBlockFloors) {
         const workload = workloadMap.get(floor.key);
         if (!workload) continue;
@@ -477,24 +483,28 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         const parts = [`${workload.checkout} C/O`, `${workload.stayover} Stayover${workload.stayover === 1 ? '' : 's'}`];
         lines.push(`• Level ${floor.floor} — *${names.join(' & ') || 'Unassigned'}*`);
         lines.push(`  ${parts.join(' · ')}`);
+        addReportGap(lines);
       }
     }
     const linenNames = availableLinenControllers
       .filter((person) => linenControllerStaffIds.includes(person.id))
       .map((person) => person.staff_name);
-    lines.push('', '*SUPPORT DUTY*', `• Linen Control — *${linenNames.join(' & ') || 'Unassigned'}*`);
+    lines.push('*SUPPORT DUTY*', '', `• Linen Control — *${linenNames.join(' & ') || 'Unassigned'}*`);
     if (specialDutyPool.length) {
       lines.push(`• Available for Special Duty — *${specialDutyPool.map((row) => row.staff_name).join(', ')}*`);
     }
     if (specialDuties.some((row) => row.focus.trim())) {
-      lines.push('', '*SPECIAL CLEANING PRIORITIES*');
+      addReportGap(lines);
+      lines.push('*SPECIAL CLEANING PRIORITIES*', '');
       for (const duty of specialDuties.filter((row) => row.focus.trim())) {
         lines.push(`• *${duty.focus.trim()}*`);
         if (duty.assignedTo.trim()) lines.push(`  Assigned to: ${duty.assignedTo.trim()}`);
         if (duty.scope.trim()) lines.push(`  Area/Rooms: ${duty.scope.trim()}`);
+        addReportGap(lines);
       }
     }
-    lines.push('', '_C/O = Checkout_');
+    addReportGap(lines);
+    lines.push('_C/O = Checkout_');
     return lines.join('\n');
   }, [activeFloorKeys.size, availableLinenControllers, linenControllerStaffIds, maidAssignments, serviceDate, specialDuties, specialDutyPool, supervisorAssignments, totalCheckout, totalStayover, workloadMap]);
 
