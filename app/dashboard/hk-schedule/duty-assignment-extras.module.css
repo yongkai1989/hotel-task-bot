@@ -5,6 +5,7 @@
 
 .partTimerBar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -18,7 +19,7 @@
 .partTimerBar > div:first-child { display: grid; gap: 2px; }
 .partTimerBar strong { font-size: 12px; }
 .partTimerBar span { color: #6d7e94; font-size: 10px; }
-.partTimerBar > div:last-child,
+.partTimerEntry,
 .addQuickItem { display: flex; gap: 6px; }
 .partTimerBar input,
 .addQuickItem input {
@@ -51,6 +52,153 @@
   font-size: 10px;
   font-weight: 900;
 }
+
+.partTimerList {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.partTimerChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #c7d9ef;
+  border-radius: 999px;
+  padding: 4px 5px 4px 9px;
+  background: #fff;
+  color: #244361 !important;
+  font-size: 11px !important;
+  font-weight: 800;
+}
+.partTimerChip button {
+  min-height: 22px;
+  width: 22px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: #fff1f2;
+  color: #c91e1e;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.floorAssignmentGroups { display: grid; gap: 12px; }
+.floorAssignmentBlock {
+  overflow: hidden;
+  border: 1px solid #d7e3f0;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+.floorBlockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-bottom: 1px solid #dbe6f1;
+  background: linear-gradient(90deg, #eef5ff, #f8fbff);
+}
+.floorBlockHeader > div { display: flex; align-items: center; gap: 9px; }
+.floorBlockHeader > div > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: #164f9f;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+.floorBlockHeader > div > div { display: grid; gap: 1px; }
+.floorBlockHeader strong { color: #132b4d; font-size: 13px; letter-spacing: .06em; }
+.floorBlockHeader small { color: #77879c; font-size: 10px; }
+.floorBlockHeader b {
+  border: 1px solid #cbdcf0;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #fff;
+  color: #34516f;
+  font-size: 10px;
+}
+.floorAssignmentRows { display: grid; }
+.floorAssignmentRow { border-top: 1px solid #e4ebf3; background: #fff; }
+.floorAssignmentRow:first-child { border-top: 0; }
+.floorAssignmentRowOpen { background: #f8fbff; }
+.floorAssignmentRowInactive { background: #f8fafc; }
+.floorAssignmentMain {
+  display: grid;
+  grid-template-columns: 120px 185px minmax(200px, 1fr) 104px;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+}
+.floorIdentity { display: flex; align-items: baseline; gap: 7px; }
+.floorIdentity strong { color: #174f9d; font-size: 15px; }
+.floorIdentity span { color: #6b7c92; font-size: 11px; }
+.floorWorkload { display: flex; align-items: baseline; gap: 5px; color: #5e7189; }
+.floorWorkload strong { color: #132b4d; font-size: 15px; }
+.floorWorkload span { font-size: 10px; font-weight: 800; }
+.floorWorkload i { color: #9ba8b8; font-style: normal; }
+.floorWorkload em { color: #8b98a8; font-size: 11px; font-style: normal; font-weight: 700; }
+.floorAssigneeChips { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.assigneeChip,
+.assigneeChipReadonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #a9c7ee;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #eaf3ff;
+  color: #174f9d;
+  font-size: 11px;
+  font-weight: 900;
+}
+.assigneeChip span { font-size: 14px; line-height: .8; }
+.unassignedLabel { color: #9a5b0a; font-size: 11px; font-weight: 800; }
+.floorAssignmentRowInactive .unassignedLabel { color: #909cab; }
+.chooseStaffButton {
+  min-height: 36px;
+  border: 1px solid #aac2e1;
+  border-radius: 9px;
+  padding: 0 10px;
+  background: #fff;
+  color: #174f9d;
+  font-size: 11px;
+  font-weight: 900;
+}
+.chooseStaffButton:disabled { border-color: #d9e1ea; background: #f2f5f8; color: #9aa6b4; }
+.floorStaffPicker {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px;
+  border-top: 1px solid #d8e6f5;
+  background: #eef6ff;
+}
+.floorStaffPicker > div:first-child { display: grid; align-content: start; gap: 3px; }
+.floorStaffPicker > div:first-child strong { color: #173b6b; font-size: 12px; }
+.floorStaffPicker > div:first-child span { color: #667c98; font-size: 10px; line-height: 1.4; }
+.floorStaffOptions { display: flex; flex-wrap: wrap; gap: 6px; }
+.floorStaffOption,
+.floorStaffOptionSelected {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 35px;
+  border: 1px solid #c5d5e8;
+  border-radius: 9px;
+  padding: 0 10px;
+  background: #fff;
+  color: #314d6d;
+  font-weight: 800;
+}
+.floorStaffOptionSelected { border-color: #2563eb; background: #2563eb; color: #fff; box-shadow: 0 3px 8px rgba(37,99,235,.18); }
+.floorStaffOption small,
+.floorStaffOptionSelected small { opacity: .78; font-size: 8px; }
 
 .linenChoices { display: flex; flex-wrap: wrap; gap: 6px; }
 .linenChoices button {
@@ -87,13 +235,33 @@
 @media (max-width: 760px) {
   .maidCardExtended { grid-template-columns: 1fr; }
   .partTimerBar { align-items: stretch; flex-direction: column; }
-  .partTimerBar > div:last-child { display: grid; grid-template-columns: 1fr auto; }
+  .partTimerEntry { display: grid; grid-template-columns: 1fr auto; }
   .partTimerBar input,
   .addQuickItem input { width: 100%; min-width: 0; min-height: 44px; }
   .partTimerBar button,
   .addQuickItem button,
   .removePartTimer { min-height: 44px; }
+  .partTimerChip button { min-height: 22px; }
   .removePartTimer { width: 100%; }
   .addQuickItem { display: grid; grid-template-columns: 1fr; }
   .linenChoices button { min-height: 44px; }
+  .floorBlockHeader { align-items: flex-start; flex-direction: column; }
+  .floorAssignmentMain {
+    grid-template-columns: 1fr auto;
+    gap: 7px 10px;
+    padding: 11px;
+  }
+  .floorIdentity { grid-column: 1; }
+  .floorWorkload { grid-column: 2; justify-content: flex-end; }
+  .floorAssigneeChips { grid-column: 1 / -1; min-height: 31px; }
+  .chooseStaffButton { grid-column: 1 / -1; width: 100%; min-height: 44px; }
+  .floorStaffPicker { grid-template-columns: 1fr; }
+  .floorStaffOptions { display: grid; grid-template-columns: 1fr 1fr; }
+  .floorStaffOption,
+  .floorStaffOptionSelected { justify-content: center; min-height: 44px; }
+}
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .floorAssignmentMain { grid-template-columns: 100px 160px minmax(160px, 1fr) 100px; }
+  .floorStaffPicker { grid-template-columns: 180px minmax(0, 1fr); }
 }

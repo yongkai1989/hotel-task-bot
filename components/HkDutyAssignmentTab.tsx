@@ -159,6 +159,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const [availableLinenControllers, setAvailableLinenControllers] = useState<ScheduleStaff[]>([]);
   const [partTimeMaids, setPartTimeMaids] = useState<DutyStaff[]>([]);
   const [partTimeName, setPartTimeName] = useState('');
+  const [openFloorPicker, setOpenFloorPicker] = useState<DutyFloorKey | null>(null);
   const [workloads, setWorkloads] = useState<FloorWorkload[]>(EMPTY_WORKLOADS);
   const [maidAssignments, setMaidAssignments] = useState<MaidDutyAssignment[]>([]);
   const [supervisorAssignments, setSupervisorAssignments] = useState<SupervisorDutyAssignment[]>([]);
@@ -212,6 +213,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       return;
     }
     setLoading(true);
+    setOpenFloorPicker(null);
     setError('');
     setSuccess('');
     try {
@@ -589,42 +591,54 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
               <small>Target: approximately 16 rooms per maid · assign as many floors as needed</small>
             </header>
             {canEdit ? <div className={extras.partTimerBar}>
-              <div><strong>Part-time maids</strong><span>Add today’s temporary staff, then assign their floors below.</span></div>
-              <div><input aria-label="Part-timer name" value={partTimeName} placeholder="Enter part-timer name" onChange={(event) => setPartTimeName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addPartTimer(); }} /><button type="button" onClick={addPartTimer}>+ Add</button></div>
+              <div><strong>Part-time maids</strong><span>Add today’s temporary staff, then assign them to any floor.</span></div>
+              <div className={extras.partTimerEntry}><input aria-label="Part-timer name" value={partTimeName} placeholder="Enter part-timer name" onChange={(event) => setPartTimeName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addPartTimer(); }} /><button type="button" onClick={addPartTimer}>+ Add</button></div>
+              {partTimeMaids.length ? <div className={extras.partTimerList}>
+                {partTimeMaids.map((person) => <span key={person.id} className={extras.partTimerChip}>{person.staff_name}<button type="button" aria-label={`Remove part-timer ${person.staff_name}`} onClick={() => removePartTimer(person.id)}>×</button></span>)}
+              </div> : null}
             </div> : null}
             {!allFloorAssignees.length ? <p className={styles.empty}>No floor staff are available for this date.</p> : (
-              <div className={styles.maidList}>
-                {allFloorAssignees.map((person) => {
-                  const assignment = assignmentByMaid.get(person.id);
-                  const selectedFloors = assignment?.floors || [];
-                  const personWorkload = selectedFloors.reduce((sum, floor) => {
-                    const row = workloadMap.get(floor);
+              <div className={extras.floorAssignmentGroups}>
+                {[1, 2].map((block) => {
+                  const blockFloors = DUTY_FLOORS.filter((floor) => floor.block === block);
+                  const activeFloors = blockFloors.filter((floor) => activeFloorKeys.has(floor.key));
+                  const blockRooms = blockFloors.reduce((sum, floor) => {
+                    const row = workloadMap.get(floor.key);
                     return sum + Number(row?.checkout || 0) + Number(row?.stayover || 0);
                   }, 0);
-                  return (
-                    <article key={person.id} className={`${styles.maidCard} ${extras.maidCardExtended} ${selectedFloors.length ? '' : styles.specialPoolCard}`}>
-                      <div className={styles.maidSummary}>
-                        <div><strong>{person.staff_name}</strong>{availableFloorSupervisors.some((row) => row.id === person.id) ? <em>Supervisor</em> : null}{partTimeMaids.some((row) => row.id === person.id) ? <em>Part-time</em> : null}{selectedFloors.length > 1 ? <em>{selectedFloors.length} floors</em> : null}</div>
-                        <b>{selectedFloors.length ? selectedFloors.join(' + ') : 'Special duty pool'}</b>
-                        <small>{selectedFloors.length ? `${personWorkload} room${personWorkload === 1 ? '' : 's'}` : 'No floor cleaning assigned'}</small>
-                      </div>
-                      <div className={styles.floorPicker}>
-                        {DUTY_FLOORS.map((floor) => {
-                          const row = workloadMap.get(floor.key);
-                          const active = activeFloorKeys.has(floor.key);
-                          const selected = selectedFloors.includes(floor.key);
-                          return (
-                            <button key={floor.key} type="button" disabled={!canEdit || !active}
-                              aria-pressed={selected} className={selected ? styles.floorSelected : ''} onClick={() => toggleMaidFloor(person, floor.key)}
-                              title={active ? `${row?.checkout || 0} checkout, ${row?.stayover || 0} stayover` : 'No checkout or stayover rooms'}>
-                              <strong>{floor.key}</strong><small>{active ? `${row?.checkout || 0} CO · ${row?.stayover || 0} SO` : 'No rooms'}</small>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {canEdit && partTimeMaids.some((row) => row.id === person.id) ? <button type="button" className={extras.removePartTimer} aria-label={`Remove part-timer ${person.staff_name}`} onClick={() => removePartTimer(person.id)}>Remove</button> : null}
-                    </article>
-                  );
+                  return <section key={block} className={extras.floorAssignmentBlock}>
+                    <header className={extras.floorBlockHeader}>
+                      <div><span>B{block}</span><div><strong>BLOCK {block}</strong><small>Floor cleaning team</small></div></div>
+                      <b>{activeFloors.length} active floor{activeFloors.length === 1 ? '' : 's'} · {blockRooms} room{blockRooms === 1 ? '' : 's'}</b>
+                    </header>
+                    <div className={extras.floorAssignmentRows}>
+                      {blockFloors.map((floor) => {
+                        const row = workloadMap.get(floor.key);
+                        const active = activeFloorKeys.has(floor.key);
+                        const pickerOpen = openFloorPicker === floor.key;
+                        const selectedPeople = allFloorAssignees.filter((person) => assignmentByMaid.get(person.id)?.floors.includes(floor.key));
+                        return <article key={floor.key} className={`${extras.floorAssignmentRow} ${active ? '' : extras.floorAssignmentRowInactive} ${pickerOpen ? extras.floorAssignmentRowOpen : ''}`}>
+                          <div className={extras.floorAssignmentMain}>
+                            <div className={extras.floorIdentity}><strong>{floor.key}</strong><span>Floor {floor.floor}</span></div>
+                            <div className={extras.floorWorkload}>{active ? <><strong>{row?.checkout || 0}</strong><span>C/O</span><i>·</i><strong>{row?.stayover || 0}</strong><span>Stayover{Number(row?.stayover || 0) === 1 ? '' : 's'}</span></> : <em>No rooms today</em>}</div>
+                            <div className={extras.floorAssigneeChips}>
+                              {selectedPeople.length ? selectedPeople.map((person) => canEdit ? <button key={person.id} type="button" className={extras.assigneeChip} aria-label={`Remove ${person.staff_name} from ${floor.key}`} onClick={() => toggleMaidFloor(person, floor.key)}>{person.staff_name}<span>×</span></button> : <span key={person.id} className={extras.assigneeChipReadonly}>{person.staff_name}</span>) : <span className={extras.unassignedLabel}>{active ? 'Unassigned' : 'No assignment needed'}</span>}
+                            </div>
+                            <button type="button" className={extras.chooseStaffButton} disabled={!canEdit || !active} aria-expanded={pickerOpen} onClick={() => setOpenFloorPicker(pickerOpen ? null : floor.key)}>{pickerOpen ? 'Close' : selectedPeople.length ? 'Edit staff' : 'Choose staff'}</button>
+                          </div>
+                          {pickerOpen && canEdit && active ? <div className={extras.floorStaffPicker}>
+                            <div><strong>Who is cleaning {floor.key}?</strong><span>Select one or more people. A person may cover multiple floors.</span></div>
+                            <div className={extras.floorStaffOptions}>{allFloorAssignees.map((person) => {
+                              const selected = selectedPeople.some((selectedPerson) => selectedPerson.id === person.id);
+                              const isSupervisor = availableFloorSupervisors.some((staff) => staff.id === person.id);
+                              const isPartTimer = partTimeMaids.some((staff) => staff.id === person.id);
+                              return <button key={person.id} type="button" aria-pressed={selected} className={selected ? extras.floorStaffOptionSelected : extras.floorStaffOption} onClick={() => toggleMaidFloor(person, floor.key)}><span>{person.staff_name}</span>{isSupervisor ? <small>Supervisor</small> : isPartTimer ? <small>Part-time</small> : null}</button>;
+                            })}</div>
+                          </div> : null}
+                        </article>;
+                      })}
+                    </div>
+                  </section>;
                 })}
               </div>
             )}
