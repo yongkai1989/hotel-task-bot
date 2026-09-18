@@ -592,32 +592,32 @@ async function linenVarianceReminder(today: string) {
     0
   );
   const lines = [
-    '🧺 6:00 PM LINEN DIFFERENCE FOLLOW-UP',
-    `Date: ${displayDate(today)}`,
-    `Flag rule: ±${threshold} or more`,
-    `Flagged: ${findingCount} linen difference${findingCount === 1 ? '' : 's'} across ${areaFlags.length} level${areaFlags.length === 1 ? '' : 's'}`,
+    '🧺 <b>6 PM LINEN FOLLOW-UP</b>',
     '',
-    '📋 HK SUPERVISOR CHECKLIST',
+    `<b>${displayDate(today)}</b> · Flag threshold ±${threshold}`,
+    `<b>${findingCount} difference${findingCount === 1 ? '' : 's'} across ${areaFlags.length} floor${areaFlags.length === 1 ? '' : 's'}</b>`,
+    '',
+    '📋 <b>SUPERVISOR CHECKLIST</b>',
   ];
 
   const checklistStatus = checklistResult as SupervisorChecklistStatus;
   if (checklistStatus.warning) {
-    lines.push(`⚠️ ${checklistStatus.warning}`);
+    lines.push(`⚠️ ${telegramHtml(checklistStatus.warning)}`);
   } else if (!checklistStatus.required.length) {
     lines.push('ℹ️ No housekeeping supervisor is scheduled to work today.');
   } else if (!checklistStatus.pending.length) {
     lines.push(
-      `✅ ${checklistStatus.submitted.length}/${checklistStatus.required.length} scheduled supervisors submitted.`,
-      `Submitted: ${checklistStatus.submitted.map((person) => person.name).join(', ')}`
+      `✅ <b>${checklistStatus.submitted.length}/${checklistStatus.required.length} submitted</b>`,
+      `Submitted: ${telegramHtml(checklistStatus.submitted.map((person) => person.name).join(', '))}`
     );
   } else {
     lines.push(
-      `⚠️ ${checklistStatus.submitted.length}/${checklistStatus.required.length} scheduled supervisors submitted.`,
-      `Pending: ${checklistStatus.pending.map((person) => person.name).join(', ')}`,
-      'Please submit the HK Supervisor Checklist immediately.'
+      `⚠️ <b>${checklistStatus.submitted.length}/${checklistStatus.required.length} submitted</b>`,
+      `Pending: <b>${telegramHtml(checklistStatus.pending.map((person) => person.name).join(', '))}</b>`,
+      '<b>Action:</b> Submit the HK Supervisor Checklist immediately.'
     );
   }
-  lines.push('', '🧺 LINEN DIFFERENCES', '');
+  lines.push('', '🧺 <b>LINEN DIFFERENCES</b>');
 
   if (!findingCount) {
     lines.push(
@@ -626,32 +626,37 @@ async function linenVarianceReminder(today: string) {
     );
   } else {
     for (const area of areaFlags) {
+      const flaggedItems = Array.isArray(area.flagged_items) ? area.flagged_items : [];
       lines.push(
-        `BLOCK ${Number(area.block_no || 0)} · LEVEL ${Number(area.floor_no || 0)}${Number(area.bill_rows || 0) ? '' : ' ⚠️ IN BILL NOT SAVED'}`
+        '',
+        `<b>BLOCK ${Number(area.block_no || 0)} · LEVEL ${Number(area.floor_no || 0)}</b> · ${flaggedItems.length} item${flaggedItems.length === 1 ? '' : 's'}${Number(area.bill_rows || 0) ? '' : ' ⚠️ <b>IN BILL NOT SAVED</b>'}`
       );
-      for (const item of area.flagged_items || []) {
+      for (const item of flaggedItems) {
         const difference = Number(item.difference || 0);
+        const indicator = difference > 0 ? '🔵' : '🔴';
         lines.push(
-          `• ${item.label || 'Linen'} — Chambermaid ${Number(item.maid_use || 0)} | In Bill ${Number(item.in_bill || 0)} | Difference ${signed(difference)}`
+          `${indicator} <b>${signed(difference)} · ${telegramHtml(item.label || 'Linen')}</b>`,
+          `<i>Chambermaid ${Number(item.maid_use || 0)} · In Bill ${Number(item.in_bill || 0)}</i>`
         );
       }
-      lines.push('');
     }
     lines.push(
-      'Positive difference = In Bill is higher.',
-      'Negative difference = Chambermaid entry is higher.',
       '',
-      'Please check the flagged levels and correct any wrong entry immediately.'
+      '🔵 Positive: In Bill is higher',
+      '🔴 Negative: Chambermaid entry is higher',
+      '',
+      '<b>Action:</b> Check the flagged floors and correct any wrong entry immediately.'
     );
   }
 
-  const messages = telegramChunks(lines, '🧺 6:00 PM LINEN DIFFERENCE FOLLOW-UP (CONTINUED)');
+  const messages = telegramChunks(lines, '🧺 <b>6 PM LINEN FOLLOW-UP — CONTINUED</b>');
   const telegramMessageIds: number[] = [];
   for (const message of messages) {
     const messageId = await sendTelegramMessage(
       HK_TASK_CHAT_ID,
       message,
-      'Housekeeping linen difference'
+      'Housekeeping linen difference',
+      { parseMode: 'HTML' }
     );
     if (messageId) telegramMessageIds.push(messageId);
   }
