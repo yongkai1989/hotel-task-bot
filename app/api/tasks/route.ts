@@ -484,9 +484,12 @@ export async function GET(req: NextRequest) {
     }
 
     const enrichmentStartedAt = Date.now();
+    const acknowledgementTasks = (tasks || []).filter((task: any) => (
+      task.urgent === true || task.customer_waiting === true
+    ));
     const [reconciledTasks, tasksWithAcknowledgementsBeforeReconcile] = await Promise.all([
       reconcileManagerRoomCheckTasks(tasks || []),
-      attachTaskAlertAcknowledgements(tasks || []),
+      attachTaskAlertAcknowledgements(acknowledgementTasks),
     ]);
     stages.enrichment_parallel_ms = Date.now() - enrichmentStartedAt;
     const acknowledgementsByTaskId = new Map(

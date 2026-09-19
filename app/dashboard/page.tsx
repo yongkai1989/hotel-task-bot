@@ -1149,7 +1149,7 @@ export default function DashboardPage() {
       lastTasksFingerprintRef.current = fingerprint;
       if (!profileKey) return;
 
-      sessionStorage.setItem(
+      localStorage.setItem(
         DASHBOARD_TASKS_CACHE_KEY,
         JSON.stringify({
           profileKey,
@@ -1167,7 +1167,7 @@ export default function DashboardPage() {
     if (typeof window === 'undefined' || !expectedProfileKey) return null;
 
     try {
-      const raw = sessionStorage.getItem(DASHBOARD_TASKS_CACHE_KEY);
+      const raw = localStorage.getItem(DASHBOARD_TASKS_CACHE_KEY);
       if (!raw) return null;
 
       const parsed = JSON.parse(raw);
@@ -1178,7 +1178,7 @@ export default function DashboardPage() {
         savedAt <= 0 ||
         Date.now() - savedAt > DASHBOARD_TASKS_CACHE_TTL_MS
       ) {
-        sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+        localStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
         return null;
       }
 
@@ -1186,7 +1186,7 @@ export default function DashboardPage() {
         parsed.fingerprint || buildTasksFingerprint(parsed.tasks);
       return parsed.tasks as Task[];
     } catch {
-      sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+      localStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
       return null;
     }
   }
@@ -1196,7 +1196,7 @@ export default function DashboardPage() {
 
     try {
       if (!profileKey) return;
-      sessionStorage.setItem(
+      localStorage.setItem(
         DASHBOARD_INSIGHTS_CACHE_KEY,
         JSON.stringify({ profileKey, insights: nextInsights, savedAt: Date.now() })
       );
@@ -1209,7 +1209,7 @@ export default function DashboardPage() {
     if (typeof window === 'undefined' || !profileKey) return null;
 
     try {
-      const raw = sessionStorage.getItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      const raw = localStorage.getItem(DASHBOARD_INSIGHTS_CACHE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       const savedAt = Number(parsed?.savedAt || 0);
@@ -1219,12 +1219,12 @@ export default function DashboardPage() {
         savedAt <= 0 ||
         Date.now() - savedAt > maxAgeMs
       ) {
-        sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+        localStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
         return null;
       }
       return parsed.insights as DashboardInsights;
     } catch {
-      sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      localStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
       return null;
     }
   }
@@ -1979,8 +1979,8 @@ export default function DashboardPage() {
       setTasks([]);
       setLoginOpen(false);
       setPasswordModalOpen(false);
-      sessionStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
-      sessionStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
+      localStorage.removeItem(DASHBOARD_TASKS_CACHE_KEY);
+      localStorage.removeItem(DASHBOARD_INSIGHTS_CACHE_KEY);
 
       window.location.replace('/dashboard');
     } catch (err: any) {

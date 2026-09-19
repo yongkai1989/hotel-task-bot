@@ -21,6 +21,9 @@ function tokenSubject(accessToken: string) {
 
 export function clearDashboardSessionProfileCache() {
   if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(PROFILE_CACHE_KEY);
+  window.localStorage.removeItem(PROFILE_CACHE_TS_KEY);
+  // Remove the legacy per-tab cache after upgrading.
   window.sessionStorage.removeItem(PROFILE_CACHE_KEY);
   window.sessionStorage.removeItem(PROFILE_CACHE_TS_KEY);
 }
@@ -36,8 +39,8 @@ export async function loadDashboardSessionProfile<T extends object>(
   const subject = tokenSubject(accessToken);
   let matchingCachedProfile: T | null = null;
   let matchingCachedAt = 0;
-  const cachedRaw = window.sessionStorage.getItem(PROFILE_CACHE_KEY);
-  const cachedAt = Number(window.sessionStorage.getItem(PROFILE_CACHE_TS_KEY) || '0');
+  const cachedRaw = window.localStorage.getItem(PROFILE_CACHE_KEY);
+  const cachedAt = Number(window.localStorage.getItem(PROFILE_CACHE_TS_KEY) || '0');
   if (cachedRaw && cachedAt > 0) {
     try {
       const cached = JSON.parse(cachedRaw) as T;
@@ -82,8 +85,8 @@ export async function loadDashboardSessionProfile<T extends object>(
       if (subject && profileUserId && String(profileUserId) !== subject) {
         throw new Error('Session profile mismatch');
       }
-      window.sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
-      window.sessionStorage.setItem(PROFILE_CACHE_TS_KEY, String(Date.now()));
+      window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
+      window.localStorage.setItem(PROFILE_CACHE_TS_KEY, String(Date.now()));
       return profile;
     })
     .catch((error) => {

@@ -24,6 +24,9 @@ type Props = {
   userId?: string;
 };
 
+const ALERT_POLL_INTERVAL_MS = 60_000;
+const ALERT_POLL_LEASE_MS = 75_000;
+
 async function responseJson(response: Response) {
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.ok === false) {
@@ -50,6 +53,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
   const [error, setError] = useState('');
   const alertsRef = useRef<AlertTask[]>([]);
   const alertRequestRef = useRef<Promise<void> | null>(null);
+  const pollOwnerRef = useRef(`task-alert-tab-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
   const dismissedKey = useCallback((alert: AlertTask) => {
     const followUpOccurrence = alert.alert_kind.startsWith('FOLLOW_UP_')
@@ -140,12 +144,39 @@ export default function TaskAlertOverlay({ userId }: Props) {
 
   useEffect(() => {
     if (!accessToken || !userId) return;
+    const leaseKey = `task-alert-poll-lease:${userId}`;
+    const ownsPollingLease = () => {
+      const now = Date.now();
+      try {
+        const current = JSON.parse(window.localStorage.getItem(leaseKey) || 'null');
+        if (
+          current?.owner
+          && current.owner !== pollOwnerRef.current
+          && Number(current.expiresAt || 0) > now
+        ) return false;
+        window.localStorage.setItem(leaseKey, JSON.stringify({
+          owner: pollOwnerRef.current,
+          expiresAt: now + ALERT_POLL_LEASE_MS,
+        }));
+        return true;
+      } catch {
+        return true;
+      }
+    };
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && ownsPollingLease()) {
         void loadAlerts(accessToken).catch(() => {});
       }
-    }, 30_000);
-    return () => window.clearInterval(timer);
+    }, ALERT_POLL_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+      try {
+        const current = JSON.parse(window.localStorage.getItem(leaseKey) || 'null');
+        if (current?.owner === pollOwnerRef.current) window.localStorage.removeItem(leaseKey);
+      } catch {
+        // A stale lease naturally expires.
+      }
+    };
   }, [accessToken, loadAlerts, userId]);
 
   const current = alerts[0] || null;
