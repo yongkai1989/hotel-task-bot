@@ -2,6 +2,15 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Buffer } from 'node:buffer';
 
+const DASHBOARD_AUTH_TIMEOUT_MS = 6_000;
+
+const dashboardAuthFetch: typeof fetch = (input, init) => fetch(input, {
+  ...init,
+  signal: init?.signal
+    ? AbortSignal.any([init.signal, AbortSignal.timeout(DASHBOARD_AUTH_TIMEOUT_MS)])
+    : AbortSignal.timeout(DASHBOARD_AUTH_TIMEOUT_MS),
+});
+
 export type DashboardRole =
   | 'SUPERUSER'
   | 'MANAGER'
@@ -173,7 +182,8 @@ export async function getDashboardIdentityFromRequest(
 
     const authClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { fetch: dashboardAuthFetch } }
     );
     const { data, error } = await authClient.auth.getClaims(token);
     const userId = String(data?.claims?.sub || '').trim();
@@ -222,6 +232,7 @@ export async function getDashboardUserFromRequest(
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         global: {
+          fetch: dashboardAuthFetch,
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -240,7 +251,8 @@ export async function getDashboardUserFromRequest(
 
     const profileClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { global: { fetch: dashboardAuthFetch } }
     );
 
     const { data: profile, error: profileError } = await profileClient

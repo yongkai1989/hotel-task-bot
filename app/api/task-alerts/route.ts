@@ -3,7 +3,6 @@ import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../lib/dashboardAuth';
 import { broadcastTaskChange } from '../../../lib/taskBroadcastServer';
 import { logRouteTiming } from '../../../lib/routeTiming';
-import { processDueTaskEscalations } from '../../../lib/taskEscalation';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -35,10 +34,6 @@ export async function GET(req: NextRequest) {
     if (!user) return respond({ ok: false, error: authError || 'Unauthorized' }, 401);
     const userId = user.user_id;
 
-    const escalationStartedAt = Date.now();
-    await processDueTaskEscalations();
-    stages.escalation_ms = Date.now() - escalationStartedAt;
-
     const recipientsStartedAt = Date.now();
     const isFoFollowUpUser = user.role === 'FO' && user.can_access_fo_quick_actions === true;
     let completionQuery = supabaseAdmin
@@ -67,8 +62,9 @@ export async function GET(req: NextRequest) {
         .eq('user_id', userId)
         .is('acknowledged_at', null)
         .order('created_at', { ascending: true })
-        .limit(30),
-      completionQuery,
+        .limit(30)
+        .abortSignal(AbortSignal.timeout(6_000)),
+      completionQuery.abortSignal(AbortSignal.timeout(6_000)),
     ]);
     const { data: recipients, error: recipientError } = recipientResult;
     const { data: completionTasks, error: completionError } = completionResult;
@@ -85,6 +81,7 @@ export async function GET(req: NextRequest) {
           .select('id, task_code, room, department, task_text, status, source_page, customer_waiting, customer_waiting_due_at, urgent, urgent_due_at, alert_cycle, alert_acknowledged_at, alert_escalation_count, created_at')
           .in('id', taskIds)
           .eq('status', 'OPEN')
+          .abortSignal(AbortSignal.timeout(6_000))
       : { data: [], error: null };
     stages.tasks_ms = Date.now() - tasksStartedAt;
 

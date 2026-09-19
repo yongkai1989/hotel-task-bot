@@ -92,6 +92,7 @@ type DashboardInsights = {
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
 const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
 const DASHBOARD_TASKS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const DASHBOARD_TASK_REQUEST_TIMEOUT_MS = 7_000;
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
 const MANUAL_TASK_REFRESH_MIN_MS = 45000;
 const INSIGHTS_REFRESH_MIN_MS = 600000;
@@ -1891,7 +1892,7 @@ export default function DashboardPage() {
 
       const json = await fetchJson('/api/tasks', {
         method: 'GET',
-      }, 30000);
+      }, DASHBOARD_TASK_REQUEST_TIMEOUT_MS);
 
       const nextTasks: Task[] = (json.tasks || []).map((task: any) => ({
         ...task,

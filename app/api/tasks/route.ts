@@ -475,7 +475,8 @@ export async function GET(req: NextRequest) {
       `
       )
       .order('created_at', { ascending: false })
-      .limit(GET_TASK_LIMIT);
+      .limit(GET_TASK_LIMIT)
+      .abortSignal(AbortSignal.timeout(7_000));
     stages.task_read_ms = Date.now() - taskReadStartedAt;
 
     if (tasksError) {

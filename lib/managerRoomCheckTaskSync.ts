@@ -199,7 +199,8 @@ export async function reconcileManagerRoomCheckTasks<T extends LinkedTask>(tasks
     .select('id, department, room_number, status, created_at, updated_at, checked_at, checked_by_name')
     .in('department', ['HK', 'MT'])
     .in('room_number', rooms)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .abortSignal(AbortSignal.timeout(5_000));
   if (checksError) throw checksError;
 
   const checksByKey = new Map<string, any[]>();

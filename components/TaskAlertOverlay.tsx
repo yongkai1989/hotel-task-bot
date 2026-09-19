@@ -26,6 +26,7 @@ type Props = {
 
 const ALERT_POLL_INTERVAL_MS = 60_000;
 const ALERT_POLL_LEASE_MS = 75_000;
+const ALERT_REQUEST_TIMEOUT_MS = 6_000;
 
 async function responseJson(response: Response) {
   const payload = await response.json().catch(() => null);
@@ -37,7 +38,7 @@ async function responseJson(response: Response) {
 
 async function fetchTaskAlerts(input: RequestInfo | URL, init?: RequestInit) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  const timeout = window.setTimeout(() => controller.abort(), ALERT_REQUEST_TIMEOUT_MS);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } finally {

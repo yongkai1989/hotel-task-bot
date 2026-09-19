@@ -17,7 +17,8 @@ export async function attachTaskAlertAcknowledgements<T extends { id: unknown }>
     .select('task_id, acknowledged_name, acknowledged_at, alert_cycle')
     .in('task_id', taskIds)
     .not('acknowledged_at', 'is', null)
-    .order('acknowledged_at', { ascending: true });
+    .order('acknowledged_at', { ascending: true })
+    .abortSignal(AbortSignal.timeout(5_000));
 
   if (error) throw error;
 
