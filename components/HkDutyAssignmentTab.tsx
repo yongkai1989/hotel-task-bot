@@ -5,8 +5,6 @@ import { createBrowserSupabaseClient } from '../lib/supabaseBrowser';
 import {
   DUTY_FLOORS,
   generateSuggestedDutyPlan,
-  PREM_BACKUP_RELEASER,
-  withPremBackupReleaser,
   type DutyFloorKey,
   type DutyStaff,
   type FloorWorkload,
@@ -28,6 +26,20 @@ type SpecialDuty = {
   assignedTo: string;
 };
 
+const PUBLIC_AREA_TEAMS = [
+  { key: 'A', name: 'Team A', areas: 'Lobby, Lounge, Pantry' },
+  { key: 'B', name: 'Team B', areas: 'Carpark, Bin, Plants' },
+  { key: 'C', name: 'Team C', areas: 'Swimming Pool, G Floor Toilet' },
+  { key: 'D', name: 'Team D', areas: 'Inside Lift Block A and B + Lift Lobby all floors' },
+] as const;
+
+type PublicAreaTeamKey = (typeof PUBLIC_AREA_TEAMS)[number]['key'];
+
+type PublicAreaAssignment = {
+  teamKey: PublicAreaTeamKey;
+  staffIds: string[];
+};
+
 type SavedDutyRow = {
   service_date: string;
   maid_assignments: MaidDutyAssignment[];
@@ -36,6 +48,7 @@ type SavedDutyRow = {
   special_duties: SpecialDuty[];
   part_time_maids?: DutyStaff[];
   special_priority_presets?: string[];
+  public_area_assignments?: PublicAreaAssignment[];
   version: number;
   updated_by_name: string;
   updated_at: string;
@@ -140,6 +153,24 @@ function safePriorityPresets(value: unknown) {
   return [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))];
 }
 
+function isPublicAreaTeamKey(value: unknown): value is PublicAreaTeamKey {
+  return PUBLIC_AREA_TEAMS.some((team) => team.key === value);
+}
+
+function safePublicAreaAssignments(value: unknown, availableIds: Set<string>): PublicAreaAssignment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row: any) => {
+    if (!row || !isPublicAreaTeamKey(row.teamKey) || !Array.isArray(row.staffIds)) return [];
+    const staffIds = row.staffIds.filter(
+      (id: unknown): id is string => typeof id === 'string' && availableIds.has(id)
+    );
+    return [{
+      teamKey: row.teamKey,
+      staffIds: [...new Set<string>(staffIds)],
+    }];
+  });
+}
+
 export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const supabase = useMemo(() => {
     try {
@@ -157,15 +188,19 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
   const [availableFloorSupervisors, setAvailableFloorSupervisors] = useState<ScheduleStaff[]>([]);
   const [availableSupervisors, setAvailableSupervisors] = useState<DutyStaff[]>([]);
   const [availableLinenControllers, setAvailableLinenControllers] = useState<ScheduleStaff[]>([]);
+  const [availablePublicAreaStaff, setAvailablePublicAreaStaff] = useState<ScheduleStaff[]>([]);
   const [partTimeMaids, setPartTimeMaids] = useState<DutyStaff[]>([]);
   const [partTimeName, setPartTimeName] = useState('');
   const [openFloorPicker, setOpenFloorPicker] = useState<DutyFloorKey | null>(null);
+  const [linenPickerOpen, setLinenPickerOpen] = useState(false);
+  const [openPublicAreaPicker, setOpenPublicAreaPicker] = useState<PublicAreaTeamKey | null>(null);
   const [workloads, setWorkloads] = useState<FloorWorkload[]>(EMPTY_WORKLOADS);
   const [maidAssignments, setMaidAssignments] = useState<MaidDutyAssignment[]>([]);
   const [supervisorAssignments, setSupervisorAssignments] = useState<SupervisorDutyAssignment[]>([]);
   const [linenControllerStaffIds, setLinenControllerStaffIds] = useState<string[]>([]);
   const [specialDuties, setSpecialDuties] = useState<SpecialDuty[]>([]);
   const [specialPriorityPresets, setSpecialPriorityPresets] = useState<string[]>(DEFAULT_SPECIAL_PRESETS);
+  const [publicAreaAssignments, setPublicAreaAssignments] = useState<PublicAreaAssignment[]>([]);
   const [newPriorityPreset, setNewPriorityPreset] = useState('');
   const [version, setVersion] = useState(0);
   const [lastSaved, setLastSaved] = useState<{ name: string; at: string } | null>(null);
@@ -183,6 +218,10 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     () => [...availableMaids, ...availableFloorSupervisors, ...partTimeMaids],
     [availableFloorSupervisors, availableMaids, partTimeMaids]
   );
+  const allPublicAreaStaff = useMemo(
+    () => [...availablePublicAreaStaff, ...partTimeMaids],
+    [availablePublicAreaStaff, partTimeMaids]
+  );
 
   const applyDefault = useCallback((data?: {
     maids?: DutyStaff[];
@@ -190,9 +229,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     linenControllers?: ScheduleStaff[];
     floorWorkloads?: FloorWorkload[];
   }) => {
-    const automaticReleaseSupervisors = withPremBackupReleaser(
-      data?.supervisors || availableFloorSupervisors
-    );
+    const automaticReleaseSupervisors = data?.supervisors || availableFloorSupervisors;
     const plan = generateSuggestedDutyPlan({
       maids: data?.maids || allMaids,
       supervisors: automaticReleaseSupervisors,
@@ -214,6 +251,8 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     }
     setLoading(true);
     setOpenFloorPicker(null);
+    setLinenPickerOpen(false);
+    setOpenPublicAreaPicker(null);
     setError('');
     setSuccess('');
     try {
@@ -241,10 +280,8 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       const working = staffRows.filter((person) => workingIds.has(person.id));
       const maids = working.filter((person) => person.staff_role === 'MAID');
       const supervisors = working.filter((person) => person.staff_role === 'SUPERVISOR');
-      const automaticReleaseSupervisors = withPremBackupReleaser(supervisors);
-      const releaseSupervisorChoices = supervisors.some(
-        (person) => person.staff_name.trim().toLowerCase() === 'prem'
-      ) ? supervisors : [...supervisors, PREM_BACKUP_RELEASER];
+      const automaticReleaseSupervisors = supervisors;
+      const releaseSupervisorChoices = supervisors;
       const linenControllers = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER');
       const linenControllerChoices = working.filter((person) => person.staff_role === 'LINEN_CONTROLLER' || person.staff_role === 'MAID');
 
@@ -267,6 +304,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
       setAvailableFloorSupervisors(supervisors);
       setAvailableSupervisors(releaseSupervisorChoices);
       setAvailableLinenControllers(linenControllerChoices);
+      setAvailablePublicAreaStaff(working);
       setWorkloads(nextWorkloads);
 
       const saved = savedResult.data as SavedDutyRow | null;
@@ -277,6 +315,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         const maidIds = new Set(floorAssigneeRows.map((person) => person.id));
         const supervisorIds = new Set(releaseSupervisorChoices.map((person) => person.id));
         const linenIds = new Set(linenControllerChoices.map((person) => person.id));
+        const publicAreaIds = new Set([...working, ...savedPartTimers].map((person) => person.id));
         const activeFloors = new Set(nextWorkloads.filter((row) => row.checkout + row.stayover > 0).map((row) => row.floorKey));
         const suggested = generateSuggestedDutyPlan({ maids: autoMaidRows, supervisors: automaticReleaseSupervisors, linenControllers, workloads: nextWorkloads });
         const savedSupervisors = safeSupervisorAssignments(saved.supervisor_assignments)
@@ -312,11 +351,11 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         setMaidAssignments(nextMaids);
         setPartTimeMaids(savedPartTimers);
         setSupervisorAssignments([...supervisorByFloor.values()]);
-        setLinenControllerStaffIds(
-          Array.isArray(saved.linen_controller_staff_ids)
+        const savedLinenIds = Array.isArray(saved.linen_controller_staff_ids)
             ? saved.linen_controller_staff_ids.filter((id) => typeof id === 'string' && linenIds.has(id))
-            : []
-        );
+            : [];
+        setLinenControllerStaffIds(savedLinenIds.length ? savedLinenIds : suggested.linenControllerStaffIds);
+        setPublicAreaAssignments(safePublicAreaAssignments(saved.public_area_assignments, publicAreaIds));
         setSpecialDuties(safeSpecialDuties(saved.special_duties));
         setSpecialPriorityPresets(safePriorityPresets(saved.special_priority_presets));
         setVersion(Number(saved.version || 0));
@@ -329,6 +368,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         setLinenControllerStaffIds(suggested.linenControllerStaffIds);
         setSpecialDuties([]);
         setSpecialPriorityPresets(safePriorityPresets(presetResult.data?.special_priority_presets));
+        setPublicAreaAssignments([]);
         setVersion(0);
         setLastSaved(null);
       }
@@ -396,6 +436,12 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
   function removePartTimer(staffId: string) {
     setPartTimeMaids((current) => current.filter((person) => person.id !== staffId));
     setMaidAssignments((current) => current.filter((assignment) => assignment.staffId !== staffId));
+    setPublicAreaAssignments((current) => current
+      .map((assignment) => ({
+        ...assignment,
+        staffIds: assignment.staffIds.filter((id) => id !== staffId),
+      }))
+      .filter((assignment) => assignment.staffIds.length > 0));
   }
 
   function toggleLinenController(staffId: string) {
@@ -403,6 +449,20 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     setLinenControllerStaffIds((current) => current.includes(staffId)
       ? current.filter((id) => id !== staffId)
       : [...current, staffId]);
+  }
+
+  function togglePublicAreaStaff(teamKey: PublicAreaTeamKey, staffId: string) {
+    if (!canEdit) return;
+    setPublicAreaAssignments((current) => {
+      const existing = current.find((row) => row.teamKey === teamKey);
+      if (!existing) return [...current, { teamKey, staffIds: [staffId] }];
+      const staffIds = existing.staffIds.includes(staffId)
+        ? existing.staffIds.filter((id) => id !== staffId)
+        : [...existing.staffIds, staffId];
+      return current
+        .map((row) => row.teamKey === teamKey ? { ...row, staffIds } : row)
+        .filter((row) => row.staffIds.length > 0);
+    });
   }
 
   function addPriorityPreset() {
@@ -496,6 +556,14 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     if (specialDutyPool.length) {
       lines.push(`• Available for Special Duty — *${specialDutyPool.map((row) => row.staff_name).join(', ')}*`);
     }
+    addReportGap(lines);
+    lines.push('*PUBLIC AREA MORNING*', '');
+    for (const team of PUBLIC_AREA_TEAMS) {
+      const staffIds = publicAreaAssignments.find((row) => row.teamKey === team.key)?.staffIds || [];
+      const names = allPublicAreaStaff.filter((person) => staffIds.includes(person.id)).map((person) => person.staff_name);
+      lines.push(`• *${team.name}* — ${team.areas}`);
+      lines.push(`  Staff: *${names.join(' & ') || 'Unassigned'}*`);
+    }
     if (specialDuties.some((row) => row.focus.trim())) {
       addReportGap(lines);
       lines.push('*SPECIAL CLEANING PRIORITIES*', '');
@@ -509,7 +577,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     addReportGap(lines);
     lines.push('_C/O = Checkout_');
     return lines.join('\n');
-  }, [activeFloorKeys.size, availableLinenControllers, linenControllerStaffIds, maidAssignments, serviceDate, specialDuties, specialDutyPool, supervisorAssignments, totalCheckout, totalStayover, workloadMap]);
+  }, [activeFloorKeys.size, allPublicAreaStaff, availableLinenControllers, linenControllerStaffIds, maidAssignments, publicAreaAssignments, serviceDate, specialDuties, specialDutyPool, supervisorAssignments, totalCheckout, totalStayover, workloadMap]);
 
   async function copyReport() {
     try {
@@ -526,7 +594,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
     setSaving(true);
     setError('');
     try {
-      const { data, error: saveError } = await supabase.rpc('save_hk_daily_duty_assignment', {
+      const { data, error: saveError } = await supabase.rpc('save_hk_daily_duty_assignment_v2', {
         p_service_date: serviceDate,
         p_maid_assignments: maidAssignments,
         p_supervisor_assignments: supervisorAssignments,
@@ -534,6 +602,7 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
         p_special_duties: specialDuties,
         p_part_time_maids: partTimeMaids,
         p_special_priority_presets: specialPriorityPresets,
+        p_public_area_assignments: publicAreaAssignments,
         p_expected_version: version,
       });
       if (saveError) throw saveError;
@@ -667,17 +736,53 @@ export default function HkDutyAssignmentTab({ canEdit }: Props) {
 
           <section className={styles.card}>
             <header className={styles.cardHeader}><div><span>3</span><h3>Support Duty</h3></div><small>P.A. staff are not included</small></header>
-            <div className={styles.linenControl}><span>Linen Controller(s)</span><div className={extras.linenChoices}>
-              {availableLinenControllers.map((person) => {
+            <div className={extras.compactAssignmentRow}>
+              <div><strong>Linen Controller(s)</strong><span>Nagaraj is selected automatically when he is scheduled to work.</span></div>
+              <div className={extras.floorAssigneeChips}>
+                {availableLinenControllers.filter((person) => linenControllerStaffIds.includes(person.id)).map((person) => canEdit ? <button key={person.id} type="button" className={extras.assigneeChip} aria-label={`Remove ${person.staff_name} from linen control`} onClick={() => toggleLinenController(person.id)}>{person.staff_name}<span>×</span></button> : <span key={person.id} className={extras.assigneeChipReadonly}>{person.staff_name}</span>)}
+                {!linenControllerStaffIds.length ? <span className={extras.unassignedLabel}>Unassigned</span> : null}
+              </div>
+              <button type="button" className={extras.chooseStaffButton} disabled={!canEdit || !availableLinenControllers.length} aria-expanded={linenPickerOpen} onClick={() => setLinenPickerOpen((current) => !current)}>{linenPickerOpen ? 'Close' : 'Edit staff'}</button>
+            </div>
+            {linenPickerOpen && canEdit ? <div className={extras.compactStaffPicker}>
+              <div><strong>Who is handling linen control?</strong><span>Only staff scheduled to work today are shown.</span></div>
+              <div className={extras.floorStaffOptions}>{availableLinenControllers.map((person) => {
                 const selected = linenControllerStaffIds.includes(person.id);
-                return <button type="button" key={person.id} disabled={!canEdit} aria-pressed={selected} className={selected ? extras.linenSelected : ''} onClick={() => toggleLinenController(person.id)}>{person.staff_name}</button>;
-              })}
-              {!availableLinenControllers.length ? <small>No eligible staff are working today.</small> : null}
-            </div></div>
+                return <button key={person.id} type="button" aria-pressed={selected} className={selected ? extras.floorStaffOptionSelected : extras.floorStaffOption} onClick={() => toggleLinenController(person.id)}>{person.staff_name}</button>;
+              })}</div>
+            </div> : null}
+            {!availableLinenControllers.length ? <p className={styles.empty}>No eligible staff are scheduled to work today.</p> : null}
           </section>
 
           <section className={styles.card}>
-            <header className={styles.cardHeader}><div><span>4</span><h3>Special Cleaning Priorities <i>Optional</i></h3></div><button type="button" disabled={!canEdit} onClick={() => addSpecialDuty()}>+ Add Priority</button></header>
+            <header className={styles.cardHeader}><div><span>4</span><h3>Public Area Morning</h3></div><small>Only staff scheduled to work are available</small></header>
+            <div className={extras.publicAreaList}>{PUBLIC_AREA_TEAMS.map((team) => {
+              const selectedIds = publicAreaAssignments.find((row) => row.teamKey === team.key)?.staffIds || [];
+              const selectedPeople = allPublicAreaStaff.filter((person) => selectedIds.includes(person.id));
+              const pickerOpen = openPublicAreaPicker === team.key;
+              return <article key={team.key} className={extras.publicAreaTeam}>
+                <div className={extras.compactAssignmentRow}>
+                  <div><strong>{team.name}</strong><span>{team.areas}</span></div>
+                  <div className={extras.floorAssigneeChips}>
+                    {selectedPeople.length ? selectedPeople.map((person) => canEdit ? <button key={person.id} type="button" className={extras.assigneeChip} aria-label={`Remove ${person.staff_name} from ${team.name}`} onClick={() => togglePublicAreaStaff(team.key, person.id)}>{person.staff_name}<span>×</span></button> : <span key={person.id} className={extras.assigneeChipReadonly}>{person.staff_name}</span>) : <span className={extras.unassignedLabel}>Unassigned</span>}
+                  </div>
+                  <button type="button" className={extras.chooseStaffButton} disabled={!canEdit || !allPublicAreaStaff.length} aria-expanded={pickerOpen} onClick={() => setOpenPublicAreaPicker(pickerOpen ? null : team.key)}>{pickerOpen ? 'Close' : 'Edit staff'}</button>
+                </div>
+                {pickerOpen && canEdit ? <div className={extras.compactStaffPicker}>
+                  <div><strong>Who is assigned to {team.name}?</strong><span>Select one or more people.</span></div>
+                  <div className={extras.floorStaffOptions}>{allPublicAreaStaff.map((person) => {
+                    const selected = selectedIds.includes(person.id);
+                    const scheduled = availablePublicAreaStaff.find((staff) => staff.id === person.id);
+                    return <button key={person.id} type="button" aria-pressed={selected} className={selected ? extras.floorStaffOptionSelected : extras.floorStaffOption} onClick={() => togglePublicAreaStaff(team.key, person.id)}><span>{person.staff_name}</span>{scheduled?.staff_role === 'PA' ? <small>P.A.</small> : scheduled?.staff_role === 'SUPERVISOR' ? <small>Supervisor</small> : partTimeMaids.some((staff) => staff.id === person.id) ? <small>Part-time</small> : null}</button>;
+                  })}</div>
+                </div> : null}
+              </article>;
+            })}</div>
+            {!allPublicAreaStaff.length ? <p className={styles.empty}>No staff are scheduled to work today.</p> : null}
+          </section>
+
+          <section className={styles.card}>
+            <header className={styles.cardHeader}><div><span>5</span><h3>Special Cleaning Priorities <i>Optional</i></h3></div><button type="button" disabled={!canEdit} onClick={() => addSpecialDuty()}>+ Add Priority</button></header>
             {canEdit ? <div className={extras.quickAddEditor}>
               <div className={styles.quickAdd}><span>Quick add</span>{specialPriorityPresets.map((preset) => <div className={extras.quickPreset} key={preset}><button type="button" onClick={() => addSpecialDuty(preset)}>{preset}</button><button type="button" aria-label={`Remove quick item ${preset}`} onClick={() => setSpecialPriorityPresets((current) => current.filter((item) => item !== preset))}>×</button></div>)}</div>
               <div className={extras.addQuickItem}><input aria-label="New quick-add item" value={newPriorityPreset} placeholder="New quick-add item" onChange={(event) => setNewPriorityPreset(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') addPriorityPreset(); }} /><button type="button" onClick={addPriorityPreset}>+ Add Quick Item</button></div>
