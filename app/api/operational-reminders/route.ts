@@ -21,6 +21,7 @@ type ReminderKind =
   | 'CHAMBERMAID_5PM'
   | 'PREVENTIVE_MAINTENANCE_9AM'
   | 'LINEN_VARIANCE_530PM'
+  | 'LINEN_RECONCILIATION_1PM'
   | 'HK_MORNING_REVIEW_830AM'
   | 'MT_DAILY_REVIEW_9AM';
 
@@ -171,6 +172,13 @@ function requestedKind(request: NextRequest): ReminderKind | null {
     // Keep the legacy run key so a reminder already sent at the old time is
     // not sent again on the same date after the schedule moves to 6:00 PM.
     return 'LINEN_VARIANCE_530PM';
+  }
+  if (
+    kind === 'linen-reconciliation' ||
+    kind === 'linen-reconciliation-1pm' ||
+    kind === 'linen-1pm'
+  ) {
+    return 'LINEN_RECONCILIATION_1PM';
   }
   if (kind === 'hk-morning-review' || kind === 'hk-review' || kind === 'hk-830am') {
     return 'HK_MORNING_REVIEW_830AM';
@@ -348,6 +356,86 @@ function checklistReviewLines(label: string, rows: DailyChecklistRow[]) {
   ];
 }
 
+async function linenReconciliationReminder(reportDate: string) {
+  const { data, error } = await supabaseAdmin.rpc('get_daily_operations_summary', {
+    p_report_date: reportDate,
+  });
+  if (error) throw error;
+
+  const summary = (data || {}) as DailyOperationsSummary;
+  const linen = summary.linen || {};
+  const savedRows = numeric(linen.return_saved_rows);
+  const expectedRows = numeric(linen.return_expected_rows) || 2;
+  const isComplete = linen.return_saved === true && savedRows >= expectedRows;
+
+  if (!isComplete) {
+    return {
+      findingCount: 0,
+      delivered: 0,
+      attempted: 0,
+      telegramMessageId: null,
+      details: {
+        reportDate,
+        returnSaved: Boolean(linen.return_saved),
+        returnSavedRows: savedRows,
+        returnExpectedRows: expectedRows,
+        reason: 'Laundry Received was not 2/2 at the 1:00 PM check.',
+      },
+    };
+  }
+
+  const billDate = String(linen.previous_bill_service_date || singaporeDate(-1));
+  const items = linen.items || [];
+  const lines = [
+    '🧺 <b>LINEN RECONCILIATION</b>',
+    '',
+    `<b>IN BILL DATE:</b> ${displayDate(billDate)}`,
+    `<b>RETURN DATE:</b> ${displayDate(reportDate)}`,
+  ];
+  for (const item of items) {
+    const totalUse = numeric(item.previous_total_use);
+    const inBill = numeric(item.previous_in_bill);
+    const returned = numeric(item.returned);
+    const difference = returned - inBill;
+    const indicator = difference > 0 ? '🔵' : difference < 0 ? '🔴' : '⚪';
+    lines.push(
+      '',
+      `<b>${telegramHtml(item.label || 'Linen')}</b>`,
+      `Total Use ${totalUse} · In Bill ${inBill} · Return ${returned}`,
+      `<b>Difference: ${indicator} ${signed(difference)}</b>`
+    );
+  }
+  lines.push('', '🔵 Positive = Returned is higher', '🔴 Negative = In Bill is higher');
+
+  const messages = telegramChunks(lines, '🧺 <b>LINEN RECONCILIATION — CONTINUED</b>');
+  const telegramMessageIds: number[] = [];
+  for (const message of messages) {
+    const messageId = await sendTelegramMessage(
+      HK_TASK_CHAT_ID,
+      message,
+      'Linen reconciliation',
+      { parseMode: 'HTML' }
+    );
+    if (messageId) telegramMessageIds.push(messageId);
+  }
+
+  return {
+    findingCount: items.length,
+    delivered: 0,
+    attempted: messages.length,
+    telegramMessageId: telegramMessageIds[0] || null,
+    alwaysSent: true,
+    details: {
+      reportDate,
+      billDate,
+      returnSaved: true,
+      returnSavedRows: savedRows,
+      returnExpectedRows: expectedRows,
+      telegramMessageIds,
+    },
+  };
+}
+
 async function hkMorningReviewReminder(today: string) {
   const reportDate = singaporeDate(-1);
   const [yesterdayResult, varianceResult, taskResult, managerRoomCheckResult] = await Promise.all([
@@ -386,7 +474,6 @@ async function hkMorningReviewReminder(today: string) {
   const projects = yesterday.special_projects || [];
   const yesterdayRooms = yesterday.rooms || {};
   const yesterdayLinen = yesterday.linen || {};
-  const reconciliationItems = yesterdayLinen.items || [];
   const monthlyTop = (variance.monthly_top || []).slice(0, 5);
   const hkTasks = (taskResult.data || []) as HkTaskRow[];
   const managerRoomChecks = (managerRoomCheckResult.data || []) as HkManagerRoomCheckRow[];
@@ -462,28 +549,6 @@ async function hkMorningReviewReminder(today: string) {
   );
 
   const billDate = String(yesterdayLinen.previous_bill_service_date || singaporeDate(-2));
-  const returnRecordDate = reportDate;
-  const linenLines = [
-    '🧺 <b>LINEN RECONCILIATION</b>',
-    '',
-    `<b>IN BILL DATE:</b> ${displayDate(billDate)}`,
-    `<b>RETURN DATE:</b> ${displayDate(returnRecordDate)}`,
-  ];
-  for (const item of reconciliationItems) {
-    const totalUse = numeric(item.previous_total_use);
-    const inBill = numeric(item.previous_in_bill);
-    const returned = numeric(item.returned);
-    const difference = returned - inBill;
-    const indicator = difference > 0 ? '🔵' : difference < 0 ? '🔴' : '⚪';
-    linenLines.push(
-      '',
-      `<b>${telegramHtml(item.label || 'Linen')}</b>`,
-      `Total Use ${totalUse} · In Bill ${inBill} · Return ${returned}`,
-      `<b>Difference: ${indicator} ${signed(difference)}</b>`
-    );
-  }
-  linenLines.push('', '🔵 Positive = Returned is higher', '🔴 Negative = In Bill is higher');
-
   const followUpLines = [
     '🚩 <b>TOP 5 FLAGGED FLOORS</b>',
     '',
@@ -520,7 +585,6 @@ async function hkMorningReviewReminder(today: string) {
 
   const messages = [
     ...telegramChunks(operationsLines, '🌅 <b>HK MORNING REVIEW — CONTINUED</b>'),
-    ...telegramChunks(linenLines, '🧺 <b>LINEN RECONCILIATION — CONTINUED</b>'),
     ...telegramChunks(followUpLines, '🚩 <b>HK FOLLOW-UP — CONTINUED</b>'),
   ];
   const telegramMessageIds: number[] = [];
@@ -812,7 +876,7 @@ export async function GET(request: NextRequest) {
   const reminderType = requestedKind(request);
   if (!reminderType) {
     return NextResponse.json(
-      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-variance, kind=hk-morning-review, or kind=mt-daily-review' },
+      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-variance, kind=linen-reconciliation, kind=hk-morning-review, or kind=mt-daily-review' },
       { status: 400 }
     );
   }
@@ -865,6 +929,8 @@ export async function GET(request: NextRequest) {
       ? await chambermaidReminder(notificationDate)
       : reminderType === 'LINEN_VARIANCE_530PM'
         ? await linenVarianceReminder(notificationDate)
+        : reminderType === 'LINEN_RECONCILIATION_1PM'
+          ? await linenReconciliationReminder(notificationDate)
         : reminderType === 'HK_MORNING_REVIEW_830AM'
           ? await hkMorningReviewReminder(notificationDate)
           : await preventiveMaintenanceReminder(notificationDate);

@@ -4,11 +4,13 @@ $taskName = 'Hallmark Daily Operations Telegram Report'
 $hkMorningReviewTaskName = 'Hallmark HK Morning Review'
 $chambermaidTaskName = 'Hallmark Chambermaid Save Reminder'
 $linenVarianceTaskName = 'Hallmark Linen Difference Follow-up'
+$linenReconciliationTaskName = 'Hallmark Linen Reconciliation'
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $batchPath = Join-Path $scriptDirectory 'send-daily-operations-report.bat'
 $hkMorningReviewBatchPath = Join-Path $scriptDirectory 'send-hk-morning-review.bat'
 $chambermaidBatchPath = Join-Path $scriptDirectory 'send-chambermaid-reminder.bat'
 $linenVarianceBatchPath = Join-Path $scriptDirectory 'send-linen-variance-reminder.bat'
+$linenReconciliationBatchPath = Join-Path $scriptDirectory 'send-linen-reconciliation.bat'
 
 if (-not (Test-Path -LiteralPath $batchPath)) {
   throw "Missing $batchPath"
@@ -21,6 +23,9 @@ if (-not (Test-Path -LiteralPath $chambermaidBatchPath)) {
 }
 if (-not (Test-Path -LiteralPath $linenVarianceBatchPath)) {
   throw "Missing $linenVarianceBatchPath"
+}
+if (-not (Test-Path -LiteralPath $linenReconciliationBatchPath)) {
+  throw "Missing $linenReconciliationBatchPath"
 }
 
 $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$batchPath`"`""
@@ -37,6 +42,17 @@ Register-ScheduledTask `
   -Trigger $trigger `
   -Settings $settings `
   -Description 'Sends yesterday''s Hallmark daily operations summary to Telegram at 9:00 AM.' `
+  -Force | Out-Null
+
+$linenReconciliationAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$linenReconciliationBatchPath`"`""
+$linenReconciliationTrigger = New-ScheduledTaskTrigger -Daily -At '13:00'
+
+Register-ScheduledTask `
+  -TaskName $linenReconciliationTaskName `
+  -Action $linenReconciliationAction `
+  -Trigger $linenReconciliationTrigger `
+  -Settings $settings `
+  -Description 'Sends same-day Linen Reconciliation at 1:00 PM only when Laundry Received is saved for both blocks.' `
   -Force | Out-Null
 
 $hkMorningReviewAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$hkMorningReviewBatchPath`"`""
@@ -76,3 +92,4 @@ Write-Host "Installed '$taskName' for 9:00 AM every day."
 Write-Host "Installed '$hkMorningReviewTaskName' for 8:30 AM every day."
 Write-Host "Installed '$chambermaidTaskName' for 5:00 PM every day."
 Write-Host "Installed '$linenVarianceTaskName' for 6:00 PM every day."
+Write-Host "Installed '$linenReconciliationTaskName' for 1:00 PM every day."

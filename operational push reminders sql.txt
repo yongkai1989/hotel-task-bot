@@ -4,7 +4,7 @@
 create table if not exists public.daily_operational_notification_runs (
   notification_date date not null,
   notification_type text not null check (
-    notification_type in ('CHAMBERMAID_5PM', 'PREVENTIVE_MAINTENANCE_9AM', 'LINEN_VARIANCE_530PM', 'HK_MORNING_REVIEW_830AM', 'MT_DAILY_REVIEW_9AM')
+    notification_type in ('CHAMBERMAID_5PM', 'PREVENTIVE_MAINTENANCE_9AM', 'LINEN_VARIANCE_530PM', 'LINEN_RECONCILIATION_1PM', 'HK_MORNING_REVIEW_830AM', 'MT_DAILY_REVIEW_9AM')
   ),
   status text not null check (
     status in ('SENDING', 'SENT', 'NOT_NEEDED', 'FAILED')
@@ -36,6 +36,7 @@ alter table public.daily_operational_notification_runs
     'CHAMBERMAID_5PM',
     'PREVENTIVE_MAINTENANCE_9AM',
     'LINEN_VARIANCE_530PM',
+    'LINEN_RECONCILIATION_1PM',
     'HK_MORNING_REVIEW_830AM',
     'MT_DAILY_REVIEW_9AM'
   ));
