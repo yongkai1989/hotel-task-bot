@@ -21,7 +21,13 @@ type CompletionFollowUpTask = Omit<EscalationTask, 'due_at' | 'escalation_number
   completion_follow_up_due_at: string;
 };
 
-let escalationRun: Promise<void> | null = null;
+type EscalationRunSummary = {
+  escalations: number;
+  completionFollowUps: number;
+  skipped?: boolean;
+};
+
+let escalationRun: Promise<EscalationRunSummary> | null = null;
 let lastEscalationCheckAt = 0;
 const CHECK_INTERVAL_MS = 30_000;
 
@@ -66,25 +72,47 @@ async function runEscalations() {
   });
   if (error) throw error;
 
-  await Promise.all(((data || []) as EscalationTask[]).map(async (task) => {
+  const tasks = (data || []) as EscalationTask[];
+  await Promise.all(tasks.map(async (task) => {
     const results = await Promise.allSettled([
       sendTaskEscalationPush(task),
       sendTelegramEscalation(task),
     ]);
+    const pushResult = results[0].status === 'fulfilled' ? results[0].value : null;
+    const alertUserIds = pushResult?.recipientUserIds || [];
     const failures = results
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map((result) => String(result.reason?.message || result.reason));
+    if (pushResult?.warning) failures.push(pushResult.warning);
+
+    console.log(JSON.stringify({
+      event: 'task_alert_escalation_delivery',
+      taskId: task.id,
+      taskCode: task.task_code,
+      escalationNumber: task.escalation_number,
+      recipientCount: alertUserIds.length,
+      pushAttempted: pushResult?.attempted || 0,
+      pushAccepted: pushResult?.delivered || 0,
+      pushRemoved: pushResult?.removed || 0,
+      pushWarning: pushResult?.warning || null,
+      telegramSent: results[1].status === 'fulfilled',
+      failure: failures[0] || null,
+    }));
 
     await supabaseAdmin.from('task_events').insert({
       task_id: task.id,
       event_type: 'ALERT_ESCALATED',
-      event_text: failures.length
-        ? `Unacknowledged alert follow-up ${task.escalation_number} sent with warning: ${failures[0]}`
-        : `Unacknowledged alert follow-up ${task.escalation_number} sent to the assigned ${task.department} team and Telegram`,
+      event_text: [
+        `Unacknowledged alert follow-up ${task.escalation_number}.`,
+        `Web Push accepted ${pushResult?.delivered || 0}/${pushResult?.attempted || 0}.`,
+        results[1].status === 'fulfilled' ? 'Telegram sent.' : 'Telegram failed.',
+        failures.length ? `Warning: ${failures[0]}` : '',
+      ].filter(Boolean).join(' '),
       actor_name: 'System',
     });
-    await broadcastTaskChange(task.id, 'UPDATE');
+    await broadcastTaskChange(task.id, 'UPDATE', { alertUserIds });
   }));
+  return tasks.length;
 }
 
 async function sendTelegramCompletionFollowUp(task: CompletionFollowUpTask) {
@@ -137,7 +165,8 @@ async function runCompletionFollowUps() {
   });
   if (error) throw error;
 
-  await Promise.all(((data || []) as CompletionFollowUpTask[]).map(async (task) => {
+  const tasks = (data || []) as CompletionFollowUpTask[];
+  await Promise.all(tasks.map(async (task) => {
     const [pushResult, telegramResult] = await Promise.allSettled([
       sendTaskCompletionFollowUpPush(task),
       sendTelegramCompletionFollowUp(task),
@@ -148,27 +177,55 @@ async function runCompletionFollowUps() {
     const failures = [pushResult, telegramResult]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map((result) => String(result.reason?.message || result.reason));
+    if (pushResult.status === 'fulfilled' && pushResult.value.warning) {
+      failures.push(pushResult.value.warning);
+    }
+
+    console.log(JSON.stringify({
+      event: 'task_completion_followup_delivery',
+      taskId: task.id,
+      taskCode: task.task_code,
+      recipientCount: alertUserIds.length,
+      pushAttempted: pushResult.status === 'fulfilled' ? pushResult.value.attempted : 0,
+      pushAccepted: pushResult.status === 'fulfilled' ? pushResult.value.delivered : 0,
+      telegramSent: telegramResult.status === 'fulfilled',
+      failure: failures[0] || null,
+    }));
 
     await supabaseAdmin.from('task_events').insert({
       task_id: task.id,
       event_type: 'COMPLETION_FOLLOW_UP',
-      event_text: failures.length
-        ? `Acknowledged task completion follow-up sent with warning: ${failures[0]}`
-        : `Acknowledged task remains Open; completion follow-up sent to ${task.department}, FO and Telegram`,
+      event_text: [
+        `Acknowledged task remains Open; completion follow-up prepared for ${task.department} and FO.`,
+        `Web Push accepted ${pushResult.status === 'fulfilled' ? pushResult.value.delivered : 0}/${pushResult.status === 'fulfilled' ? pushResult.value.attempted : 0}.`,
+        telegramResult.status === 'fulfilled' ? 'Telegram sent.' : 'Telegram failed.',
+        failures.length ? `Warning: ${failures[0]}` : '',
+      ].filter(Boolean).join(' '),
       actor_name: 'System',
     });
     await broadcastTaskChange(task.id, 'UPDATE', { alertUserIds });
   }));
+  return tasks.length;
 }
 
-export async function processDueTaskEscalations() {
-  if (Date.now() - lastEscalationCheckAt < CHECK_INTERVAL_MS) return;
+export async function processDueTaskEscalations(options: {
+  force?: boolean;
+  throwOnError?: boolean;
+} = {}): Promise<EscalationRunSummary> {
+  if (!options.force && Date.now() - lastEscalationCheckAt < CHECK_INTERVAL_MS) {
+    return { escalations: 0, completionFollowUps: 0, skipped: true };
+  }
   if (!escalationRun) {
     lastEscalationCheckAt = Date.now();
     escalationRun = Promise.all([runEscalations(), runCompletionFollowUps()])
-      .then(() => undefined)
-      .catch((error) => console.warn('Task escalation check failed:', error?.message || error))
+      .then(([escalations, completionFollowUps]) => ({ escalations, completionFollowUps }))
       .finally(() => { escalationRun = null; });
   }
-  await escalationRun;
+  try {
+    return await escalationRun;
+  } catch (error: any) {
+    if (options.throwOnError) throw error;
+    console.warn('Task escalation check failed:', error?.message || error);
+    return { escalations: 0, completionFollowUps: 0 };
+  }
 }

@@ -18,7 +18,7 @@ self.addEventListener('push', (event) => {
 
   const taskId = String(payload.taskId || '').trim();
   const isUrgent = payload.kind === 'URGENT';
-  const isTimed = isUrgent || payload.kind === 'CUSTOMER_WAITING';
+  const isTimed = isUrgent || payload.kind === 'CUSTOMER_WAITING' || payload.kind === 'REMINDER';
   const title = String(
     payload.title || (isUrgent ? 'URGENT TASK' : 'Hotel task update')
   );
@@ -41,7 +41,15 @@ self.addEventListener('push', (event) => {
     ],
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(title, options),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => client.postMessage({
+        type: 'TASK_PUSH_RECEIVED',
+        taskId,
+      }));
+    }),
+  ]));
 });
 
 self.addEventListener('notificationclick', (event) => {

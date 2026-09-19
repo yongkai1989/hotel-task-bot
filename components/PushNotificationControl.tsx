@@ -51,9 +51,28 @@ export default function PushNotificationControl({ userId }: { userId?: string })
         });
         await registration.update();
         const subscription = await registration.pushManager.getSubscription();
-        if (mounted) setState(subscription ? 'on' : 'off');
-      } catch {
-        if (mounted) setState('unsupported');
+        if (!subscription) {
+          if (mounted) setState('off');
+          return;
+        }
+
+        const saveResponse = await fetch('/api/push/subscribe', {
+          method: 'POST',
+          cache: 'no-store',
+          credentials: 'include',
+          headers: await authHeaders(),
+          body: JSON.stringify({ subscription: subscription.toJSON() }),
+        });
+        await responseJson(saveResponse);
+        if (mounted) {
+          setState('on');
+          setMessage('');
+        }
+      } catch (error: any) {
+        if (mounted) {
+          setState('off');
+          setMessage(error?.message || 'Alerts need reconnecting. Tap Enable Alerts.');
+        }
       }
     })();
     return () => { mounted = false; };

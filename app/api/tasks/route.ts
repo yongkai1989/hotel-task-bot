@@ -715,11 +715,12 @@ export async function POST(req: NextRequest) {
 
       let telegramWarning = '';
       let alertUserIds: string[] = [];
+      let pushDelivery: Awaited<ReturnType<typeof sendTaskPushNotifications>> | null = null;
 
       if (task.department === 'HK' || task.department === 'MT') {
-        const pushResult = await sendTaskPushNotifications(task);
-        alertUserIds = pushResult.recipientUserIds || [];
-        if (pushResult.warning) warnings.push(pushResult.warning);
+        pushDelivery = await sendTaskPushNotifications(task);
+        alertUserIds = pushDelivery.recipientUserIds || [];
+        if (pushDelivery.warning) warnings.push(pushDelivery.warning);
       }
 
       // Deliver the in-app event immediately after Web Push recipients have
@@ -779,6 +780,32 @@ export async function POST(req: NextRequest) {
         });
       } catch (error: any) {
         telegramWarning = error?.message || `Telegram notification failed for ${department}`;
+      }
+
+      if (task.urgent === true || task.customer_waiting === true) {
+        console.log(JSON.stringify({
+          event: 'initial_task_alert_delivery',
+          taskId: task.id,
+          taskCode: task.task_code,
+          department: task.department,
+          recipientCount: alertUserIds.length,
+          pushAttempted: pushDelivery?.attempted || 0,
+          pushAccepted: pushDelivery?.delivered || 0,
+          pushRemoved: pushDelivery?.removed || 0,
+          pushWarning: pushDelivery?.warning || null,
+          telegramSent: !telegramWarning,
+          telegramWarning: telegramWarning || null,
+        }));
+        await supabaseAdmin.from('task_events').insert({
+          task_id: task.id,
+          event_type: 'ALERT_DELIVERY',
+          event_text: [
+            `Initial timed alert prepared for ${alertUserIds.length} recipient(s).`,
+            `Web Push accepted ${pushDelivery?.delivered || 0}/${pushDelivery?.attempted || 0}.`,
+            telegramWarning ? `Telegram warning: ${telegramWarning}` : 'Telegram sent.',
+          ].join(' '),
+          actor_name: 'System',
+        });
       }
 
       const { data: taskImages, error: finalImagesError } = await supabaseAdmin

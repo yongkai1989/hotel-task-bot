@@ -58,7 +58,7 @@ export default function TaskAlertOverlay({ userId }: Props) {
   const dismissedKey = useCallback((alert: AlertTask) => {
     const followUpOccurrence = alert.alert_kind.startsWith('FOLLOW_UP_')
       ? String(alert.completion_follow_up_sent_at || '')
-      : '';
+      : String(Number(alert.escalation_count || 0));
     return `dismissed-task-alert:${alert.id}:${Number(alert.alert_cycle || 1)}:${alert.alert_kind}:${followUpOccurrence}`;
   }, []);
 
@@ -90,17 +90,29 @@ export default function TaskAlertOverlay({ userId }: Props) {
 
   useEffect(() => {
     let mounted = true;
-    void (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!mounted || !session?.access_token) return;
-      setAccessToken(session.access_token);
+    const useSession = async (token: string) => {
+      if (!mounted || !token) return;
+      setAccessToken(token);
       try {
-        await loadAlerts(session.access_token);
+        await loadAlerts(token);
+        if (mounted) setError('');
       } catch (nextError: any) {
         if (mounted) setError(nextError?.message || 'Unable to load urgent task alerts.');
       }
-    })();
-    return () => { mounted = false; };
+    };
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) void useSession(session.access_token);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const token = session?.access_token || '';
+      if (!mounted) return;
+      setAccessToken(token);
+      if (token) void useSession(token);
+    });
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [loadAlerts, supabase]);
 
   useEffect(() => {
@@ -134,9 +146,17 @@ export default function TaskAlertOverlay({ userId }: Props) {
     };
 
     const unsubscribe = subscribeToTaskBroadcast(refreshAlerts, { accessToken });
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'TASK_PUSH_RECEIVED') return;
+      void loadAlerts(accessToken).catch((nextError: any) => {
+        setError(nextError?.message || 'Unable to refresh urgent task alerts.');
+      });
+    };
+    navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
       unsubscribe();
       clearRefreshTimer();
     };
