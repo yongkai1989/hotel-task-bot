@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Buffer } from 'node:buffer';
 
 const DASHBOARD_AUTH_TIMEOUT_MS = 6_000;
+const DASHBOARD_PROFILE_CACHE_MS = 30_000;
 
 const dashboardAuthFetch: typeof fetch = (input, init) => fetch(input, {
   ...init,
@@ -113,6 +114,12 @@ export type DashboardUser = {
     can_access_pa_linen_entry: boolean;
   };
 };
+
+const dashboardProfileCache = new Map<string, { expiresAt: number; user: DashboardUser }>();
+const dashboardProfileRequests = new Map<
+  string,
+  Promise<{ data: any; error: { message?: string } | null }>
+>();
 
 function getBearerToken(req: NextRequest) {
   const authHeader = req.headers.get('authorization') || '';
@@ -240,13 +247,19 @@ export async function getDashboardUserFromRequest(
       }
     );
 
-    const {
-      data: { user: authUser },
-      error: authError,
-    } = await authClient.auth.getUser();
+    const { data: claimsData, error: authError } = await authClient.auth.getClaims(token);
+    const authUser = {
+      id: String(claimsData?.claims?.sub || '').trim(),
+      email: String(claimsData?.claims?.email || '').trim().toLowerCase(),
+    };
 
-    if (authError || !authUser?.id || !authUser?.email) {
+    if (authError || !authUser.id || !authUser.email) {
       return { user: null, error: 'Invalid session' };
+    }
+
+    const cached = dashboardProfileCache.get(authUser.id);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { user: cached.user, error: null };
     }
 
     const profileClient = createClient(
@@ -255,10 +268,13 @@ export async function getDashboardUserFromRequest(
       { global: { fetch: dashboardAuthFetch } }
     );
 
-    const { data: profile, error: profileError } = await profileClient
-      .from('user_profiles')
-      .select(
-        `
+    let profileRequest = dashboardProfileRequests.get(authUser.id);
+    if (!profileRequest) {
+      profileRequest = Promise.resolve(
+        profileClient
+          .from('user_profiles')
+          .select(
+            `
         user_id,
         email,
         name,
@@ -306,10 +322,21 @@ export async function getDashboardUserFromRequest(
         can_access_staff_meal,
         can_access_pa_checklist,
         can_access_pa_linen_entry
-        `
-      )
-      .eq('user_id', authUser.id)
-      .maybeSingle();
+            `
+          )
+          .eq('user_id', authUser.id)
+          .maybeSingle()
+      );
+      dashboardProfileRequests.set(authUser.id, profileRequest);
+    }
+
+    let profileResult: Awaited<typeof profileRequest>;
+    try {
+      profileResult = await profileRequest;
+    } finally {
+      dashboardProfileRequests.delete(authUser.id);
+    }
+    const { data: profile, error: profileError } = profileResult;
 
     if (profileError) {
       return { user: null, error: profileError.message };
@@ -456,17 +483,26 @@ export async function getDashboardUserFromRequest(
       })(),
     };
 
-    return {
-      user: {
-        user_id: profile.user_id,
-        email: profile.email || authUser.email,
-        name: profile.name || authUser.email || 'User',
-        role,
-        ...permissions,
-        permissions,
-      },
-      error: null,
+    const user: DashboardUser = {
+      user_id: profile.user_id,
+      email: profile.email || authUser.email,
+      name: profile.name || authUser.email || 'User',
+      role,
+      ...permissions,
+      permissions,
     };
+    dashboardProfileCache.set(authUser.id, {
+      expiresAt: Date.now() + DASHBOARD_PROFILE_CACHE_MS,
+      user,
+    });
+    if (dashboardProfileCache.size > 100) {
+      const now = Date.now();
+      for (const [key, entry] of dashboardProfileCache) {
+        if (entry.expiresAt <= now) dashboardProfileCache.delete(key);
+      }
+    }
+
+    return { user, error: null };
   } catch (error: any) {
     return { user: null, error: error?.message || 'Auth error' };
   }

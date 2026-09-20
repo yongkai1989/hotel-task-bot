@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getRequestAccessToken } from '../../../lib/dashboardAuth';
+import { getDashboardUserFromRequest, getRequestAccessToken } from '../../../lib/dashboardAuth';
 import { logRouteTiming } from '../../../lib/routeTiming';
 
 export const dynamic = 'force-dynamic';
@@ -365,6 +365,20 @@ export async function GET(req: NextRequest) {
 
     if (!token) {
       return respond({ ok: false, error: 'Missing Supabase session' }, 401);
+    }
+
+    if (!includeDebug) {
+      const profileStartedAt = Date.now();
+      const { user, error } = await getDashboardUserFromRequest(req);
+      stages.profile_ms = Date.now() - profileStartedAt;
+      if (!user) {
+        const authFailure = error === 'Missing Supabase session' || error === 'Invalid session';
+        return respond(
+          { ok: false, error: error || 'Unable to load user profile' },
+          authFailure ? 401 : 503
+        );
+      }
+      return respond({ ok: true, user });
     }
 
     const authClient = createClient(

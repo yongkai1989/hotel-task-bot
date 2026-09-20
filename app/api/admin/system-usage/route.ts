@@ -32,11 +32,16 @@ export async function GET(req: NextRequest) {
       return response({ ok: true, ...cached.snapshot, cached: true });
     }
 
-    const { data, error: usageError } = await supabaseAdmin.rpc('get_system_usage_snapshot');
-    if (usageError) return response({ ok: false, error: usageError.message }, 500);
+    const [usageResult, stabilityResult] = await Promise.all([
+      supabaseAdmin.rpc('get_system_usage_snapshot'),
+      supabaseAdmin.rpc('get_system_stability_snapshot'),
+    ]);
+    if (usageResult.error) return response({ ok: false, error: usageResult.error.message }, 500);
+    if (stabilityResult.error) return response({ ok: false, error: stabilityResult.error.message }, 500);
 
     const snapshot = {
-      usage: data,
+      usage: usageResult.data,
+      stability: stabilityResult.data,
       limits: {
         database_bytes: DATABASE_LIMIT_BYTES,
         storage_bytes: STORAGE_LIMIT_BYTES,
