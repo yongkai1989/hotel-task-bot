@@ -83,8 +83,9 @@ type LaundryCollection = {
   cc_no: string;
   collection_date: string;
   source_service_date: string;
+  block_no: 1 | 2;
   is_legacy: boolean;
-  received_blocks?: number;
+  received_rows?: number;
 };
 
 type LinenReceivedRow = LinenTotals & {
@@ -347,7 +348,7 @@ export default function LaundryCountPage() {
   const [savingReceived, setSavingReceived] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1200);
   const [receivedDateOverride, setReceivedDateOverride] = useState('');
-  const [billCcNo, setBillCcNo] = useState('');
+  const [billCcNos, setBillCcNos] = useState<Record<BlockKey, string>>({ B1: '', B2: '' });
   const [billSourceServiceDate, setBillSourceServiceDate] = useState('');
   const [collections, setCollections] = useState<LaundryCollection[]>([]);
   const [receivedRows, setReceivedRows] = useState<LinenReceivedRow[]>([]);
@@ -525,8 +526,9 @@ export default function LaundryCountPage() {
           .order('block_no', { ascending: true }),
         supabase
           .from('linen_laundry_collections')
-          .select('id, cc_no, collection_date, source_service_date, is_legacy')
+          .select('id, cc_no, collection_date, source_service_date, block_no, is_legacy')
           .order('collection_date', { ascending: false })
+          .order('block_no', { ascending: true })
           .limit(90),
         supabase
           .from('linen_laundry_received')
@@ -550,23 +552,30 @@ export default function LaundryCountPage() {
       setBillRows((billRes.data || []) as LinenBillRow[]);
 
       const loadedReceivedRows = (receivedRes.data || []) as LinenReceivedRow[];
-      const receivedBlocksByCollection = new Map<string, Set<number>>();
+      const receivedRowsByCollection = new Map<string, number>();
       loadedReceivedRows.forEach((row) => {
-        if (!receivedBlocksByCollection.has(row.collection_id)) {
-          receivedBlocksByCollection.set(row.collection_id, new Set());
-        }
-        receivedBlocksByCollection.get(row.collection_id)?.add(Number(row.block_no));
+        receivedRowsByCollection.set(
+          row.collection_id,
+          (receivedRowsByCollection.get(row.collection_id) || 0) + 1
+        );
       });
       const loadedCollections = (collectionRes.data || []).map((collection: any) => ({
         ...collection,
-        received_blocks: receivedBlocksByCollection.get(String(collection.id))?.size || 0,
+        received_rows: receivedRowsByCollection.get(String(collection.id)) || 0,
       })) as LaundryCollection[];
       setCollections(loadedCollections);
       setReceivedRows(loadedReceivedRows);
 
-      const currentCollection = loadedCollections.find((collection) => collection.collection_date === serviceDate);
-      setBillCcNo(currentCollection?.is_legacy ? '' : currentCollection?.cc_no || '');
-      setBillSourceServiceDate(currentCollection?.source_service_date || shiftDateString(serviceDate, -1));
+      const currentCollections = loadedCollections.filter((collection) => collection.collection_date === serviceDate);
+      const currentBlock1 = currentCollections.find((collection) => Number(collection.block_no) === 1);
+      const currentBlock2 = currentCollections.find((collection) => Number(collection.block_no) === 2);
+      setBillCcNos({
+        B1: currentBlock1?.is_legacy ? '' : currentBlock1?.cc_no || '',
+        B2: currentBlock2?.is_legacy ? '' : currentBlock2?.cc_no || '',
+      });
+      setBillSourceServiceDate(
+        currentBlock1?.source_service_date || currentBlock2?.source_service_date || shiftDateString(serviceDate, -1)
+      );
 
       const recentLoadedCollections = loadedCollections.filter((collection) =>
         collection.collection_date >= shiftDateString(serviceDate, -6) &&
@@ -575,7 +584,7 @@ export default function LaundryCountPage() {
       const preferredCollection =
         recentLoadedCollections.find((collection) => collection.id === selectedCollectionId) ||
         recentLoadedCollections.find((collection) => collection.collection_date === receivedDateOverride) ||
-        recentLoadedCollections.find((collection) => Number(collection.received_blocks || 0) < 2) ||
+        recentLoadedCollections.find((collection) => Number(collection.received_rows || 0) < 1) ||
         recentLoadedCollections[0];
       if (preferredCollection && preferredCollection.id !== selectedCollectionId) {
         setSelectedCollectionId(preferredCollection.id);
@@ -903,44 +912,60 @@ export default function LaundryCountPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
-      const normalizedCcNo = displayCcNo(billCcNo);
-      if (!normalizedCcNo) throw new Error('CC No. is required before saving the Laundry Bill.');
+      const normalizedCcNos: Record<BlockKey, string> = {
+        B1: displayCcNo(billCcNos.B1),
+        B2: displayCcNo(billCcNos.B2),
+      };
+      if (!normalizedCcNos.B1 || !normalizedCcNos.B2) {
+        throw new Error('A CC No. is required for both Block 1 and Block 2.');
+      }
+      if (ccNoKey(normalizedCcNos.B1) === ccNoKey(normalizedCcNos.B2)) {
+        throw new Error('Block 1 and Block 2 must use different CC numbers.');
+      }
       if (!billSourceServiceDate) throw new Error('Linen service date is required.');
       if (billSourceServiceDate > serviceDate) throw new Error('Linen service date cannot be after the collection date.');
 
-      const existingForDate = collections.find((collection) => collection.collection_date === serviceDate);
-      const duplicateCc = collections.find((collection) =>
-        ccNoKey(collection.cc_no) === ccNoKey(normalizedCcNo) && collection.id !== existingForDate?.id
-      );
-      if (duplicateCc) {
-        throw new Error(`CC No. ${normalizedCcNo} is already assigned to the ${duplicateCc.collection_date} collection.`);
-      }
+      const collectionIds = {} as Record<BlockKey, string>;
+      for (const blockKeyValue of BLOCK_KEYS) {
+        const blockNo = Number(blockKeyValue.replace('B', '')) as 1 | 2;
+        const normalizedCcNo = normalizedCcNos[blockKeyValue];
+        const existingForBlock = collections.find((collection) =>
+          collection.collection_date === serviceDate && Number(collection.block_no) === blockNo
+        );
+        const duplicateCc = collections.find((collection) =>
+          ccNoKey(collection.cc_no) === ccNoKey(normalizedCcNo) && collection.id !== existingForBlock?.id
+        );
+        if (duplicateCc) {
+          throw new Error(`CC No. ${normalizedCcNo} is already assigned to Block ${duplicateCc.block_no} on ${duplicateCc.collection_date}.`);
+        }
 
-      let collectionId = existingForDate?.id || '';
-      if (existingForDate) {
-        const { error: collectionError } = await supabase
-          .from('linen_laundry_collections')
-          .update({
-            cc_no: normalizedCcNo,
-            source_service_date: billSourceServiceDate,
-            is_legacy: false,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existingForDate.id);
-        if (collectionError) throw collectionError;
-      } else {
-        const { data: collection, error: collectionError } = await supabase
-          .from('linen_laundry_collections')
-          .insert({
-            cc_no: normalizedCcNo,
-            collection_date: serviceDate,
-            source_service_date: billSourceServiceDate,
-            is_legacy: false,
-          })
-          .select('id')
-          .single();
-        if (collectionError) throw collectionError;
-        collectionId = String(collection.id);
+        if (existingForBlock) {
+          const { error: collectionError } = await supabase
+            .from('linen_laundry_collections')
+            .update({
+              cc_no: normalizedCcNo,
+              source_service_date: billSourceServiceDate,
+              is_legacy: false,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingForBlock.id);
+          if (collectionError) throw collectionError;
+          collectionIds[blockKeyValue] = existingForBlock.id;
+        } else {
+          const { data: collection, error: collectionError } = await supabase
+            .from('linen_laundry_collections')
+            .insert({
+              cc_no: normalizedCcNo,
+              collection_date: serviceDate,
+              source_service_date: billSourceServiceDate,
+              block_no: blockNo,
+              is_legacy: false,
+            })
+            .select('id')
+            .single();
+          if (collectionError) throw collectionError;
+          collectionIds[blockKeyValue] = String(collection.id);
+        }
       }
 
       const { error: deleteError } = await supabase
@@ -951,7 +976,7 @@ export default function LaundryCountPage() {
       if (deleteError) throw deleteError;
 
       const rows = FLOOR_CONFIG.map((floor) => ({
-        collection_id: collectionId,
+        collection_id: collectionIds[`B${floor.blockNo}` as BlockKey],
         service_date: serviceDate,
         block_no: floor.blockNo,
         floor_no: floor.floorNo,
@@ -964,7 +989,7 @@ export default function LaundryCountPage() {
 
       if (insertError) throw insertError;
 
-      setSuccessMsg(`Laundry Bill saved under CC No. ${normalizedCcNo}.`);
+      setSuccessMsg(`Laundry Bill saved: Block 1 CC ${normalizedCcNos.B1} and Block 2 CC ${normalizedCcNos.B2}.`);
       await loadData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save Laundry Bill');
@@ -999,17 +1024,18 @@ export default function LaundryCountPage() {
 
       if (deleteError) throw deleteError;
 
-      const rows = BLOCK_KEYS.map((blockKeyValue) => ({
+      const selectedBlockKey = `B${selectedReceivedCollection.block_no}` as BlockKey;
+      const row = {
         collection_id: selectedReceivedCollection.id,
         service_date: selectedReceivedCollection.collection_date,
         received_date: physicalReceivedDate,
-        block_no: Number(blockKeyValue.replace('B', '')),
-        ...receivedEntryMap[blockKeyValue],
-      }));
+        block_no: selectedReceivedCollection.block_no,
+        ...receivedEntryMap[selectedBlockKey],
+      };
 
       const { error: insertError } = await supabase
         .from('linen_laundry_received')
-        .insert(rows);
+        .insert(row);
 
       if (insertError) throw insertError;
 
@@ -1072,16 +1098,28 @@ export default function LaundryCountPage() {
         <div style={styles.batchHeading}>Collection Identification</div>
         <div style={responsiveStyles.batchGrid}>
           <div style={styles.formGroup}>
-            <label style={styles.formLabel}>CC No. *</label>
+            <label style={styles.formLabel}>Block 1 CC No. *</label>
             <input
               type="text"
-              value={billCcNo}
-              onChange={(event) => setBillCcNo(event.target.value.toUpperCase())}
+              value={billCcNos.B1}
+              onChange={(event) => setBillCcNos((current) => ({ ...current, B1: event.target.value.toUpperCase() }))}
               placeholder="Example: H 110093"
               autoComplete="off"
               style={styles.numberInput}
             />
-            <small style={styles.fieldHint}>Enter the number printed beside “CC NO” on the supplier document.</small>
+            <small style={styles.fieldHint}>CC number on the Block 1 collection document.</small>
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.formLabel}>Block 2 CC No. *</label>
+            <input
+              type="text"
+              value={billCcNos.B2}
+              onChange={(event) => setBillCcNos((current) => ({ ...current, B2: event.target.value.toUpperCase() }))}
+              placeholder="Example: H 110094"
+              autoComplete="off"
+              style={styles.numberInput}
+            />
+            <small style={styles.fieldHint}>CC number on the Block 2 collection document.</small>
           </div>
           <div style={styles.formGroup}>
             <label style={styles.formLabel}>Dirty linen service date *</label>
@@ -1116,7 +1154,7 @@ export default function LaundryCountPage() {
               <option value="">Choose CC No.</option>
               {recentCollections.map((collection) => (
                 <option key={collection.id} value={collection.id}>
-                  {collection.cc_no} · Collected {collection.collection_date} · {Number(collection.received_blocks || 0) >= 2 ? 'Received' : 'Outstanding'}
+                  Block {collection.block_no} · {collection.cc_no} · Collected {collection.collection_date} · {Number(collection.received_rows || 0) >= 1 ? 'Received' : 'Outstanding'}
                 </option>
               ))}
             </select>
@@ -1124,7 +1162,7 @@ export default function LaundryCountPage() {
         </div>
         {selectedReceivedCollection ? (
           <div style={styles.batchSummary}>
-            <strong>CC {selectedReceivedCollection.cc_no}</strong> · Collected {selectedReceivedCollection.collection_date} · Dirty linen from {selectedReceivedCollection.source_service_date}
+            <strong>Block {selectedReceivedCollection.block_no} · CC {selectedReceivedCollection.cc_no}</strong> · Collected {selectedReceivedCollection.collection_date} · Dirty linen from {selectedReceivedCollection.source_service_date}
           </div>
         ) : null}
       </section>
@@ -1339,8 +1377,14 @@ export default function LaundryCountPage() {
                   Select the supplier CC No. before entering the returned quantities.
                 </div>
                 {renderReceivedCollectionSelector()}
-                {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
-                {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
+                {selectedReceivedCollection ? (() => {
+                  const blockKeyValue = `B${selectedReceivedCollection.block_no}` as BlockKey;
+                  return renderReceivedEditor(
+                    blockKeyValue,
+                    `Block ${selectedReceivedCollection.block_no} Returned`,
+                    receivedEntryMap[blockKeyValue] || zeroTotals()
+                  );
+                })() : null}
 
                 <div style={responsiveStyles.billActionRow}>
                   <button
@@ -1369,7 +1413,7 @@ export default function LaundryCountPage() {
                   <button
                     type="button"
                     onClick={handleSaveBill}
-                    disabled={savingBill || !billCcNo.trim() || !billSourceServiceDate}
+                    disabled={savingBill || !billCcNos.B1.trim() || !billCcNos.B2.trim() || !billSourceServiceDate}
                     style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
                   >
                     {savingBill ? 'Saving...' : 'Save Laundry Bill'}
@@ -1474,8 +1518,14 @@ export default function LaundryCountPage() {
 
             {renderReceivedCollectionSelector()}
 
-            {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
-            {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
+            {selectedReceivedCollection ? (() => {
+              const blockKeyValue = `B${selectedReceivedCollection.block_no}` as BlockKey;
+              return renderReceivedEditor(
+                blockKeyValue,
+                `Block ${selectedReceivedCollection.block_no} Returned`,
+                receivedEntryMap[blockKeyValue] || zeroTotals()
+              );
+            })() : null}
 
             <div style={responsiveStyles.billActionRow}>
               <button
@@ -1503,7 +1553,7 @@ export default function LaundryCountPage() {
               <button
                 type="button"
                 onClick={handleSaveBill}
-                disabled={savingBill || !billCcNo.trim() || !billSourceServiceDate}
+                disabled={savingBill || !billCcNos.B1.trim() || !billCcNos.B2.trim() || !billSourceServiceDate}
                 style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
               >
                 {savingBill ? 'Saving...' : 'Save Laundry Bill'}
