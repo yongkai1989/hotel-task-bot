@@ -352,7 +352,6 @@ export default function LaundryCountPage() {
   const [collections, setCollections] = useState<LaundryCollection[]>([]);
   const [receivedRows, setReceivedRows] = useState<LinenReceivedRow[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
-  const [ccConfirmation, setCcConfirmation] = useState('');
 
   const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
   const [receivedEntryMap, setReceivedEntryMap] = useState<Record<BlockKey, LinenTotals>>(emptyBlockEntryMap());
@@ -616,7 +615,6 @@ export default function LaundryCountPage() {
         nextReceivedEntryMap[key] = toTotalsFromBillRow(row);
       });
     setReceivedEntryMap(nextReceivedEntryMap);
-    setCcConfirmation('');
   }, [receivedRows, selectedCollectionId]);
 
   useEffect(() => {
@@ -974,9 +972,6 @@ export default function LaundryCountPage() {
       setSuccessMsg('');
 
       if (!selectedReceivedCollection) throw new Error('Choose the CC No. being returned.');
-      if (ccNoKey(ccConfirmation) !== ccNoKey(selectedReceivedCollection.cc_no)) {
-        throw new Error('CC No. confirmation does not match the selected collection.');
-      }
 
       const existingReceivedDate = receivedRows.find(
         (row) => row.collection_id === selectedReceivedCollection.id
@@ -1093,11 +1088,9 @@ export default function LaundryCountPage() {
   }
 
   function renderReceivedCollectionSelector() {
-    const isConfirmed = !!selectedReceivedCollection &&
-      ccNoKey(ccConfirmation) === ccNoKey(selectedReceivedCollection.cc_no);
     return (
       <section style={styles.batchCard}>
-        <div style={styles.batchHeading}>Match the supplier CC No.</div>
+        <div style={styles.batchHeading}>Choose the supplier CC No.</div>
         <div style={responsiveStyles.batchGrid}>
           <div style={styles.formGroup}>
             <label style={styles.formLabel}>Collection awaiting return *</label>
@@ -1113,21 +1106,6 @@ export default function LaundryCountPage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div style={styles.formGroup}>
-            <label style={styles.formLabel}>Confirm CC No. *</label>
-            <input
-              type="text"
-              value={ccConfirmation}
-              onChange={(event) => setCcConfirmation(event.target.value.toUpperCase())}
-              placeholder={selectedReceivedCollection ? `Retype ${selectedReceivedCollection.cc_no}` : 'Choose a collection first'}
-              disabled={!selectedReceivedCollection}
-              autoComplete="off"
-              style={{ ...styles.numberInput, borderColor: isConfirmed ? '#22c55e' : '#cbd5e1' }}
-            />
-            <small style={{ ...styles.fieldHint, color: isConfirmed ? '#166534' : '#64748b' }}>
-              {isConfirmed ? 'CC number confirmed.' : 'Retype the number from the returned document as a double-check.'}
-            </small>
           </div>
         </div>
         {selectedReceivedCollection ? (
@@ -1344,7 +1322,7 @@ export default function LaundryCountPage() {
             {pageTab === 'RECEIVED' ? (
               <>
                 <div style={styles.groupMeta}>
-                  Select and confirm the supplier CC No. before entering the returned quantities.
+                  Select the supplier CC No. before entering the returned quantities.
                 </div>
                 {renderReceivedCollectionSelector()}
                 {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
@@ -1354,7 +1332,7 @@ export default function LaundryCountPage() {
                   <button
                     type="button"
                     onClick={handleSaveReceived}
-                    disabled={savingReceived || !selectedReceivedCollection || ccNoKey(ccConfirmation) !== ccNoKey(selectedReceivedCollection.cc_no)}
+                    disabled={savingReceived || !selectedReceivedCollection}
                     style={{ ...responsiveStyles.primaryBtn, opacity: savingReceived ? 0.55 : 1 }}
                   >
                     {savingReceived ? 'Saving...' : 'Save Laundry Received'}
@@ -1477,7 +1455,7 @@ export default function LaundryCountPage() {
           <section style={responsiveStyles.panel}>
             <div style={responsiveStyles.sectionTitle}>Laundry Received</div>
             <div style={styles.groupMeta}>
-              Find the outstanding collection, confirm its CC No., then enter the clean linen returned today.
+              Choose the outstanding CC No., then enter the clean linen returned today.
             </div>
 
             {renderReceivedCollectionSelector()}
@@ -1489,7 +1467,7 @@ export default function LaundryCountPage() {
               <button
                 type="button"
                 onClick={handleSaveReceived}
-                disabled={savingReceived || !selectedReceivedCollection || ccNoKey(ccConfirmation) !== ccNoKey(selectedReceivedCollection.cc_no)}
+                disabled={savingReceived || !selectedReceivedCollection}
                 style={{ ...responsiveStyles.primaryBtn, opacity: savingReceived ? 0.55 : 1 }}
               >
                 {savingReceived ? 'Saving...' : 'Save Laundry Received'}
