@@ -35,6 +35,7 @@ type Shift = {
 };
 
 type EntryStatus = 'WORK' | 'AL' | 'UPL' | 'NO_SHOW' | 'MC' | 'OFF';
+type BulkStatus = EntryStatus | 'EMPTY';
 type ShiftColor = 'BLUE' | 'TEAL' | 'PURPLE' | 'AMBER' | 'PINK' | 'SLATE';
 type StaffRole = 'SUPERVISOR' | 'MAID' | 'LINEN_CONTROLLER' | 'PA';
 
@@ -776,19 +777,29 @@ export default function HousekeepingSchedulePage() {
           onSave={async (form) => {
             if (!supabase) return;
             setBusy(true);
-            const { data, error: saveError } = await supabase.rpc('fill_hk_schedule_range', {
-              p_staff_id: bulkStaff.id,
-              p_start_date: form.start,
-              p_end_date: form.end,
-              p_weekdays: form.weekdays,
-              p_status: form.status,
-              p_shift_id: form.status === 'WORK' ? form.shiftId : null,
-              p_apply_fixed_off: form.applyFixedOff,
-            });
+            const { data, error: saveError } = form.status === 'EMPTY'
+              ? await supabase.rpc('clear_hk_schedule_range', {
+                  p_staff_id: bulkStaff.id,
+                  p_start_date: form.start,
+                  p_end_date: form.end,
+                  p_weekdays: form.weekdays,
+                })
+              : await supabase.rpc('fill_hk_schedule_range', {
+                  p_staff_id: bulkStaff.id,
+                  p_start_date: form.start,
+                  p_end_date: form.end,
+                  p_weekdays: form.weekdays,
+                  p_status: form.status,
+                  p_shift_id: form.status === 'WORK' ? form.shiftId : null,
+                  p_apply_fixed_off: form.applyFixedOff,
+                });
             setBusy(false);
             if (saveError) return setError(saveError.message);
             setBulkStaff(null);
-            flash(`${Number(data || 0)} day${Number(data || 0) === 1 ? '' : 's'} scheduled.`);
+            const changedCount = Number(data || 0);
+            flash(form.status === 'EMPTY'
+              ? `${changedCount} existing schedule entr${changedCount === 1 ? 'y' : 'ies'} cleared.`
+              : `${changedCount} day${changedCount === 1 ? '' : 's'} scheduled.`);
             await loadData();
           }}
         />
@@ -1049,14 +1060,14 @@ function ShiftModal({ shifts, busy, onClose, onSave, onDelete }: {
 
 function BulkModal({ staff, month, shifts, busy, onClose, onSave }: {
   staff: Staff; month: string; shifts: Shift[]; busy: boolean; onClose: () => void;
-  onSave: (form: { start: string; end: string; weekdays: number[]; status: EntryStatus; shiftId: string; applyFixedOff: boolean }) => void;
+  onSave: (form: { start: string; end: string; weekdays: number[]; status: BulkStatus; shiftId: string; applyFixedOff: boolean }) => void;
 }) {
   const bounds = monthBounds(month);
   const activeShifts = shifts.filter((shift) => shift.is_active);
   const [start, setStart] = useState(bounds.start);
   const [end, setEnd] = useState(bounds.end);
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
-  const [status, setStatus] = useState<EntryStatus>('WORK');
+  const [status, setStatus] = useState<BulkStatus>('WORK');
   const [shiftId, setShiftId] = useState(activeShifts[0]?.id || '');
   const [applyFixedOff, setApplyFixedOff] = useState(true);
   return (
@@ -1070,25 +1081,28 @@ function BulkModal({ staff, month, shifts, busy, onClose, onSave }: {
             current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value]
           )}>{day.label}</button>)}</div>
         <label>Status</label>
-        <select value={status} onChange={(event) => setStatus(event.target.value as EntryStatus)}>
+        <select value={status} onChange={(event) => setStatus(event.target.value as BulkStatus)}>
+          <option value="EMPTY">Empty / No assignment</option>
           {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         {status === 'WORK' ? <><label>Shift</label><select value={shiftId} onChange={(event) => setShiftId(event.target.value)}>
           <option value="">Choose shift</option>{activeShifts.map((shift) => <option key={shift.id} value={shift.id}>
             {shift.shift_name} ({timeText(shift.start_time)} – {timeText(shift.end_time)})
           </option>)}</select></> : null}
-        {staff.fixed_off_day ? (
+        {status !== 'EMPTY' && staff.fixed_off_day ? (
           <label className={styles.fixedOffOption}>
             <input type="checkbox" checked={applyFixedOff} onChange={(event) => setApplyFixedOff(event.target.checked)} />
             <span><strong>Set every {weekdayLabel(staff.fixed_off_day)} as Off</strong>
               <small>This overrides the selected shift on the fixed off day.</small></span>
           </label>
-        ) : <div className={styles.infoBox}>No fixed off day is set for this staff member. You can set one under Staff.</div>}
-        <div className={styles.infoBox}>Existing entries in the chosen dates will be replaced. Arrival time and overtime are entered per day.</div>
+        ) : status !== 'EMPTY' ? <div className={styles.infoBox}>No fixed off day is set for this staff member. You can set one under Staff.</div> : null}
+        <div className={styles.infoBox}>{status === 'EMPTY'
+          ? 'Existing schedule entries on the selected dates will be removed. Dates that are already empty will remain empty.'
+          : 'Existing entries in the chosen dates will be replaced. Arrival time and overtime are entered per day.'}</div>
       </div>
       <footer className={styles.modalFooter}><span /><div><button className={styles.secondaryButton} onClick={onClose}>Cancel</button>
-        <button className={styles.primaryButton} disabled={busy || !start || !end || !weekdays.length || (status === 'WORK' && !shiftId)}
-          onClick={() => onSave({ start, end, weekdays, status, shiftId, applyFixedOff })}>{busy ? 'Applying...' : 'Apply schedule'}</button></div></footer>
+        <button className={status === 'EMPTY' ? styles.dangerButton : styles.primaryButton} disabled={busy || !start || !end || !weekdays.length || (status === 'WORK' && !shiftId)}
+          onClick={() => onSave({ start, end, weekdays, status, shiftId, applyFixedOff: status === 'EMPTY' ? false : applyFixedOff })}>{busy ? 'Applying...' : status === 'EMPTY' ? 'Clear schedule' : 'Apply schedule'}</button></div></footer>
     </ModalShell>
   );
 }
