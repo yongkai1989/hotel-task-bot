@@ -357,7 +357,15 @@ export default function LaundryCountPage() {
   const [receivedEntryMap, setReceivedEntryMap] = useState<Record<BlockKey, LinenTotals>>(emptyBlockEntryMap());
 
   const serviceDate = getTodayLocalDateString();
-  const selectedReceivedCollection = collections.find((collection) => collection.id === selectedCollectionId) || null;
+  const recentCollectionStartDate = shiftDateString(serviceDate, -6);
+  const recentCollections = useMemo(
+    () => collections.filter((collection) =>
+      collection.collection_date >= recentCollectionStartDate &&
+      collection.collection_date <= serviceDate
+    ),
+    [collections, recentCollectionStartDate, serviceDate]
+  );
+  const selectedReceivedCollection = recentCollections.find((collection) => collection.id === selectedCollectionId) || null;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -560,13 +568,19 @@ export default function LaundryCountPage() {
       setBillCcNo(currentCollection?.is_legacy ? '' : currentCollection?.cc_no || '');
       setBillSourceServiceDate(currentCollection?.source_service_date || shiftDateString(serviceDate, -1));
 
+      const recentLoadedCollections = loadedCollections.filter((collection) =>
+        collection.collection_date >= shiftDateString(serviceDate, -6) &&
+        collection.collection_date <= serviceDate
+      );
       const preferredCollection =
-        loadedCollections.find((collection) => collection.id === selectedCollectionId) ||
-        loadedCollections.find((collection) => collection.collection_date === receivedDateOverride) ||
-        loadedCollections.find((collection) => Number(collection.received_blocks || 0) < 2) ||
-        loadedCollections[0];
+        recentLoadedCollections.find((collection) => collection.id === selectedCollectionId) ||
+        recentLoadedCollections.find((collection) => collection.collection_date === receivedDateOverride) ||
+        recentLoadedCollections.find((collection) => Number(collection.received_blocks || 0) < 2) ||
+        recentLoadedCollections[0];
       if (preferredCollection && preferredCollection.id !== selectedCollectionId) {
         setSelectedCollectionId(preferredCollection.id);
+      } else if (!preferredCollection && selectedCollectionId) {
+        setSelectedCollectionId('');
       }
 
       const paEntryRes = await supabase
@@ -1093,14 +1107,14 @@ export default function LaundryCountPage() {
         <div style={styles.batchHeading}>Choose the supplier CC No.</div>
         <div style={responsiveStyles.batchGrid}>
           <div style={styles.formGroup}>
-            <label style={styles.formLabel}>Collection awaiting return *</label>
+            <label style={styles.formLabel}>Collection from the past 7 days *</label>
             <select
               value={selectedCollectionId}
               onChange={(event) => setSelectedCollectionId(event.target.value)}
               style={styles.numberInput}
             >
               <option value="">Choose CC No.</option>
-              {collections.map((collection) => (
+              {recentCollections.map((collection) => (
                 <option key={collection.id} value={collection.id}>
                   {collection.cc_no} · Collected {collection.collection_date} · {Number(collection.received_blocks || 0) >= 2 ? 'Received' : 'Outstanding'}
                 </option>
