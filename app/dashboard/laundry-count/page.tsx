@@ -64,6 +64,7 @@ type LinenMapRow = {
 
 type LinenBillRow = {
   id?: string;
+  collection_id?: string;
   service_date: string;
   block_no: number;
   floor_no?: number | null;
@@ -75,6 +76,23 @@ type LinenBillRow = {
   duvet_cover_king: number | null;
   duvet_cover_single: number | null;
   created_at?: string;
+};
+
+type LaundryCollection = {
+  id: string;
+  cc_no: string;
+  collection_date: string;
+  source_service_date: string;
+  is_legacy: boolean;
+  received_blocks?: number;
+};
+
+type LinenReceivedRow = LinenTotals & {
+  id: string;
+  collection_id: string;
+  service_date: string;
+  received_date: string;
+  block_no: number;
 };
 
 type LinenTotals = {
@@ -151,6 +169,14 @@ function shiftDateString(baseDate: string, offsetDays: number) {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function displayCcNo(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+function ccNoKey(value: string) {
+  return displayCcNo(value).replace(/[^A-Z0-9]/g, '');
 }
 
 function zeroTotals(): LinenTotals {
@@ -321,12 +347,18 @@ export default function LaundryCountPage() {
   const [savingReceived, setSavingReceived] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1200);
   const [receivedDateOverride, setReceivedDateOverride] = useState('');
+  const [billCcNo, setBillCcNo] = useState('');
+  const [billSourceServiceDate, setBillSourceServiceDate] = useState('');
+  const [collections, setCollections] = useState<LaundryCollection[]>([]);
+  const [receivedRows, setReceivedRows] = useState<LinenReceivedRow[]>([]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [ccConfirmation, setCcConfirmation] = useState('');
 
   const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
   const [receivedEntryMap, setReceivedEntryMap] = useState<Record<BlockKey, LinenTotals>>(emptyBlockEntryMap());
 
   const serviceDate = getTodayLocalDateString();
-  const receivedServiceDate = receivedDateOverride || shiftDateString(serviceDate, -1);
+  const selectedReceivedCollection = collections.find((collection) => collection.id === selectedCollectionId) || null;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -463,7 +495,7 @@ export default function LaundryCountPage() {
       const supabase = getSupabaseSafe();
       if (!supabase) throw new Error('Supabase is not configured.');
 
-      const [roomRes, statusRes, entryRes, mapRes, billRes] = await Promise.all([
+      const [roomRes, statusRes, entryRes, mapRes, billRes, collectionRes, receivedRes] = await Promise.all([
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type')
@@ -484,6 +516,16 @@ export default function LaundryCountPage() {
           .select('*')
           .eq('service_date', serviceDate)
           .order('block_no', { ascending: true }),
+        supabase
+          .from('linen_laundry_collections')
+          .select('id, cc_no, collection_date, source_service_date, is_legacy')
+          .order('collection_date', { ascending: false })
+          .limit(90),
+        supabase
+          .from('linen_laundry_received')
+          .select('id, collection_id, service_date, received_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .order('received_date', { ascending: false })
+          .limit(200),
       ]);
 
       if (roomRes.error) throw roomRes.error;
@@ -491,12 +533,42 @@ export default function LaundryCountPage() {
       if (entryRes.error) throw entryRes.error;
       if (mapRes.error) throw mapRes.error;
       if (billRes.error) throw billRes.error;
+      if (collectionRes.error) throw collectionRes.error;
+      if (receivedRes.error) throw receivedRes.error;
 
       setRooms((roomRes.data || []) as RoomMasterRow[]);
       setStatuses((statusRes.data || []) as StatusRow[]);
       setEntries((entryRes.data || []) as EntryRow[]);
       setLinenMap((mapRes.data || []) as LinenMapRow[]);
       setBillRows((billRes.data || []) as LinenBillRow[]);
+
+      const loadedReceivedRows = (receivedRes.data || []) as LinenReceivedRow[];
+      const receivedBlocksByCollection = new Map<string, Set<number>>();
+      loadedReceivedRows.forEach((row) => {
+        if (!receivedBlocksByCollection.has(row.collection_id)) {
+          receivedBlocksByCollection.set(row.collection_id, new Set());
+        }
+        receivedBlocksByCollection.get(row.collection_id)?.add(Number(row.block_no));
+      });
+      const loadedCollections = (collectionRes.data || []).map((collection: any) => ({
+        ...collection,
+        received_blocks: receivedBlocksByCollection.get(String(collection.id))?.size || 0,
+      })) as LaundryCollection[];
+      setCollections(loadedCollections);
+      setReceivedRows(loadedReceivedRows);
+
+      const currentCollection = loadedCollections.find((collection) => collection.collection_date === serviceDate);
+      setBillCcNo(currentCollection?.is_legacy ? '' : currentCollection?.cc_no || '');
+      setBillSourceServiceDate(currentCollection?.source_service_date || shiftDateString(serviceDate, -1));
+
+      const preferredCollection =
+        loadedCollections.find((collection) => collection.id === selectedCollectionId) ||
+        loadedCollections.find((collection) => collection.collection_date === receivedDateOverride) ||
+        loadedCollections.find((collection) => Number(collection.received_blocks || 0) < 2) ||
+        loadedCollections[0];
+      if (preferredCollection && preferredCollection.id !== selectedCollectionId) {
+        setSelectedCollectionId(preferredCollection.id);
+      }
 
       const paEntryRes = await supabase
         .from('linen_pa_entry')
@@ -522,25 +594,6 @@ export default function LaundryCountPage() {
 
       setBillEntryMap(nextBillEntryMap);
 
-      const nextReceivedEntryMap = emptyBlockEntryMap();
-      const receivedRes = await supabase
-        .from('linen_laundry_received')
-        .select('*')
-        .eq('service_date', receivedServiceDate)
-        .order('block_no', { ascending: true });
-
-      if (!receivedRes.error) {
-        (receivedRes.data || []).forEach((row: any) => {
-          const key = `B${Number(row.block_no)}` as BlockKey;
-          if (!BLOCK_KEYS.includes(key)) return;
-          nextReceivedEntryMap[key] = toTotalsFromBillRow(row);
-        });
-      } else {
-        // The table exists after running laundry received sql.txt.
-      }
-
-      setReceivedEntryMap(nextReceivedEntryMap);
-
       await checkAlreadyRanToday();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to load laundry count');
@@ -551,7 +604,20 @@ export default function LaundryCountPage() {
 
   useEffect(() => {
     void loadData();
-  }, [profile, canAccess, serviceDate, receivedServiceDate]);
+  }, [profile, canAccess, serviceDate, receivedDateOverride]);
+
+  useEffect(() => {
+    const nextReceivedEntryMap = emptyBlockEntryMap();
+    receivedRows
+      .filter((row) => row.collection_id === selectedCollectionId)
+      .forEach((row) => {
+        const key = `B${Number(row.block_no)}` as BlockKey;
+        if (!BLOCK_KEYS.includes(key)) return;
+        nextReceivedEntryMap[key] = toTotalsFromBillRow(row);
+      });
+    setReceivedEntryMap(nextReceivedEntryMap);
+    setCcConfirmation('');
+  }, [receivedRows, selectedCollectionId]);
 
   useEffect(() => {
     if (isLaundryOnlyUser) {
@@ -825,6 +891,46 @@ export default function LaundryCountPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
+      const normalizedCcNo = displayCcNo(billCcNo);
+      if (!normalizedCcNo) throw new Error('CC No. is required before saving the Laundry Bill.');
+      if (!billSourceServiceDate) throw new Error('Linen service date is required.');
+      if (billSourceServiceDate > serviceDate) throw new Error('Linen service date cannot be after the collection date.');
+
+      const existingForDate = collections.find((collection) => collection.collection_date === serviceDate);
+      const duplicateCc = collections.find((collection) =>
+        ccNoKey(collection.cc_no) === ccNoKey(normalizedCcNo) && collection.id !== existingForDate?.id
+      );
+      if (duplicateCc) {
+        throw new Error(`CC No. ${normalizedCcNo} is already assigned to the ${duplicateCc.collection_date} collection.`);
+      }
+
+      let collectionId = existingForDate?.id || '';
+      if (existingForDate) {
+        const { error: collectionError } = await supabase
+          .from('linen_laundry_collections')
+          .update({
+            cc_no: normalizedCcNo,
+            source_service_date: billSourceServiceDate,
+            is_legacy: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingForDate.id);
+        if (collectionError) throw collectionError;
+      } else {
+        const { data: collection, error: collectionError } = await supabase
+          .from('linen_laundry_collections')
+          .insert({
+            cc_no: normalizedCcNo,
+            collection_date: serviceDate,
+            source_service_date: billSourceServiceDate,
+            is_legacy: false,
+          })
+          .select('id')
+          .single();
+        if (collectionError) throw collectionError;
+        collectionId = String(collection.id);
+      }
+
       const { error: deleteError } = await supabase
         .from('linen_laundry_bill')
         .delete()
@@ -833,6 +939,7 @@ export default function LaundryCountPage() {
       if (deleteError) throw deleteError;
 
       const rows = FLOOR_CONFIG.map((floor) => ({
+        collection_id: collectionId,
         service_date: serviceDate,
         block_no: floor.blockNo,
         floor_no: floor.floorNo,
@@ -845,7 +952,7 @@ export default function LaundryCountPage() {
 
       if (insertError) throw insertError;
 
-      setSuccessMsg('Laundry Bill saved successfully.');
+      setSuccessMsg(`Laundry Bill saved under CC No. ${normalizedCcNo}.`);
       await loadData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save Laundry Bill');
@@ -866,15 +973,27 @@ export default function LaundryCountPage() {
       setErrorMsg('');
       setSuccessMsg('');
 
+      if (!selectedReceivedCollection) throw new Error('Choose the CC No. being returned.');
+      if (ccNoKey(ccConfirmation) !== ccNoKey(selectedReceivedCollection.cc_no)) {
+        throw new Error('CC No. confirmation does not match the selected collection.');
+      }
+
+      const existingReceivedDate = receivedRows.find(
+        (row) => row.collection_id === selectedReceivedCollection.id
+      )?.received_date;
+      const physicalReceivedDate = existingReceivedDate || serviceDate;
+
       const { error: deleteError } = await supabase
         .from('linen_laundry_received')
         .delete()
-        .eq('service_date', receivedServiceDate);
+        .eq('collection_id', selectedReceivedCollection.id);
 
       if (deleteError) throw deleteError;
 
       const rows = BLOCK_KEYS.map((blockKeyValue) => ({
-        service_date: receivedServiceDate,
+        collection_id: selectedReceivedCollection.id,
+        service_date: selectedReceivedCollection.collection_date,
+        received_date: physicalReceivedDate,
         block_no: Number(blockKeyValue.replace('B', '')),
         ...receivedEntryMap[blockKeyValue],
       }));
@@ -885,7 +1004,7 @@ export default function LaundryCountPage() {
 
       if (insertError) throw insertError;
 
-      setSuccessMsg(`Laundry Received saved for ${receivedServiceDate}.`);
+      setSuccessMsg(`Laundry Received saved against CC No. ${selectedReceivedCollection.cc_no}.`);
       await loadData();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save Laundry Received');
@@ -934,6 +1053,88 @@ export default function LaundryCountPage() {
             </div>
           ))}
         </div>
+      </section>
+    );
+  }
+
+  function renderBillCollectionFields() {
+    return (
+      <section style={styles.batchCard}>
+        <div style={styles.batchHeading}>Collection Identification</div>
+        <div style={responsiveStyles.batchGrid}>
+          <div style={styles.formGroup}>
+            <label style={styles.formLabel}>CC No. *</label>
+            <input
+              type="text"
+              value={billCcNo}
+              onChange={(event) => setBillCcNo(event.target.value.toUpperCase())}
+              placeholder="Example: H 110093"
+              autoComplete="off"
+              style={styles.numberInput}
+            />
+            <small style={styles.fieldHint}>Enter the number printed beside “CC NO” on the supplier document.</small>
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.formLabel}>Dirty linen service date *</label>
+            <input
+              type="date"
+              value={billSourceServiceDate}
+              onChange={(event) => setBillSourceServiceDate(event.target.value)}
+              style={styles.numberInput}
+            />
+            <small style={styles.fieldHint}>The housekeeping day that produced this dirty linen.</small>
+          </div>
+        </div>
+        <div style={styles.batchSummary}>
+          Collected on <strong>{serviceDate}</strong>. This date remains separate from the linen service date.
+        </div>
+      </section>
+    );
+  }
+
+  function renderReceivedCollectionSelector() {
+    const isConfirmed = !!selectedReceivedCollection &&
+      ccNoKey(ccConfirmation) === ccNoKey(selectedReceivedCollection.cc_no);
+    return (
+      <section style={styles.batchCard}>
+        <div style={styles.batchHeading}>Match the supplier CC No.</div>
+        <div style={responsiveStyles.batchGrid}>
+          <div style={styles.formGroup}>
+            <label style={styles.formLabel}>Collection awaiting return *</label>
+            <select
+              value={selectedCollectionId}
+              onChange={(event) => setSelectedCollectionId(event.target.value)}
+              style={styles.numberInput}
+            >
+              <option value="">Choose CC No.</option>
+              {collections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.cc_no} · Collected {collection.collection_date} · {Number(collection.received_blocks || 0) >= 2 ? 'Received' : 'Outstanding'}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.formLabel}>Confirm CC No. *</label>
+            <input
+              type="text"
+              value={ccConfirmation}
+              onChange={(event) => setCcConfirmation(event.target.value.toUpperCase())}
+              placeholder={selectedReceivedCollection ? `Retype ${selectedReceivedCollection.cc_no}` : 'Choose a collection first'}
+              disabled={!selectedReceivedCollection}
+              autoComplete="off"
+              style={{ ...styles.numberInput, borderColor: isConfirmed ? '#22c55e' : '#cbd5e1' }}
+            />
+            <small style={{ ...styles.fieldHint, color: isConfirmed ? '#166534' : '#64748b' }}>
+              {isConfirmed ? 'CC number confirmed.' : 'Retype the number from the returned document as a double-check.'}
+            </small>
+          </div>
+        </div>
+        {selectedReceivedCollection ? (
+          <div style={styles.batchSummary}>
+            <strong>CC {selectedReceivedCollection.cc_no}</strong> · Collected {selectedReceivedCollection.collection_date} · Dirty linen from {selectedReceivedCollection.source_service_date}
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -999,6 +1200,10 @@ export default function LaundryCountPage() {
           : isTablet
             ? 'repeat(2, minmax(0, 1fr))'
             : styles.billGrid.gridTemplateColumns,
+      } as React.CSSProperties,
+      batchGrid: {
+        ...styles.batchGrid,
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
       } as React.CSSProperties,
       billGrandGrid: {
         ...styles.billGrandGrid,
@@ -1139,8 +1344,9 @@ export default function LaundryCountPage() {
             {pageTab === 'RECEIVED' ? (
               <>
                 <div style={styles.groupMeta}>
-                  Enter clean linen returned for {receivedServiceDate}, separated by Block 1 and Block 2.
+                  Select and confirm the supplier CC No. before entering the returned quantities.
                 </div>
+                {renderReceivedCollectionSelector()}
                 {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
                 {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
 
@@ -1148,7 +1354,7 @@ export default function LaundryCountPage() {
                   <button
                     type="button"
                     onClick={handleSaveReceived}
-                    disabled={savingReceived}
+                    disabled={savingReceived || !selectedReceivedCollection || ccNoKey(ccConfirmation) !== ccNoKey(selectedReceivedCollection.cc_no)}
                     style={{ ...responsiveStyles.primaryBtn, opacity: savingReceived ? 0.55 : 1 }}
                   >
                     {savingReceived ? 'Saving...' : 'Save Laundry Received'}
@@ -1164,13 +1370,14 @@ export default function LaundryCountPage() {
             ) : (
               <>
                 <div style={styles.groupMeta}>Only Laundry Bill tabs are available for this account.</div>
+                {renderBillCollectionFields()}
                 {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
 
                 <div style={responsiveStyles.billActionRow}>
                   <button
                     type="button"
                     onClick={handleSaveBill}
-                    disabled={savingBill}
+                    disabled={savingBill || !billCcNo.trim() || !billSourceServiceDate}
                     style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
                   >
                     {savingBill ? 'Saving...' : 'Save Laundry Bill'}
@@ -1270,8 +1477,10 @@ export default function LaundryCountPage() {
           <section style={responsiveStyles.panel}>
             <div style={responsiveStyles.sectionTitle}>Laundry Received</div>
             <div style={styles.groupMeta}>
-              Enter clean linen returned for {receivedServiceDate}. These returned totals appear in Linen History for that date.
+              Find the outstanding collection, confirm its CC No., then enter the clean linen returned today.
             </div>
+
+            {renderReceivedCollectionSelector()}
 
             {renderReceivedEditor('B1', 'Block 1 Returned', receivedEntryMap.B1 || zeroTotals())}
             {renderReceivedEditor('B2', 'Block 2 Returned', receivedEntryMap.B2 || zeroTotals())}
@@ -1280,7 +1489,7 @@ export default function LaundryCountPage() {
               <button
                 type="button"
                 onClick={handleSaveReceived}
-                disabled={savingReceived}
+                disabled={savingReceived || !selectedReceivedCollection || ccNoKey(ccConfirmation) !== ccNoKey(selectedReceivedCollection.cc_no)}
                 style={{ ...responsiveStyles.primaryBtn, opacity: savingReceived ? 0.55 : 1 }}
               >
                 {savingReceived ? 'Saving...' : 'Save Laundry Received'}
@@ -1294,13 +1503,15 @@ export default function LaundryCountPage() {
               Enter the contractor bill totals for each floor. Block totals and grand totals are calculated from these entries.
             </div>
 
+            {renderBillCollectionFields()}
+
             {FLOOR_CONFIG.map((floor) => renderBillEditor(floor, billEntryMap[floor.key] || zeroTotals()))}
 
             <div style={responsiveStyles.billActionRow}>
               <button
                 type="button"
                 onClick={handleSaveBill}
-                disabled={savingBill}
+                disabled={savingBill || !billCcNo.trim() || !billSourceServiceDate}
                 style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
               >
                 {savingBill ? 'Saving...' : 'Save Laundry Bill'}
@@ -1553,6 +1764,37 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#64748b',
     marginBottom: '14px',
     fontWeight: 700,
+  },
+  batchCard: {
+    border: '1px solid #bfdbfe',
+    borderRadius: '18px',
+    background: '#eff6ff',
+    padding: '16px',
+    marginBottom: '16px',
+  },
+  batchHeading: {
+    fontSize: '17px',
+    fontWeight: 800,
+    color: '#1e3a8a',
+    marginBottom: '12px',
+  },
+  batchGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: '12px',
+  },
+  batchSummary: {
+    marginTop: '12px',
+    borderTop: '1px solid #bfdbfe',
+    paddingTop: '12px',
+    color: '#334155',
+    fontSize: '14px',
+    lineHeight: 1.5,
+  },
+  fieldHint: {
+    color: '#64748b',
+    fontSize: '12px',
+    lineHeight: 1.4,
   },
   itemGrid: {
     display: 'grid',

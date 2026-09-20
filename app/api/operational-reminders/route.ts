@@ -101,6 +101,8 @@ type DailyOperationsSummary = {
     return_saved_rows?: number;
     return_expected_rows?: number;
     return_service_date?: string;
+    return_cc_no?: string;
+    return_source_service_date?: string;
     items?: DailyLinenItem[];
   };
 };
@@ -368,13 +370,15 @@ function checklistReviewLines(label: string, rows: DailyChecklistRow[]) {
 }
 
 async function linenReconciliationReminder(reportDate: string) {
-  const { data, error } = await supabaseAdmin.rpc('get_daily_operations_summary', {
-    p_report_date: reportDate,
-  });
+  const [{ data, error }, { data: reconciliation, error: reconciliationError }] = await Promise.all([
+    supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
+    supabaseAdmin.rpc('get_cc_linked_linen_reconciliation', { p_report_date: reportDate }),
+  ]);
   if (error) throw error;
+  if (reconciliationError) throw reconciliationError;
 
   const summary = (data || {}) as DailyOperationsSummary;
-  const linen = summary.linen || {};
+  const linen = (reconciliation || summary.linen || {}) as NonNullable<DailyOperationsSummary['linen']>;
   const savedRows = numeric(linen.return_saved_rows);
   const expectedRows = numeric(linen.return_expected_rows) || 2;
   const isComplete = linen.return_saved === true && savedRows >= expectedRows;
@@ -400,11 +404,12 @@ async function linenReconciliationReminder(reportDate: string) {
   const lines = [
     '🧺 <b>LINEN RECONCILIATION</b>',
     '',
-    `<b>IN BILL DATE:</b> ${displayDate(billDate)}`,
+    `<b>CC NO:</b> ${telegramHtml(linen.return_cc_no || 'Not recorded')}`,
+    `<b>COLLECTION DATE:</b> ${displayDate(billDate)}`,
+    `<b>LINEN SERVICE DATE:</b> ${displayDate(linen.return_source_service_date || billDate)}`,
     `<b>RETURN DATE:</b> ${displayDate(reportDate)}`,
   ];
   for (const item of items) {
-    const totalUse = numeric(item.previous_total_use);
     const inBill = numeric(item.previous_in_bill);
     const returned = numeric(item.returned);
     const difference = returned - inBill;
@@ -412,7 +417,7 @@ async function linenReconciliationReminder(reportDate: string) {
     lines.push(
       '',
       `<b>${telegramHtml(item.label || 'Linen')}</b>`,
-      `Total Use ${totalUse} · In Bill ${inBill} · Return ${returned}`,
+      `In Bill ${inBill} · Returned ${returned}`,
       `<b>Difference: ${indicator} ${signed(difference)}</b>`
     );
   }

@@ -124,6 +124,11 @@ type Summary = {
     return_saved_rows: number;
     return_expected_rows: number;
     return_saved: boolean;
+    bill_cc_no?: string;
+    bill_collection_date?: string;
+    bill_source_service_date?: string;
+    return_cc_no?: string;
+    return_source_service_date?: string;
     items: LinenItem[];
   };
 };
@@ -236,12 +241,22 @@ export default function DailyOperationsSummaryPage() {
     setLoading(true);
     setError('');
     setLinenAreaVariance(null);
-    const [summaryResult, varianceResult] = await Promise.all([
+    const [summaryResult, varianceResult, reconciliationResult] = await Promise.all([
       supabase.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
       supabase.rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate }),
+      supabase.rpc('get_cc_linked_linen_reconciliation', { p_report_date: reportDate }),
     ]);
     if (summaryResult.error) setError(summaryResult.error.message);
-    else setSummary(summaryResult.data as Summary);
+    else {
+      const nextSummary = summaryResult.data as Summary;
+      if (!reconciliationResult.error && reconciliationResult.data) {
+        nextSummary.linen = reconciliationResult.data as Summary['linen'];
+      }
+      setSummary(nextSummary);
+    }
+    if (reconciliationResult.error) {
+      setError((current) => current || reconciliationResult.error.message);
+    }
     if (varianceResult.error) {
       setLinenAreaVariance(null);
       setError((current) => current || varianceResult.error.message);
@@ -423,12 +438,12 @@ export default function DailyOperationsSummaryPage() {
         <div className="panel-title"><div><span className="eyebrow">LINEN RECONCILIATION</span><h2>Use, bill and return</h2><p>Each comparison now uses records from the correct service date.</p></div><Link href="/dashboard/laundry-count">Open Linen Count</Link></div>
         <div className="reconciliation-grid">
           <section className="reconciliation-card">
-            <div className="reconciliation-heading"><div><strong>Today&apos;s use vs today&apos;s In Bill</strong><span>{formatDate(summary?.report_date)}</span></div><small>Positive means In Bill is higher than total use.</small></div>
+            <div className="reconciliation-heading"><div><strong>Housekeeping use vs collection bill</strong><span>CC {summary?.linen?.bill_cc_no || 'Not recorded'} · Linen from {formatDate(summary?.linen?.bill_source_service_date || summary?.report_date)}</span></div><small>Positive means In Bill is higher than total use.</small></div>
             <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Maid use</th><th>PA use</th><th>Total use</th><th>Today In Bill</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.maid_use}</td><td>{item.pa_use}</td><td>{item.total_use}</td><td>{item.in_bill}</td><td><Diff value={item.bill_minus_total_use} /></td></tr>)}</tbody></table></div>
           </section>
           <section className="reconciliation-card return-card">
-            <div className="reconciliation-heading return-heading"><div><strong>Today&apos;s Return − yesterday&apos;s In Bill</strong><div className="comparison-dates"><span className="comparison-date bill-date"><small>Bill Date</small><b>{formatDate(summary?.linen?.previous_bill_service_date)}</b></span><span className="comparison-date return-date"><small>Return Date</small><b>{formatDate(summary?.report_date)}</b></span></div></div><small>Positive means today&apos;s return is higher; negative means yesterday&apos;s In Bill is higher.</small></div>
-            <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>Yesterday Total Use</th><th>Yesterday In Bill</th><th>Today Return</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.previous_total_use}</td><td>{item.previous_in_bill}</td><td>{item.returned}</td><td><Diff value={item.returned - item.previous_in_bill} /></td></tr>)}</tbody></table></div>
+            <div className="reconciliation-heading return-heading"><div><strong>Returned linen − matching collection bill</strong><span>CC {summary?.linen?.return_cc_no || 'Not recorded'}</span><div className="comparison-dates"><span className="comparison-date bill-date"><small>Collection Date</small><b>{formatDate(summary?.linen?.previous_bill_service_date)}</b></span><span className="comparison-date return-date"><small>Return Date</small><b>{formatDate(summary?.report_date)}</b></span></div></div><small>Positive means the return is higher; negative means the supplier bill is higher.</small></div>
+            <div className="table-wrap"><table className="linen-table"><thead><tr><th>Linen</th><th>In Bill</th><th>Returned</th><th>Difference</th></tr></thead><tbody>{(summary?.linen?.items || []).map((item) => <tr key={item.key}><td><b>{item.label}</b></td><td>{item.previous_in_bill}</td><td>{item.returned}</td><td><Diff value={item.returned - item.previous_in_bill} /></td></tr>)}</tbody></table></div>
           </section>
         </div>
       </section>
