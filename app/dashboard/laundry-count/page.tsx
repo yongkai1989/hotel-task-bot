@@ -1050,18 +1050,18 @@ export default function LaundryCountPage() {
 
   function renderBillEditor(floor: { key: FloorKey; blockNo: 1 | 2; floorNo: number; label: string }, totals: LinenTotals) {
     return (
-      <section style={styles.billCard}>
+      <section style={responsiveStyles.billCard}>
         <div style={styles.billCardTitle}>{floor.label}</div>
         <div style={responsiveStyles.billGrid}>
           {ITEM_DEFS.map((item) => (
-            <div key={`${floor.key}-${item.key}`} style={styles.formGroup}>
+            <div key={`${floor.key}-${item.key}`} style={responsiveStyles.formGroup}>
               <label style={styles.formLabel}>{item.label}</label>
               <input
                 type="number"
                 min="0"
                 value={totals[item.key]}
                 onChange={(e) => updateBillValue(floor.key, item.key, e.target.value)}
-                style={styles.numberInput}
+                style={responsiveStyles.numberInput}
               />
             </div>
           ))}
@@ -1072,18 +1072,18 @@ export default function LaundryCountPage() {
 
   function renderReceivedEditor(blockKeyValue: BlockKey, label: string, totals: LinenTotals) {
     return (
-      <section style={styles.billCard}>
+      <section style={responsiveStyles.billCard}>
         <div style={styles.billCardTitle}>{label}</div>
         <div style={responsiveStyles.billGrid}>
           {ITEM_DEFS.map((item) => (
-            <div key={`${blockKeyValue}-${item.key}`} style={styles.formGroup}>
+            <div key={`${blockKeyValue}-${item.key}`} style={responsiveStyles.formGroup}>
               <label style={styles.formLabel}>{item.label}</label>
               <input
                 type="number"
                 min="0"
                 value={totals[item.key]}
                 onChange={(e) => updateReceivedValue(blockKeyValue, item.key, e.target.value)}
-                style={styles.numberInput}
+                style={responsiveStyles.numberInput}
               />
             </div>
           ))}
@@ -1094,10 +1094,10 @@ export default function LaundryCountPage() {
 
   function renderBillCollectionFields() {
     return (
-      <section style={styles.batchCard}>
+      <section style={responsiveStyles.batchCard}>
         <div style={styles.batchHeading}>Collection Identification</div>
         <div style={responsiveStyles.batchGrid}>
-          <div style={styles.formGroup}>
+          <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Block 1 CC No. *</label>
             <input
               type="text"
@@ -1105,11 +1105,11 @@ export default function LaundryCountPage() {
               onChange={(event) => setBillCcNos((current) => ({ ...current, B1: event.target.value.toUpperCase() }))}
               placeholder="Example: H 110093"
               autoComplete="off"
-              style={styles.numberInput}
+              style={responsiveStyles.numberInput}
             />
             <small style={styles.fieldHint}>CC number on the Block 1 collection document.</small>
           </div>
-          <div style={styles.formGroup}>
+          <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Block 2 CC No. *</label>
             <input
               type="text"
@@ -1117,17 +1117,17 @@ export default function LaundryCountPage() {
               onChange={(event) => setBillCcNos((current) => ({ ...current, B2: event.target.value.toUpperCase() }))}
               placeholder="Example: H 110094"
               autoComplete="off"
-              style={styles.numberInput}
+              style={responsiveStyles.numberInput}
             />
             <small style={styles.fieldHint}>CC number on the Block 2 collection document.</small>
           </div>
-          <div style={styles.formGroup}>
+          <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Dirty linen service date *</label>
             <input
               type="date"
               value={billSourceServiceDate}
               onChange={(event) => setBillSourceServiceDate(event.target.value)}
-              style={styles.numberInput}
+              style={responsiveStyles.numberInput}
             />
             <small style={styles.fieldHint}>The housekeeping day that produced this dirty linen.</small>
           </div>
@@ -1141,15 +1141,15 @@ export default function LaundryCountPage() {
 
   function renderReceivedCollectionSelector() {
     return (
-      <section style={styles.batchCard}>
+      <section style={responsiveStyles.batchCard}>
         <div style={styles.batchHeading}>Choose the supplier CC No.</div>
         <div style={responsiveStyles.batchGrid}>
-          <div style={styles.formGroup}>
+          <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Collection from the past 7 days *</label>
             <select
               value={selectedCollectionId}
               onChange={(event) => setSelectedCollectionId(event.target.value)}
-              style={styles.numberInput}
+              style={responsiveStyles.numberInput}
             >
               <option value="">Choose CC No.</option>
               {recentCollections.map((collection) => (
@@ -1176,7 +1176,11 @@ export default function LaundryCountPage() {
       panel: {
         ...styles.panel,
         borderRadius: isMobile ? '18px' : styles.panel.borderRadius,
-        padding: isMobile ? '14px' : isTablet ? '15px' : styles.panel.padding,
+        padding: isMobile ? '12px' : isTablet ? '15px' : styles.panel.padding,
+        boxSizing: 'border-box',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
       } as React.CSSProperties,
       topBar: {
         ...styles.topBar,
@@ -1225,6 +1229,8 @@ export default function LaundryCountPage() {
       } as React.CSSProperties,
       billGrid: {
         ...styles.billGrid,
+        width: '100%',
+        minWidth: 0,
         gridTemplateColumns: isMobile
           ? '1fr'
           : isTablet
@@ -1233,7 +1239,39 @@ export default function LaundryCountPage() {
       } as React.CSSProperties,
       batchGrid: {
         ...styles.batchGrid,
+        width: '100%',
+        minWidth: 0,
         gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+      } as React.CSSProperties,
+      batchCard: {
+        ...styles.batchCard,
+        padding: isMobile ? '12px' : styles.batchCard.padding,
+        boxSizing: 'border-box',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+      } as React.CSSProperties,
+      billCard: {
+        ...styles.billCard,
+        padding: isMobile ? '12px' : styles.billCard.padding,
+        boxSizing: 'border-box',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+      } as React.CSSProperties,
+      formGroup: {
+        ...styles.formGroup,
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+      } as React.CSSProperties,
+      numberInput: {
+        ...styles.numberInput,
+        display: 'block',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        fontSize: isMobile ? '16px' : styles.numberInput.fontSize,
       } as React.CSSProperties,
       billGrandGrid: {
         ...styles.billGrandGrid,
