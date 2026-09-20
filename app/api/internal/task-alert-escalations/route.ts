@@ -1,20 +1,13 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { processDueTaskEscalations } from '../../../../lib/taskEscalation';
+import { isTaskSchedulerAuthorization } from '../../../../lib/schedulerAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const maxDuration = 30;
 
-const SCHEDULER_TOKEN_SHA256 = 'cb70481797ed96935694b28ba43e631eb0ecaaec86662db7a62d3395532627f3';
-
 function authorized(req: NextRequest) {
-  const authorization = String(req.headers.get('authorization') || '');
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
-  if (!token) return false;
-  const received = createHash('sha256').update(token).digest();
-  const expected = Buffer.from(SCHEDULER_TOKEN_SHA256, 'hex');
-  return received.length === expected.length && timingSafeEqual(received, expected);
+  return isTaskSchedulerAuthorization(req.headers.get('authorization'));
 }
 
 export async function POST(req: NextRequest) {

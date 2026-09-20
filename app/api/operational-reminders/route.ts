@@ -7,6 +7,7 @@ import {
   sendPushNotifications,
 } from '../../../lib/taskPush';
 import { runMtDailyReviewOnce } from '../../../lib/mtDailyReview';
+import { isTaskSchedulerAuthorization } from '../../../lib/schedulerAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -873,13 +874,12 @@ async function preventiveMaintenanceReminder(today: string) {
 
 export async function GET(request: NextRequest) {
   const bridgeSecret = String(process.env.PRINTER_BRIDGE_KEY || '').trim();
-  const schedulerSecret = String(process.env.TASK_ALERT_SCHEDULER_TOKEN || '').trim();
   const authorization = request.headers.get('authorization');
   const headerSecret = request.headers.get('x-printer-bridge-key');
   const isAuthorized = Boolean(
     (bridgeSecret &&
       (authorization === `Bearer ${bridgeSecret}` || headerSecret === bridgeSecret)) ||
-    (schedulerSecret && authorization === `Bearer ${schedulerSecret}`)
+    isTaskSchedulerAuthorization(authorization)
   );
   if (!isAuthorized) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
