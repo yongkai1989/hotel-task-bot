@@ -816,6 +816,8 @@ export default function DashboardSidebar({
     effectiveEmail === 'walter@hotelhallmark.com' ||
     effectiveEmail === 'fenny@hotelhallmark.com';
   const canSeeAdminSettings = !!effectiveProfile?.can_access_admin_settings;
+  const canSeeNotificationStatus =
+    effectiveRole === 'SUPERUSER' || effectiveRole === 'MANAGER';
   const canSeeLostFound =
     effectiveRole === 'SUPERUSER' ||
     !!effectiveProfile?.can_access_lost_found;
@@ -883,6 +885,7 @@ export default function DashboardSidebar({
     canSeeOnlinePurchasing ||
     canSeeBankInCash ||
     canSeeCommissionChecker ||
+    canSeeNotificationStatus ||
     canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeFoSchedule ||
@@ -1741,6 +1744,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="alert" sub>System Usage</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeNotificationStatus ? (
+                <Link
+                  href="/dashboard/notification-status"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="alert" sub>Notification Status</SidebarNavContent>
                 </Link>
               ) : null}
 
