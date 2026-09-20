@@ -95,6 +95,7 @@ const DASHBOARD_TASKS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DASHBOARD_TASK_REQUEST_TIMEOUT_MS = 7_000;
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
 const MANUAL_TASK_REFRESH_MIN_MS = 45000;
+const TASK_RETRY_DELAYS_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
 const INSIGHTS_REFRESH_MIN_MS = 600000;
 const MAX_RENDERED_TASK_CARDS = 60;
 const MAX_RENDERED_TASK_CARDS_MOBILE = 30;
@@ -864,6 +865,13 @@ export default function DashboardPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => () => {
+    if (tasksRetryTimerRef.current !== null) {
+      window.clearTimeout(tasksRetryTimerRef.current);
+      tasksRetryTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -1125,6 +1133,8 @@ export default function DashboardPage() {
   const lastTasksFingerprintRef = useRef('');
   const lastTasksRequestAtRef = useRef(0);
   const tasksRequestInFlightRef = useRef<Promise<boolean> | null>(null);
+  const tasksRetryAttemptRef = useRef(0);
+  const tasksRetryTimerRef = useRef<number | null>(null);
   const lastInsightsRequestAtRef = useRef(0);
   const insightsRequestInFlightRef = useRef<Promise<void> | null>(null);
   const lastLoadedProfileKeyRef = useRef('');
@@ -1908,6 +1918,11 @@ export default function DashboardPage() {
       lastTasksFingerprintRef.current = nextFingerprint;
       saveTasksToCache(nextTasks);
       setErrorMsg('');
+      tasksRetryAttemptRef.current = 0;
+      if (tasksRetryTimerRef.current !== null) {
+        window.clearTimeout(tasksRetryTimerRef.current);
+        tasksRetryTimerRef.current = null;
+      }
       if (profile && now - lastInsightsRequestAtRef.current >= INSIGHTS_REFRESH_MIN_MS) {
         void loadDashboardInsights();
       }
@@ -1915,6 +1930,19 @@ export default function DashboardPage() {
       } catch (err: any) {
       if (!silent) {
         setErrorMsg(err?.message || 'Failed to load tasks');
+      }
+      if (tasksRetryTimerRef.current === null && typeof window !== 'undefined') {
+        const retryIndex = Math.min(
+          tasksRetryAttemptRef.current,
+          TASK_RETRY_DELAYS_MS.length - 1
+        );
+        const retryDelay = TASK_RETRY_DELAYS_MS[retryIndex];
+        tasksRetryAttemptRef.current += 1;
+        tasksRetryTimerRef.current = window.setTimeout(() => {
+          tasksRetryTimerRef.current = null;
+          if (!lastLoadedProfileKeyRef.current || !navigator.onLine) return;
+          void loadTasks(false, { silent: true, onlyIfChanged: true, force: true });
+        }, retryDelay);
       }
       return false;
       } finally {

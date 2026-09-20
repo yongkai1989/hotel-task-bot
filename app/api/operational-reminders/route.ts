@@ -189,6 +189,16 @@ function requestedKind(request: NextRequest): ReminderKind | null {
   return null;
 }
 
+function isRetiredLinenVarianceKind(request: NextRequest) {
+  const kind = String(request.nextUrl.searchParams.get('kind') || '').trim().toLowerCase();
+  return (
+    kind === 'linen-variance' ||
+    kind === 'linen' ||
+    kind === 'linen-6pm' ||
+    kind === 'linen-530pm'
+  );
+}
+
 function clipped(values: string[], limit = MAX_VISIBLE_ITEMS) {
   const visible = values.slice(0, limit);
   const remaining = values.length - visible.length;
@@ -863,20 +873,34 @@ async function preventiveMaintenanceReminder(today: string) {
 
 export async function GET(request: NextRequest) {
   const bridgeSecret = String(process.env.PRINTER_BRIDGE_KEY || '').trim();
+  const schedulerSecret = String(process.env.TASK_ALERT_SCHEDULER_TOKEN || '').trim();
   const authorization = request.headers.get('authorization');
   const headerSecret = request.headers.get('x-printer-bridge-key');
   const isAuthorized = Boolean(
-    bridgeSecret &&
-      (authorization === `Bearer ${bridgeSecret}` || headerSecret === bridgeSecret)
+    (bridgeSecret &&
+      (authorization === `Bearer ${bridgeSecret}` || headerSecret === bridgeSecret)) ||
+    (schedulerSecret && authorization === `Bearer ${schedulerSecret}`)
   );
   if (!isAuthorized) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
 
+  // The former 6:00 PM linen-difference task can remain installed on an older
+  // printer-bridge PC. Treat its authenticated request as a successful no-op
+  // so it cannot send a late duplicate while that PC is being updated.
+  if (isRetiredLinenVarianceKind(request)) {
+    console.info('[operational-reminders] ignored retired linen variance reminder');
+    return NextResponse.json({
+      ok: true,
+      disabled: true,
+      reason: 'The 6:00 PM linen reminder was replaced by the 1:00 PM Linen Reconciliation.',
+    });
+  }
+
   const reminderType = requestedKind(request);
   if (!reminderType) {
     return NextResponse.json(
-      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-variance, kind=linen-reconciliation, kind=hk-morning-review, or kind=mt-daily-review' },
+      { ok: false, error: 'Use kind=chambermaid, kind=preventive-maintenance, kind=linen-reconciliation, kind=hk-morning-review, or kind=mt-daily-review' },
       { status: 400 }
     );
   }

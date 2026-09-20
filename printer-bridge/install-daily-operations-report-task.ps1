@@ -9,7 +9,6 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $batchPath = Join-Path $scriptDirectory 'send-daily-operations-report.bat'
 $hkMorningReviewBatchPath = Join-Path $scriptDirectory 'send-hk-morning-review.bat'
 $chambermaidBatchPath = Join-Path $scriptDirectory 'send-chambermaid-reminder.bat'
-$linenVarianceBatchPath = Join-Path $scriptDirectory 'send-linen-variance-reminder.bat'
 $linenReconciliationBatchPath = Join-Path $scriptDirectory 'send-linen-reconciliation.bat'
 
 if (-not (Test-Path -LiteralPath $batchPath)) {
@@ -21,11 +20,13 @@ if (-not (Test-Path -LiteralPath $hkMorningReviewBatchPath)) {
 if (-not (Test-Path -LiteralPath $chambermaidBatchPath)) {
   throw "Missing $chambermaidBatchPath"
 }
-if (-not (Test-Path -LiteralPath $linenVarianceBatchPath)) {
-  throw "Missing $linenVarianceBatchPath"
-}
 if (-not (Test-Path -LiteralPath $linenReconciliationBatchPath)) {
   throw "Missing $linenReconciliationBatchPath"
+}
+
+# Remove the retired 6:00 PM linen-difference task from older installations.
+if (Get-ScheduledTask -TaskName $linenVarianceTaskName -ErrorAction SilentlyContinue) {
+  Unregister-ScheduledTask -TaskName $linenVarianceTaskName -Confirm:$false
 }
 
 $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$batchPath`"`""
@@ -66,17 +67,6 @@ Register-ScheduledTask `
   -Description 'Sends yesterday''s HK morning review to the HK Telegram chat at 8:30 AM.' `
   -Force | Out-Null
 
-$linenVarianceAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$linenVarianceBatchPath`"`""
-$linenVarianceTrigger = New-ScheduledTaskTrigger -Daily -At '18:00'
-
-Register-ScheduledTask `
-  -TaskName $linenVarianceTaskName `
-  -Action $linenVarianceAction `
-  -Trigger $linenVarianceTrigger `
-  -Settings $settings `
-  -Description 'Sends all Block and Level linen differences of plus or minus 2 or more to the HK Telegram chat at 6:00 PM.' `
-  -Force | Out-Null
-
 $chambermaidAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"`"$chambermaidBatchPath`"`""
 $chambermaidTrigger = New-ScheduledTaskTrigger -Daily -At '17:00'
 
@@ -91,5 +81,5 @@ Register-ScheduledTask `
 Write-Host "Installed '$taskName' for 9:00 AM every day."
 Write-Host "Installed '$hkMorningReviewTaskName' for 8:30 AM every day."
 Write-Host "Installed '$chambermaidTaskName' for 5:00 PM every day."
-Write-Host "Installed '$linenVarianceTaskName' for 6:00 PM every day."
+Write-Host "Removed retired '$linenVarianceTaskName' 6:00 PM task if it was installed."
 Write-Host "Installed '$linenReconciliationTaskName' for 1:00 PM every day."
