@@ -90,7 +90,7 @@ type DashboardInsights = {
 };
 
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
-const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache_v2';
+const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache_v3';
 const DASHBOARD_TASKS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DASHBOARD_TASK_REQUEST_TIMEOUT_MS = 7_000;
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
@@ -1604,6 +1604,7 @@ export default function DashboardPage() {
             .from('hk_special_project_task_runs')
             .select('id, status, created_at, hk_special_project_task_id, hk_special_project_tasks!inner(id, is_active)')
             .eq('hk_special_project_tasks.is_active', true)
+            .in('status', ['OPEN', 'OVERDUE'])
             .order('created_at', { ascending: false })
             .limit(200),
           supabase
