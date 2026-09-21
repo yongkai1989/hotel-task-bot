@@ -349,7 +349,9 @@ export default function LaundryCountPage() {
   const [viewportWidth, setViewportWidth] = useState(1200);
   const [receivedDateOverride, setReceivedDateOverride] = useState('');
   const [billCcNos, setBillCcNos] = useState<Record<BlockKey, string>>({ B1: '', B2: '' });
-  const [billCollectionDate, setBillCollectionDate] = useState(() => getTodayLocalDateString());
+  const [billCollectionDate, setBillCollectionDate] = useState(() =>
+    shiftDateString(getTodayLocalDateString(), 1)
+  );
   const [billSourceServiceDate, setBillSourceServiceDate] = useState('');
   const [collections, setCollections] = useState<LaundryCollection[]>([]);
   const [receivedRows, setReceivedRows] = useState<LinenReceivedRow[]>([]);
@@ -932,7 +934,9 @@ export default function LaundryCountPage() {
       }
       if (!billCollectionDate) throw new Error('Collection date is required.');
       if (!billSourceServiceDate) throw new Error('Linen service date is required.');
-      if (billCollectionDate > serviceDate) throw new Error('Collection date cannot be in the future.');
+      if (billCollectionDate > shiftDateString(serviceDate, 1)) {
+        throw new Error('Collection date can be today or tomorrow only.');
+      }
       if (billSourceServiceDate > billCollectionDate) throw new Error('Linen service date cannot be after the collection date.');
 
       const rows = FLOOR_CONFIG.map((floor) => ({
@@ -1100,11 +1104,11 @@ export default function LaundryCountPage() {
             <input
               type="date"
               value={billCollectionDate}
-              max={serviceDate}
+              max={shiftDateString(serviceDate, 1)}
               onChange={(event) => setBillCollectionDate(event.target.value)}
               style={responsiveStyles.dateInput}
             />
-            <small style={styles.fieldHint}>The date the supplier collected this dirty linen.</small>
+            <small style={styles.fieldHint}>Choose today or tomorrow if the linen is being prepared in advance.</small>
           </div>
           <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Dirty linen service date *</label>
