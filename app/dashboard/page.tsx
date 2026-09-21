@@ -73,7 +73,7 @@ type DashboardUser = {
 type DashboardInsights = {
   roomPendingSave: number;
   specialProjectCompletion: number;
-  specialProjectDoneRooms: number;
+  specialProjectCount: number;
   overduePm: number;
   foChecklistSubmitted: number;
   foChecklistHasNoAnswer: boolean;
@@ -90,7 +90,7 @@ type DashboardInsights = {
 };
 
 const DASHBOARD_TASKS_CACHE_KEY = 'dashboard_tasks_cache';
-const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache';
+const DASHBOARD_INSIGHTS_CACHE_KEY = 'dashboard_insights_cache_v2';
 const DASHBOARD_TASKS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DASHBOARD_TASK_REQUEST_TIMEOUT_MS = 7_000;
 const SILENT_TASK_REFRESH_MIN_MS = 300000;
@@ -758,7 +758,7 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<DashboardInsights>({
     roomPendingSave: 0,
     specialProjectCompletion: 0,
-    specialProjectDoneRooms: 0,
+    specialProjectCount: 0,
     overduePm: 0,
     foChecklistSubmitted: 0,
     foChecklistHasNoAnswer: false,
@@ -1602,9 +1602,10 @@ export default function DashboardPage() {
             .neq('status', 'DONE'),
           supabase
             .from('hk_special_project_task_runs')
-            .select('id, status, created_at')
+            .select('id, status, created_at, hk_special_project_task_id, hk_special_project_tasks!inner(id, is_active)')
+            .eq('hk_special_project_tasks.is_active', true)
             .order('created_at', { ascending: false })
-            .limit(20),
+            .limit(200),
           supabase
             .from('manager_room_checks')
             .select('department, status'),
@@ -1639,27 +1640,49 @@ export default function DashboardPage() {
 
       const roomPendingSave = Math.max(0, roomNumbers.length - savedRoomCount);
 
-      const pickedRun =
-        ((hkRuns || []) as Array<{ id: string; status: string; created_at?: string | null }>).find(
-          (run) => run.status === 'OPEN' || run.status === 'OVERDUE'
-        ) || ((hkRuns || []) as Array<{ id: string; status: string; created_at?: string | null }>)[0] || null;
-
-      let specialProjectDoneRooms = 0;
-      if (pickedRun?.id) {
+      type HkInsightRun = {
+        id: string;
+        status: string;
+        created_at?: string | null;
+        hk_special_project_task_id: string;
+      };
+      const latestRunByProject = new Map<string, HkInsightRun>();
+      ((hkRuns || []) as HkInsightRun[]).forEach((run) => {
+        if (!latestRunByProject.has(run.hk_special_project_task_id)) {
+          latestRunByProject.set(run.hk_special_project_task_id, run);
+        }
+      });
+      const activeProjectRuns = Array.from(latestRunByProject.values());
+      const activeRunIds = activeProjectRuns.map((run) => run.id);
+      let specialProjectCompletion = 0;
+      let specialProjectCount = 0;
+      if (activeRunIds.length > 0) {
         const { data: projectRows, error: projectRowsError } = await supabase
           .from('hk_special_project_task_run_rooms')
-          .select('is_done')
-          .eq('hk_special_project_task_run_id', pickedRun.id);
+          .select('hk_special_project_task_run_id, is_done')
+          .in('hk_special_project_task_run_id', activeRunIds);
 
         if (projectRowsError) throw projectRowsError;
 
-        specialProjectDoneRooms = ((projectRows || []) as Array<{ is_done: boolean }>).filter((row) => row.is_done).length;
-      }
+        const progressByRun = new Map<string, { done: number; total: number }>();
+        ((projectRows || []) as Array<{ hk_special_project_task_run_id: string; is_done: boolean }>).forEach((row) => {
+          const progress = progressByRun.get(row.hk_special_project_task_run_id) || { done: 0, total: 0 };
+          progress.total += 1;
+          if (row.is_done) progress.done += 1;
+          progressByRun.set(row.hk_special_project_task_run_id, progress);
+        });
 
-      const specialProjectCompletion = Math.max(
-        0,
-        Math.min(100, Math.round((specialProjectDoneRooms / 156) * 100))
-      );
+        const completionRates = activeRunIds.flatMap((runId) => {
+          const progress = progressByRun.get(runId);
+          return progress && progress.total > 0 ? [(progress.done / progress.total) * 100] : [];
+        });
+        specialProjectCount = completionRates.length;
+        if (specialProjectCount > 0) {
+          specialProjectCompletion = Math.round(
+            completionRates.reduce((sum, completion) => sum + completion, 0) / specialProjectCount
+          );
+        }
+      }
 
       const overduePm = ((pmRuns || []) as Array<{ due_date: string; status: string }>).filter((row) => {
         if (!row?.due_date) return false;
@@ -1841,7 +1864,7 @@ export default function DashboardPage() {
       const nextInsights = {
         roomPendingSave,
         specialProjectCompletion,
-        specialProjectDoneRooms,
+        specialProjectCount,
         overduePm,
         foChecklistSubmitted: Math.max(0, Math.min(3, foChecklistSubmitted)),
         foChecklistHasNoAnswer,
@@ -3216,7 +3239,7 @@ async function handleDeleteTask(task: Task) {
                         href="/dashboard/hk-special-project"
                         title="Special Project Completion"
                         value={`${insights.specialProjectCompletion}%`}
-                        note={`${insights.specialProjectDoneRooms}/156 rooms completed`}
+                        note={`Average across ${insights.specialProjectCount} active project${insights.specialProjectCount === 1 ? '' : 's'}`}
                         tone="progress"
                         icon="progress"
                       />
