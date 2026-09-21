@@ -349,6 +349,7 @@ export default function LaundryCountPage() {
   const [viewportWidth, setViewportWidth] = useState(1200);
   const [receivedDateOverride, setReceivedDateOverride] = useState('');
   const [billCcNos, setBillCcNos] = useState<Record<BlockKey, string>>({ B1: '', B2: '' });
+  const [billCollectionDate, setBillCollectionDate] = useState(() => getTodayLocalDateString());
   const [billSourceServiceDate, setBillSourceServiceDate] = useState('');
   const [collections, setCollections] = useState<LaundryCollection[]>([]);
   const [receivedRows, setReceivedRows] = useState<LinenReceivedRow[]>([]);
@@ -503,7 +504,7 @@ export default function LaundryCountPage() {
       const supabase = getSupabaseSafe();
       if (!supabase) throw new Error('Supabase is not configured.');
 
-      const [roomRes, statusRes, entryRes, mapRes, billRes, collectionRes, receivedRes] = await Promise.all([
+      const [roomRes, statusRes, entryRes, mapRes, collectionRes, receivedRes] = await Promise.all([
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type')
@@ -519,11 +520,6 @@ export default function LaundryCountPage() {
           .select('room_number, is_dnd, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
           .eq('service_date', serviceDate),
         loadLinenRoomTypeMap(supabase),
-        supabase
-          .from('linen_laundry_bill')
-          .select('*')
-          .eq('service_date', serviceDate)
-          .order('block_no', { ascending: true }),
         supabase
           .from('linen_laundry_collections')
           .select('id, cc_no, collection_date, source_service_date, block_no, is_legacy')
@@ -541,7 +537,6 @@ export default function LaundryCountPage() {
       if (statusRes.error) throw statusRes.error;
       if (entryRes.error) throw entryRes.error;
       if (mapRes.error) throw mapRes.error;
-      if (billRes.error) throw billRes.error;
       if (collectionRes.error) throw collectionRes.error;
       if (receivedRes.error) throw receivedRes.error;
 
@@ -549,11 +544,11 @@ export default function LaundryCountPage() {
       setStatuses((statusRes.data || []) as StatusRow[]);
       setEntries((entryRes.data || []) as EntryRow[]);
       setLinenMap((mapRes.data || []) as LinenMapRow[]);
-      setBillRows((billRes.data || []) as LinenBillRow[]);
-
       const loadedReceivedRows = (receivedRes.data || []) as LinenReceivedRow[];
       const receivedRowsByCollection = new Map<string, number>();
       loadedReceivedRows.forEach((row) => {
+        const hasReturnedQuantity = ITEM_DEFS.some((item) => Number(row[item.key] || 0) > 0);
+        if (!hasReturnedQuantity) return;
         receivedRowsByCollection.set(
           row.collection_id,
           (receivedRowsByCollection.get(row.collection_id) || 0) + 1
@@ -566,7 +561,9 @@ export default function LaundryCountPage() {
       setCollections(loadedCollections);
       setReceivedRows(loadedReceivedRows);
 
-      const currentCollections = loadedCollections.filter((collection) => collection.collection_date === serviceDate);
+      const currentCollections = loadedCollections.filter(
+        (collection) => collection.collection_date === billCollectionDate
+      );
       const currentBlock1 = currentCollections.find((collection) => Number(collection.block_no) === 1);
       const currentBlock2 = currentCollections.find((collection) => Number(collection.block_no) === 2);
       setBillCcNos({
@@ -574,8 +571,19 @@ export default function LaundryCountPage() {
         B2: currentBlock2?.is_legacy ? '' : currentBlock2?.cc_no || '',
       });
       setBillSourceServiceDate(
-        currentBlock1?.source_service_date || currentBlock2?.source_service_date || shiftDateString(serviceDate, -1)
+        currentBlock1?.source_service_date || currentBlock2?.source_service_date || shiftDateString(billCollectionDate, -1)
       );
+
+      const currentCollectionIds = currentCollections.map((collection) => collection.id);
+      const billRes = currentCollectionIds.length
+        ? await supabase
+            .from('linen_laundry_bill')
+            .select('*')
+            .in('collection_id', currentCollectionIds)
+            .order('block_no', { ascending: true })
+        : { data: [], error: null };
+      if (billRes.error) throw billRes.error;
+      setBillRows((billRes.data || []) as LinenBillRow[]);
 
       const recentLoadedCollections = loadedCollections.filter((collection) =>
         collection.collection_date >= shiftDateString(serviceDate, -6) &&
@@ -626,7 +634,7 @@ export default function LaundryCountPage() {
 
   useEffect(() => {
     void loadData();
-  }, [profile, canAccess, serviceDate, receivedDateOverride]);
+  }, [profile, canAccess, serviceDate, receivedDateOverride, billCollectionDate]);
 
   useEffect(() => {
     const nextReceivedEntryMap = emptyBlockEntryMap();
@@ -922,75 +930,33 @@ export default function LaundryCountPage() {
       if (ccNoKey(normalizedCcNos.B1) === ccNoKey(normalizedCcNos.B2)) {
         throw new Error('Block 1 and Block 2 must use different CC numbers.');
       }
+      if (!billCollectionDate) throw new Error('Collection date is required.');
       if (!billSourceServiceDate) throw new Error('Linen service date is required.');
-      if (billSourceServiceDate > serviceDate) throw new Error('Linen service date cannot be after the collection date.');
-
-      const collectionIds = {} as Record<BlockKey, string>;
-      for (const blockKeyValue of BLOCK_KEYS) {
-        const blockNo = Number(blockKeyValue.replace('B', '')) as 1 | 2;
-        const normalizedCcNo = normalizedCcNos[blockKeyValue];
-        const existingForBlock = collections.find((collection) =>
-          collection.collection_date === serviceDate && Number(collection.block_no) === blockNo
-        );
-        const duplicateCc = collections.find((collection) =>
-          ccNoKey(collection.cc_no) === ccNoKey(normalizedCcNo) && collection.id !== existingForBlock?.id
-        );
-        if (duplicateCc) {
-          throw new Error(`CC No. ${normalizedCcNo} is already assigned to Block ${duplicateCc.block_no} on ${duplicateCc.collection_date}.`);
-        }
-
-        if (existingForBlock) {
-          const { error: collectionError } = await supabase
-            .from('linen_laundry_collections')
-            .update({
-              cc_no: normalizedCcNo,
-              source_service_date: billSourceServiceDate,
-              is_legacy: false,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingForBlock.id);
-          if (collectionError) throw collectionError;
-          collectionIds[blockKeyValue] = existingForBlock.id;
-        } else {
-          const { data: collection, error: collectionError } = await supabase
-            .from('linen_laundry_collections')
-            .insert({
-              cc_no: normalizedCcNo,
-              collection_date: serviceDate,
-              source_service_date: billSourceServiceDate,
-              block_no: blockNo,
-              is_legacy: false,
-            })
-            .select('id')
-            .single();
-          if (collectionError) throw collectionError;
-          collectionIds[blockKeyValue] = String(collection.id);
-        }
-      }
-
-      const { error: deleteError } = await supabase
-        .from('linen_laundry_bill')
-        .delete()
-        .eq('service_date', serviceDate);
-
-      if (deleteError) throw deleteError;
+      if (billCollectionDate > serviceDate) throw new Error('Collection date cannot be in the future.');
+      if (billSourceServiceDate > billCollectionDate) throw new Error('Linen service date cannot be after the collection date.');
 
       const rows = FLOOR_CONFIG.map((floor) => ({
-        collection_id: collectionIds[`B${floor.blockNo}` as BlockKey],
-        service_date: serviceDate,
         block_no: floor.blockNo,
         floor_no: floor.floorNo,
         ...billEntryMap[floor.key],
       }));
 
-      const { error: insertError } = await supabase
-        .from('linen_laundry_bill')
-        .insert(rows);
+      const { error: saveError } = await supabase.rpc('save_laundry_bill_entries', {
+        p_collection_date: billCollectionDate,
+        p_source_service_date: billSourceServiceDate,
+        p_block1_cc_no: normalizedCcNos.B1,
+        p_block2_cc_no: normalizedCcNos.B2,
+        p_rows: rows,
+      });
+      if (saveError) {
+        if (saveError.code === '23505' || /already (?:assigned|exists)|duplicate/i.test(saveError.message || '')) {
+          throw new Error(saveError.message || 'This CC number has already been used.');
+        }
+        throw saveError;
+      }
 
-      if (insertError) throw insertError;
-
-      setSuccessMsg(`Laundry Bill saved: Block 1 CC ${normalizedCcNos.B1} and Block 2 CC ${normalizedCcNos.B2}.`);
       await loadData();
+      setSuccessMsg(`Laundry Bill saved: Block 1 CC ${normalizedCcNos.B1} and Block 2 CC ${normalizedCcNos.B2}.`);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save Laundry Bill');
     } finally {
@@ -1012,6 +978,9 @@ export default function LaundryCountPage() {
 
       if (!selectedReceivedCollection) throw new Error('Choose the CC No. being returned.');
 
+      const selectedBlockKey = `B${selectedReceivedCollection.block_no}` as BlockKey;
+      const returnedTotals = receivedEntryMap[selectedBlockKey] || zeroTotals();
+      const hasReturnedQuantity = ITEM_DEFS.some((item) => Number(returnedTotals[item.key] || 0) > 0);
       const existingReceivedDate = receivedRows.find(
         (row) => row.collection_id === selectedReceivedCollection.id
       )?.received_date;
@@ -1024,13 +993,18 @@ export default function LaundryCountPage() {
 
       if (deleteError) throw deleteError;
 
-      const selectedBlockKey = `B${selectedReceivedCollection.block_no}` as BlockKey;
+      if (!hasReturnedQuantity) {
+        await loadData();
+        setSuccessMsg(`CC No. ${selectedReceivedCollection.cc_no} marked Outstanding because all returned quantities are 0.`);
+        return;
+      }
+
       const row = {
         collection_id: selectedReceivedCollection.id,
         service_date: selectedReceivedCollection.collection_date,
         received_date: physicalReceivedDate,
         block_no: selectedReceivedCollection.block_no,
-        ...receivedEntryMap[selectedBlockKey],
+        ...returnedTotals,
       };
 
       const { error: insertError } = await supabase
@@ -1039,8 +1013,8 @@ export default function LaundryCountPage() {
 
       if (insertError) throw insertError;
 
-      setSuccessMsg(`Laundry Received saved against CC No. ${selectedReceivedCollection.cc_no}.`);
       await loadData();
+      setSuccessMsg(`Laundry Received saved against CC No. ${selectedReceivedCollection.cc_no}.`);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to save Laundry Received');
     } finally {
@@ -1122,18 +1096,30 @@ export default function LaundryCountPage() {
             <small style={styles.fieldHint}>CC number on the Block 2 collection document.</small>
           </div>
           <div style={responsiveStyles.formGroup}>
+            <label style={styles.formLabel}>Collection date *</label>
+            <input
+              type="date"
+              value={billCollectionDate}
+              max={serviceDate}
+              onChange={(event) => setBillCollectionDate(event.target.value)}
+              style={responsiveStyles.dateInput}
+            />
+            <small style={styles.fieldHint}>The date the supplier collected this dirty linen.</small>
+          </div>
+          <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Dirty linen service date *</label>
             <input
               type="date"
               value={billSourceServiceDate}
+              max={billCollectionDate || serviceDate}
               onChange={(event) => setBillSourceServiceDate(event.target.value)}
-              style={responsiveStyles.numberInput}
+              style={responsiveStyles.dateInput}
             />
             <small style={styles.fieldHint}>The housekeeping day that produced this dirty linen.</small>
           </div>
         </div>
         <div style={styles.batchSummary}>
-          Collected on <strong>{serviceDate}</strong>. This date remains separate from the linen service date.
+          Collected on <strong>{billCollectionDate || '—'}</strong> for linen used on <strong>{billSourceServiceDate || '—'}</strong>.
         </div>
       </section>
     );
@@ -1250,6 +1236,7 @@ export default function LaundryCountPage() {
         width: '100%',
         maxWidth: '100%',
         minWidth: 0,
+        overflow: 'hidden',
       } as React.CSSProperties,
       billCard: {
         ...styles.billCard,
@@ -1271,6 +1258,20 @@ export default function LaundryCountPage() {
         width: '100%',
         maxWidth: '100%',
         minWidth: 0,
+        fontSize: isMobile ? '16px' : styles.numberInput.fontSize,
+      } as React.CSSProperties,
+      dateInput: {
+        ...styles.numberInput,
+        display: 'block',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        inlineSize: '100%',
+        minInlineSize: 0,
+        maxInlineSize: '100%',
+        overflow: 'hidden',
+        appearance: 'none',
+        WebkitAppearance: 'none',
         fontSize: isMobile ? '16px' : styles.numberInput.fontSize,
       } as React.CSSProperties,
       billGrandGrid: {
@@ -1451,7 +1452,7 @@ export default function LaundryCountPage() {
                   <button
                     type="button"
                     onClick={handleSaveBill}
-                    disabled={savingBill || !billCcNos.B1.trim() || !billCcNos.B2.trim() || !billSourceServiceDate}
+                    disabled={savingBill || !billCcNos.B1.trim() || !billCcNos.B2.trim() || !billCollectionDate || !billSourceServiceDate}
                     style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
                   >
                     {savingBill ? 'Saving...' : 'Save Laundry Bill'}
@@ -1591,7 +1592,7 @@ export default function LaundryCountPage() {
               <button
                 type="button"
                 onClick={handleSaveBill}
-                disabled={savingBill || !billCcNos.B1.trim() || !billCcNos.B2.trim() || !billSourceServiceDate}
+                disabled={savingBill || !billCcNos.B1.trim() || !billCcNos.B2.trim() || !billCollectionDate || !billSourceServiceDate}
                 style={{ ...responsiveStyles.primaryBtn, opacity: savingBill ? 0.55 : 1 }}
               >
                 {savingBill ? 'Saving...' : 'Save Laundry Bill'}
