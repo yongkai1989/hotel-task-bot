@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
 import { broadcastFnbOrderChange } from '../../../../lib/fnbOrderBroadcastServer';
+import {
+  processGuestShopOutbox,
+  settlePaidGuestShopOrder,
+} from '../../../../lib/guestShopReliability';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -195,22 +198,11 @@ async function refreshFromBillplz(order: any) {
 
   if (!billPaid(bill)) return order;
 
-  await decrementPaidStock(order.items_json);
-
   const paidAt = bill?.paid_at || new Date().toISOString();
-  const { data: updated, error } = await supabaseAdmin
-    .from('guest_shop_orders')
-    .update(paidOrderUpdatePayload(order, paidAt))
-    .eq('id', order.id)
-    .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, paid_at, created_at, order_type, print_status, voucher_code, voucher_quantity, voucher_redeemed_quantity, voucher_status, voucher_redeemed_at, voucher_redeemed_by')
-    .single();
-
-  if (error) throw error;
+  const updated = await settlePaidGuestShopOrder(order.id, paidAt);
   const settledOrder = await ensureBreakfastVoucher((updated as any) || order);
-  await markKitchenPendingIfNeeded(settledOrder);
-  if (!isBreakfastOrder(settledOrder)) {
-    await createFoTaskForPaidGuestShopOrder(settledOrder);
-  }
+  await processGuestShopOutbox({ orderId: order.id, limit: 1 });
+  await broadcastFnbOrderChange('UPDATE');
   return (settledOrder as any) || order;
 }
 

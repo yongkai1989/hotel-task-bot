@@ -1,5 +1,20 @@
 Hallmark Crown Hotel - Epson TM-T82X F&B Printer Bridge
 
+Guest Shop / F&B / Breakfast live printing
+--------------------------------------------
+The current combined bridge is guest-shop-printer-bridge.js. It checks all three
+printer roles in one request every 10 seconds to stay comfortably within free-tier
+usage. Copy guest-shop-printers.example.json to guest-shop-printers.json, enter the
+three fixed printer IP addresses and the Vercel PRINTER_BRIDGE_KEY, then run
+run-guest-shop-printer-bridge.bat. Put a shortcut to that BAT file in Windows Startup.
+
+The bridge records successful local printing before acknowledging the server. If the
+internet drops after paper prints, it retries only the acknowledgement and does not
+print a duplicate ticket. The Management > Purchase Reliability page shows each
+printer's last contact, queued, stalled and failed jobs.
+Printer health and recovery bookkeeping is written only once per minute; the faster
+10-second checks are indexed reads. This keeps database writes and Disk IO low.
+
 What this does
 --------------
 This bridge runs on a Windows PC that is on the same local network as the Epson TM-T82X.

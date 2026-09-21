@@ -1,8 +1,11 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
-import { createFoTaskForPaidGuestShopOrder } from '../../../../lib/guestShopTask';
 import { broadcastFnbOrderChange } from '../../../../lib/fnbOrderBroadcastServer';
+import {
+  processGuestShopOutbox,
+  settlePaidGuestShopOrder,
+} from '../../../../lib/guestShopReliability';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -223,24 +226,10 @@ export async function POST(req: NextRequest) {
     if (!order) return plainText('order not found', 404);
 
     if (paid) {
-      if (order.status !== 'PAID' && order.status !== 'FULFILLED') {
-        await decrementPaidStock(order.items_json);
-      }
-
-      const { data: updatedOrder, error: updateError } = await supabaseAdmin
-        .from('guest_shop_orders')
-        .update(await paidOrderUpdatePayload(order, paidAt))
-        .eq('id', order.id)
-        .select('id, room_number, guest_name, status, payment_reference, total_myr, items_json, order_type, voucher_code, voucher_quantity, voucher_redeemed_quantity, voucher_status')
-        .single();
-
-      if (updateError) throw updateError;
-
+      const updatedOrder = await settlePaidGuestShopOrder(order.id, paidAt);
       const settledOrder = await ensureBreakfastVoucher(updatedOrder || order);
-      await markKitchenPendingIfNeeded(settledOrder);
-      if (!isBreakfastOrder(settledOrder)) {
-        await createFoTaskForPaidGuestShopOrder(settledOrder);
-      }
+      await processGuestShopOutbox({ orderId: order.id, limit: 1 });
+      await broadcastFnbOrderChange('UPDATE');
       return plainText('ok');
     }
 

@@ -31,6 +31,8 @@ type KitchenOrder = {
   kitchen_decision_note: string;
   refund_required: boolean;
   refund_reason: string;
+  refund_status?: string;
+  refund_reference?: string;
   print_status?: string;
   print_requested_at?: string | null;
   printed_at?: string | null;
@@ -307,6 +309,14 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
   }, [access, activeTab, supabase]);
 
   useEffect(() => {
+    if (!access) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadOrders(activeTab);
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [access, activeTab]);
+
+  useEffect(() => {
     const interval = setInterval(() => setTick((current) => current + 1), 1000);
     return () => clearInterval(interval);
   }, []);
@@ -416,7 +426,7 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
     }
   }
 
-  async function updateOrder(order: KitchenOrder, action: string, readyMinutes?: number) {
+  async function updateOrder(order: KitchenOrder, action: string, readyMinutes?: number, extra: Record<string, unknown> = {}) {
     try {
       setBusyId(`${order.id}:${action}:${readyMinutes || ''}`);
       setError('');
@@ -434,6 +444,7 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
           id: order.id,
           action,
           ready_minutes: readyMinutes || 0,
+          ...extra,
         }),
       });
 
@@ -442,6 +453,10 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
       setMessage(
         action === 'REJECT'
           ? 'Order rejected. Marked for refund follow-up.'
+          : action === 'REFUND_IN_PROGRESS'
+            ? 'Refund marked in progress.'
+            : action === 'REFUNDED'
+              ? 'Refund recorded as completed.'
           : action === 'REPRINT'
             ? 'Order queued for reprint.'
             : action === 'DELIVERED'
@@ -471,6 +486,12 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
     } finally {
       setBusyId('');
     }
+  }
+
+  function completeRefund(order: KitchenOrder) {
+    const reference = window.prompt('Enter the Billplz refund reference:')?.trim();
+    if (!reference) return;
+    void updateOrder(order, 'REFUNDED', 0, { refund_reference: reference });
   }
 
   async function deleteHistoryOrder(order: KitchenOrder) {
@@ -661,6 +682,8 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
                   ) : null}
                   {isProgress ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'DELIVERED')} className={kitchenStyles.completeButton}>Mark Complete</button> : null}
                   <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REPRINT')} className={kitchenStyles.reprintButton}>Reprint Order</button>
+                  {isException && order.refund_status !== 'REFUNDED' ? <button type="button" disabled={!!busyId} onClick={() => updateOrder(order, 'REFUND_IN_PROGRESS')} className={kitchenStyles.reprintButton}>Start Refund</button> : null}
+                  {isException && order.refund_status !== 'REFUNDED' ? <button type="button" disabled={!!busyId} onClick={() => completeRefund(order)} className={kitchenStyles.completeButton}>Mark Refunded</button> : null}
                   {(fnbStage === 'COMPLETE' || isException) && canDeleteHistory ? <button type="button" disabled={!!busyId} onClick={() => deleteHistoryOrder(order)} className={kitchenStyles.deleteButton}>Delete History</button> : null}
                 </div>
               </article>

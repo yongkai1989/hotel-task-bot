@@ -1747,6 +1747,17 @@ export default function DashboardSidebar({
                 </Link>
               ) : null}
 
+              {effectiveRole === 'SUPERUSER' || effectiveRole === 'MANAGER' ? (
+                <Link
+                  href="/dashboard/purchase-reliability"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="alert" sub>Purchase Reliability</SidebarNavContent>
+                </Link>
+              ) : null}
+
               {canSeeNotificationStatus ? (
                 <Link
                   href="/dashboard/notification-status"

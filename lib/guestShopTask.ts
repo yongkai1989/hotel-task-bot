@@ -45,13 +45,17 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
 
   const { data: existingTask, error: existingError } = await supabaseAdmin
     .from('tasks')
-    .select('id')
+    .select(`
+      id, task_code, room, department, task_text, status, created_by_name,
+      created_by_email, chat_id, image_url, done_by_name, done_at, reopened_at,
+      last_updated_by_name, created_at, telegram_task_message_id
+    `)
     .eq('department', FO_DEPARTMENT)
     .ilike('task_text', `%${marker}%`)
     .maybeSingle();
 
   if (existingError) throw existingError;
-  if (existingTask?.id) return existingTask;
+  if (existingTask?.id && existingTask.telegram_task_message_id) return existingTask;
 
   const room = String(order?.room_number || '-').trim() || '-';
   const guest = String(order?.guest_name || '-').trim() || '-';
@@ -72,53 +76,45 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
       : 'Please prepare and deliver to guest.',
   ].join('\n');
 
-  const { data: task, error: insertError } = await supabaseAdmin
-    .from('tasks')
-    .insert({
-      room,
-      department: FO_DEPARTMENT,
-      task_text: taskText,
-      status: 'OPEN',
-      created_by_name: 'Guest Shop',
-      created_by_email: 'guest-shop@hotelhallmark.com',
-      chat_id: chatId,
-      image_url: null,
-      customer_waiting: false,
-      customer_waiting_reminder_sent_at: null,
-      reopened_at: null,
-    })
-    .select(
-      `
-      id,
-      task_code,
-      room,
-      department,
-      task_text,
-      status,
-      created_by_name,
-      created_by_email,
-      chat_id,
-      image_url,
-      done_by_name,
-      done_at,
-      reopened_at,
-      last_updated_by_name,
-      created_at
-      `
-    )
-    .single();
+  let task: any = existingTask;
+  if (!task) {
+    const { data: insertedTask, error: insertError } = await supabaseAdmin
+      .from('tasks')
+      .insert({
+        room,
+        department: FO_DEPARTMENT,
+        task_text: taskText,
+        status: 'OPEN',
+        created_by_name: 'Guest Shop',
+        created_by_email: 'guest-shop@hotelhallmark.com',
+        chat_id: chatId,
+        image_url: null,
+        customer_waiting: true,
+        customer_waiting_due_at: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+        customer_waiting_reminder_sent_at: null,
+        customer_waiting_follow_up_count: 0,
+        reopened_at: null,
+      })
+      .select(`
+        id, task_code, room, department, task_text, status, created_by_name,
+        created_by_email, chat_id, image_url, done_by_name, done_at, reopened_at,
+        last_updated_by_name, created_at, telegram_task_message_id
+      `)
+      .single();
 
-  if (insertError || !task) {
-    throw insertError || new Error('Failed to create Guest Shop FO task');
+    if (insertError || !insertedTask) {
+      throw insertError || new Error('Failed to create Guest Shop FO task');
+    }
+    task = insertedTask;
+
+    await supabaseAdmin.from('task_events').insert({
+      task_id: task.id,
+      event_type: 'CREATED',
+      event_text: `${orderType === 'FNB' ? 'F&B' : 'Guest Shop'} paid order created from Billplz payment ${paymentRef}`,
+      actor_name: 'Guest Shop',
+    });
+    await broadcastTaskChange(task.id, 'INSERT');
   }
-
-  await supabaseAdmin.from('task_events').insert({
-    task_id: task.id,
-    event_type: 'CREATED',
-    event_text: `${orderType === 'FNB' ? 'F&B' : 'Guest Shop'} paid order created from Billplz payment ${paymentRef}`,
-    actor_name: 'Guest Shop',
-  });
-  await broadcastTaskChange(task.id, 'INSERT');
 
   if (!chatId) {
     await supabaseAdmin.from('task_events').insert({
@@ -127,7 +123,7 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
       event_text: 'FO Telegram chat is not configured. Set ALLOWED_CHAT_ID.',
       actor_name: 'Guest Shop',
     });
-    return task;
+    throw new Error('FO Telegram chat is not configured. Set ALLOWED_CHAT_ID.');
   }
 
   try {
@@ -161,7 +157,9 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
         task_id: task.id,
         message_type: 'TASK_CARD',
       });
+      return task;
     }
+    throw new Error('Telegram did not return a message id.');
   } catch (error: any) {
     await supabaseAdmin.from('task_events').insert({
       task_id: task.id,
@@ -169,7 +167,6 @@ export async function createFoTaskForPaidGuestShopOrder(order: any) {
       event_text: error?.message || 'Guest Shop Telegram notification failed',
       actor_name: 'Guest Shop',
     });
+    throw error;
   }
-
-  return task;
 }

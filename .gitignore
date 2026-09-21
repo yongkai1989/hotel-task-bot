@@ -17,3 +17,8 @@ out/
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# local printer credentials and exactly-once acknowledgement state
+printer-bridge/guest-shop-printers.json
+printer-bridge/guest-shop-printer-state.json
+printer-bridge/guest-shop-printer-state.json.tmp

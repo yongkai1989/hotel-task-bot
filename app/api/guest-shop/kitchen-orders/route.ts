@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
 import { broadcastFnbOrderChange } from '../../../../lib/fnbOrderBroadcastServer';
+import { expireUnacceptedFnbOrders } from '../../../../lib/guestShopReliability';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -64,6 +65,10 @@ function orderSelect() {
     kitchen_decision_note,
     refund_required,
     refund_reason,
+    refund_status,
+    refund_reference,
+    refunded_at,
+    refunded_by,
     print_status,
     print_requested_at,
     printed_at,
@@ -96,6 +101,10 @@ function normalizeOrder(row: any) {
     kitchen_decision_note: String(row?.kitchen_decision_note || ''),
     refund_required: row?.refund_required === true,
     refund_reason: String(row?.refund_reason || ''),
+    refund_status: String(row?.refund_status || 'NOT_REQUIRED'),
+    refund_reference: String(row?.refund_reference || ''),
+    refunded_at: row?.refunded_at || null,
+    refunded_by: String(row?.refunded_by || ''),
     print_status: String(row?.print_status || 'NOT_QUEUED'),
     print_requested_at: row?.print_requested_at || null,
     printed_at: row?.printed_at || null,
@@ -104,23 +113,7 @@ function normalizeOrder(row: any) {
 }
 
 async function expireOldPendingOrders() {
-  const nowIso = new Date().toISOString();
-  const { data } = await supabaseAdmin
-    .from('guest_shop_orders')
-    .update({
-      kitchen_status: 'AUTO_REJECTED',
-      kitchen_rejected_at: nowIso,
-      kitchen_decision_by: 'Kitchen timeout',
-      kitchen_decision_note: 'F&B order was not accepted within 10 minutes.',
-      refund_required: true,
-      refund_reason: 'Kitchen did not accept this paid F&B order within 10 minutes.',
-    })
-    .eq('order_type', 'FNB')
-    .eq('status', 'PAID')
-    .eq('kitchen_status', 'PENDING_ACCEPTANCE')
-    .lt('kitchen_accept_deadline_at', nowIso)
-    .select('id');
-  if (data?.length) await broadcastFnbOrderChange('UPDATE');
+  await expireUnacceptedFnbOrders();
 }
 
 export async function GET(req: NextRequest) {
@@ -186,6 +179,7 @@ export async function PATCH(req: NextRequest) {
         kitchen_decision_note: note,
         refund_required: false,
         refund_reason: null,
+        refund_status: 'NOT_REQUIRED',
       };
     } else if (action === 'REJECT') {
       update = {
@@ -195,6 +189,7 @@ export async function PATCH(req: NextRequest) {
         kitchen_decision_note: note,
         refund_required: true,
         refund_reason: note || 'Kitchen rejected this paid F&B order.',
+        refund_status: 'REQUIRED',
       };
     } else if (action === 'IN_PROGRESS') {
       update = {
@@ -215,7 +210,27 @@ export async function PATCH(req: NextRequest) {
         print_status: 'QUEUED',
         print_requested_at: nowIso,
         print_error: null,
+        fnb_print_status: 'QUEUED',
+        fnb_print_requested_at: nowIso,
+        fnb_print_error: null,
       };
+    } else if (action === 'REFUND_IN_PROGRESS' || action === 'REFUNDED') {
+      if (!canDeleteKitchenHistory(user)) {
+        return jsonNoCache({ ok: false, error: 'Only Superuser or Fenny can update refunds' }, 403);
+      }
+      const reference = String(body?.refund_reference || '').trim().slice(0, 120);
+      if (action === 'REFUNDED' && !reference) {
+        return jsonNoCache({ ok: false, error: 'Enter the Billplz refund reference' }, 400);
+      }
+      update = action === 'REFUNDED'
+        ? {
+            refund_required: false,
+            refund_status: 'REFUNDED',
+            refund_reference: reference,
+            refunded_at: nowIso,
+            refunded_by: actor,
+          }
+        : { refund_required: true, refund_status: 'IN_PROGRESS' };
     } else {
       return jsonNoCache({ ok: false, error: 'Invalid kitchen action' }, 400);
     }

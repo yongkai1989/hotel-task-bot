@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 import { getDashboardUserFromRequest } from '../../../../lib/dashboardAuth';
+import {
+  expireUnacceptedFnbOrders,
+  processGuestShopOutbox,
+} from '../../../../lib/guestShopReliability';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -68,8 +72,39 @@ function getPrinterRole(req: NextRequest) {
     .trim()
     .toUpperCase();
 
-  if (role === 'BREAKFAST' || role === 'FNB' || role === 'FO') return role;
+  if (role === 'ALL' || role === 'BREAKFAST' || role === 'FNB' || role === 'FO') return role;
   return 'FNB';
+}
+
+async function recordHeartbeat(req: NextRequest, roles: string[]) {
+  const now = new Date().toISOString();
+  const deviceName = String(req.headers.get('x-printer-device') || '').trim().slice(0, 120) || null;
+  const bridgeVersion = String(req.headers.get('x-bridge-version') || '').trim().slice(0, 40) || null;
+  await supabaseAdmin.from('guest_shop_printer_heartbeats').upsert(
+    roles.map((printerRole) => ({
+      printer_role: printerRole,
+      last_seen_at: now,
+      device_name: deviceName,
+      bridge_version: bridgeVersion,
+      last_error: null,
+      updated_at: now,
+    })),
+    { onConflict: 'printer_role' }
+  );
+}
+
+async function loadQueue(role: string) {
+  const columns = roleColumns(role);
+  const { data, error } = await supabaseAdmin
+    .from('guest_shop_orders')
+    .select('id, room_number, guest_name, total_myr, items_json, paid_at, payment_reference, print_status, print_requested_at, order_type, voucher_code, voucher_quantity, breakfast_print_status, breakfast_print_requested_at, fnb_print_status, fnb_print_requested_at, fo_print_status, fo_print_requested_at')
+    .in('status', ['PAID', 'FULFILLED'])
+    .in('order_type', columns.orderTypes)
+    .eq(columns.statusColumn, 'QUEUED')
+    .order(columns.requestedColumn, { ascending: true })
+    .limit(20);
+  if (error) throw error;
+  return data || [];
 }
 
 function roleColumns(role: string) {
@@ -108,20 +143,21 @@ export async function GET(req: NextRequest) {
     if (auth.error) return jsonNoCache({ ok: false, error: auth.error }, auth.status);
 
     const role = getPrinterRole(req);
-    const columns = roleColumns(role);
+    const roles = role === 'ALL' ? ['BREAKFAST', 'FNB', 'FO'] : [role];
+    const maintenancePulse = role !== 'ALL' || req.headers.get('x-maintenance-pulse') === '1';
+    if (maintenancePulse) {
+      await recordHeartbeat(req, roles);
+      await Promise.allSettled([expireUnacceptedFnbOrders(), processGuestShopOutbox({ limit: 3 })]);
+    }
 
-    const { data, error } = await supabaseAdmin
-      .from('guest_shop_orders')
-      .select('id, room_number, guest_name, total_myr, items_json, paid_at, payment_reference, print_status, print_requested_at, order_type, voucher_code, voucher_quantity, breakfast_print_status, breakfast_print_requested_at, fnb_print_status, fnb_print_requested_at, fo_print_status, fo_print_requested_at')
-      .in('status', ['PAID', 'FULFILLED'])
-      .in('order_type', columns.orderTypes)
-      .eq(columns.statusColumn, 'QUEUED')
-      .order(columns.requestedColumn, { ascending: true })
-      .limit(20);
+    if (role === 'ALL') {
+      const [breakfast, fnb, fo] = await Promise.all([
+        loadQueue('BREAKFAST'), loadQueue('FNB'), loadQueue('FO'),
+      ]);
+      return jsonNoCache({ ok: true, printer_role: 'ALL', queues: { BREAKFAST: breakfast, FNB: fnb, FO: fo } });
+    }
 
-    if (error) throw error;
-
-    return jsonNoCache({ ok: true, printer_role: role, orders: data || [] });
+    return jsonNoCache({ ok: true, printer_role: role, orders: await loadQueue(role) });
   } catch (error: any) {
     return jsonNoCache({ ok: false, error: error?.message || 'Failed to load print queue', orders: [] }, 500);
   }
@@ -137,6 +173,7 @@ export async function PUT(req: NextRequest) {
     const status = String(body?.print_status || '').trim().toUpperCase();
     const printError = String(body?.print_error || '').trim();
     const role = getPrinterRole(req);
+    if (role === 'ALL') return jsonNoCache({ ok: false, error: 'Choose a printer role when updating a ticket' }, 400);
     const columns = roleColumns(role);
 
     if (!id) throw new Error('Missing order id');
@@ -162,6 +199,8 @@ export async function PUT(req: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    await recordHeartbeat(req, [role]);
 
     return jsonNoCache({ ok: true, printer_role: role, order: data });
   } catch (error: any) {
