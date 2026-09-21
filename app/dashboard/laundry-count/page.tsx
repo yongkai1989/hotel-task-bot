@@ -1116,7 +1116,13 @@ export default function LaundryCountPage() {
               type="date"
               value={billSourceServiceDate}
               max={billCollectionDate || serviceDate}
-              onChange={(event) => setBillSourceServiceDate(event.target.value)}
+              onChange={(event) => {
+                const nextServiceDate = event.target.value;
+                setBillSourceServiceDate(nextServiceDate);
+                if (nextServiceDate) {
+                  setBillCollectionDate(shiftDateString(nextServiceDate, 1));
+                }
+              }}
               style={responsiveStyles.dateInput}
             />
             <small style={styles.fieldHint}>The housekeeping day that produced this dirty linen.</small>
