@@ -572,9 +572,7 @@ export default function LaundryCountPage() {
         B1: currentBlock1?.is_legacy ? '' : currentBlock1?.cc_no || '',
         B2: currentBlock2?.is_legacy ? '' : currentBlock2?.cc_no || '',
       });
-      setBillSourceServiceDate(
-        currentBlock1?.source_service_date || currentBlock2?.source_service_date || shiftDateString(billCollectionDate, -1)
-      );
+      setBillSourceServiceDate(shiftDateString(billCollectionDate, -1));
 
       const currentCollectionIds = currentCollections.map((collection) => collection.id);
       const billRes = currentCollectionIds.length
@@ -938,6 +936,9 @@ export default function LaundryCountPage() {
         throw new Error('Collection date can be today or tomorrow only.');
       }
       if (billSourceServiceDate > billCollectionDate) throw new Error('Linen service date cannot be after the collection date.');
+      if (billCollectionDate !== shiftDateString(billSourceServiceDate, 1)) {
+        throw new Error('Collection date must be exactly one day after the linen service date.');
+      }
 
       const rows = FLOOR_CONFIG.map((floor) => ({
         block_no: floor.blockNo,
@@ -1105,10 +1106,16 @@ export default function LaundryCountPage() {
               type="date"
               value={billCollectionDate}
               max={shiftDateString(serviceDate, 1)}
-              onChange={(event) => setBillCollectionDate(event.target.value)}
+              onChange={(event) => {
+                const nextCollectionDate = event.target.value;
+                setBillCollectionDate(nextCollectionDate);
+                if (nextCollectionDate) {
+                  setBillSourceServiceDate(shiftDateString(nextCollectionDate, -1));
+                }
+              }}
               style={responsiveStyles.dateInput}
             />
-            <small style={styles.fieldHint}>Choose today or tomorrow if the linen is being prepared in advance.</small>
+            <small style={styles.fieldHint}>Automatically kept one day after the linen service date.</small>
           </div>
           <div style={responsiveStyles.formGroup}>
             <label style={styles.formLabel}>Dirty linen service date *</label>
@@ -1125,7 +1132,7 @@ export default function LaundryCountPage() {
               }}
               style={responsiveStyles.dateInput}
             />
-            <small style={styles.fieldHint}>The housekeeping day that produced this dirty linen.</small>
+            <small style={styles.fieldHint}>Automatically kept one day before the collection date.</small>
           </div>
         </div>
         <div style={styles.batchSummary}>
