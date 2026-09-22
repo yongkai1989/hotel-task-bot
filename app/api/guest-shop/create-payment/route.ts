@@ -257,6 +257,13 @@ async function assertFnbIsOpen() {
   }
 }
 
+function isBreakfastCatalogItem(item: any) {
+  const searchable = [item?.name, item?.category, item?.submenu]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .join(' ');
+  return searchable.includes('breakfast');
+}
+
 export async function POST(req: NextRequest) {
   try {
     const apiKey = String(process.env.BILLPLZ_API_KEY || '').trim();
@@ -345,13 +352,17 @@ export async function POST(req: NextRequest) {
       const catalog = catalogById.get(item.id);
       return catalog?.is_fnb === true || String(item.category).trim().toLowerCase() === 'f&b';
     });
-    const isBreakfastVoucherOrder = orderItems.some((item) => {
-      const name = String(item.name || '').trim().toLowerCase();
-      const category = String(item.category || '').trim().toLowerCase();
-      return name.includes('breakfast voucher') || category.includes('breakfast voucher');
-    });
+    const breakfastItemCount = orderItems.filter((item) => isBreakfastCatalogItem(catalogById.get(item.id))).length;
+    const isBreakfastOrder = breakfastItemCount > 0 && breakfastItemCount === orderItems.length;
 
-    if (isFnbOrder) await assertFnbIsOpen();
+    if (breakfastItemCount > 0 && !isBreakfastOrder) {
+      return jsonNoCache({
+        ok: false,
+        error: 'Please place breakfast in a separate order. Breakfast is served from 7:00 AM to 11:00 AM.',
+      }, 400);
+    }
+
+    if (isFnbOrder && !isBreakfastOrder) await assertFnbIsOpen();
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from('guest_shop_orders')
@@ -360,7 +371,7 @@ export async function POST(req: NextRequest) {
         guest_name: guestName,
         guest_email: guestEmail,
         status: 'PENDING_PAYMENT',
-        order_type: isBreakfastVoucherOrder ? 'BREAKFAST' : isFnbOrder ? 'FNB' : 'GUEST_SHOP',
+        order_type: isBreakfastOrder ? 'BREAKFAST' : isFnbOrder ? 'FNB' : 'GUEST_SHOP',
         payment_provider: `BILLPLZ_${String(process.env.BILLPLZ_MODE || 'sandbox').toUpperCase()}`,
         total_myr: totalMyr,
         items_json: orderItems,
@@ -374,8 +385,8 @@ export async function POST(req: NextRequest) {
     const orderId = String(order.id);
     const callbackUrl = `${baseUrl}/api/guest-shop/billplz-callback`;
     const redirectUrl = `${baseUrl}/guest-shop/payment-status?order_id=${encodeURIComponent(orderId)}`;
-    const description = isBreakfastVoucherOrder
-      ? `Hallmark Crown Breakfast Voucher - Room ${roomNumber}`
+    const description = isBreakfastOrder
+      ? `Hallmark Crown Breakfast - Room ${roomNumber} - Served 7:00 AM to 11:00 AM`
       : `Hallmark Crown Guest Shop - Room ${roomNumber}`;
 
     const billBody = new URLSearchParams();

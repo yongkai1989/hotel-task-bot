@@ -134,6 +134,11 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     foodHeading: 'Good food, just a few taps away',
     productsAvailable: 'choices available',
     fnbClosed: 'F&B is currently closed.',
+    breakfastAvailable: 'Breakfast may be purchased anytime.',
+    breakfastStoreOpen: 'Breakfast available',
+    breakfastHours: 'Breakfast is served daily from 7:00 AM to 11:00 AM.',
+    breakfastNextService: 'Orders placed after 11:00 AM are for the next breakfast service.',
+    separateBreakfastOrder: 'Please place breakfast in a separate order from room meals or Guest Shop items.',
     guestMenu: 'Guest menu',
     curated: 'Curated for your stay',
     customize: 'Customize',
@@ -213,6 +218,11 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     foodHeading: 'Hidangan sedap hanya dengan beberapa sentuhan',
     productsAvailable: 'pilihan tersedia',
     fnbClosed: 'Makanan & Minuman sedang ditutup.',
+    breakfastAvailable: 'Sarapan boleh dibeli pada bila-bila masa.',
+    breakfastStoreOpen: 'Sarapan tersedia',
+    breakfastHours: 'Sarapan disajikan setiap hari dari 7:00 pagi hingga 11:00 pagi.',
+    breakfastNextService: 'Pesanan selepas 11:00 pagi adalah untuk perkhidmatan sarapan seterusnya.',
+    separateBreakfastOrder: 'Sila buat pesanan sarapan secara berasingan daripada hidangan bilik atau barangan Kedai Tetamu.',
     guestMenu: 'Menu tetamu',
     curated: 'Pilihan untuk penginapan anda',
     customize: 'Pilihan tambahan',
@@ -291,6 +301,11 @@ const COPY: Record<LanguageCode, Record<string, string>> = {
     foodHeading: '轻点几下，美食送到房间',
     productsAvailable: '项可选',
     fnbClosed: '餐饮目前暂停服务。',
+    breakfastAvailable: '早餐可随时购买。',
+    breakfastStoreOpen: '早餐可购买',
+    breakfastHours: '早餐每日供应时间为早上7:00至11:00。',
+    breakfastNextService: '上午11:00后购买的早餐适用于下一次早餐时段。',
+    separateBreakfastOrder: '早餐请与客房餐饮或住客商店商品分开下单。',
     guestMenu: '住客菜单',
     curated: '为您的住宿精选',
     customize: '自选项目',
@@ -460,6 +475,13 @@ function isFnbItem(item: ShopItem) {
   return item.isFnb || category === 'f&b' || category.includes('food & beverage');
 }
 
+function isBreakfastItem(item: ShopItem) {
+  return [item.name, item.category, item.submenu]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .join(' ')
+    .includes('breakfast');
+}
+
 function isFnbCategory(category: string) {
   const normalized = category.trim().toLowerCase();
   return normalized === 'f&b' || normalized.includes('food & beverage');
@@ -562,7 +584,10 @@ export default function GuestShopPage() {
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = cartItems.reduce((total, row) => total + row.quantity, 0);
   const cartTotal = cartItems.reduce((total, row) => total + row.unitPrice * row.quantity, 0);
-  const cartHasFnb = cartItems.some((row) => isFnbItem(row.item));
+  const cartHasBreakfast = cartItems.some((row) => isBreakfastItem(row.item));
+  const cartHasNonBreakfast = cartItems.some((row) => !isBreakfastItem(row.item));
+  const cartHasRoomServiceFnb = cartItems.some((row) => isFnbItem(row.item) && !isBreakfastItem(row.item));
+  const breakfastPurchasable = items.some((item) => isBreakfastItem(item) && item.stock > 0);
   const heroStyle = {
     '--hero-image': hero.hero_image_url ? `url("${hero.hero_image_url}")` : 'none',
   } as CSSProperties;
@@ -862,7 +887,12 @@ export default function GuestShopPage() {
       return;
     }
 
-    if (cartHasFnb && !fnbOpenNow) {
+    if (cartHasBreakfast && cartHasNonBreakfast) {
+      setNotice(t.separateBreakfastOrder);
+      return;
+    }
+
+    if (cartHasRoomServiceFnb && !fnbOpenNow) {
       setNotice(fnbClosedReason || t.fnbClosed);
       return;
     }
@@ -1026,8 +1056,14 @@ export default function GuestShopPage() {
               <strong>{t.orderFood}</strong>
               <span>{t.orderFoodBody}</span>
             </span>
-            <span className={activeCategory === 'FNB' ? 'storefront-status' : fnbOpenNow ? 'storefront-status open' : 'storefront-status closed'}>
-              {activeCategory === 'FNB' ? t.selectedStore : fnbOpenNow ? t.openNow : t.closed}
+            <span className={activeCategory === 'FNB' ? 'storefront-status' : fnbOpenNow || breakfastPurchasable ? 'storefront-status open' : 'storefront-status closed'}>
+              {activeCategory === 'FNB'
+                ? t.selectedStore
+                : fnbOpenNow
+                  ? t.openNow
+                  : breakfastPurchasable
+                    ? t.breakfastStoreOpen
+                    : t.closed}
             </span>
           </button>
         </div>
@@ -1046,6 +1082,7 @@ export default function GuestShopPage() {
             {activeCategory === 'FNB' ? (
               <>
                 {!fnbOpenNow ? <strong className="closed-note">{fnbClosedReason || t.fnbClosed}</strong> : null}
+                <strong className="breakfast-hours-note">{t.breakfastAvailable} {t.breakfastHours}</strong>
                 <div className="categories" role="tablist" aria-label={t.fnbCategoriesAria}>
                   {fnbSubmenuChoices.map((submenu) => (
                     <button
@@ -1099,7 +1136,8 @@ export default function GuestShopPage() {
               </div>
             ) : null}
             {!shopLoading && !shopLoadError ? visibleItems.map((item) => {
-              const fnbClosed = isFnbItem(item) && !fnbOpenNow;
+              const breakfastItem = isBreakfastItem(item);
+              const fnbClosed = isFnbItem(item) && !breakfastItem && !fnbOpenNow;
               const isUnavailable = item.stock <= 0 || fnbClosed;
               const selectedOptions = getSelection(item);
               const selectedCartKey = cartKeyFor(item, selectedOptions);
@@ -1132,6 +1170,11 @@ export default function GuestShopPage() {
                     <div>
                       <h3>{displayName}</h3>
                       <p>{displayItemDescription(item)}</p>
+                      {breakfastItem ? (
+                        <p className="breakfast-service-note">
+                          <strong>{t.breakfastHours}</strong> {t.breakfastNextService}
+                        </p>
+                      ) : null}
                     </div>
 
                     {item.optionGroups.length ? (
@@ -1294,7 +1337,8 @@ export default function GuestShopPage() {
 
             <p className="payment-note">
               {t.paymentNote}
-              {cartHasFnb ? t.fnbPaymentNote : ''}
+              {cartHasRoomServiceFnb ? t.fnbPaymentNote : ''}
+              {cartHasBreakfast ? ` ${t.breakfastHours} ${t.breakfastNextService}` : ''}
             </p>
           </aside>
         </div>
@@ -1896,6 +1940,19 @@ export default function GuestShopPage() {
           font-weight: 900;
         }
 
+        .breakfast-hours-note {
+          width: fit-content;
+          max-width: 100%;
+          padding: 8px 12px;
+          border: 1px solid rgba(21, 128, 61, 0.18);
+          border-radius: 12px;
+          background: rgba(220, 252, 231, 0.72);
+          color: #166534;
+          font-size: 12px;
+          font-weight: 800;
+          line-height: 1.4;
+        }
+
         .categories {
           display: flex;
           flex-wrap: wrap;
@@ -2128,6 +2185,18 @@ export default function GuestShopPage() {
           line-height: 1.38;
           -webkit-box-orient: vertical;
           -webkit-line-clamp: 2;
+        }
+
+        .product-info .breakfast-service-note {
+          display: block;
+          margin-top: 9px;
+          padding: 8px 9px;
+          border-radius: 10px;
+          background: #fff7df;
+          color: #714c16;
+          overflow: visible;
+          line-height: 1.4;
+          -webkit-line-clamp: initial;
         }
 
         .option-panel {

@@ -73,7 +73,18 @@ function ticket(role, order) {
   }
   text += line('--------------------------------');
   text += line(`TOTAL RM${Number(order.total_myr || 0).toFixed(2)}`);
-  if (role === 'BREAKFAST' && order.voucher_code) text += line(`Voucher: ${order.voucher_code}`);
+  if (role === 'BREAKFAST') {
+    text += line('Breakfast service: 7:00 AM - 11:00 AM');
+    if (order.paid_at) {
+      const paidHour = Number(new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kuala_Lumpur',
+        hour: '2-digit',
+        hour12: false,
+      }).format(new Date(order.paid_at)));
+      if (paidHour >= 11) text += line('Service: NEXT BREAKFAST');
+    }
+    if (order.voucher_code) text += line(`Voucher: ${order.voucher_code}`);
+  }
   text += line('\n\n');
   return Buffer.concat([Buffer.from(text, 'utf8'), Buffer.from([0x1d, 0x56, 0x00])]);
 }
