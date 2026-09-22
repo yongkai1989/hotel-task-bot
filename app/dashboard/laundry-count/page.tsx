@@ -155,21 +155,27 @@ function getSupabaseSafe() {
   return createBrowserSupabaseClient();
 }
 
-function getTodayLocalDateString() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+function shiftDateString(baseDate: string, offsetDays: number) {
+  const d = new Date(`${baseDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-function shiftDateString(baseDate: string, offsetDays: number) {
-  const d = new Date(`${baseDate}T00:00:00`);
-  d.setDate(d.getDate() + offsetDays);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function getLaundryServiceDate(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const calendarDate = `${values.year}-${values.month}-${values.day}`;
+  return Number(values.hour || 0) < 7 ? shiftDateString(calendarDate, -1) : calendarDate;
 }
 
 function displayCcNo(value: string) {
@@ -324,6 +330,13 @@ function aggregateBillEntriesByBlock(entryMap: Record<FloorKey, LinenTotals>) {
   return { block1, block2 };
 }
 
+function aggregateBillRowsByBlock(rows: LinenBillRow[]) {
+  const block1 = zeroTotals();
+  const block2 = zeroTotals();
+  rows.forEach((row) => addTotals(Number(row.block_no) === 1 ? block1 : block2, row));
+  return { block1, block2 };
+}
+
 export default function LaundryCountPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -339,6 +352,10 @@ export default function LaundryCountPage() {
   const [paEntries, setPaEntries] = useState<PaEntryRow[]>([]);
   const [linenMap, setLinenMap] = useState<LinenMapRow[]>([]);
   const [billRows, setBillRows] = useState<LinenBillRow[]>([]);
+  const [billGrandRows, setBillGrandRows] = useState<LinenBillRow[]>([]);
+  const [billGrandCollections, setBillGrandCollections] = useState<LaundryCollection[]>([]);
+  const [billGrandLoading, setBillGrandLoading] = useState(false);
+  const [billGrandError, setBillGrandError] = useState('');
 
   const [viewMode, setViewMode] = useState<ViewMode>('FLOOR');
   const [pageTab, setPageTab] = useState<PageTab>('COUNT');
@@ -349,10 +366,10 @@ export default function LaundryCountPage() {
   const [viewportWidth, setViewportWidth] = useState(1200);
   const [receivedDateOverride, setReceivedDateOverride] = useState('');
   const [billCcNos, setBillCcNos] = useState<Record<BlockKey, string>>({ B1: '', B2: '' });
-  const [billCollectionDate, setBillCollectionDate] = useState(() =>
-    shiftDateString(getTodayLocalDateString(), 1)
-  );
+  const [serviceDate, setServiceDate] = useState(getLaundryServiceDate);
+  const [billCollectionDate, setBillCollectionDate] = useState(() => shiftDateString(getLaundryServiceDate(), 1));
   const [billSourceServiceDate, setBillSourceServiceDate] = useState('');
+  const [billGrandServiceDate, setBillGrandServiceDate] = useState(getLaundryServiceDate);
   const [collections, setCollections] = useState<LaundryCollection[]>([]);
   const [receivedRows, setReceivedRows] = useState<LinenReceivedRow[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
@@ -360,7 +377,6 @@ export default function LaundryCountPage() {
   const [billEntryMap, setBillEntryMap] = useState<Record<FloorKey, LinenTotals>>(emptyBillEntryMap());
   const [receivedEntryMap, setReceivedEntryMap] = useState<Record<BlockKey, LinenTotals>>(emptyBlockEntryMap());
 
-  const serviceDate = getTodayLocalDateString();
   const recentCollectionStartDate = shiftDateString(serviceDate, -6);
   const recentCollections = useMemo(
     () => collections.filter((collection) =>
@@ -380,6 +396,21 @@ export default function LaundryCountPage() {
 
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    const updateServiceDate = () => {
+      const nextServiceDate = getLaundryServiceDate();
+      setServiceDate((current) => current === nextServiceDate ? current : nextServiceDate);
+    };
+    updateServiceDate();
+    const timer = window.setInterval(updateServiceDate, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    setBillCollectionDate(shiftDateString(serviceDate, 1));
+    setBillGrandServiceDate(serviceDate);
+  }, [serviceDate]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -635,6 +666,67 @@ export default function LaundryCountPage() {
   useEffect(() => {
     void loadData();
   }, [profile, canAccess, serviceDate, receivedDateOverride, billCollectionDate]);
+
+  useEffect(() => {
+    if (!profile || !canAccess || pageTab !== 'BILL_GRAND' || !billGrandServiceDate) return;
+    let active = true;
+
+    async function loadBillGrandTotal() {
+      try {
+        setBillGrandLoading(true);
+        setBillGrandError('');
+        const supabase = getSupabaseSafe();
+        if (!supabase) throw new Error('Supabase is not configured.');
+
+        const { data: collectionRows, error: collectionError } = await supabase
+          .from('linen_laundry_collections')
+          .select('id, cc_no, collection_date, source_service_date, block_no, is_legacy')
+          .eq('source_service_date', billGrandServiceDate)
+          .order('collection_date', { ascending: false });
+        if (collectionError) throw collectionError;
+
+        const candidates = (collectionRows || []) as LaundryCollection[];
+        const preferredByBlock = new Map<number, LaundryCollection>();
+        [...candidates]
+          .sort((left, right) => {
+            if (left.is_legacy !== right.is_legacy) return left.is_legacy ? 1 : -1;
+            return right.collection_date.localeCompare(left.collection_date);
+          })
+          .forEach((collection) => {
+            if (!preferredByBlock.has(Number(collection.block_no))) {
+              preferredByBlock.set(Number(collection.block_no), collection);
+            }
+          });
+        const selectedCollections = Array.from(preferredByBlock.values());
+        const collectionIds = selectedCollections.map((collection) => collection.id);
+        const billResult = collectionIds.length
+          ? await supabase
+              .from('linen_laundry_bill')
+              .select('id, collection_id, service_date, block_no, floor_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+              .in('collection_id', collectionIds)
+              .order('block_no', { ascending: true })
+              .order('floor_no', { ascending: true })
+          : { data: [], error: null };
+        if (billResult.error) throw billResult.error;
+        if (!active) return;
+
+        setBillGrandCollections(selectedCollections);
+        setBillGrandRows((billResult.data || []) as LinenBillRow[]);
+      } catch (err: any) {
+        if (!active) return;
+        setBillGrandCollections([]);
+        setBillGrandRows([]);
+        setBillGrandError(err?.message || 'Failed to load Laundry Bill Grand Total.');
+      } finally {
+        if (active) setBillGrandLoading(false);
+      }
+    }
+
+    void loadBillGrandTotal();
+    return () => {
+      active = false;
+    };
+  }, [profile, canAccess, pageTab, billGrandServiceDate]);
 
   useEffect(() => {
     const nextReceivedEntryMap = emptyBlockEntryMap();
@@ -1172,7 +1264,39 @@ export default function LaundryCountPage() {
     );
   }
 
-  const billGrandTotals = useMemo(() => aggregateBillEntriesByBlock(billEntryMap), [billEntryMap]);
+  function renderBillGrandDateSelector() {
+    return (
+      <section style={responsiveStyles.batchCard}>
+        <div style={styles.batchHeading}>Bill Service Date</div>
+        <div style={responsiveStyles.batchGrid}>
+          <div style={responsiveStyles.formGroup}>
+            <label style={styles.formLabel}>Choose service date</label>
+            <input
+              type="date"
+              value={billGrandServiceDate}
+              max={serviceDate}
+              onChange={(event) => setBillGrandServiceDate(event.target.value)}
+              style={responsiveStyles.dateInput}
+            />
+            <div style={styles.fieldHint}>Shows the bill entered for linen used on this service date.</div>
+          </div>
+        </div>
+        {billGrandCollections.length ? (
+          <div style={styles.collectionSummary}>
+            {[...billGrandCollections]
+              .sort((left, right) => Number(left.block_no) - Number(right.block_no))
+              .map((collection) => (
+                <span key={collection.id}>
+                  Block {collection.block_no} · CC {collection.cc_no} · Collected {collection.collection_date}
+                </span>
+              ))}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  const billGrandTotals = useMemo(() => aggregateBillRowsByBlock(billGrandRows), [billGrandRows]);
 
   const responsiveStyles = useMemo(() => {
     return {
@@ -1353,6 +1477,25 @@ export default function LaundryCountPage() {
     );
   }
 
+  function renderBillGrandTotalContent() {
+    return (
+      <>
+        {renderBillGrandDateSelector()}
+        {billGrandLoading ? <div style={styles.emptyState}>Loading bill totals...</div> : null}
+        {billGrandError ? <div style={styles.errorBox}>{billGrandError}</div> : null}
+        {!billGrandLoading && !billGrandError && !billGrandRows.length ? (
+          <div style={styles.emptyState}>No Laundry Bill was saved for {billGrandServiceDate}.</div>
+        ) : null}
+        {!billGrandLoading && !billGrandError && billGrandRows.length ? (
+          <>
+            {renderBillGrandTotalCard('Block 1 Grand Total', billGrandTotals.block1, { color: '#166534' })}
+            {renderBillGrandTotalCard('Block 2 Grand Total', billGrandTotals.block2, { color: '#1d4ed8' })}
+          </>
+        ) : null}
+      </>
+    );
+  }
+
   if (authLoading) {
     return (
       <main style={styles.page}>
@@ -1456,8 +1599,7 @@ export default function LaundryCountPage() {
             ) : pageTab === 'BILL_GRAND' ? (
               <>
                 <div style={styles.groupMeta}>Only Laundry Bill tabs are available for this account.</div>
-                {renderBillGrandTotalCard('Block 1 Grand Total', billGrandTotals.block1, { color: '#166534' })}
-                {renderBillGrandTotalCard('Block 2 Grand Total', billGrandTotals.block2, { color: '#1d4ed8' })}
+                {renderBillGrandTotalContent()}
               </>
             ) : (
               <>
@@ -1620,10 +1762,9 @@ export default function LaundryCountPage() {
           <section style={responsiveStyles.panel}>
             <div style={responsiveStyles.sectionTitle}>Laundry Bill Grand Total</div>
             <div style={styles.groupMeta}>
-              Totals below add up all floors in Block 1 and Block 2 from Laundry Bill Entry.
+              Choose a linen service date to see the bill totals saved for that day.
             </div>
-            {renderBillGrandTotalCard('Block 1 Grand Total', billGrandTotals.block1, { color: '#166534' })}
-            {renderBillGrandTotalCard('Block 2 Grand Total', billGrandTotals.block2, { color: '#1d4ed8' })}
+            {renderBillGrandTotalContent()}
           </section>
         ) : (
           <>
@@ -1887,6 +2028,17 @@ const styles: Record<string, React.CSSProperties> = {
     paddingTop: '12px',
     color: '#334155',
     fontSize: '14px',
+    lineHeight: 1.5,
+  },
+  collectionSummary: {
+    display: 'grid',
+    gap: '4px',
+    marginTop: '12px',
+    borderTop: '1px solid #bfdbfe',
+    paddingTop: '12px',
+    color: '#334155',
+    fontSize: '13px',
+    fontWeight: 700,
     lineHeight: 1.5,
   },
   fieldHint: {
