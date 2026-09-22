@@ -185,11 +185,14 @@ function fnbStatusLabel(status: string) {
 const NEW_ORDER_ALARM_SRC = '/sounds/order-new-alert.wav';
 const WAITING_ORDER_ALARM_SRC = '/sounds/order-still-waiting-alert.wav';
 const ORDER_REMINDER_INTERVAL_MS = 15_000;
+const ORDER_FALLBACK_REFRESH_MS = 120_000;
+const ORDER_REQUEST_TIMEOUT_MS = 12_000;
 
 export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode }) {
   const isGuestShop = mode === 'GUEST_SHOP';
   const supabase = useMemo(() => createBrowserSupabaseClient(), []);
   const alarmRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const orderLoadsRef = useRef(new Map<string, Promise<KitchenOrder[]>>());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'PENDING' | 'HISTORY'>('PENDING');
@@ -312,7 +315,7 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
     if (!access) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void loadOrders(activeTab);
-    }, 30_000);
+    }, ORDER_FALLBACK_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [access, activeTab]);
 
@@ -401,29 +404,44 @@ export default function OrderOperationsPage({ mode = 'FNB' }: { mode?: OrderMode
   }
 
   async function loadOrders(view: 'ACTIVE' | 'PENDING' | 'HISTORY' = activeTab, forceSet = true): Promise<KitchenOrder[]> {
-    try {
-      setError('');
-      const token = await getToken();
-      if (!token) throw new Error('Please log in again');
+    const loadKey = `${mode}:${view}`;
+    const existingLoad = orderLoadsRef.current.get(loadKey);
+    if (existingLoad) return existingLoad;
 
-      const endpoint = isGuestShop ? '/api/guest-shop/fulfillment-orders' : '/api/guest-shop/kitchen-orders';
-      const apiView = isGuestShop ? view : 'ALL';
-      const res = await fetch(`${endpoint}?status=${encodeURIComponent(apiView)}`, {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load orders');
-      const nextOrders = Array.isArray(json.orders) ? json.orders : [];
-      if (forceSet) {
-        setOrders(nextOrders);
-        setLastUpdatedAt(new Date());
+    const load = (async () => {
+      try {
+        setError('');
+        const token = await getToken();
+        if (!token) throw new Error('Please log in again');
+
+        const endpoint = isGuestShop ? '/api/guest-shop/fulfillment-orders' : '/api/guest-shop/kitchen-orders';
+        const apiView = isGuestShop ? view : 'ALL';
+        const res = await fetch(`${endpoint}?status=${encodeURIComponent(apiView)}`, {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(ORDER_REQUEST_TIMEOUT_MS),
+        });
+        const json = await res.json();
+        if (!res.ok || !json?.ok) throw new Error(json?.error || 'Failed to load orders');
+        const nextOrders = Array.isArray(json.orders) ? json.orders : [];
+        if (forceSet) {
+          setOrders(nextOrders);
+          setLastUpdatedAt(new Date());
+        }
+        return nextOrders;
+      } catch (err: any) {
+        const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+        setError(timedOut
+          ? 'Order refresh timed out. Live updates remain active and the page will retry automatically.'
+          : err?.message || `Failed to load ${isGuestShop ? 'Guest Shop' : 'F&B'} orders`);
+        return [];
+      } finally {
+        orderLoadsRef.current.delete(loadKey);
       }
-      return nextOrders;
-    } catch (err: any) {
-      setError(err?.message || `Failed to load ${isGuestShop ? 'Guest Shop' : 'F&B'} orders`);
-      return [];
-    }
+    })();
+
+    orderLoadsRef.current.set(loadKey, load);
+    return load;
   }
 
   async function updateOrder(order: KitchenOrder, action: string, readyMinutes?: number, extra: Record<string, unknown> = {}) {

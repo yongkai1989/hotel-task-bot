@@ -17,6 +17,8 @@ export const runtime = 'nodejs';
 const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
 const HK_TASK_CHAT_ID = '-1003784764929';
 const MAX_VISIBLE_ITEMS = 12;
+const DATABASE_QUERY_TIMEOUT_MS = 10_000;
+const ACTIVE_REMINDER_LEASE_MS = 10 * 60_000;
 
 type ReminderKind =
   | 'CHAMBERMAID_5PM'
@@ -454,9 +456,20 @@ async function linenReconciliationReminder(reportDate: string) {
 
 async function hkMorningReviewReminder(today: string) {
   const reportDate = singaporeDate(-1);
-  const [yesterdayResult, varianceResult, taskResult, managerRoomCheckResult] = await Promise.all([
-    supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
-    supabaseAdmin.rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate }),
+  // These two reports are the heaviest reads in the morning review. Running
+  // them one after the other keeps the Nano database's peak CPU/IO lower while
+  // adding less than a second to the normal report run.
+  const yesterdayResult = await supabaseAdmin
+    .rpc('get_daily_operations_summary', { p_report_date: reportDate })
+    .abortSignal(AbortSignal.timeout(DATABASE_QUERY_TIMEOUT_MS));
+  if (yesterdayResult.error) throw yesterdayResult.error;
+
+  const varianceResult = await supabaseAdmin
+    .rpc('get_daily_operations_linen_area_variance', { p_report_date: reportDate })
+    .abortSignal(AbortSignal.timeout(DATABASE_QUERY_TIMEOUT_MS));
+  if (varianceResult.error) throw varianceResult.error;
+
+  const [taskResult, managerRoomCheckResult] = await Promise.all([
     supabaseAdmin
       .from('tasks')
       .select('task_code, room, task_text, status, created_at')
@@ -464,16 +477,16 @@ async function hkMorningReviewReminder(today: string) {
       .eq('department', 'HK')
       .not('task_text', 'ilike', 'Urgent Manager Room Check%')
       .neq('task_text', 'Manager Room Check.')
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DATABASE_QUERY_TIMEOUT_MS)),
     supabaseAdmin
       .from('manager_room_checks')
       .select('room_number, status, created_at')
       .eq('department', 'HK')
       .neq('status', 'DONE')
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true })
+      .abortSignal(AbortSignal.timeout(DATABASE_QUERY_TIMEOUT_MS)),
   ]);
-  if (yesterdayResult.error) throw yesterdayResult.error;
-  if (varianceResult.error) throw varianceResult.error;
   if (taskResult.error) throw taskResult.error;
   if (managerRoomCheckResult.error) throw managerRoomCheckResult.error;
 
@@ -926,9 +939,10 @@ export async function GET(request: NextRequest) {
   if (!force) {
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('daily_operational_notification_runs')
-      .select('status, sent_at, finding_count, delivered_count')
+      .select('status, sent_at, attempted_at, finding_count, delivered_count')
       .eq('notification_date', notificationDate)
       .eq('notification_type', reminderType)
+      .abortSignal(AbortSignal.timeout(DATABASE_QUERY_TIMEOUT_MS))
       .maybeSingle();
     if (existingError) {
       return NextResponse.json({ ok: false, error: existingError.message }, { status: 500 });
@@ -942,16 +956,36 @@ export async function GET(request: NextRequest) {
         ...existing,
       });
     }
+    const attemptedAt = Date.parse(String(existing?.attempted_at || ''));
+    if (
+      existing?.status === 'SENDING' &&
+      Number.isFinite(attemptedAt) &&
+      Date.now() - attemptedAt < ACTIVE_REMINDER_LEASE_MS
+    ) {
+      return NextResponse.json({
+        ok: true,
+        alreadyRunning: true,
+        notificationDate,
+        reminderType,
+        attemptedAt: existing.attempted_at,
+      });
+    }
   }
 
-  await supabaseAdmin.from('daily_operational_notification_runs').upsert({
-    notification_date: notificationDate,
-    notification_type: reminderType,
-    status: 'SENDING',
-    attempted_at: new Date().toISOString(),
-    sent_at: null,
-    error_text: null,
-  });
+  const { error: claimError } = await supabaseAdmin
+    .from('daily_operational_notification_runs')
+    .upsert({
+      notification_date: notificationDate,
+      notification_type: reminderType,
+      status: 'SENDING',
+      attempted_at: new Date().toISOString(),
+      sent_at: null,
+      error_text: null,
+    })
+    .abortSignal(AbortSignal.timeout(DATABASE_QUERY_TIMEOUT_MS));
+  if (claimError) {
+    return NextResponse.json({ ok: false, error: claimError.message }, { status: 500 });
+  }
 
   try {
     const result = reminderType === 'CHAMBERMAID_5PM'
