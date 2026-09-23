@@ -639,6 +639,8 @@ export default function ProformaInvoicePage() {
   const [statementInvoice, setStatementInvoice] = useState<InvoiceRecord | null>(null);
   const [statementPayments, setStatementPayments] = useState<PaymentRecord[]>([]);
   const [statementLoading, setStatementLoading] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<InvoiceRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const totals = useMemo(() => calculateTotals(lines, checkIn, checkOut), [lines, checkIn, checkOut]);
   const selectedClient = clients.find((client) => client.id === Number(selectedClientId)) || null;
@@ -928,6 +930,36 @@ export default function ProformaInvoicePage() {
     }
   }
 
+  async function deleteInvoice() {
+    if (!supabase || !profile || !invoiceToDelete) return;
+    if (profile.role !== 'SUPERUSER') {
+      setError('Only a superuser can delete a proforma invoice.');
+      return;
+    }
+
+    const deletedInvoice = invoiceToDelete;
+    try {
+      setDeleting(true);
+      setError('');
+      setMessage('');
+      const { error: deleteError } = await supabase.rpc('delete_proforma_invoice', {
+        p_invoice_id: deletedInvoice.id,
+      });
+      if (deleteError) throw deleteError;
+
+      setInvoiceToDelete(null);
+      if (detailInvoice?.id === deletedInvoice.id) setDetailInvoice(null);
+      if (paymentInvoice?.id === deletedInvoice.id) setPaymentInvoice(null);
+      if (statementInvoice?.id === deletedInvoice.id) setStatementInvoice(null);
+      await loadData();
+      setMessage(`${deletedInvoice.invoice_number} deleted.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to delete the proforma invoice.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   function openPayment(invoice: InvoiceRecord) {
     setPaymentInvoice(invoice);
     setPaymentAmount(Number(invoice.balance_outstanding).toFixed(2));
@@ -1162,6 +1194,7 @@ export default function ProformaInvoicePage() {
                   <button className={styles.secondaryButton} onClick={() => setDetailInvoice(invoice)}>Manage</button>
                   {invoice.status === 'CHECKED_IN' ? <button className={styles.secondaryButton} onClick={() => void openStatement(invoice)}>Statement</button> : null}
                   {invoice.status === 'CHECKED_IN' && Number(invoice.balance_outstanding) > 0 ? <button className={styles.paymentButton} onClick={() => openPayment(invoice)}>Record Payment</button> : null}
+                  {profile.role === 'SUPERUSER' ? <button className={styles.deleteButton} onClick={() => setInvoiceToDelete(invoice)}>Delete</button> : null}
                 </div>
               </article>
             ))}
@@ -1218,6 +1251,21 @@ export default function ProformaInvoicePage() {
             <div><h3>Document</h3><div className={styles.cardActions}><button className={styles.exportButton} onClick={() => void downloadInvoicePdf(detailInvoice, detailInvoice.created_by_name || profile.name)}>Export Invoice PDF</button><button className={styles.secondaryButton} onClick={() => editInvoice(detailInvoice, 'EDIT')}>Edit Our Mistake</button><button className={styles.secondaryButton} onClick={() => editInvoice(detailInvoice, 'AMEND')}>Customer Amendment</button></div></div>
             <div><h3>Client Decision</h3><div className={styles.cardActions}><button className={styles.checkInButton} disabled={statusBusy} onClick={() => void updateInvoiceStatus(detailInvoice, 'CHECKED_IN')}>Checked In</button><button className={styles.declineButton} disabled={statusBusy} onClick={() => void updateInvoiceStatus(detailInvoice, 'DECLINED')}>Declined</button><button className={styles.secondaryButton} disabled={statusBusy} onClick={() => void updateInvoiceStatus(detailInvoice, 'ISSUED')}>Reset to Issued</button></div></div>
             {detailInvoice.status === 'CHECKED_IN' ? <div><h3>Statement of Account</h3><div className={styles.cardActions}><button className={styles.secondaryButton} onClick={() => void openStatement(detailInvoice)}>Open Statement</button>{Number(detailInvoice.balance_outstanding) > 0 ? <button className={styles.paymentButton} onClick={() => openPayment(detailInvoice)}>Record Payment</button> : null}</div></div> : null}
+            {profile.role === 'SUPERUSER' ? <div className={styles.dangerSection}><h3>Superuser Actions</h3><p>Deleting removes this invoice, its payment records and amendment history permanently.</p><div className={styles.cardActions}><button className={styles.deleteButton} onClick={() => setInvoiceToDelete(detailInvoice)}>Delete Proforma</button></div></div> : null}
+          </div>
+        </Modal>
+      ) : null}
+
+      {invoiceToDelete ? (
+        <Modal title="Delete Proforma Invoice" onClose={() => { if (!deleting) setInvoiceToDelete(null); }}>
+          <div className={styles.deleteWarning}>
+            <strong>Delete {invoiceToDelete.invoice_number}?</strong>
+            <span>{invoiceToDelete.client_company_name}</span>
+            <p>This permanently removes the invoice, its payment records and amendment history. This action cannot be undone.</p>
+          </div>
+          <div className={styles.footerActions}>
+            <button className={styles.secondaryButton} disabled={deleting} onClick={() => setInvoiceToDelete(null)}>Cancel</button>
+            <button className={styles.deleteButton} disabled={deleting} onClick={() => void deleteInvoice()}>{deleting ? 'Deleting...' : 'Delete Permanently'}</button>
           </div>
         </Modal>
       ) : null}

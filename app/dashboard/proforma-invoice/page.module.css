@@ -105,7 +105,7 @@
 .amendmentField textarea { min-height: 90px; resize: vertical; }
 .amendmentField small { color: #8b6328; }
 
-.primaryButton, .secondaryButton, .exportButton, .paymentButton, .checkInButton, .declineButton {
+.primaryButton, .secondaryButton, .exportButton, .paymentButton, .checkInButton, .declineButton, .deleteButton {
   display: inline-flex; justify-content: center; align-items: center; border-radius: 13px; padding: 11px 15px; font: inherit; font-weight: 900; text-decoration: none; cursor: pointer;
 }
 .primaryButton { border: 1px solid #10213b; background: #10213b; color: #fff; }
@@ -113,7 +113,8 @@
 .exportButton { border: 1px solid #9a6a2f; background: #fff6e8; color: #744818; }
 .paymentButton, .checkInButton { border: 1px solid #0d7a4e; background: #0d7a4e; color: #fff; }
 .declineButton { border: 1px solid #bd342a; background: #fff1ef; color: #a92b22; }
-.primaryButton:disabled, .exportButton:disabled, .paymentButton:disabled, .checkInButton:disabled, .declineButton:disabled { opacity: .55; cursor: not-allowed; }
+.deleteButton { border: 1px solid #b91c1c; background: #b91c1c; color: #fff; }
+.primaryButton:disabled, .exportButton:disabled, .paymentButton:disabled, .checkInButton:disabled, .declineButton:disabled, .deleteButton:disabled { opacity: .55; cursor: not-allowed; }
 .textButton { border: 0; background: transparent; color: #1e5d9e; font-weight: 900; cursor: pointer; }
 .footerActions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 
@@ -156,6 +157,12 @@
 .manageSections { display: grid; gap: 16px; margin-top: 18px; }
 .manageSections > div { padding: 15px; border: 1px solid #dbe4ef; border-radius: 15px; }
 .manageSections h3 { margin: 0; }
+.manageSections .dangerSection { border-color: #fecaca; background: #fff7f7; }
+.dangerSection p { margin: 8px 0 0; color: #8f2d2d; font-size: 13px; line-height: 1.45; }
+.deleteWarning { display: grid; gap: 8px; padding: 16px; border: 1px solid #fecaca; border-radius: 16px; background: #fff7f7; color: #7f1d1d; }
+.deleteWarning strong { font-size: 20px; }
+.deleteWarning span { color: #991b1b; font-weight: 850; }
+.deleteWarning p { margin: 5px 0 0; color: #7f1d1d; line-height: 1.5; }
 .paymentSummary, .statementHeader { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; padding: 15px; border-radius: 15px; background: #10213b; color: #fff; }
 .paymentSummary strong, .statementHeader strong { font-size: 22px; color: #f6c981; }
 .statementHeader > div { display: grid; gap: 4px; }
