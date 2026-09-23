@@ -716,8 +716,8 @@ export default function ProformaInvoicePage() {
 
   async function saveClient() {
     if (!supabase || !profile || !clientModal) return;
-    if (!clientDraft.company_name.trim() || !clientDraft.contact_person.trim() || !clientDraft.contact_number.trim()) {
-      setError('Company/client name, contact person and contact number are required.');
+    if (!clientDraft.company_name.trim() || !clientDraft.address.trim() || !clientDraft.contact_person.trim() || !clientDraft.contact_number.trim()) {
+      setError('Company/client name, address, contact person and contact number are required.');
       return;
     }
     try {
@@ -1153,7 +1153,7 @@ export default function ProformaInvoicePage() {
         <Modal title={clientModal === 'NEW' ? 'Create Client Profile' : 'Edit Client Profile'} onClose={() => setClientModal(null)}>
           <div className={styles.modalForm}>
             <label><span>Company / Client Name *</span><input value={clientDraft.company_name} onChange={(event) => setClientDraft((current) => ({ ...current, company_name: event.target.value }))} /></label>
-            <label><span>Address</span><textarea value={clientDraft.address} onChange={(event) => setClientDraft((current) => ({ ...current, address: event.target.value }))} /></label>
+            <label><span>Address *</span><textarea value={clientDraft.address} onChange={(event) => setClientDraft((current) => ({ ...current, address: event.target.value }))} /></label>
             <label><span>Contact Person *</span><input value={clientDraft.contact_person} onChange={(event) => setClientDraft((current) => ({ ...current, contact_person: event.target.value }))} /></label>
             <label><span>Contact Number *</span><input value={clientDraft.contact_number} onChange={(event) => setClientDraft((current) => ({ ...current, contact_number: event.target.value }))} inputMode="tel" /></label>
           </div>
