@@ -857,6 +857,12 @@ export default function DashboardSidebar({
     );
   const canSeeFoQuickActions = !!effectiveProfile?.can_access_fo_quick_actions;
   const canSeeFoSchedule = !!effectiveProfile?.can_access_fo_schedule;
+  const canSeeProformaInvoice =
+    effectiveRole === 'SUPERUSER' ||
+    effectiveRole === 'MANAGER' ||
+    effectiveRole === 'FO' ||
+    effectiveEmail === 'fenny@hotelhallmark.com' ||
+    effectiveEmail === 'walter@hotelhallmark.com';
 
   const showMaintenanceGroup =
     canSeePM ||
@@ -889,6 +895,7 @@ export default function DashboardSidebar({
     canSeeAdminSettings;
   const showFrontOfficeGroup =
     canSeeFoSchedule ||
+    canSeeProformaInvoice ||
     canSeeFoQuickActions ||
     canSeeLostFound ||
     canSeeFoChecklist ||
@@ -912,6 +919,7 @@ export default function DashboardSidebar({
     effectiveProfile?.can_access_maintenance_damaged,
     effectiveProfile?.can_access_hk_schedule,
     effectiveProfile?.can_access_fo_schedule,
+    canSeeProformaInvoice,
     effectiveProfile?.can_access_hk_special_project,
     effectiveProfile?.can_access_hk_manager_room_check,
     effectiveProfile?.can_access_chambermaid_entry,
@@ -1453,6 +1461,17 @@ export default function DashboardSidebar({
                   style={styles.subNavBtn}
                 >
                   <SidebarNavContent icon="calendar" sub>Schedule</SidebarNavContent>
+                </Link>
+              ) : null}
+
+              {canSeeProformaInvoice ? (
+                <Link
+                  href="/dashboard/proforma-invoice"
+                  prefetch={false}
+                  onClick={closeSidebar}
+                  style={styles.subNavBtn}
+                >
+                  <SidebarNavContent icon="file" sub>Proforma Invoice</SidebarNavContent>
                 </Link>
               ) : null}
 
