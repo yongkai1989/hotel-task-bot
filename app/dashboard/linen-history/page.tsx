@@ -86,6 +86,7 @@ type LinenBillRow = {
 };
 
 type LinenCollectionRow = {
+  id: string;
   cc_no: string;
   collection_date: string;
   source_service_date: string;
@@ -94,6 +95,7 @@ type LinenCollectionRow = {
 };
 
 type LinenReceivedRow = {
+  collection_id: string;
   service_date: string;
   block_no: number;
   bedsheet_king: number | null;
@@ -137,6 +139,7 @@ type SnapshotRow = {
 type HistoryData = {
   snapshot: SnapshotRow | null;
   collectionsByBlock: Record<string, LinenCollectionRow>;
+  collectionReceivedByBlock: Record<string, boolean>;
   floorBillMap: Record<string, LinenTotals>;
   blockBillTotals: Record<string, LinenTotals>;
   floorPaUsedMap: Record<string, LinenTotals>;
@@ -868,13 +871,13 @@ function countDiffStyle(value: number): React.CSSProperties {
 function CollectionCcSummary({
   rows,
 }: {
-  rows: Array<{ blockKey: string; label: string; collection: LinenCollectionRow | null }>;
+  rows: Array<{ blockKey: string; label: string; collection: LinenCollectionRow | null; received: boolean }>;
 }) {
   if (!rows.length) return null;
 
   return (
     <div style={styles.ccSummary} aria-label="Laundry collection CC numbers">
-      {rows.map(({ blockKey, label, collection }) => (
+      {rows.map(({ blockKey, label, collection, received }) => (
         <div key={blockKey} style={styles.ccCard}>
           <span style={styles.ccLabel}>{label} CC No.</span>
           <strong style={styles.ccValue}>{collection?.cc_no || 'Not recorded'}</strong>
@@ -883,6 +886,11 @@ function CollectionCcSummary({
               ? `Collection ${formatDateDDMMYYYY(collection.collection_date)}`
               : 'No collection record for this service date'}
           </span>
+          {collection ? (
+            <span style={received ? styles.ccReceived : styles.ccOutstanding}>
+              {received ? 'Received' : 'Outstanding'}
+            </span>
+          ) : null}
         </div>
       ))}
     </div>
@@ -1197,7 +1205,7 @@ export default function LinenHistoryPage() {
           .order('created_at', { ascending: true }),
         supabase
           .from('linen_laundry_collections')
-          .select('cc_no, collection_date, source_service_date, block_no, is_legacy')
+          .select('id, cc_no, collection_date, source_service_date, block_no, is_legacy')
           .eq('source_service_date', selectedDate)
           .order('block_no', { ascending: true })
           .order('collection_date', { ascending: false })
@@ -1282,19 +1290,33 @@ export default function LinenHistoryPage() {
         B1: zeroTotals(),
         B2: zeroTotals(),
       };
+      let receivedRows: LinenReceivedRow[] = [];
+      const collectionIds = Object.values(collectionsByBlock).map((collection) => collection.id);
 
-      const receivedRes = await supabase
-        .from('linen_laundry_received')
-        .select('service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
-        .eq('service_date', selectedDate)
-        .order('block_no', { ascending: true });
+      if (collectionIds.length) {
+        const receivedRes = await supabase
+          .from('linen_laundry_received')
+          .select('collection_id, service_date, block_no, bedsheet_king, bedsheet_single, pillow_case, bath_towel, bath_mat, duvet_cover_king, duvet_cover_single')
+          .in('collection_id', collectionIds)
+          .order('block_no', { ascending: true });
 
-      if (receivedRes.error) throw receivedRes.error;
-      blockReceivedTotals = buildReceivedBlockTotals((receivedRes.data || []) as LinenReceivedRow[]);
+        if (receivedRes.error) throw receivedRes.error;
+        receivedRows = (receivedRes.data || []) as LinenReceivedRow[];
+        blockReceivedTotals = buildReceivedBlockTotals(receivedRows);
+      }
+
+      const receivedCollectionIds = new Set(receivedRows.map((row) => row.collection_id));
+      const collectionReceivedByBlock = Object.fromEntries(
+        Object.entries(collectionsByBlock).map(([blockKey, collection]) => [
+          blockKey,
+          receivedCollectionIds.has(collection.id),
+        ])
+      );
 
       setHistoryData({
         snapshot: resolvedSnapshot,
         collectionsByBlock,
+        collectionReceivedByBlock,
         floorBillMap,
         blockBillTotals,
         floorPaUsedMap,
@@ -1617,8 +1639,14 @@ export default function LinenHistoryPage() {
       blockKey,
       label: BLOCK_OPTIONS.find((block) => block.key === blockKey)?.label || blockKey,
       collection: historyData.collectionsByBlock[blockKey] || null,
+      received: historyData.collectionReceivedByBlock[blockKey] || false,
     }));
   }, [historyData, pageTab, selectedBlockKey, selectedFloorKey, viewMode]);
+
+  const outstandingDisplayedCollections = useMemo(
+    () => displayedCollections.filter((row) => row.collection && !row.received),
+    [displayedCollections]
+  );
 
   const historySourceLabel = useMemo(() => {
     if (!historyData) return '';
@@ -2019,6 +2047,14 @@ export default function LinenHistoryPage() {
               Source: {historySourceLabel}
             </div>
             <CollectionCcSummary rows={displayedCollections} />
+            {viewMode !== 'FLOOR' && outstandingDisplayedCollections.length ? (
+              <div style={styles.returnOutstanding}>
+                <strong>Return still outstanding</strong>
+                <span>
+                  Waiting for {outstandingDisplayedCollections.map((row) => `${row.label} CC ${row.collection?.cc_no}`).join(' and ')}.
+                </span>
+              </div>
+            ) : null}
 
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => {
@@ -2071,17 +2107,21 @@ export default function LinenHistoryPage() {
                           </span>
                         </div>
 
-                        <div style={styles.metricRow}>
-                          <span style={styles.metricLabel}>Returned</span>
-                          <span style={styles.metricValue}>{selectedSummary.returned[item.key]}</span>
-                        </div>
+                        {!outstandingDisplayedCollections.length ? (
+                          <>
+                            <div style={styles.metricRow}>
+                              <span style={styles.metricLabel}>Returned</span>
+                              <span style={styles.metricValue}>{selectedSummary.returned[item.key]}</span>
+                            </div>
 
-                        <div style={styles.metricRow}>
-                          <span style={styles.metricLabel}>Returned Difference</span>
-                          <span style={{ ...styles.metricValue, ...returnedDiffStyle(returnedDiffValue) }}>
-                            {formatDiff(returnedDiffValue)}
-                          </span>
-                        </div>
+                            <div style={styles.metricRow}>
+                              <span style={styles.metricLabel}>Returned Difference</span>
+                              <span style={{ ...styles.metricValue, ...returnedDiffStyle(returnedDiffValue) }}>
+                                {formatDiff(returnedDiffValue)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
                       </>
                     )}
                   </div>
@@ -2529,6 +2569,37 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#475569',
     fontSize: '12px',
     fontWeight: 700,
+  },
+  ccReceived: {
+    justifySelf: 'start',
+    marginTop: '4px',
+    borderRadius: '999px',
+    background: '#dcfce7',
+    color: '#166534',
+    padding: '4px 9px',
+    fontSize: '11px',
+    fontWeight: 900,
+  },
+  ccOutstanding: {
+    justifySelf: 'start',
+    marginTop: '4px',
+    borderRadius: '999px',
+    background: '#fef3c7',
+    color: '#92400e',
+    padding: '4px 9px',
+    fontSize: '11px',
+    fontWeight: 900,
+  },
+  returnOutstanding: {
+    display: 'grid',
+    gap: '4px',
+    marginBottom: '14px',
+    border: '1px solid #f4c96b',
+    borderRadius: '14px',
+    background: '#fff8e6',
+    color: '#854d0e',
+    padding: '12px 14px',
+    fontSize: '13px',
   },
   itemTitle: {
     fontSize: '20px',
