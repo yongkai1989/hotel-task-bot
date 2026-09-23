@@ -112,9 +112,33 @@ const BANK = {
 
 const ROOM_CATALOG: RoomCatalogItem[] = [
   {
-    id: 'twin-double',
-    label: 'Twin / Double Room',
-    description: '2 Super Single Beds / 1 Queen Bed',
+    id: 'standard-twin',
+    label: 'Standard Twin',
+    description: '2 Single Beds',
+    breakfast: '2 Breakfast',
+    kind: 'ROOM',
+    rates: { weekday: 100, weekend: 125, peak: 185 },
+  },
+  {
+    id: 'deluxe-twin',
+    label: 'Deluxe Twin',
+    description: '2 Single Beds',
+    breakfast: '2 Breakfast',
+    kind: 'ROOM',
+    rates: { weekday: 100, weekend: 125, peak: 185 },
+  },
+  {
+    id: 'standard-double',
+    label: 'Standard Double',
+    description: '1 Double Bed',
+    breakfast: '2 Breakfast',
+    kind: 'ROOM',
+    rates: { weekday: 100, weekend: 125, peak: 185 },
+  },
+  {
+    id: 'deluxe-double',
+    label: 'Deluxe Double',
+    description: '1 Double Bed',
     breakfast: '2 Breakfast',
     kind: 'ROOM',
     rates: { weekday: 100, weekend: 125, peak: 185 },
@@ -238,7 +262,7 @@ function rateBandForDate(dateValue: string): RateBand {
   if (PEAK_DATES.has(dateValue)) return 'peak';
   const [year, month, day] = dateValue.split('-').map(Number);
   const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-  return weekday === 5 || weekday === 6 ? 'weekend' : 'weekday';
+  return weekday === 6 ? 'weekend' : 'weekday';
 }
 
 function catalogItem(id: string) {
@@ -306,13 +330,26 @@ function parseStoredLines(value: unknown): InvoiceLine[] {
   if (!Array.isArray(value)) return [];
   return value.map((raw: any) => ({
     id: String(raw?.id || crypto.randomUUID()),
-    catalog_id: String(raw?.catalog_id || 'twin-double'),
+    catalog_id: String(raw?.catalog_id || 'standard-twin') === 'twin-double'
+      ? 'standard-twin'
+      : String(raw?.catalog_id || 'standard-twin'),
     quantity: Math.max(1, Number(raw?.quantity || 1)),
     foc: raw?.foc === true,
     custom_rate: raw?.custom_rate === null || raw?.custom_rate === undefined || raw?.custom_rate === ''
       ? null
       : Math.max(0, Number(raw.custom_rate)),
   }));
+}
+
+function normalizeInvoiceRecord(row: any): InvoiceRecord {
+  return {
+    ...row,
+    line_items: parseStoredLines(row.line_items),
+    grand_total: Number(row.grand_total || 0),
+    deposit_paid: Number(row.deposit_paid || 0),
+    payments_received: Number(row.payments_received || 0),
+    balance_outstanding: Number(row.balance_outstanding || 0),
+  } as InvoiceRecord;
 }
 
 async function logoDataUrl() {
@@ -565,7 +602,7 @@ async function downloadStatementPdf(invoice: InvoiceRecord, payments: PaymentRec
 }
 
 function blankLine(): InvoiceLine {
-  return { id: crypto.randomUUID(), catalog_id: 'twin-double', quantity: 1, foc: false, custom_rate: null };
+  return { id: crypto.randomUUID(), catalog_id: 'standard-twin', quantity: 1, foc: false, custom_rate: null };
 }
 
 export default function ProformaInvoicePage() {
@@ -642,14 +679,7 @@ export default function ProformaInvoicePage() {
     if (clientResult.error) throw clientResult.error;
     if (invoiceResult.error) throw invoiceResult.error;
     setClients((clientResult.data || []) as ClientProfile[]);
-    setInvoices((invoiceResult.data || []).map((row: any) => ({
-      ...row,
-      line_items: parseStoredLines(row.line_items),
-      grand_total: Number(row.grand_total || 0),
-      deposit_paid: Number(row.deposit_paid || 0),
-      payments_received: Number(row.payments_received || 0),
-      balance_outstanding: Number(row.balance_outstanding || 0),
-    })) as InvoiceRecord[]);
+    setInvoices((invoiceResult.data || []).map(normalizeInvoiceRecord));
   }
 
   useEffect(() => {
@@ -782,7 +812,7 @@ export default function ProformaInvoicePage() {
     };
   }
 
-  async function saveInvoice() {
+  async function saveInvoice(exportAfterSave = false) {
     if (!supabase || !profile) return;
     try {
       setSaving(true);
@@ -831,10 +861,21 @@ export default function ProformaInvoicePage() {
         if (amendError) throw amendError;
         saved = Array.isArray(data) ? data[0] : data;
       }
+      if (!saved) throw new Error('The invoice was saved, but the saved record could not be loaded for export.');
+      const savedInvoice = normalizeInvoiceRecord(saved);
       await loadData();
-      setMessage(`${saved?.invoice_number || 'Proforma invoice'} saved successfully.`);
+      let exportError = '';
+      if (exportAfterSave) {
+        try {
+          await downloadInvoicePdf(savedInvoice, savedInvoice.created_by_name || profile.name);
+        } catch (pdfError: any) {
+          exportError = pdfError?.message || 'The PDF could not be generated.';
+        }
+      }
       resetForm();
       setTab('SUMMARY');
+      setMessage(`${savedInvoice.invoice_number || 'Proforma invoice'} saved successfully${exportAfterSave && !exportError ? ' and exported as PDF' : ''}.`);
+      if (exportError) setError(`The invoice is safely saved, but PDF export failed: ${exportError}. Use Export Invoice PDF in the Summary to retry.`);
     } catch (err: any) {
       setError(err?.message || 'Unable to save proforma invoice.');
     } finally {
@@ -1041,11 +1082,11 @@ export default function ProformaInvoicePage() {
                     </select>
                     <small>{item.description} · {item.breakfast}</small>
                   </label>
-                  <label>
+                  <label className={styles.quantityField}>
                     <span>{item.kind === 'ROOM' ? 'Rooms' : 'Persons'}</span>
                     <input type="number" min="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Math.max(1, Number(event.target.value || 1)) })} />
                   </label>
-                  <label>
+                  <label className={styles.rateField}>
                     <span>Agreed Rate / Night</span>
                     <input type="number" min="0" step="0.01" value={line.custom_rate ?? ''} onChange={(event) => updateLine(line.id, { custom_rate: event.target.value === '' ? null : Math.max(0, Number(event.target.value)) })} placeholder="Auto rate" disabled={line.foc} />
                   </label>
@@ -1062,7 +1103,7 @@ export default function ProformaInvoicePage() {
 
           <div className={styles.rateNote}>
             <strong>Automatic rate schedule</strong>
-            <span>Weekday: Sunday-Thursday · Weekend: Friday-Saturday · Peak dates override both. {PEAK_PERIOD_LABEL}</span>
+            <span>Weekday: Sunday-Friday · Weekend: Saturday only · Peak dates override both. {PEAK_PERIOD_LABEL}</span>
           </div>
 
           <div className={styles.totalPanel}>
@@ -1086,6 +1127,9 @@ export default function ProformaInvoicePage() {
           <div className={styles.footerActions}>
             <button className={styles.primaryButton} disabled={saving || !selectedClient || totals.nights <= 0} onClick={() => void saveInvoice()}>
               {saving ? 'Saving...' : editMode === 'NEW' ? 'Save Proforma Invoice' : editMode === 'EDIT' ? 'Save Correction' : 'Save Customer Amendment'}
+            </button>
+            <button className={styles.exportButton} disabled={saving || !selectedClient || totals.nights <= 0} onClick={() => void saveInvoice(true)}>
+              {saving ? 'Preparing...' : 'Save & Export PDF'}
             </button>
           </div>
         </section>
@@ -1114,7 +1158,7 @@ export default function ProformaInvoicePage() {
                 </div>
                 <div className={styles.summaryDates}><span>{formatDate(invoice.check_in_date)}</span><span>to</span><span>{formatDate(invoice.check_out_date)}</span></div>
                 <div className={styles.cardActions}>
-                  <button className={styles.primaryButton} onClick={() => void downloadInvoicePdf(invoice, invoice.created_by_name || profile.name)}>Download PDF</button>
+                  <button className={styles.exportButton} onClick={() => void downloadInvoicePdf(invoice, invoice.created_by_name || profile.name)}>Export Invoice PDF</button>
                   <button className={styles.secondaryButton} onClick={() => setDetailInvoice(invoice)}>Manage</button>
                   {invoice.status === 'CHECKED_IN' ? <button className={styles.secondaryButton} onClick={() => void openStatement(invoice)}>Statement</button> : null}
                   {invoice.status === 'CHECKED_IN' && Number(invoice.balance_outstanding) > 0 ? <button className={styles.paymentButton} onClick={() => openPayment(invoice)}>Record Payment</button> : null}
@@ -1171,7 +1215,7 @@ export default function ProformaInvoicePage() {
           </div>
           {detailInvoice.amendment_no > 0 ? <div className={styles.amendmentNotice}>Amendment {detailInvoice.amendment_no} dated {formatDate(detailInvoice.amendment_date)}: {detailInvoice.amendment_note}</div> : null}
           <div className={styles.manageSections}>
-            <div><h3>Document</h3><div className={styles.cardActions}><button className={styles.primaryButton} onClick={() => void downloadInvoicePdf(detailInvoice, detailInvoice.created_by_name || profile.name)}>Download PDF</button><button className={styles.secondaryButton} onClick={() => editInvoice(detailInvoice, 'EDIT')}>Edit Our Mistake</button><button className={styles.secondaryButton} onClick={() => editInvoice(detailInvoice, 'AMEND')}>Customer Amendment</button></div></div>
+            <div><h3>Document</h3><div className={styles.cardActions}><button className={styles.exportButton} onClick={() => void downloadInvoicePdf(detailInvoice, detailInvoice.created_by_name || profile.name)}>Export Invoice PDF</button><button className={styles.secondaryButton} onClick={() => editInvoice(detailInvoice, 'EDIT')}>Edit Our Mistake</button><button className={styles.secondaryButton} onClick={() => editInvoice(detailInvoice, 'AMEND')}>Customer Amendment</button></div></div>
             <div><h3>Client Decision</h3><div className={styles.cardActions}><button className={styles.checkInButton} disabled={statusBusy} onClick={() => void updateInvoiceStatus(detailInvoice, 'CHECKED_IN')}>Checked In</button><button className={styles.declineButton} disabled={statusBusy} onClick={() => void updateInvoiceStatus(detailInvoice, 'DECLINED')}>Declined</button><button className={styles.secondaryButton} disabled={statusBusy} onClick={() => void updateInvoiceStatus(detailInvoice, 'ISSUED')}>Reset to Issued</button></div></div>
             {detailInvoice.status === 'CHECKED_IN' ? <div><h3>Statement of Account</h3><div className={styles.cardActions}><button className={styles.secondaryButton} onClick={() => void openStatement(detailInvoice)}>Open Statement</button>{Number(detailInvoice.balance_outstanding) > 0 ? <button className={styles.paymentButton} onClick={() => openPayment(detailInvoice)}>Record Payment</button> : null}</div></div> : null}
           </div>
