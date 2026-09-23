@@ -85,6 +85,7 @@ type DurableUploadRow = {
   error_message: string | null;
   next_retry_at: string | null;
   last_attempt_at: string | null;
+  automatic_retry_count: number;
   created_at: string | null;
   updated_at: string;
 };
@@ -121,6 +122,7 @@ const MAX_CONCURRENT_UPLOAD_JOBS = 2;
 const RESUMABLE_CHUNK_BYTES = 6 * 1024 * 1024;
 const RESUMABLE_REQUEST_TIMEOUT_MS = 90_000;
 const AUTOMATIC_UPLOAD_RETRY_MS = 10 * 60_000;
+const MAX_AUTOMATIC_UPLOAD_RETRIES = 2;
 const ACTIVE_UPLOAD_LEASE_MS = 9 * 60_000;
 const UPLOAD_DB_NAME = 'hotelhallmark-manager-room-check-uploads';
 const UPLOAD_DB_STORE = 'files';
@@ -129,7 +131,7 @@ const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
 const MANAGER_ROOM_CHECK_MEDIA_RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
 const ROOM_CHECK_SELECT = 'id, department, room_number, title, description, status, created_by_user_id, created_by_name, created_by_email, submitted_for_check_at, submitted_for_check_by_name, checked_at, checked_by_name, created_at, updated_at' as const;
 const CHECK_MEDIA_SELECT = 'id, check_id, media_url, media_path, media_type, caption, position, completed_at, completed_by_name, completed_by_email, created_at' as const;
-const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, next_retry_at, last_attempt_at, created_at, updated_at' as const;
+const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, next_retry_at, last_attempt_at, automatic_retry_count, created_at, updated_at' as const;
 
 function formatMegabytes(bytes: number) {
   return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
@@ -1611,6 +1613,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           file_size: item.file.size,
           content_type: normalizedMediaContentType(item.file.type, item.media_type),
           status: 'PENDING',
+          automatic_retry_count: 0,
           created_by_user_id: profile.user_id || null,
         });
         if (error) {
@@ -1786,6 +1789,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         status: 'PENDING',
         error_message: null,
         next_retry_at: null,
+        automatic_retry_count: 0,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
@@ -1831,6 +1835,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
           status: 'PENDING',
           error_message: null,
           next_retry_at: null,
+          automatic_retry_count: 0,
           updated_at: new Date().toISOString(),
         })
         .eq('id', failed.id);
@@ -2008,32 +2013,53 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         } catch (error: any) {
           const errorMessage = String(error?.message || 'Upload failed.');
           const permanentFailure = isPermanentUploadFailure(errorMessage);
-          const retryAt = permanentFailure
-            ? null
-            : new Date(Date.now() + AUTOMATIC_UPLOAD_RETRY_MS).toISOString();
-          const savedError = permanentFailure
-            ? errorMessage
-            : `${errorMessage} Automatic retry scheduled in 10 minutes.`;
-          if (!permanentFailure) {
+          const { data: retryState, error: retryStateError } = await supabase
+            ?.from('manager_room_check_uploads')
+            .select('automatic_retry_count')
+            .eq('id', job.id)
+            .maybeSingle() ?? { data: null, error: null };
+          const currentRetryCount = Math.max(0, Number(retryState?.automatic_retry_count || 0));
+          const automaticRetryAllowed =
+            !permanentFailure && !retryStateError && currentRetryCount < MAX_AUTOMATIC_UPLOAD_RETRIES;
+          const nextRetryCount = automaticRetryAllowed ? currentRetryCount + 1 : currentRetryCount;
+          const retryAt = automaticRetryAllowed
+            ? new Date(Date.now() + AUTOMATIC_UPLOAD_RETRY_MS).toISOString()
+            : null;
+          let savedError = automaticRetryAllowed
+            ? `${errorMessage} Automatic retry ${nextRetryCount} of ${MAX_AUTOMATIC_UPLOAD_RETRIES} scheduled in 10 minutes.`
+            : permanentFailure
+              ? errorMessage
+              : retryStateError
+                ? `${errorMessage} Automatic retry was stopped because the retry counter could not be saved. Use Retry Upload when ready.`
+              : `${errorMessage} Two automatic retries failed. Use Retry Upload when ready.`;
+          const { error: retryUpdateError } = await supabase
+            ?.from('manager_room_check_uploads')
+            .update({
+              status: automaticRetryAllowed ? 'PENDING' : 'FAILED',
+              error_message: savedError,
+              next_retry_at: retryAt,
+              automatic_retry_count: nextRetryCount,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id) ?? { error: new Error('Supabase is not configured.') };
+          const retryScheduled = automaticRetryAllowed && !retryUpdateError;
+          if (retryScheduled) {
             uploadStatsRef.current.paused += 1;
             scheduleAutomaticUploadRetry(job.id, retryAt!);
           }
-          else uploadStatsRef.current.failed += 1;
-          await supabase
-            ?.from('manager_room_check_uploads')
-            .update({
-              status: permanentFailure ? 'FAILED' : 'PENDING',
-              error_message: savedError,
-              next_retry_at: retryAt,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.id);
+          else {
+            uploadStatsRef.current.failed += 1;
+            clearAutomaticUploadRetry(job.id);
+            if (retryUpdateError) {
+              savedError = `${errorMessage} Automatic retry was stopped because its retry state could not be saved. Use Retry Upload when ready.`;
+            }
+          }
           setMedia((current) =>
             current.map((item) =>
               item.id === `uploading-${job.id}`
                 ? {
                     ...item,
-                    upload_status: permanentFailure ? 'failed' : 'uploading',
+                    upload_status: retryScheduled ? 'uploading' : 'failed',
                     upload_error: savedError,
                   }
                 : item
@@ -2056,7 +2082,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         }
         if (stats.paused) {
           setUploadProgressMsg(
-            `${stats.paused} upload${stats.paused === 1 ? ' is' : 's are'} safely paused. Automatic retry is scheduled within 10 minutes; reconnecting or reopening the page also resumes due uploads.`
+            `${stats.paused} upload${stats.paused === 1 ? ' is' : 's are'} safely paused. The next automatic retry is scheduled in 10 minutes (maximum two retries per manual attempt).`
           );
         } else if (stats.failed) {
           setErrorMsg(
