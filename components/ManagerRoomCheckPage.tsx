@@ -83,6 +83,8 @@ type DurableUploadRow = {
   content_type: string;
   status: 'PENDING' | 'UPLOADING' | 'READY' | 'FAILED';
   error_message: string | null;
+  next_retry_at: string | null;
+  last_attempt_at: string | null;
   created_at: string | null;
   updated_at: string;
 };
@@ -117,6 +119,9 @@ const MAX_VIDEO_INPUT_BYTES = 50 * 1024 * 1024;
 const MAX_VIDEO_OUTPUT_BYTES = 15 * 1024 * 1024;
 const MAX_CONCURRENT_UPLOAD_JOBS = 2;
 const RESUMABLE_CHUNK_BYTES = 6 * 1024 * 1024;
+const RESUMABLE_REQUEST_TIMEOUT_MS = 90_000;
+const AUTOMATIC_UPLOAD_RETRY_MS = 10 * 60_000;
+const ACTIVE_UPLOAD_LEASE_MS = 9 * 60_000;
 const UPLOAD_DB_NAME = 'hotelhallmark-manager-room-check-uploads';
 const UPLOAD_DB_STORE = 'files';
 const MANAGER_ROOM_CHECK_CLEANUP_KEY = 'manager-room-check-cleanup-at';
@@ -124,7 +129,7 @@ const MANAGER_ROOM_CHECK_CLEANUP_MIN_MS = 24 * 60 * 60 * 1000;
 const MANAGER_ROOM_CHECK_MEDIA_RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
 const ROOM_CHECK_SELECT = 'id, department, room_number, title, description, status, created_by_user_id, created_by_name, created_by_email, submitted_for_check_at, submitted_for_check_by_name, checked_at, checked_by_name, created_at, updated_at' as const;
 const CHECK_MEDIA_SELECT = 'id, check_id, media_url, media_path, media_type, caption, position, completed_at, completed_by_name, completed_by_email, created_at' as const;
-const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, created_at, updated_at' as const;
+const DURABLE_UPLOAD_SELECT = 'id, check_id, media_type, caption, position, storage_path, file_name, file_size, content_type, status, error_message, next_retry_at, last_attempt_at, created_at, updated_at' as const;
 
 function formatMegabytes(bytes: number) {
   return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
@@ -161,6 +166,7 @@ function openUploadDatabase() {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error('Unable to open the upload store.'));
+    request.onblocked = () => reject(new Error('Another tab is updating the saved upload store. Close the other tab and retry.'));
   });
 }
 
@@ -194,9 +200,11 @@ async function writeStoredUpload(record: StoredUploadFile) {
   const db = await openUploadDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
-      const request = db.transaction(UPLOAD_DB_STORE, 'readwrite').objectStore(UPLOAD_DB_STORE).put(record);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error || new Error('Unable to save the upload on this device.'));
+      const transaction = db.transaction(UPLOAD_DB_STORE, 'readwrite');
+      transaction.objectStore(UPLOAD_DB_STORE).put(record);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error('Unable to save the upload on this device.'));
+      transaction.onabort = () => reject(transaction.error || new Error('The phone could not preserve this upload. Check browser storage space.'));
     });
   } finally {
     db.close();
@@ -207,9 +215,11 @@ async function deleteStoredUpload(id: string) {
   const db = await openUploadDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
-      const request = db.transaction(UPLOAD_DB_STORE, 'readwrite').objectStore(UPLOAD_DB_STORE).delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error || new Error('Unable to clear the completed upload.'));
+      const transaction = db.transaction(UPLOAD_DB_STORE, 'readwrite');
+      transaction.objectStore(UPLOAD_DB_STORE).delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error || new Error('Unable to clear the completed upload.'));
+      transaction.onabort = () => reject(transaction.error || new Error('Unable to clear the completed upload.'));
     });
   } finally {
     db.close();
@@ -243,11 +253,22 @@ async function tusFetch(url: string, init: RequestInit, retryDelays = [0, 3000, 
       throw new Error('Upload paused while this device is offline.');
     }
     try {
-      const response = await fetch(url, init);
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), RESUMABLE_REQUEST_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(url, { ...init, signal: controller.signal });
+      } finally {
+        window.clearTimeout(timeout);
+      }
       if (response.status < 500 && response.status !== 408 && response.status !== 429) return response;
       lastError = new Error(`Storage temporarily returned ${response.status}.`);
     } catch (error: any) {
-      lastError = new Error(error?.message || 'The upload connection was interrupted.');
+      lastError = new Error(
+        error?.name === 'AbortError'
+          ? 'The upload connection timed out and will resume.'
+          : error?.message || 'The upload connection was interrupted.'
+      );
     }
   }
   throw lastError || new Error('The upload connection was interrupted.');
@@ -328,6 +349,24 @@ async function uploadFileResumably(params: {
       body: chunk,
       cache: 'no-store',
     });
+    if (patch.status === 401) {
+      token = await params.getAccessToken();
+      const authenticatedPatch = await tusFetch(uploadUrl, {
+        method: 'PATCH',
+        headers: {
+          ...commonHeaders(),
+          'Content-Type': 'application/offset+octet-stream',
+          'Upload-Offset': String(offset),
+        },
+        body: chunk,
+        cache: 'no-store',
+      }, [0, 3000]);
+      if (!authenticatedPatch.ok) {
+        throw new Error((await authenticatedPatch.text()) || `Upload failed (${authenticatedPatch.status}).`);
+      }
+      offset = Number(authenticatedPatch.headers.get('upload-offset') || offset + chunk.size);
+      continue;
+    }
     if (patch.status === 409) {
       const head = await tusFetch(uploadUrl, { method: 'HEAD', headers: commonHeaders(), cache: 'no-store' }, [0, 3000]);
       if (!head.ok) throw new Error('Unable to recover upload progress.');
@@ -608,6 +647,12 @@ function canRemoveCompletedCheckMedia(check: RoomCheck | null | undefined) {
   return Number.isFinite(checkedAt) && checkedAt <= Date.now() - MANAGER_ROOM_CHECK_MEDIA_RETENTION_MS;
 }
 
+function isPermanentUploadFailure(message: string) {
+  return /original file is no longer available|too large|maximum source video size|maximum video duration|cannot be checked|choose another video|could not be compressed|only image and video files are allowed/i.test(
+    message
+  );
+}
+
 export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPageProps) {
   const supabase = useMemo(() => getSupabaseSafe(), []);
   const departmentName = department === 'MT' ? 'Maintenance' : 'Housekeeping';
@@ -653,6 +698,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
   const uploadQueueRef = useRef<MediaUploadJob[]>([]);
   const queuedUploadIdsRef = useRef(new Set<string>());
   const uploadPreviewUrlsRef = useRef(new Map<string, string>());
+  const uploadRetryTimersRef = useRef(new Map<string, number>());
+  const resumingUploadsRef = useRef(false);
   const activeUploadWorkersRef = useRef(0);
   const uploadStatsRef = useRef({
     total: 0,
@@ -755,13 +802,17 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     window.addEventListener('focus', resume);
     window.addEventListener('pageshow', resume);
     document.addEventListener('visibilitychange', resumeWhenVisible);
+    const automaticRetryTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') resume();
+    }, AUTOMATIC_UPLOAD_RETRY_MS);
     return () => {
       window.removeEventListener('online', resume);
       window.removeEventListener('focus', resume);
       window.removeEventListener('pageshow', resume);
       document.removeEventListener('visibilitychange', resumeWhenVisible);
+      window.clearInterval(automaticRetryTimer);
     };
-  }, [authLoading, canAccess]);
+  }, [authLoading, canAccess, profile?.user_id, department]);
 
   useEffect(() => {
     if (deepLinkOpenedRef.current || !checks.length || typeof window === 'undefined') return;
@@ -780,6 +831,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     return () => {
       uploadPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       uploadPreviewUrlsRef.current.clear();
+      uploadRetryTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      uploadRetryTimersRef.current.clear();
     };
   }, []);
 
@@ -878,6 +931,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       const ids = (checkRows || []).map((row) => row.id);
       let mediaRows: CheckMedia[] = [];
       let durableRows: DurableUploadRow[] = [];
+      const localDurableUploadIds = new Set<string>();
       if (ids.length) {
         const [{ data: loadedMedia, error: mediaError }, { data: loadedUploads, error: uploadsError }] =
           await Promise.all([
@@ -897,6 +951,33 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         if (uploadsError) throw uploadsError;
         mediaRows = (loadedMedia || []) as CheckMedia[];
         durableRows = (loadedUploads || []) as DurableUploadRow[];
+
+        // If the final media row exists, the upload succeeded. Never show a
+        // stale retry-queue row as a failed photo, even if queue cleanup was
+        // interrupted or an older RLS policy blocked the delete.
+        const completedMediaIds = new Set(mediaRows.map((row) => row.id));
+        const completedUploadIds = durableRows
+          .filter((row) => completedMediaIds.has(row.id))
+          .map((row) => row.id);
+        if (completedUploadIds.length) {
+          const { error: cleanupError } = await supabase
+            .from('manager_room_check_uploads')
+            .delete()
+            .in('id', completedUploadIds);
+          if (cleanupError) {
+            console.warn('[manager-room-check] completed upload queue cleanup failed', {
+              count: completedUploadIds.length,
+              error: cleanupError.message,
+            });
+          }
+          await Promise.all(
+            completedUploadIds.map((id) => {
+              clearAutomaticUploadRetry(id);
+              return deleteStoredUpload(id).catch(() => undefined);
+            })
+          );
+          durableRows = durableRows.filter((row) => !completedMediaIds.has(row.id));
+        }
       }
 
       const durableMediaRows = await Promise.all(
@@ -915,6 +996,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               hasLocalFile = false;
             }
           }
+          if (hasLocalFile) localDurableUploadIds.add(row.id);
           return {
             id: `uploading-${row.id}`,
             check_id: row.check_id,
@@ -945,7 +1027,24 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       setMaintenanceStatusError(linkedMaintenanceResult.error);
       enqueueDurableIds(
         durableRows
-          .filter((row) => row.status === 'PENDING' || row.status === 'UPLOADING')
+          .filter((row) => {
+            if (!localDurableUploadIds.has(row.id)) return false;
+            const nextRetryAt = Date.parse(String(row.next_retry_at || ''));
+            if (Number.isFinite(nextRetryAt) && nextRetryAt > Date.now()) {
+              scheduleAutomaticUploadRetry(row.id, nextRetryAt);
+              return false;
+            }
+            const updatedAt = Date.parse(String(row.updated_at || ''));
+            if (
+              row.status === 'UPLOADING' &&
+              Number.isFinite(updatedAt) &&
+              updatedAt > Date.now() - ACTIVE_UPLOAD_LEASE_MS
+            ) {
+              scheduleAutomaticUploadRetry(row.id, updatedAt + ACTIVE_UPLOAD_LEASE_MS);
+              return false;
+            }
+            return row.status === 'PENDING' || row.status === 'UPLOADING';
+          })
           .map((row) => row.id)
       );
       await discoverOrphanedUploads();
@@ -1377,7 +1476,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
 
   function updateQueuedUploadProgress() {
     const stats = uploadStatsRef.current;
-    const finished = stats.completed + stats.failed;
+    const finished = stats.completed + stats.failed + stats.paused;
     setUploadProgressMsg(
       `Resumable media uploads ${finished}/${stats.total}. You may continue creating room checks.`
     );
@@ -1409,24 +1508,68 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     for (let index = 0; index < workerSlots; index += 1) void runMediaUploadWorker();
   }
 
+  function clearAutomaticUploadRetry(id: string) {
+    const timer = uploadRetryTimersRef.current.get(id);
+    if (timer !== undefined) window.clearTimeout(timer);
+    uploadRetryTimersRef.current.delete(id);
+  }
+
+  function scheduleAutomaticUploadRetry(id: string, retryAt: string | number) {
+    const retryAtMs = typeof retryAt === 'number' ? retryAt : Date.parse(retryAt);
+    if (!Number.isFinite(retryAtMs)) return;
+    clearAutomaticUploadRetry(id);
+    const delay = Math.min(Math.max(250, retryAtMs - Date.now() + 250), 2_147_000_000);
+    const timer = window.setTimeout(() => {
+      uploadRetryTimersRef.current.delete(id);
+      void resumeDurableUploadJobs();
+    }, delay);
+    uploadRetryTimersRef.current.set(id, timer);
+  }
+
   async function resumeDurableUploadJobs() {
-    if (!supabase || !canAccess || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+    if (
+      !supabase ||
+      !profile?.user_id ||
+      !canAccess ||
+      resumingUploadsRef.current ||
+      (typeof navigator !== 'undefined' && !navigator.onLine)
+    ) return;
+    resumingUploadsRef.current = true;
     try {
       const { data, error } = await supabase
         .from('manager_room_check_uploads')
-        .select('id, manager_room_checks!inner(department)')
+        .select('id, status, next_retry_at, updated_at, manager_room_checks!inner(department)')
         .in('status', ['PENDING', 'UPLOADING'])
+        .eq('created_by_user_id', profile.user_id)
         .eq('manager_room_checks.department', department)
         .order('created_at', { ascending: true })
-        .limit(120);
+        .limit(60);
       if (error) throw error;
       const resumableIds: string[] = [];
       for (const row of data || []) {
-        if (await readStoredUpload(row.id)) resumableIds.push(row.id);
+        const stored = await readStoredUpload(row.id).catch(() => null);
+        if (!stored?.file) continue;
+        const nextRetryAt = Date.parse(String(row.next_retry_at || ''));
+        if (Number.isFinite(nextRetryAt) && nextRetryAt > Date.now()) {
+          scheduleAutomaticUploadRetry(row.id, nextRetryAt);
+          continue;
+        }
+        const updatedAt = Date.parse(String(row.updated_at || ''));
+        if (
+          row.status === 'UPLOADING' &&
+          Number.isFinite(updatedAt) &&
+          updatedAt > Date.now() - ACTIVE_UPLOAD_LEASE_MS
+        ) {
+          scheduleAutomaticUploadRetry(row.id, updatedAt + ACTIVE_UPLOAD_LEASE_MS);
+          continue;
+        }
+        resumableIds.push(row.id);
       }
       enqueueDurableIds(resumableIds);
     } catch (error: any) {
       setErrorMsg(error?.message || 'Unable to resume saved uploads.');
+    } finally {
+      resumingUploadsRef.current = false;
     }
   }
 
@@ -1508,12 +1651,36 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (error) throw error;
     const row = data as DurableUploadRow;
     if (row.status === 'READY') {
-      await supabase.from('manager_room_check_uploads').delete().eq('id', id);
+      const { data: deletedRows, error: deleteError } = await supabase
+        .from('manager_room_check_uploads')
+        .delete()
+        .eq('id', id)
+        .select('id');
+      if (deleteError) throw deleteError;
+      if (!deletedRows?.length) {
+        throw new Error('The completed upload could not be cleared from the retry queue.');
+      }
       await deleteStoredUpload(id).catch(() => undefined);
-      return;
+      clearAutomaticUploadRetry(id);
+      return true;
     }
     let stored = await readStoredUpload(id);
     if (!stored?.file) throw new Error('The original file is no longer available on this device.');
+
+    const nextRetryAt = Date.parse(String(row.next_retry_at || ''));
+    if (Number.isFinite(nextRetryAt) && nextRetryAt > Date.now()) {
+      scheduleAutomaticUploadRetry(id, nextRetryAt);
+      return false;
+    }
+    const updatedAt = Date.parse(String(row.updated_at || ''));
+    if (
+      row.status === 'UPLOADING' &&
+      Number.isFinite(updatedAt) &&
+      updatedAt > Date.now() - ACTIVE_UPLOAD_LEASE_MS
+    ) {
+      scheduleAutomaticUploadRetry(id, updatedAt + ACTIVE_UPLOAD_LEASE_MS);
+      return false;
+    }
 
     if (row.media_type === 'video' && !stored.prepared) {
       const compressed = await compressVideoFile(stored.file);
@@ -1529,14 +1696,21 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     // Compare-and-set prevents two open tablets/tabs from uploading the same
     // queued file at the same time. A stale UPLOADING job remains recoverable
     // from the device that owns its IndexedDB copy.
+    const attemptStartedAt = new Date().toISOString();
     const { data: claimedRows, error: claimError } = await supabase
       .from('manager_room_check_uploads')
-      .update({ status: 'UPLOADING', error_message: null, updated_at: new Date().toISOString() })
+      .update({
+        status: 'UPLOADING',
+        error_message: null,
+        next_retry_at: null,
+        last_attempt_at: attemptStartedAt,
+        updated_at: attemptStartedAt,
+      })
       .eq('id', id)
       .eq('updated_at', row.updated_at)
       .select('id');
     if (claimError) throw claimError;
-    if (!claimedRows?.length) return;
+    if (!claimedRows?.length) return false;
 
     await uploadFileResumably({
       file: stored.file,
@@ -1569,20 +1743,26 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     if (mediaError) throw mediaError;
     // The upload row is a retry queue, not permanent media metadata. The final
     // media row above is authoritative, so remove the queue row after success.
-    const { error: readyError } = await supabase
+    const { data: deletedRows, error: readyError } = await supabase
       .from('manager_room_check_uploads')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
     if (readyError) throw readyError;
+    if (!deletedRows?.length) {
+      throw new Error('Upload completed, but retry queue cleanup did not finish. It will reconcile automatically.');
+    }
     await supabase
       .from('manager_room_checks')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', row.check_id);
     await deleteStoredUpload(id).catch(() => undefined);
+    clearAutomaticUploadRetry(id);
     const previewUrl = uploadPreviewUrlsRef.current.get(id);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     uploadPreviewUrlsRef.current.delete(id);
     setMedia((current) => [readyMedia, ...current.filter((item) => item.id !== `uploading-${id}`)]);
+    return true;
   }
 
   async function retryDurableUpload(item: CheckMedia) {
@@ -1602,7 +1782,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
     await writeStoredUpload(stored);
     const { error } = await supabase
       .from('manager_room_check_uploads')
-      .update({ status: 'PENDING', error_message: null, updated_at: new Date().toISOString() })
+      .update({
+        status: 'PENDING',
+        error_message: null,
+        next_retry_at: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
     if (error) {
       setErrorMsg(error.message || 'Unable to retry upload.');
@@ -1642,7 +1827,12 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
       await writeStoredUpload(stored);
       const { error } = await supabase
         .from('manager_room_check_uploads')
-        .update({ status: 'PENDING', error_message: null, updated_at: new Date().toISOString() })
+        .update({
+          status: 'PENDING',
+          error_message: null,
+          next_retry_at: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', failed.id);
       if (!error) retryIds.push(failed.id);
     }
@@ -1707,6 +1897,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         .eq('status', 'FAILED');
       if (error) throw error;
 
+      clearAutomaticUploadRetry(id);
       uploadQueueRef.current = uploadQueueRef.current.filter((job) => job.id !== id);
       queuedUploadIdsRef.current.delete(id);
       await deleteStoredUpload(id).catch(() => undefined);
@@ -1811,19 +2002,29 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         const job = uploadQueueRef.current.shift();
         if (!job) break;
         try {
-          await processDurableUpload(job.id);
-          uploadStatsRef.current.completed += 1;
+          const completed = await processDurableUpload(job.id);
+          if (completed) uploadStatsRef.current.completed += 1;
+          else uploadStatsRef.current.paused += 1;
         } catch (error: any) {
-          const paused =
-            (typeof navigator !== 'undefined' && !navigator.onLine) ||
-            /offline|network|fetch|connection|interrupted/i.test(error?.message || '');
-          if (paused) uploadStatsRef.current.paused += 1;
+          const errorMessage = String(error?.message || 'Upload failed.');
+          const permanentFailure = isPermanentUploadFailure(errorMessage);
+          const retryAt = permanentFailure
+            ? null
+            : new Date(Date.now() + AUTOMATIC_UPLOAD_RETRY_MS).toISOString();
+          const savedError = permanentFailure
+            ? errorMessage
+            : `${errorMessage} Automatic retry scheduled in 10 minutes.`;
+          if (!permanentFailure) {
+            uploadStatsRef.current.paused += 1;
+            scheduleAutomaticUploadRetry(job.id, retryAt!);
+          }
           else uploadStatsRef.current.failed += 1;
           await supabase
             ?.from('manager_room_check_uploads')
             .update({
-              status: paused ? 'PENDING' : 'FAILED',
-              error_message: paused ? 'Upload paused. It will resume when this device reconnects.' : error?.message || 'Upload failed.',
+              status: permanentFailure ? 'FAILED' : 'PENDING',
+              error_message: savedError,
+              next_retry_at: retryAt,
               updated_at: new Date().toISOString(),
             })
             .eq('id', job.id);
@@ -1832,10 +2033,8 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
               item.id === `uploading-${job.id}`
                 ? {
                     ...item,
-                    upload_status: paused ? 'uploading' : 'failed',
-                    upload_error: paused
-                      ? 'Upload paused. It will resume when this device reconnects.'
-                      : error?.message || 'Upload failed.',
+                    upload_status: permanentFailure ? 'failed' : 'uploading',
+                    upload_error: savedError,
                   }
                 : item
             )
@@ -1857,7 +2056,7 @@ export default function ManagerRoomCheckPage({ department }: ManagerRoomCheckPag
         }
         if (stats.paused) {
           setUploadProgressMsg(
-            `${stats.paused} upload${stats.paused === 1 ? ' is' : 's are'} safely paused and will resume when this device reconnects or returns to this page.`
+            `${stats.paused} upload${stats.paused === 1 ? ' is' : 's are'} safely paused. Automatic retry is scheduled within 10 minutes; reconnecting or reopening the page also resumes due uploads.`
           );
         } else if (stats.failed) {
           setErrorMsg(
