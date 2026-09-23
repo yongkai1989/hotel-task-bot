@@ -85,6 +85,14 @@ type LinenBillRow = {
   duvet_cover_single: number | null;
 };
 
+type LinenCollectionRow = {
+  cc_no: string;
+  collection_date: string;
+  source_service_date: string;
+  block_no: number;
+  is_legacy: boolean;
+};
+
 type LinenReceivedRow = {
   service_date: string;
   block_no: number;
@@ -128,6 +136,7 @@ type SnapshotRow = {
 
 type HistoryData = {
   snapshot: SnapshotRow | null;
+  collectionsByBlock: Record<string, LinenCollectionRow>;
   floorBillMap: Record<string, LinenTotals>;
   blockBillTotals: Record<string, LinenTotals>;
   floorPaUsedMap: Record<string, LinenTotals>;
@@ -463,6 +472,17 @@ function buildBillMaps(rows: LinenBillRow[]) {
   });
 
   return { floorBillMap, blockBillTotals };
+}
+
+function buildCollectionMap(rows: LinenCollectionRow[]) {
+  const collectionsByBlock: Record<string, LinenCollectionRow> = {};
+
+  rows.forEach((row) => {
+    const blockKey = `B${Number(row.block_no)}`;
+    if (!collectionsByBlock[blockKey]) collectionsByBlock[blockKey] = row;
+  });
+
+  return collectionsByBlock;
 }
 
 function getBillRowsForReport(rows: LinenBillRow[]) {
@@ -845,6 +865,30 @@ function countDiffStyle(value: number): React.CSSProperties {
   return { color: '#166534', fontWeight: 800 };
 }
 
+function CollectionCcSummary({
+  rows,
+}: {
+  rows: Array<{ blockKey: string; label: string; collection: LinenCollectionRow | null }>;
+}) {
+  if (!rows.length) return null;
+
+  return (
+    <div style={styles.ccSummary} aria-label="Laundry collection CC numbers">
+      {rows.map(({ blockKey, label, collection }) => (
+        <div key={blockKey} style={styles.ccCard}>
+          <span style={styles.ccLabel}>{label} CC No.</span>
+          <strong style={styles.ccValue}>{collection?.cc_no || 'Not recorded'}</strong>
+          <span style={styles.ccDate}>
+            {collection
+              ? `Collection ${formatDateDDMMYYYY(collection.collection_date)}`
+              : 'No collection record for this service date'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LinenHistoryPage() {
   const [profile, setProfile] = useState<DashboardUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1138,7 +1182,7 @@ export default function LinenHistoryPage() {
 
       const fallbackSnapshotDate = shiftDateString(selectedDate, 1);
 
-      const [snapshotRes, billRes, roomRes, statusRes, entryRes, mapRes, paEntryRes] = await Promise.all([
+      const [snapshotRes, billRes, collectionRes, roomRes, statusRes, entryRes, mapRes, paEntryRes] = await Promise.all([
         supabase
           .from('linen_daily_snapshot')
           .select('service_date, expected_json, actual_json, difference_json')
@@ -1151,6 +1195,13 @@ export default function LinenHistoryPage() {
           .order('block_no', { ascending: true })
           .order('floor_no', { ascending: true, nullsFirst: false })
           .order('created_at', { ascending: true }),
+        supabase
+          .from('linen_laundry_collections')
+          .select('cc_no, collection_date, source_service_date, block_no, is_legacy')
+          .eq('source_service_date', selectedDate)
+          .order('block_no', { ascending: true })
+          .order('collection_date', { ascending: false })
+          .limit(10),
         supabase
           .from('room_master')
           .select('room_number, block_no, floor_no, room_type')
@@ -1173,6 +1224,7 @@ export default function LinenHistoryPage() {
 
       if (snapshotRes.error) throw snapshotRes.error;
       if (billRes.error) throw billRes.error;
+      if (collectionRes.error) throw collectionRes.error;
       if (roomRes.error) throw roomRes.error;
       if (statusRes.error) throw statusRes.error;
       if (entryRes.error) throw entryRes.error;
@@ -1224,6 +1276,7 @@ export default function LinenHistoryPage() {
         (hasPaEntries ? buildEmptySnapshot(selectedDate) : null);
 
       const { floorBillMap, blockBillTotals } = buildBillMaps((billRes.data || []) as LinenBillRow[]);
+      const collectionsByBlock = buildCollectionMap((collectionRes.data || []) as LinenCollectionRow[]);
       const { floorPaUsedMap, blockPaUsedTotals } = buildPaUsedMaps(paRows);
       let blockReceivedTotals: Record<string, LinenTotals> = {
         B1: zeroTotals(),
@@ -1241,6 +1294,7 @@ export default function LinenHistoryPage() {
 
       setHistoryData({
         snapshot: resolvedSnapshot,
+        collectionsByBlock,
         floorBillMap,
         blockBillTotals,
         floorPaUsedMap,
@@ -1546,6 +1600,25 @@ export default function LinenHistoryPage() {
 
     return zeroTotals();
   }, [historyData, pageTab, selectedFloorKey, selectedBlockKey]);
+
+  const displayedCollections = useMemo(() => {
+    if (!historyData || pageTab === 'MONTHLY' || pageTab === 'RECEIVED_STATUS') return [];
+
+    let blockKeys: string[];
+    if (pageTab === 'BILL_ENTRY' || (pageTab === 'COUNT' && viewMode === 'FLOOR')) {
+      blockKeys = [selectedFloorKey.slice(0, 2)];
+    } else if (pageTab === 'BILL_GRAND' || (pageTab === 'COUNT' && viewMode === 'BLOCK')) {
+      blockKeys = [selectedBlockKey];
+    } else {
+      blockKeys = ['B1', 'B2'];
+    }
+
+    return blockKeys.map((blockKey) => ({
+      blockKey,
+      label: BLOCK_OPTIONS.find((block) => block.key === blockKey)?.label || blockKey,
+      collection: historyData.collectionsByBlock[blockKey] || null,
+    }));
+  }, [historyData, pageTab, selectedBlockKey, selectedFloorKey, viewMode]);
 
   const historySourceLabel = useMemo(() => {
     if (!historyData) return '';
@@ -1924,6 +1997,7 @@ export default function LinenHistoryPage() {
             <div style={styles.groupMeta}>
               Source: {historySourceLabel}
             </div>
+            <CollectionCcSummary rows={displayedCollections} />
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => (
                 <div key={item.key} style={styles.itemCard}>
@@ -1944,6 +2018,7 @@ export default function LinenHistoryPage() {
             <div style={styles.groupMeta}>
               Source: {historySourceLabel}
             </div>
+            <CollectionCcSummary rows={displayedCollections} />
 
             <div style={styles.itemGrid}>
               {ITEM_DEFS.map((item) => {
@@ -2414,6 +2489,46 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 10px',
     fontSize: '12px',
     fontWeight: 900,
+  },
+  groupMeta: {
+    color: '#64748b',
+    fontSize: '13px',
+    fontWeight: 700,
+    lineHeight: 1.45,
+    marginBottom: '12px',
+  },
+  ccSummary: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+    gap: '10px',
+    marginBottom: '14px',
+  },
+  ccCard: {
+    display: 'grid',
+    gap: '3px',
+    minWidth: 0,
+    border: '1px solid #bfdbfe',
+    borderRadius: '15px',
+    background: '#eff6ff',
+    padding: '11px 13px',
+  },
+  ccLabel: {
+    color: '#1e40af',
+    fontSize: '11px',
+    fontWeight: 900,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+  },
+  ccValue: {
+    overflowWrap: 'anywhere',
+    color: '#0f172a',
+    fontSize: '19px',
+    fontWeight: 900,
+  },
+  ccDate: {
+    color: '#475569',
+    fontSize: '12px',
+    fontWeight: 700,
   },
   itemTitle: {
     fontSize: '20px',
