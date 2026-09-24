@@ -53,6 +53,8 @@ type DailySummary = {
     return_saved?: boolean;
     return_saved_rows?: number;
     return_expected_rows?: number;
+    return_cc_no?: string;
+    return_outstanding_cc_no?: string;
     items?: LinenItem[];
   };
 };
@@ -119,9 +121,9 @@ function buildReportMessage(params: {
   const movingProjects = projects.filter((row) => row.moving_today);
   const rooms = summary.rooms || {};
   const linen = summary.linen || {};
-  const linenVarianceItems = (linen.items || []).filter(
-    (item) => Math.abs(returnMinusPreviousBill(item)) >= 3
-  );
+  const linenVarianceItems = linen.return_saved
+    ? (linen.items || []).filter((item) => Math.abs(returnMinusPreviousBill(item)) >= 3)
+    : [];
   const missingRooms = rooms.linen_rooms_missing || [];
   const lines = [
     '📋 DAILY OPERATIONS UPDATE',
@@ -157,13 +159,20 @@ function buildReportMessage(params: {
     `• Return saved: ${numberValue(linen.return_saved_rows)}/${numberValue(linen.return_expected_rows) || 2}${linen.return_saved ? ' ✅' : ' ❌'}`
   );
 
-  lines.push(
-    '',
-    `LINEN RETURN VARIANCE — ${linenVarianceItems.length ? `⚠️ ${linenVarianceItems.length} at ±3 or more` : '✅ all below ±3'}`
-  );
-  for (const item of linenVarianceItems) {
-    const difference = returnMinusPreviousBill(item);
-    lines.push(`• ${item.label || 'Linen'}: ${difference > 0 ? '+' : ''}${difference}`);
+  if (!linen.return_saved) {
+    lines.push('', 'LINEN RETURN VARIANCE — ⏳ return still outstanding');
+    lines.push(
+      `• Waiting for ${linen.return_outstanding_cc_no || linen.return_cc_no || 'the matching Block 1 and Block 2 CC numbers'}`
+    );
+  } else {
+    lines.push(
+      '',
+      `LINEN RETURN VARIANCE — ${linenVarianceItems.length ? `⚠️ ${linenVarianceItems.length} at ±3 or more` : '✅ all below ±3'}`
+    );
+    for (const item of linenVarianceItems) {
+      const difference = returnMinusPreviousBill(item);
+      lines.push(`• ${item.label || 'Linen'}: ${difference > 0 ? '+' : ''}${difference}`);
+    }
   }
 
   const openChecks = numberValue(rooms.open_manager_room_checks);
@@ -263,8 +272,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const mtDailyReview = await runMtDailyReviewOnce(today, force);
-    const [summaryResult, maintenanceResult, tasksResult] = await Promise.all([
+    const [summaryResult, reconciliationResult, maintenanceResult, tasksResult] = await Promise.all([
       supabaseAdmin.rpc('get_daily_operations_summary', { p_report_date: reportDate }),
+      // The 9 AM report describes yesterday's operations, but the linen being
+      // returned this morning belongs to today's receipt cycle. The CC-linked
+      // reconciliation prevents a prior collection's return from being reused.
+      supabaseAdmin.rpc('get_cc_linked_linen_reconciliation', { p_report_date: today }),
       supabaseAdmin
         .from('pm_task_runs')
         .select('id, due_date, status, pm_tasks!inner(title)', { count: 'exact' })
@@ -284,10 +297,21 @@ export async function GET(request: NextRequest) {
     ]);
 
     if (summaryResult.error) throw summaryResult.error;
+    if (reconciliationResult.error) throw reconciliationResult.error;
     if (maintenanceResult.error) throw maintenanceResult.error;
     if (tasksResult.error) throw tasksResult.error;
 
     const summary = (summaryResult.data || {}) as DailySummary;
+    const reconciliation = (reconciliationResult.data || {}) as NonNullable<DailySummary['linen']>;
+    summary.linen = {
+      ...(summary.linen || {}),
+      return_saved: reconciliation.return_saved,
+      return_saved_rows: reconciliation.return_saved_rows,
+      return_expected_rows: reconciliation.return_expected_rows,
+      return_cc_no: reconciliation.return_cc_no,
+      return_outstanding_cc_no: reconciliation.return_outstanding_cc_no,
+      items: reconciliation.items || [],
+    };
     const message = buildReportMessage({
       reportDate,
       summary,
